@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(246, 248, 252, 0.98), rgba(239, 243, 248, 1)),
+    #f5f7fb;
+  color: #172033;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(20, 40, 160, 0.22);
+  outline-offset: 2px;
+}

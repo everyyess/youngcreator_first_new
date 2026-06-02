@@ -1,0 +1,7 @@
+.next/
+.netlify/
+node_modules/
+out/
+work/
+*.log
+*.tsbuildinfo
