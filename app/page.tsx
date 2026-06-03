@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BadgeCheck,
   BarChart3,
+  ChevronDown,
   ClipboardList,
   LockKeyhole,
   PieChart,
@@ -12,6 +13,7 @@ import {
   Trash2,
   WalletCards
 } from "lucide-react";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { type DragEvent, useEffect, useMemo, useState } from "react";
 
 type CustomerId = string;
@@ -158,6 +160,8 @@ type LiquiditySummaryInfo = {
   investableDisplay: string;
 };
 
+type CustomerUpdatedMap = Record<CustomerId, number>;
+
 type AppState = {
   financial: FinancialInfo;
   rrttllu: RrttlluInfo;
@@ -170,10 +174,33 @@ type CustomerProfile = {
   name: string;
   gender: string;
   birthYear: string;
+  birth_year?: string;
   age: string;
   job: string;
+  data?: AppState;
+  sort_order?: number;
   fallbackName?: string;
   fallbackBirthYear?: string;
+};
+
+type StoredCustomerState = {
+  customerProfiles: CustomerProfile[];
+  customerData: Record<CustomerId, AppState>;
+  selectedCustomer: CustomerId;
+};
+
+type CustomerRow = {
+  id: string;
+  profile?: CustomerProfile;
+  app_state?: AppState;
+  sort_order?: number;
+  updated_at?: string;
+  [key: string]: unknown;
+};
+
+type StorageResult = {
+  ok: boolean;
+  message: string;
 };
 
 const workspaceTabs: { id: WorkspaceTab; label: string; description: string }[] = [
@@ -185,7 +212,7 @@ const workspaceTabs: { id: WorkspaceTab; label: string; description: string }[] 
 
 const defaultCustomerProfiles: CustomerProfile[] = [
   {
-    id: "kim",
+    id: "11111111-1111-4111-8111-111111111111",
     name: "",
     gender: "",
     birthYear: "",
@@ -195,7 +222,7 @@ const defaultCustomerProfiles: CustomerProfile[] = [
     fallbackBirthYear: "1991"
   },
   {
-    id: "park",
+    id: "22222222-2222-4222-8222-222222222222",
     name: "",
     gender: "",
     birthYear: "",
@@ -205,7 +232,7 @@ const defaultCustomerProfiles: CustomerProfile[] = [
     fallbackBirthYear: "1978"
   },
   {
-    id: "lee",
+    id: "33333333-3333-4333-8333-333333333333",
     name: "",
     gender: "",
     birthYear: "",
@@ -306,7 +333,7 @@ function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<C
 
 function createNewCustomerProfile(): CustomerProfile {
   return {
-    id: `customer-${Date.now()}`,
+    id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `44444444-4444-4444-8444-${Date.now().toString().slice(-12).padStart(12, "0")}`,
     name: "",
     gender: "",
     birthYear: "",
@@ -361,9 +388,12 @@ function normalizeCustomerProfile(value: unknown, fallback: CustomerProfile): Cu
     id,
     name: normalizeProfileText(profile.name, fallback.name),
     gender: normalizeProfileText(profile.gender, fallback.gender),
-    birthYear: normalizeProfileText(profile.birthYear, fallback.birthYear),
+    birthYear: normalizeProfileText(profile.birth_year ?? profile.birthYear, fallback.birthYear),
+    birth_year: normalizeProfileText(profile.birth_year ?? profile.birthYear, fallback.birthYear),
     age: normalizeProfileText(profile.age, fallback.age),
     job: normalizeProfileText(profile.job, fallback.job),
+    data: profile.data,
+    sort_order: profile.sort_order,
     fallbackName: typeof profile.fallbackName === "string" ? profile.fallbackName : fallback.fallbackName,
     fallbackBirthYear: typeof profile.fallbackBirthYear === "string" ? profile.fallbackBirthYear : fallback.fallbackBirthYear
   };
@@ -375,7 +405,13 @@ function normalizeCustomerProfiles(value: unknown): CustomerProfile[] {
   const normalized = value
     .map((profile, index) => normalizeCustomerProfile(profile, defaultCustomerProfiles[index] ?? createNewCustomerProfile()))
     .filter((profile, index, profiles) => profile.id && profiles.findIndex((item) => item.id === profile.id) === index);
-  return normalized.length ? normalized : defaultCustomerProfiles;
+  return mergeDefaultCustomerProfiles(normalized.length ? normalized : defaultCustomerProfiles);
+}
+
+function mergeDefaultCustomerProfiles(profiles: CustomerProfile[]) {
+  const storedById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const defaultsToAdd = defaultCustomerProfiles.filter((defaultProfile) => !storedById.has(defaultProfile.id));
+  return [...profiles, ...defaultsToAdd];
 }
 
 function normalizeCustomerData(value: unknown, profiles: CustomerProfile[]): Record<CustomerId, AppState> {
@@ -387,28 +423,510 @@ function isCustomerId(value: unknown, profiles: CustomerProfile[]): value is Cus
   return typeof value === "string" && profiles.some((profile) => profile.id === value);
 }
 
-function loadStoredCustomerState() {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { customerProfiles?: unknown; customerData?: unknown; selectedCustomer?: unknown };
-    const customerProfiles = normalizeCustomerProfiles(parsed.customerProfiles);
-
-    return {
-      customerProfiles,
-      customerData: normalizeCustomerData(parsed.customerData, customerProfiles),
-      selectedCustomer: isCustomerId(parsed.selectedCustomer, customerProfiles) ? parsed.selectedCustomer : customerProfiles[0].id
-    };
-  } catch {
-    return null;
-  }
+function getSupabaseClient(): SupabaseClient | null {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) return null;
+  return createClient(url, anonKey);
 }
 
-function saveStoredCustomerState(customerProfiles: CustomerProfile[], customerData: Record<CustomerId, AppState>, selectedCustomer: CustomerId) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(storageKey, JSON.stringify({ customerProfiles, customerData, selectedCustomer }));
+const supabase = getSupabaseClient();
+let latestStorageErrorMessage = "";
+const embeddedAppStateKey = "__app_state";
+
+function customerRowsToStoredState(rows: CustomerRow[]): StoredCustomerState {
+  const sortedRows = [...rows].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const customerProfiles = sortedRows.map((row, index) => normalizeCustomerProfile(rowToCustomerProfile(row), defaultCustomerProfiles[index] ?? createNewCustomerProfile()));
+  const rowStateById = new Map(
+    sortedRows.map((row) => {
+      const profileWithState = row.profile as (CustomerProfile & { [embeddedAppStateKey]?: unknown }) | undefined;
+      const bundledData = (row.customer_data ?? row.data ?? row.app_data ?? row.state) as { appState?: unknown; app_state?: unknown } | undefined;
+      return [row.id, row.app_state ?? profileWithState?.[embeddedAppStateKey] ?? bundledData?.appState ?? bundledData?.app_state ?? bundledData];
+    })
+  );
+
+  return {
+    customerProfiles,
+    customerData: Object.fromEntries(customerProfiles.map((profile) => [profile.id, normalizeAppState(rowStateById.get(profile.id))])) as Record<CustomerId, AppState>,
+    selectedCustomer: customerProfiles[0]?.id ?? defaultCustomerProfiles[0].id
+  };
+}
+
+function customerRowsToUpdatedMap(rows: CustomerRow[]): CustomerUpdatedMap {
+  return Object.fromEntries(
+    rows.map((row) => {
+      const timestamp = typeof row.updated_at === "string" ? new Date(row.updated_at).getTime() : 0;
+      return [row.id, Number.isFinite(timestamp) ? timestamp : 0];
+    })
+  );
+}
+
+function storedStateToCustomerRows(state: StoredCustomerState): CustomerRow[] {
+  return state.customerProfiles.map((profile, index) => ({
+    id: profile.id,
+    profile,
+    app_state: normalizeAppState(state.customerData[profile.id]),
+    sort_order: index,
+    updated_at: new Date().toISOString()
+  }));
+}
+
+function rowToCustomerProfile(row: CustomerRow): CustomerProfile {
+  const bundledData = row.customer_data ?? row.data ?? row.app_data ?? row.state;
+  const bundledProfile =
+    bundledData && typeof bundledData === "object" && "profile" in bundledData
+      ? (bundledData as { profile?: unknown }).profile
+      : undefined;
+  const fallbackProfile = defaultCustomerProfiles.find((profile) => profile.id === row.id) ?? createNewCustomerProfile();
+  const flatProfile = {
+    id: row.id,
+    name: typeof row.name === "string" ? row.name : "",
+    gender: typeof row.gender === "string" ? row.gender : "",
+    birthYear: typeof row.birth_year === "string" ? row.birth_year : typeof row.birthYear === "string" ? row.birthYear : "",
+    age: typeof row.age === "number" ? String(row.age) : typeof row.age === "string" ? row.age : "",
+    job: typeof row.job === "string" ? row.job : ""
+  };
+  const hasFlatProfileData = Boolean(flatProfile.name || flatProfile.gender || flatProfile.birthYear || flatProfile.age || flatProfile.job);
+
+  return normalizeCustomerProfile(
+    hasFlatProfileData ? flatProfile : row.profile ?? bundledProfile ?? flatProfile,
+    fallbackProfile
+  );
+}
+
+function storedStateToEmbeddedRows(state: StoredCustomerState) {
+  return state.customerProfiles.map((profile, index) => ({
+    id: profile.id,
+    profile: {
+      ...profile,
+      [embeddedAppStateKey]: normalizeAppState(state.customerData[profile.id])
+    },
+    sort_order: index,
+    updated_at: new Date().toISOString()
+  }));
+}
+
+function storedStateToBundledRows(state: StoredCustomerState, key: "customer_data" | "data") {
+  return state.customerProfiles.map((profile, index) => ({
+    id: profile.id,
+    [key]: {
+      profile,
+      appState: normalizeAppState(state.customerData[profile.id])
+    },
+    sort_order: index,
+    updated_at: new Date().toISOString()
+  }));
+}
+
+function storedStateToFlatRows(state: StoredCustomerState, key?: "customer_data" | "data") {
+  return state.customerProfiles.map((profile, index) => ({
+    id: profile.id,
+    name: profile.name,
+    gender: profile.gender,
+    birth_year: profile.birth_year ?? profile.birthYear,
+    age: profile.age,
+    job: profile.job,
+    ...(key ? { [key]: normalizeAppState(state.customerData[profile.id]) } : {}),
+    sort_order: index,
+    updated_at: new Date().toISOString()
+  }));
+}
+
+function customerRowCandidates(state: StoredCustomerState) {
+  const withoutMeta = (rows: Record<string, unknown>[]) =>
+    rows.map(({ sort_order, updated_at, ...row }) => row);
+  return [
+    { mode: "app_state_column", rows: storedStateToCustomerRows(state) },
+    { mode: "flat_data", rows: storedStateToFlatRows(state, "data") },
+    { mode: "flat_customer_data", rows: storedStateToFlatRows(state, "customer_data") },
+    { mode: "flat_data_no_meta", rows: withoutMeta(storedStateToFlatRows(state, "data")) },
+    { mode: "flat_customer_data_no_meta", rows: withoutMeta(storedStateToFlatRows(state, "customer_data")) },
+    { mode: "flat_profile_only", rows: storedStateToFlatRows(state) },
+    { mode: "flat_profile_only_no_meta", rows: withoutMeta(storedStateToFlatRows(state)) },
+    { mode: "profile_embedded_state", rows: storedStateToEmbeddedRows(state) },
+    { mode: "customer_data_bundle", rows: storedStateToBundledRows(state, "customer_data") },
+    { mode: "data_bundle", rows: storedStateToBundledRows(state, "data") },
+    { mode: "customer_data_bundle_no_meta", rows: withoutMeta(storedStateToBundledRows(state, "customer_data")) },
+    { mode: "data_bundle_no_meta", rows: withoutMeta(storedStateToBundledRows(state, "data")) }
+  ];
+}
+
+async function writeRowsWithFallback(state: StoredCustomerState, operation: "insert" | "upsert"): Promise<StorageResult> {
+  if (!supabase) return { ok: false, message: "Supabase 환경변수가 설정되지 않아 고객 정보를 저장할 수 없습니다." };
+
+  let lastErrorMessage = "";
+  for (const candidate of customerRowCandidates(state)) {
+    const result =
+      operation === "insert"
+        ? await supabase.from("customers").insert(candidate.rows)
+        : await supabase.from("customers").upsert(candidate.rows, { onConflict: "id" });
+    if (!result.error) {
+      console.info(`[Supabase] customers ${operation.toUpperCase()} success`, { count: candidate.rows.length, mode: candidate.mode });
+      return { ok: true, message: "Supabase 저장 완료" };
+    }
+    lastErrorMessage = result.error.message;
+    console.warn(`[Supabase] customers ${operation.toUpperCase()} failed`, { mode: candidate.mode, error: result.error });
+  }
+
+  console.error(`[Supabase] customers ${operation.toUpperCase()} failed for every schema candidate`, lastErrorMessage);
+  return { ok: false, message: `Supabase 저장 실패: ${lastErrorMessage}` };
+}
+
+async function insertRowsWithFallback(state: StoredCustomerState): Promise<StorageResult> {
+  return writeRowsWithFallback(state, "insert");
+}
+
+async function upsertRowsWithFallback(state: StoredCustomerState): Promise<StorageResult> {
+  return writeRowsWithFallback(state, "upsert");
+}
+
+function cleanCustomerValue(value: unknown) {
+  if (value === "입력 대기" || value === "EMPTY") return "";
+  return typeof value === "string" ? value : "";
+}
+
+function hasSavableCustomerValue(value: unknown) {
+  return cleanCustomerValue(value).trim() !== "";
+}
+
+function omitCustomerColumns<T extends Record<string, unknown>, K extends keyof T>(payload: T, keys: K[]) {
+  const next = { ...payload };
+  keys.forEach((key) => {
+    delete next[key];
+  });
+  return next;
+}
+
+function customerProfileColumnPayload(updatedCustomer: CustomerProfile) {
+  const payload: Record<string, string> = {};
+  const entries = {
+    name: updatedCustomer.name,
+    gender: updatedCustomer.gender,
+    birth_year: updatedCustomer.birth_year ?? updatedCustomer.birthYear,
+    age: updatedCustomer.age,
+    job: updatedCustomer.job
+  };
+
+  Object.entries(entries).forEach(([key, value]) => {
+    if (hasSavableCustomerValue(value)) {
+      payload[key] = cleanCustomerValue(value);
+    }
+  });
+
+  return payload;
+}
+
+async function upsertCustomerProfileColumns(updatedCustomer: CustomerProfile): Promise<StorageResult> {
+  if (!supabase) return { ok: false, message: "Supabase 환경변수가 설정되지 않아 고객 신상 정보를 저장할 수 없습니다." };
+
+  const profileColumns = customerProfileColumnPayload(updatedCustomer);
+  const customerColumnsPayload = {
+    ...profileColumns,
+    updated_at: new Date().toISOString()
+  };
+  const payload = { id: updatedCustomer.id, ...customerColumnsPayload };
+
+  if (!Object.keys(profileColumns).length) {
+    console.info("saving customer payload skipped: no non-empty profile columns", payload);
+    return { ok: true, message: "저장할 고객 신상 정보가 없습니다." };
+  }
+
+  console.info("saving customer payload", payload);
+  const updateCandidates = [
+    { mode: "update_full", values: customerColumnsPayload },
+    { mode: "update_without_updated_at", values: profileColumns }
+  ];
+
+  let lastErrorMessage = "";
+  for (const candidate of updateCandidates) {
+    console.info("saving customer payload", { id: updatedCustomer.id, ...candidate.values });
+    const { data, error } = await supabase
+      .from("customers")
+      .update(candidate.values)
+      .eq("id", updatedCustomer.id)
+      .select("id");
+
+    if (!error && data && data.length > 0) {
+      console.info("[Supabase] customer profile UPDATE success", { id: updatedCustomer.id, mode: candidate.mode });
+      return { ok: true, message: "고객 신상 정보 Supabase 저장 완료" };
+    }
+    if (error) {
+      lastErrorMessage = error.message;
+      console.warn("[Supabase] customer profile UPDATE failed", { mode: candidate.mode, error });
+    }
+  }
+
+  const upsertCandidates = [
+    { mode: "upsert_full", values: payload },
+    { mode: "upsert_without_updated_at", values: { id: updatedCustomer.id, ...profileColumns } }
+  ];
+
+  for (const candidate of upsertCandidates) {
+    console.info("saving customer payload", candidate.values);
+    const { error } = await supabase.from("customers").upsert(candidate.values, { onConflict: "id" });
+    if (!error) {
+      console.info("[Supabase] customer profile UPSERT success", { id: updatedCustomer.id, mode: candidate.mode });
+      return { ok: true, message: "고객 신상 정보 Supabase 저장 완료" };
+    }
+    lastErrorMessage = error.message;
+    console.warn("[Supabase] customer profile UPSERT failed", { mode: candidate.mode, error });
+  }
+
+  console.error("[Supabase] customer profile SAVE failed", lastErrorMessage);
+  return { ok: false, message: `Supabase 고객 신상 정보 저장 실패: ${lastErrorMessage}` };
+}
+
+async function saveCustomerProfileColumns(updatedCustomer: CustomerProfile): Promise<StorageResult> {
+  if (!supabase) return { ok: false, message: "Supabase is not configured, so customer profile columns cannot be saved." };
+
+  const profileColumns = customerProfileColumnPayload(updatedCustomer);
+  if (!Object.keys(profileColumns).length) {
+    console.info("saving customer payload skipped: no non-empty profile columns", { id: updatedCustomer.id });
+    return { ok: true, message: "No customer profile columns to save." };
+  }
+
+  const payload = { id: updatedCustomer.id, ...profileColumns };
+  console.info("saving customer payload", payload);
+
+  const { data, error } = await supabase
+    .from("customers")
+    .update(profileColumns)
+    .eq("id", updatedCustomer.id)
+    .select("id,name,gender,birth_year,age,job");
+
+  if (error) {
+    console.error("[Supabase] customer profile UPDATE failed", error);
+    return { ok: false, message: `Supabase customer profile save failed: ${error.message}` };
+  }
+
+  if (!data || data.length === 0) {
+    const message = "Supabase customer row was not found, so profile columns were not saved.";
+    console.error("[Supabase] customer profile UPDATE missing row", { id: updatedCustomer.id, payload });
+    return { ok: false, message };
+  }
+
+  const { data: verifiedData, error: verifyError } = await supabase
+    .from("customers")
+    .select("id,name,gender,birth_year,age,job")
+    .eq("id", updatedCustomer.id)
+    .single();
+
+  if (verifyError) {
+    console.error("[Supabase] customer profile VERIFY failed", verifyError);
+    return { ok: false, message: `Supabase customer profile verification failed: ${verifyError.message}` };
+  }
+
+  console.info("[Supabase] customer profile UPDATE verified", verifiedData);
+  return { ok: true, message: "Customer profile saved to Supabase." };
+}
+
+async function updateCustomerDataJson(customerId: CustomerId, dataPayload: unknown): Promise<StorageResult> {
+  if (!supabase) return { ok: false, message: "Supabase 환경변수가 설정되지 않아 고객 입력 데이터를 저장할 수 없습니다." };
+
+  const payload = {
+    data: dataPayload,
+    updated_at: new Date().toISOString()
+  };
+
+  console.info("[Supabase] saving customer data payload", { id: customerId, ...payload });
+  const updateCandidates = [
+    { mode: "data_update_full", values: payload },
+    { mode: "data_update_without_updated_at", values: omitCustomerColumns(payload, ["updated_at"]) }
+  ];
+
+  let lastErrorMessage = "";
+  for (const candidate of updateCandidates) {
+    const { data, error } = await supabase
+      .from("customers")
+      .update(candidate.values)
+      .eq("id", customerId)
+      .select("id");
+
+    if (!error && data && data.length > 0) {
+      console.info("[Supabase] customer data UPDATE success", { id: customerId, mode: candidate.mode });
+      return { ok: true, message: "고객 입력 데이터 Supabase 저장 완료" };
+    }
+    if (error) {
+      lastErrorMessage = error.message;
+      console.warn("[Supabase] customer data UPDATE failed", { mode: candidate.mode, error });
+    }
+  }
+
+  const upsertCandidates = [
+    { mode: "data_upsert_full", values: { id: customerId, ...payload } },
+    { mode: "data_upsert_without_updated_at", values: { id: customerId, data: dataPayload } }
+  ];
+
+  for (const candidate of upsertCandidates) {
+    const { error } = await supabase.from("customers").upsert(candidate.values, { onConflict: "id" });
+    if (!error) {
+      console.info("[Supabase] customer data UPSERT success", { id: customerId, mode: candidate.mode });
+      return { ok: true, message: "고객 입력 데이터 Supabase 저장 완료" };
+    }
+    lastErrorMessage = error.message;
+    console.warn("[Supabase] customer data UPSERT failed", { mode: candidate.mode, error });
+  }
+
+  console.error("[Supabase] customer data SAVE failed", lastErrorMessage);
+  return { ok: false, message: `Supabase 고객 입력 데이터 저장 실패: ${lastErrorMessage}` };
+}
+
+async function saveCustomerDataJsonOnly(customerId: CustomerId, dataPayload: unknown): Promise<StorageResult> {
+  if (!supabase) return { ok: false, message: "Supabase is not configured, so customer data cannot be saved." };
+
+  const payload = {
+    data: dataPayload,
+    updated_at: new Date().toISOString()
+  };
+
+  console.info("[Supabase] saving customer data payload", { id: customerId, ...payload });
+  const { data, error } = await supabase
+    .from("customers")
+    .update(payload)
+    .eq("id", customerId)
+    .select("id");
+
+  if (error) {
+    console.error("[Supabase] customer data UPDATE failed", error);
+    return { ok: false, message: `Supabase customer data save failed: ${error.message}` };
+  }
+
+  if (!data || data.length === 0) {
+    const message = "Supabase customer row was not found, so customer data was not saved.";
+    console.error("[Supabase] customer data UPDATE missing row", { id: customerId });
+    return { ok: false, message };
+  }
+
+  console.info("[Supabase] customer data UPDATE success", { id: customerId });
+  return { ok: true, message: "Customer data saved to Supabase." };
+}
+
+async function insertEmptyCustomerRow(customerId: CustomerId, dataPayload: unknown, sortOrder: number): Promise<StorageResult> {
+  if (!supabase) return { ok: false, message: "Supabase 환경변수가 설정되지 않아 고객 row를 생성할 수 없습니다." };
+
+  const payload = {
+    id: customerId,
+    data: dataPayload,
+    sort_order: sortOrder,
+    updated_at: new Date().toISOString()
+  };
+
+  console.info("[Supabase] inserting empty customer row", payload);
+  const insertCandidates = [
+    { mode: "insert_empty_full", values: payload },
+    { mode: "insert_empty_without_sort_order", values: omitCustomerColumns(payload, ["sort_order"]) },
+    { mode: "insert_empty_without_updated_at", values: omitCustomerColumns(payload, ["updated_at"]) },
+    { mode: "insert_empty_minimal", values: { id: customerId, data: dataPayload } }
+  ];
+
+  let lastErrorMessage = "";
+  for (const candidate of insertCandidates) {
+    const { error } = await supabase.from("customers").insert(candidate.values);
+    if (!error) {
+      console.info("[Supabase] empty customer INSERT success", { id: customerId, mode: candidate.mode });
+      return { ok: true, message: "고객 row Supabase 생성 완료" };
+    }
+    lastErrorMessage = error.message;
+    console.warn("[Supabase] empty customer INSERT failed", { mode: candidate.mode, error });
+  }
+
+  console.error("[Supabase] empty customer INSERT failed", lastErrorMessage);
+  return { ok: false, message: `Supabase 고객 row 생성 실패: ${lastErrorMessage}` };
+}
+
+// Supabase storage adapter. Preferred schema:
+// id text primary key, profile jsonb, app_state jsonb, sort_order integer, updated_at timestamptz.
+// If app_state is not present, the app stores form data inside profile.__app_state.
+const customerStorage = {
+  async selectRows(): Promise<{ rows: CustomerRow[]; errorMessage?: string } | null> {
+    if (!supabase) return null;
+    try {
+      const orderedResult = await supabase
+        .from("customers")
+        .select("*")
+        .order("sort_order", { ascending: true });
+      const { data, error } = orderedResult.error
+        ? await supabase.from("customers").select("*")
+        : orderedResult;
+
+      if (error) throw error;
+      const rows = Array.isArray(data) ? (data as CustomerRow[]) : [];
+      console.info("[Supabase] customers SELECT success", { count: rows.length });
+      return { rows };
+    } catch (error) {
+      console.error("[Supabase] customers SELECT failed", error);
+      return { rows: [], errorMessage: "Supabase 고객 데이터 로드에 실패했습니다. 테이블 권한과 컬럼 구성을 확인해주세요." };
+    }
+  },
+  async load(): Promise<StoredCustomerState | null> {
+    if (!supabase) return null;
+    try {
+      const orderedResult = await supabase
+        .from("customers")
+        .select("*")
+        .order("sort_order", { ascending: true });
+      const { data, error } = orderedResult.error
+        ? await supabase.from("customers").select("*")
+        : orderedResult;
+
+      if (error) throw error;
+      const rows = Array.isArray(data) ? (data as CustomerRow[]) : [];
+      console.info("[Supabase] customers SELECT success", { count: rows.length });
+      if (!rows.length) {
+        const defaultState: StoredCustomerState = {
+          customerProfiles: defaultCustomerProfiles,
+          customerData: createInitialCustomerData(defaultCustomerProfiles),
+          selectedCustomer: defaultCustomerProfiles[0].id
+        };
+        const seedResult = await this.insertDefaults(defaultState);
+        if (!seedResult.ok) {
+          latestStorageErrorMessage = seedResult.message;
+          console.error("[Supabase] default customers INSERT failed", seedResult.message);
+        } else {
+          latestStorageErrorMessage = "";
+        }
+        return defaultState;
+      }
+      latestStorageErrorMessage = "";
+      return customerRowsToStoredState(rows);
+    } catch (error) {
+      console.error("[Supabase] customers SELECT failed", error);
+      latestStorageErrorMessage = "Supabase 고객 데이터 로드에 실패했습니다. 테이블 권한과 컬럼 구성을 확인해주세요.";
+      return null;
+    }
+  },
+  async save(state: StoredCustomerState): Promise<StorageResult> {
+    return saveCustomerDataJsonOnly(state.selectedCustomer, normalizeAppState(state.customerData[state.selectedCustomer]));
+  },
+  async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number): Promise<StorageResult> {
+    return insertEmptyCustomerRow(profile.id, normalizeAppState(appState), sortOrder);
+  },
+  async insertDefaults(state: StoredCustomerState): Promise<StorageResult> {
+    let finalResult: StorageResult = { ok: true, message: "기본 고객 Supabase 생성 완료" };
+    for (const [index, profile] of state.customerProfiles.entries()) {
+      const result = await insertEmptyCustomerRow(profile.id, normalizeAppState(state.customerData[profile.id]), index);
+      if (!result.ok) finalResult = result;
+    }
+    return finalResult;
+  },
+  async remove(customerId: CustomerId): Promise<StorageResult> {
+    if (!supabase) return { ok: false, message: "Supabase 환경변수가 설정되지 않아 고객을 삭제할 수 없습니다." };
+    const { error } = await supabase.from("customers").delete().eq("id", customerId);
+    if (error) {
+      console.error("[Supabase] customer DELETE failed", error);
+      return { ok: false, message: `Supabase 고객 삭제 실패: ${error.message}` };
+    }
+    console.info("[Supabase] customer DELETE success", { id: customerId });
+    return { ok: true, message: "고객 Supabase 삭제 완료" };
+  }
+};
+
+async function loadStoredCustomerState() {
+  return customerStorage.load();
+}
+
+async function saveStoredCustomerState(customerProfiles: CustomerProfile[], customerData: Record<CustomerId, AppState>, selectedCustomer: CustomerId) {
+  return customerStorage.save({ customerProfiles, customerData, selectedCustomer });
 }
 
 const noneExperience = "금융상품에 투자해 본 경험 없음";
@@ -475,27 +993,83 @@ export default function Home() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("profile");
   const [storageReady, setStorageReady] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [persistedCustomerIds, setPersistedCustomerIds] = useState<CustomerId[]>([]);
+  const [customerUpdatedAt, setCustomerUpdatedAt] = useState<CustomerUpdatedMap>({});
+  const [storageErrorMessage, setStorageErrorMessage] = useState("");
   const [analysisRequested, setAnalysisRequested] = useState(false);
   const [confirmedRiskResult, setConfirmedRiskResult] = useState<RiskResult | null>(null);
   const [lastAnalysisSnapshot, setLastAnalysisSnapshot] = useState<StructuredJsonPayload | null>(null);
   const [changeHistory, setChangeHistory] = useState<ChangeEntry[]>([]);
+  const [changeHistoryExpanded, setChangeHistoryExpanded] = useState(false);
   const formData = customerData[selectedCustomer] ?? createInitialState();
   const selectedCustomerProfile = customerProfiles.find((customer) => customer.id === selectedCustomer) ?? customerProfiles[0];
 
   useEffect(() => {
-    const storedState = loadStoredCustomerState();
-    if (storedState) {
-      setCustomerProfiles(storedState.customerProfiles);
-      setCustomerData(storedState.customerData);
-      setSelectedCustomer(storedState.selectedCustomer);
-    }
-    setStorageReady(true);
-  }, []);
+    let cancelled = false;
 
-  useEffect(() => {
-    if (!storageReady) return;
-    saveStoredCustomerState(customerProfiles, customerData, selectedCustomer);
-  }, [customerProfiles, customerData, selectedCustomer, storageReady]);
+    async function loadCustomers() {
+      const selectedRows = await customerStorage.selectRows();
+      if (cancelled) return;
+
+      if (!selectedRows) {
+        setStorageErrorMessage("Supabase 환경변수가 설정되지 않아 고객 데이터를 불러올 수 없습니다.");
+        setStorageReady(true);
+        return;
+      }
+      if (selectedRows.errorMessage) {
+        setStorageErrorMessage(selectedRows.errorMessage);
+        setStorageReady(true);
+        return;
+      }
+
+      let rows = selectedRows.rows;
+      if (!rows.length) {
+        setIsSeeding(true);
+        const defaultState: StoredCustomerState = {
+          customerProfiles: defaultCustomerProfiles,
+          customerData: createInitialCustomerData(defaultCustomerProfiles),
+          selectedCustomer: defaultCustomerProfiles[0].id
+        };
+        const seedResult = await customerStorage.insertDefaults(defaultState);
+        if (cancelled) return;
+        if (!seedResult.ok) {
+          setStorageErrorMessage(seedResult.message);
+          console.error("[Supabase] default customers INSERT failed", seedResult.message);
+          setIsSeeding(false);
+          setStorageReady(true);
+          return;
+        }
+
+        const seededRows = await customerStorage.selectRows();
+        if (cancelled) return;
+        if (!seededRows || seededRows.errorMessage) {
+          setStorageErrorMessage(seededRows?.errorMessage ?? "Supabase 기본 고객 생성 후 재조회에 실패했습니다.");
+          setIsSeeding(false);
+          setStorageReady(true);
+          return;
+        }
+        rows = seededRows.rows;
+      }
+
+      const storedState = rows.length ? customerRowsToStoredState(rows) : null;
+      if (storedState) {
+        setCustomerProfiles(storedState.customerProfiles);
+        setCustomerData(storedState.customerData);
+        setSelectedCustomer(storedState.selectedCustomer);
+        setPersistedCustomerIds(rows.map((row) => row.id));
+        setCustomerUpdatedAt(customerRowsToUpdatedMap(rows));
+      }
+      setIsSeeding(false);
+      setStorageErrorMessage("");
+      setStorageReady(true);
+    }
+
+    loadCustomers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
@@ -550,8 +1124,39 @@ export default function Home() {
 
   const warnings = internalJsonPayload.rrttllu.warnings;
   const liquiditySummary = useMemo(() => calculateLiquiditySummary(formData), [formData]);
+  const customerDataJsonPayload = useMemo(
+    () => ({
+      appState: formData,
+      analysis: {
+        riskResult,
+        internalJsonPayload,
+        liquiditySummary,
+        financialCompletion,
+        rrttlluCompletion
+      }
+    }),
+    [financialCompletion, formData, internalJsonPayload, liquiditySummary, riskResult, rrttlluCompletion]
+  );
+
+  useEffect(() => {
+    if (!storageReady) return;
+    if (isSeeding) return;
+    if (!persistedCustomerIds.includes(selectedCustomer)) return;
+    void saveCustomerDataJsonOnly(selectedCustomer, customerDataJsonPayload).then((result) => {
+      if (!result.ok) {
+        setStorageErrorMessage(result.message);
+      } else {
+        setStorageErrorMessage("");
+      }
+    });
+  }, [customerDataJsonPayload, isSeeding, persistedCustomerIds, selectedCustomer, storageReady]);
+
+  const markCustomerUpdated = (customerId: CustomerId, timestamp = Date.now()) => {
+    setCustomerUpdatedAt((prev) => ({ ...prev, [customerId]: timestamp }));
+  };
 
   const setFormData = (updater: (current: AppState) => AppState) => {
+    markCustomerUpdated(selectedCustomer);
     setCustomerData((prev) => ({
       ...prev,
       [selectedCustomer]: updater(prev[selectedCustomer] ?? createInitialState())
@@ -564,11 +1169,13 @@ export default function Home() {
     setConfirmedRiskResult(null);
     setLastAnalysisSnapshot(null);
     setChangeHistory([]);
+    setChangeHistoryExpanded(false);
   };
 
   const resetSelectedCustomer = () => {
     const resetCurrent = window.confirm("현재 고객만 초기화하시겠습니까?");
     if (resetCurrent) {
+      markCustomerUpdated(selectedCustomer);
       setCustomerData((prev) => ({
         ...prev,
         [selectedCustomer]: createInitialState()
@@ -576,6 +1183,8 @@ export default function Home() {
     } else {
       const resetAll = window.confirm("전체 고객을 초기화하시겠습니까?");
       if (!resetAll) return;
+      const resetAt = Date.now();
+      setCustomerUpdatedAt(Object.fromEntries(customerProfiles.map((profile) => [profile.id, resetAt])));
       setCustomerData(createInitialCustomerData(customerProfiles));
       setSelectedCustomer(customerProfiles[0]?.id ?? defaultCustomerProfiles[0].id);
     }
@@ -583,12 +1192,23 @@ export default function Home() {
     setConfirmedRiskResult(null);
     setLastAnalysisSnapshot(null);
     setChangeHistory([]);
+    setChangeHistoryExpanded(false);
   };
 
   const addCustomer = () => {
     const profile = createNewCustomerProfile();
+    const newCustomerState = createInitialState();
     setCustomerProfiles((prev) => [...prev, profile]);
-    setCustomerData((prev) => ({ ...prev, [profile.id]: createInitialState() }));
+    setCustomerData((prev) => ({ ...prev, [profile.id]: newCustomerState }));
+    markCustomerUpdated(profile.id);
+    void customerStorage.insertCustomer(profile, newCustomerState, customerProfiles.length).then((result) => {
+      if (!result.ok) {
+        setStorageErrorMessage(result.message);
+      } else {
+        setPersistedCustomerIds((prev) => (prev.includes(profile.id) ? prev : [...prev, profile.id]));
+        setStorageErrorMessage("");
+      }
+    });
     selectCustomer(profile.id);
   };
 
@@ -622,18 +1242,57 @@ export default function Home() {
       }
       return nextData;
     });
+    void customerStorage.remove(selectedCustomer).then((result) => {
+      if (!result.ok) {
+        setStorageErrorMessage(result.message);
+      } else {
+        setPersistedCustomerIds((prev) => prev.filter((customerId) => customerId !== selectedCustomer));
+        setCustomerUpdatedAt((prev) => {
+          const next = { ...prev };
+          delete next[selectedCustomer];
+          return next;
+        });
+        setStorageErrorMessage("");
+      }
+    });
     selectCustomer(nextSelectedCustomer);
     setDeleteConfirmOpen(false);
   };
 
-  const updateCustomerProfile = (key: keyof Omit<CustomerProfile, "id">, value: string) => {
-    setCustomerProfiles((prev) => {
-      const nextProfiles = prev.map((profile) => (profile.id === selectedCustomer ? { ...profile, [key]: value } : profile));
-      if (storageReady) {
-        saveStoredCustomerState(nextProfiles, customerData, selectedCustomer);
+  const updateCustomerField = (customerId: CustomerId, field: keyof Pick<CustomerProfile, "name" | "gender" | "birth_year" | "age" | "job">, value: string) => {
+    const customerIndex = customerProfiles.findIndex((profile) => profile.id === customerId);
+    const currentCustomer = customerProfiles[customerIndex];
+    if (!currentCustomer) return;
+
+    const updatedCustomer: CustomerProfile = {
+      ...currentCustomer,
+      [field]: value,
+      birthYear: field === "birth_year" ? value : currentCustomer.birthYear,
+      birth_year: field === "birth_year" ? value : currentCustomer.birth_year,
+      sort_order: customerIndex
+    };
+    const updatedCustomers = customerProfiles.map((customer) => (customer.id === customerId ? updatedCustomer : customer));
+
+    setCustomerProfiles(updatedCustomers);
+    markCustomerUpdated(updatedCustomer.id);
+    if (!storageReady) return;
+    if (isSeeding) return;
+    if (!persistedCustomerIds.includes(updatedCustomer.id)) return;
+
+    void saveCustomerProfileColumns(updatedCustomer).then((result) => {
+      if (!result.ok) {
+        setStorageErrorMessage(result.message);
+      } else {
+        setStorageErrorMessage("");
       }
-      return nextProfiles;
     });
+  };
+
+  const updateCustomerProfile = (key: keyof Omit<CustomerProfile, "id">, value: string) => {
+    const field = key === "birthYear" ? "birth_year" : key;
+    if (field === "name" || field === "gender" || field === "birth_year" || field === "age" || field === "job") {
+      updateCustomerField(selectedCustomer, field, value);
+    }
   };
 
   const setFinancial = (key: keyof FinancialInfo, value: string) => {
@@ -733,6 +1392,7 @@ export default function Home() {
     setConfirmedRiskResult(riskResult);
     setLastAnalysisSnapshot(latestPayload);
     setChangeHistory(changes);
+    setChangeHistoryExpanded(false);
   };
 
   return (
@@ -751,6 +1411,8 @@ export default function Home() {
           dropIndex={customerDropIndex}
           onSetDropIndex={setCustomerDropIndex}
           onDropCustomer={reorderCustomer}
+          recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
+          storageErrorMessage={storageErrorMessage}
         />
         <div className="flex flex-col gap-5 xl:flex-row">
           <TabStrip activeTab={activeTab} onChange={setActiveTab} />
@@ -822,8 +1484,8 @@ export default function Home() {
               <ChoiceGroup label="투자 지식 수준은 어느 정도인가요?" options={fieldGroups.knowledge} value={formData.rrttllu.knowledgeLevel} onChange={(value) => setRrttllu("knowledgeLevel", value)} />
               <ChoiceGroup label="파생상품 투자 경험이 있으신가요?" description="파생상품: 파생상품, 원금비보장형 파생결합 증권, 파생상품펀드, 레버리지/인버스 ETF 등" options={fieldGroups.derivatives} value={formData.rrttllu.derivativesExperience} onChange={(value) => setRrttllu("derivativesExperience", value)} />
               <div className="risk-ratio-grid grid gap-4 lg:grid-cols-2">
-                <ChoiceGroup cardClassName="risk-mobile-gray" label="총 자산 중 금융자산의 비중" options={fieldGroups.financialAssetRatio} value={formData.rrttllu.financialAssetRatio} onChange={(value) => setRrttllu("financialAssetRatio", value)} />
-                <ChoiceGroup cardClassName="risk-mobile-blue" label="금융자산 중 투자자산의 비중" options={fieldGroups.investmentAssetRatio} value={formData.rrttllu.investmentAssetRatio} onChange={(value) => setRrttllu("investmentAssetRatio", value)} />
+                <ChoiceGroup cardClassName="risk-mobile-gray" label="총 자산 중 금융자산의 비중" description="금융자산: 예·적금, CMA, 투자자산(주식·채권·펀드·ETF 등) 등" options={fieldGroups.financialAssetRatio} value={formData.rrttllu.financialAssetRatio} onChange={(value) => setRrttllu("financialAssetRatio", value)} />
+                <ChoiceGroup cardClassName="risk-mobile-blue" label="금융자산 중 투자자산의 비중" description="투자자산: 주식, ETF, 펀드, 채권, 리츠(REITs), ELS 등" options={fieldGroups.investmentAssetRatio} value={formData.rrttllu.investmentAssetRatio} onChange={(value) => setRrttllu("investmentAssetRatio", value)} />
               </div>
               <ChoiceGroup cardClassName="risk-mobile-gray" label="기대이익 및 기대손실 등을 고려한 위험에 대한 태도" options={fieldGroups.riskAttitude} value={formData.rrttllu.riskAttitude} onChange={(value) => setRrttllu("riskAttitude", value)} />
               <ChoiceGroup cardClassName="risk-mobile-blue" label="단기적으로 손실이 초과 발생할 때 대응" options={fieldGroups.lossResponse} value={formData.rrttllu.lossResponse} onChange={(value) => setRrttllu("lossResponse", value)} />
@@ -938,15 +1600,28 @@ export default function Home() {
 
             <ResultCard icon={<ClipboardList size={18} />} title="변경 이력 카드" accent="blue">
               {changeHistory.length ? (
+                <>
                 <div className="grid gap-2">
-                  {changeHistory.map((change) => (
+                  {(changeHistoryExpanded ? changeHistory : changeHistory.slice(0, 3)).map((change) => (
                     <div key={`${change.changedAt}-${change.label}`} className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
                       <p className="text-sm font-bold leading-6 text-samsung">
+                        <span className="mr-2 text-xs text-slate-500">{formatChangeDate(change.changedAt)}</span>
                         {change.label}: {change.before} → {change.after}
                       </p>
                     </div>
                   ))}
                 </div>
+                {changeHistory.length > 3 ? (
+                  <button
+                    type="button"
+                    onClick={() => setChangeHistoryExpanded((prev) => !prev)}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-blue-100 bg-white px-3 py-2 text-sm font-bold text-samsung transition hover:bg-blue-50"
+                  >
+                    <ChevronDown size={16} className={`transition ${changeHistoryExpanded ? "rotate-180" : ""}`} />
+                    {changeHistoryExpanded ? "접기" : "더 보기"}
+                  </button>
+                ) : null}
+                </>
               ) : (
                 <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-600">변경된 정보가 없습니다.</p>
               )}
@@ -1039,7 +1714,9 @@ function CustomerSelector({
   draggedCustomerId,
   dropIndex,
   onSetDropIndex,
-  onDropCustomer
+  onDropCustomer,
+  recentUpdatedAt,
+  storageErrorMessage
 }: {
   customers: CustomerProfile[];
   selectedCustomer: CustomerId;
@@ -1053,6 +1730,8 @@ function CustomerSelector({
   dropIndex: number | null;
   onSetDropIndex: (index: number | null) => void;
   onDropCustomer: (index: number) => void;
+  recentUpdatedAt: number;
+  storageErrorMessage: string;
 }) {
   const currentCustomer = customers.find((customer) => customer.id === selectedCustomer);
   const [isDraggingTab, setIsDraggingTab] = useState(false);
@@ -1078,7 +1757,7 @@ function CustomerSelector({
             고객 추가
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-center items-center gap-x-2 gap-y-1 self-center md:justify-end">
           <p className="text-sm font-bold text-slate-600">현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span></p>
           <button
             type="button"
@@ -1088,8 +1767,17 @@ function CustomerSelector({
           >
             <Trash2 size={17} />
           </button>
+          <p className="basis-full text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
         </div>
       </div>
+      <p className="hidden">
+        기본 고객 3명은 항상 초기 로드되며, 고객 정보는 Supabase customers 테이블에 저장되어 여러 기기에서 동일하게 조회됩니다.
+      </p>
+      {storageErrorMessage ? (
+        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+          {storageErrorMessage}
+        </div>
+      ) : null}
       {showCustomers ? (
         <div
           className="mt-3 flex items-stretch overflow-x-auto pb-1"
@@ -1263,7 +1951,7 @@ function TabNavigation({ activeTab, onChange }: { activeTab: WorkspaceTab; onCha
         <p className="mt-1 text-xs font-semibold text-slate-400">VVIP Asset Advisor Hub</p>
       </div>
       <div className="mt-4 grid gap-2">
-        {workspaceTabs.map((tab) => {
+        {workspaceTabs.map((tab, index) => {
           const selected = activeTab === tab.id;
           return (
             <button
@@ -1274,7 +1962,7 @@ function TabNavigation({ activeTab, onChange }: { activeTab: WorkspaceTab; onCha
                 selected ? "bg-samsung text-white shadow-soft" : "text-slate-400 hover:bg-white/5 hover:text-white"
               }`}
             >
-              <span className="block text-sm font-bold">{tab.label}</span>
+              <span className="block text-sm font-bold">{index + 1}. {tab.label}</span>
               <span className={`mt-1 block text-xs font-semibold ${selected ? "text-blue-100" : "text-slate-500"}`}>
                 {tab.description}
               </span>
@@ -1289,7 +1977,7 @@ function TabNavigation({ activeTab, onChange }: { activeTab: WorkspaceTab; onCha
 function TabStrip({ activeTab, onChange }: { activeTab: WorkspaceTab; onChange: (tab: WorkspaceTab) => void }) {
   return (
     <nav className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-44 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
-      {workspaceTabs.map((tab) => (
+      {workspaceTabs.map((tab, index) => (
         <button
           key={tab.id}
           type="button"
@@ -1298,7 +1986,7 @@ function TabStrip({ activeTab, onChange }: { activeTab: WorkspaceTab; onChange: 
             activeTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"
           }`}
         >
-          <span className="block text-sm font-bold tracking-normal">{tab.label}</span>
+          <span className="block text-sm font-bold tracking-normal">{index + 1}. {tab.label}</span>
         </button>
       ))}
     </nav>
@@ -1312,7 +2000,7 @@ function CustomerInfoCard({ profile, onChange }: { profile: CustomerProfile; onC
         <EditableProfileField label="성명" value={profile.name} onChange={(value) => onChange("name", value)} />
         <EditableProfileField label="성별" value={profile.gender} onChange={(value) => onChange("gender", value)} />
         <div className="flex flex-wrap gap-2">
-          <EditableProfileField label="출생연도" value={profile.birthYear} placeholder="입력 대기" onChange={(value) => onChange("birthYear", value)} />
+          <EditableProfileField label="출생연도" value={profile.birth_year ?? profile.birthYear} placeholder="입력 대기" onChange={(value) => onChange("birthYear", value)} />
           <EditableProfileField label="만 나이" value={profile.age} placeholder="입력 대기" onChange={(value) => onChange("age", value)} />
         </div>
         <EditableProfileField label="직업" value={profile.job} widthClassName="w-80 max-w-full" onChange={(value) => onChange("job", value)} />
@@ -1957,8 +2645,8 @@ function IncomeWithNoneField({
         </button>
       </div>
       <div className="mt-3">
-        <input
-          className="h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung disabled:bg-slate-100 disabled:text-slate-400"
+        <textarea
+          className="min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung disabled:bg-slate-100 disabled:text-slate-400 sm:min-h-12"
           value={value}
           placeholder={placeholder}
           disabled={noneSelected}
@@ -2110,13 +2798,30 @@ function Highlight({ label, value }: { label: string; value: string }) {
 
 function Metric({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
-    <div className={`rounded-lg border px-4 py-3 ${strong ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-slate-50"}`}>
+    <div className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 sm:block sm:px-4 sm:py-3 ${strong ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-slate-50"}`}>
       <p className="text-xs font-bold text-slate-500">{label}</p>
-      <p className={`mt-1 text-xl font-bold ${strong ? "text-orange-700" : "text-navy"}`}>{value}</p>
+      <p className={`text-sm font-bold sm:mt-1 sm:text-xl ${strong ? "text-orange-700" : "text-navy"}`}>{value}</p>
     </div>
   );
 }
 
 function questionLabel(label: string) {
   return label.startsWith("Q. ") ? label : `Q. ${label}`;
+}
+
+function formatUpdatedAt(timestamp: number) {
+  if (!timestamp) return "업데이트 이력 없음";
+  const date = new Date(timestamp);
+  const datePart = date.toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+  const timePart = date.toLocaleTimeString("ko-KR", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  return `${datePart} ${timePart} 업데이트`;
+}
+
+function formatChangeDate(timestamp: number) {
+  return new Date(timestamp).toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
 }
