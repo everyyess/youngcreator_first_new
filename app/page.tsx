@@ -372,11 +372,15 @@ export default function Home() {
               title="고객 재무 현황"
               note="※ 금액은 원화(KRW) 기준으로 입력해주세요."
             >
-              <div className="grid gap-3 md:grid-cols-2">
-                <TextField label="총 자산" value={formData.financial.totalAssets} placeholder="예. 20억 원" onChange={(value) => setFinancial("totalAssets", value)} />
-                <TextField label="금융자산" value={formData.financial.financialAssets} placeholder="예. 8억 원" onChange={(value) => setFinancial("financialAssets", value)} />
-                <TextField label="부동산" value={formData.financial.realEstate} placeholder="예. 15억 원" onChange={(value) => setFinancial("realEstate", value)} />
-                <TextField label="부채" value={formData.financial.debt} placeholder="예. 3억 원" onChange={(value) => setFinancial("debt", value)} />
+              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                <p className="text-sm font-bold text-slate-800">현재 자산 현황을 알려주세요.</p>
+                <p className="mt-1 text-xs font-semibold text-slate-500">총 자산, 금융자산, 부동산, 부채를 항목별로 입력합니다.</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <TextField compact label="총 자산" value={formData.financial.totalAssets} placeholder="예. 20억 원" onChange={(value) => setFinancial("totalAssets", value)} />
+                  <TextField compact label="금융자산" value={formData.financial.financialAssets} placeholder="예. 8억 원" onChange={(value) => setFinancial("financialAssets", value)} />
+                  <TextField compact label="부동산" value={formData.financial.realEstate} placeholder="예. 15억 원" onChange={(value) => setFinancial("realEstate", value)} />
+                  <TextField compact label="부채" value={formData.financial.debt} placeholder="예. 3억 원" onChange={(value) => setFinancial("debt", value)} />
+                </div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <TextField label="(가구 기준) 연 고정소득" value={formData.financial.annualFixedIncome} placeholder="예. 3억 원~5억 원" onChange={(value) => setFinancial("annualFixedIncome", value)} />
@@ -401,7 +405,7 @@ export default function Home() {
             </Panel>
 
             <Panel icon={<ClipboardList size={18} />} eyebrow="RRTTLLU" title="③ Time Horizon 투자 기간">
-              <ChoiceGroup label="투자 가능한 기간을 선택해 주세요." description="Time Horizon은 점수화하지 않고 선택값 그대로 내부 JSON에 저장됩니다." options={fieldGroups.timeHorizon} value={formData.rrttllu.timeHorizon} onChange={(value) => setRrttllu("timeHorizon", value)} />
+              <ChoiceGroup label="투자 가능한 기간을 선택해 주세요." options={fieldGroups.timeHorizon} value={formData.rrttllu.timeHorizon} onChange={(value) => setRrttllu("timeHorizon", value)} />
             </Panel>
 
             <Panel icon={<PieChart size={18} />} eyebrow="RRTTLLU" title="④ Tax 세금 요인">
@@ -476,9 +480,9 @@ export default function Home() {
                 <Highlight label="Time Horizon" value={formData.rrttllu.timeHorizon || "미선택"} />
                 <Highlight label="Unique 제약" value={formData.rrttllu.preferredAssets || "선호 자산 입력 대기"} />
               </div>
-              <p className="mt-3 text-sm text-slate-600">
-                {analysisRequested ? "RRTTLLU 상태와 최종 Risk 결과가 내부 JSON 입력값으로 저장되었습니다." : "분석 버튼을 누르면 현재 Risk 결과를 내부 JSON에 확정 저장합니다."}
-              </p>
+              {analysisRequested ? (
+                <p className="mt-3 text-sm text-slate-600">RRTTLLU 분석 결과가 갱신되었습니다.</p>
+              ) : null}
             </ResultCard>
 
             <ResultCard icon={<ShieldCheck size={18} />} title="Risk 점수 및 위험등급 카드" accent="gold">
@@ -534,7 +538,7 @@ export default function Home() {
               {warnings.length ? (
                 <div className="space-y-3">
                   <p className="rounded-lg bg-orange-50 px-4 py-3 text-sm font-bold leading-6 text-orange-800">
-                    정보가 입력되지 않아 분석 정확도가 낮을 수 있습니다.
+                    누락된 정보가 있습니다.
                   </p>
                   <div className="grid gap-2">
                     {warnings.map((warning) => (
@@ -657,16 +661,16 @@ function buildStructuredJsonPayload(formData: AppState, riskResult: RiskResult):
   };
 
   if (!assetSummary || !annualFixedIncome || !monthlyFixedExpense) {
-    warnings.push("기본 재무 정보가 부족하여 전체 자산 구조 분석 정확도가 낮을 수 있습니다.");
+    warnings.push("기본 재무 정보가 부족합니다.");
   }
   if (!nullableText(rrttllu.returnObjective)) {
-    warnings.push("투자 목적 정보가 부족하여 기대수익률(Return) 분석 정확도가 낮을 수 있습니다.");
+    warnings.push("목표 수익률 (Return) 정보가 부족합니다.");
   }
   if (Object.values(riskAnswers).some((value) => value === null)) {
-    warnings.push("Risk 문항 일부가 누락되어 위험등급 산출 정확도가 낮을 수 있습니다.");
+    warnings.push("위험 허용도 (Risk) 정보가 부족합니다.");
   }
   if (!nullableText(rrttllu.timeHorizon)) {
-    warnings.push("투자 기간 정보가 부족하여 Time Horizon 분석 정확도가 낮을 수 있습니다.");
+    warnings.push("투자 기간 (Time Horizon) 정보가 부족합니다.");
   }
   if (
     !expectedInterestIncome ||
@@ -678,19 +682,19 @@ function buildStructuredJsonPayload(formData: AppState, riskResult: RiskResult):
     !nullableText(rrttllu.recentGlobalTaxSubject) ||
     !nullableText(rrttllu.foreignStockTaxImportance)
   ) {
-    warnings.push("이자소득, 배당소득 또는 절세 관련 정보가 부족하여 Tax 분석 정확도가 낮을 수 있습니다.");
+    warnings.push("세금 요인 (Tax) 정보가 부족합니다.");
   }
   if (!nullableText(rrttllu.regularCashflowNeed) || !nullableText(rrttllu.lumpSumPlan)) {
-    warnings.push("현금흐름 니즈 또는 목돈 사용 계획 정보가 부족하여 Liquidity 분석 정확도가 낮을 수 있습니다.");
+    warnings.push("유동성 필요 시기 (Liquidity) 정보가 부족합니다.");
   }
   if (!rrttllu.legalConstraints.length) {
-    warnings.push("투자 관련 법적/제도적 제약 정보가 부족하여 Legal 분석 정확도가 낮을 수 있습니다.");
+    warnings.push("법적/규제 제약 (Legal) 정보가 부족합니다.");
   }
   if (rrttllu.legalConstraints.includes("기타") && !nullableText(rrttllu.legalConstraintOther)) {
-    warnings.push("기타 법적 제약을 선택했으나 상세 내용이 입력되지 않았습니다.");
+    warnings.push("법적/규제 제약 (Legal) 정보가 부족합니다.");
   }
   if (!nullableText(rrttllu.preferredAssets) || !nullableText(rrttllu.avoidedAssets) || !nullableText(rrttllu.holdingOrDisposalPlan)) {
-    warnings.push("선호 자산, 비선호 자산 또는 기존 자산 운용 계획 정보가 부족하여 고객 맞춤형 포트폴리오 설계 정확도가 낮을 수 있습니다.");
+    warnings.push("고객 고유 상황 (Unique Circumstances) 정보가 부족합니다.");
   }
 
   return {
@@ -911,9 +915,9 @@ function Panel({ icon, eyebrow, title, note, children }: { icon: React.ReactNode
   );
 }
 
-function TextField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
+function TextField({ label, value, placeholder, onChange, compact = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean }) {
   return (
-    <label className="block">
+    <label className={`block rounded-lg border border-slate-200 bg-white p-4 ${compact ? "" : "bg-slate-50/70"}`}>
       <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
       <input className="h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
     </label>
@@ -922,7 +926,7 @@ function TextField({ label, value, placeholder, onChange }: { label: string; val
 
 function TextAreaField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
   return (
-    <label className="block">
+    <label className="block rounded-lg border border-slate-200 bg-slate-50/70 p-4">
       <span className="mb-2 block text-sm font-bold text-slate-700">{label}</span>
       <textarea className="min-h-28 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
     </label>
@@ -931,7 +935,7 @@ function TextAreaField({ label, value, placeholder, onChange }: { label: string;
 
 function ChoiceGroup({ label, description, options, value, onChange }: { label: string; description?: string; options: string[]; value: string; onChange: (value: string) => void }) {
   return (
-    <div>
+    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
       <p className="text-sm font-bold text-slate-700">{label}</p>
       {description ? <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p> : null}
       <div className="mt-3 grid gap-2 md:grid-cols-2">
@@ -947,7 +951,7 @@ function ChoiceGroup({ label, description, options, value, onChange }: { label: 
 
 function MultiChoiceGroup({ label, options, values, onToggle }: { label: string; options: string[]; values: string[]; onToggle: (value: string) => void }) {
   return (
-    <div>
+    <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
       <p className="text-sm font-bold text-slate-700">{label}</p>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         {options.map((option) => {
