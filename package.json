@@ -7,10 +7,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@types/node": "latest",
