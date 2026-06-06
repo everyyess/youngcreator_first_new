@@ -36,9 +36,7 @@ export default function StressChart() {
   return (
     <div style={{ minHeight: "100vh", background: "#f5f7fa", padding: "32px 24px", fontFamily: "sans-serif" }}>
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
-        <p style={{ color: "#6b7280", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>신규 포트폴리오 산출</p>
-        <h1 style={{ color: NAVY, fontSize: 22, fontWeight: 700, marginBottom: 8 }}>스트레스 테스트</h1>
-        <p style={{ color: "#9ca3af", fontSize: 12, marginBottom: 24 }}>GBWM 위험 헷지 버킷 검증 — 3가지 거시경제 충격 시나리오</p>
+        <h1 style={{ color: NAVY, fontSize: 22, fontWeight: 700, marginBottom: 24 }}>스트레스 테스트</h1>
 
         <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
           {scenarios.map(s => (
@@ -111,7 +109,7 @@ export default function StressChart() {
             ))}
           </div>
           <p style={{ color: "#9ca3af", fontSize: 11, marginTop: 16, padding: 10, background: "#f9fafb", borderRadius: 8 }}>
-            ※ 2022년 금리인상기는 주식·채권 동반 폭락으로 전통적 헷지 전략이 통하지 않은 이례적 구간. 대체자산(금·원자재) 편입의 중요성을 보여줌.
+            ※ 2022년 금리인상기는 주식·채권 동반 하락으로 전통적 헷지 전략이 제한적이었던 이례적 구간. 대체자산 편입의 중요성을 보여줌.
           </p>
         </div>
       </div>

@@ -15,7 +15,7 @@ const PERSONAS = [
       existing: { return: "9.8%", vol: "18.2%", sharpe: "0.37", mdd: "28.5%" },
       newP: { return: "12.1%", vol: "15.4%", sharpe: "0.59", mdd: "22.1%" },
     },
-    insight: "자사주 규제로 망가진 기존 포폴 → AI·반도체 랩으로 교체. ISA 절세 비중 확대로 금융소득종합과세 방어.",
+    insight: "자사주 매매 제한으로 직접 투자가 불가한 기존 포트폴리오를 AI·반도체 밸류체인 중심의 일임형 랩으로 전환. ISA 계좌 활용 비중 확대를 통해 금융소득종합과세 부담을 구조적으로 완화.",
   },
   {
     name: "박서현 (47세, 중립형)",
@@ -25,7 +25,7 @@ const PERSONAS = [
       existing: { return: "5.1%", vol: "8.4%", sharpe: "0.25", mdd: "12.3%" },
       newP: { return: "7.2%", vol: "7.1%", sharpe: "0.59", mdd: "9.8%" },
     },
-    insight: "안전 투자 편중으로 벤치마크 대비 낮은 수익률 → 일임형 랩 편입. 유학자금 3억 달러 픽스로 환리스크 차단.",
+    insight: "안전 자산 편중으로 벤치마크 대비 수익률이 부진한 기존 포트폴리오에 일임형 랩을 편입하여 주도주 노출도를 확보. 2년 후 확정 예정인 유학 자금을 달러 표시 타겟만기 채권으로 분리 운용하여 환율 변동 리스크를 사전 차단.",
   },
   {
     name: "이재형 (65세, 안정형)",
@@ -35,7 +35,7 @@ const PERSONAS = [
       existing: { return: "3.2%", vol: "4.1%", sharpe: "0.05", mdd: "6.2%" },
       newP: { return: "4.0%", vol: "3.8%", sharpe: "0.26", mdd: "5.1%" },
     },
-    insight: "부동산·예금 편중 → 장기 국고채 분리과세로 세율 49.5%→30% 절감. 월 1,000만원 현금흐름 확보.",
+    insight: "부동산 및 예금 중심의 기존 자산을 만기 10년 이상 국고채 분리과세 상품으로 전환하여 세율을 합법적으로 절감. 이자 지급 주기를 월 단위로 설계하여 생활비 현금흐름을 안정적으로 확보.",
   },
 ];
 
@@ -78,20 +78,13 @@ export default function Compare() {
   return (
     <div style={{ minHeight: "100vh", background: "#f5f7fa", padding: "32px 24px", fontFamily: "sans-serif" }}>
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
-
-        {/* 헤더 */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
-          <div>
-            <p style={{ color: "#6b7280", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>신규 포트폴리오 산출</p>
-            <h1 style={{ color: NAVY, fontSize: 22, fontWeight: 700, marginBottom: 4 }}>포트폴리오 비교</h1>
-            <p style={{ color: "#9ca3af", fontSize: 12 }}>기존 vs 신규 — GBWM 4버킷 기준</p>
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <h1 style={{ color: NAVY, fontSize: 22, fontWeight: 700 }}>포트폴리오 비교</h1>
           <button onClick={handlePDF} style={{ padding: "10px 20px", background: NAVY, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 }}>
             PDF 저장
           </button>
         </div>
 
-        {/* 페르소나 선택 */}
         <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
           {PERSONAS.map((per, i) => (
             <button key={i} onClick={() => setActivePersona(i)} style={{
@@ -104,13 +97,11 @@ export default function Compare() {
         </div>
 
         <div ref={printRef}>
-          {/* 인사이트 */}
           <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "14px 18px", marginBottom: 20 }}>
-            <span style={{ color: NAVY, fontWeight: 700, fontSize: 12 }}>📌 변경 핵심: </span>
+            <span style={{ color: NAVY, fontWeight: 700, fontSize: 12 }}>포트폴리오 전환 핵심: </span>
             <span style={{ color: "#1e40af", fontSize: 12 }}>{p.insight}</span>
           </div>
 
-          {/* 지표 비교 */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
             {[
               { title: "기존 포트폴리오", alloc: p.existing, metrics: p.metrics.existing, border: "#94a3b8" },
@@ -118,8 +109,6 @@ export default function Compare() {
             ].map((side, i) => (
               <div key={i} style={{ background: "#fff", borderRadius: 12, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb", borderTop: `3px solid ${side.border}` }}>
                 <h2 style={{ color: NAVY, fontSize: 15, fontWeight: 700, marginBottom: 16 }}>{side.title}</h2>
-
-                {/* 버킷 비중 */}
                 <div style={{ marginBottom: 16 }}>
                   {Object.entries(side.alloc).map(([key, val]) => (
                     <div key={key} style={{ marginBottom: 8 }}>
@@ -133,8 +122,6 @@ export default function Compare() {
                     </div>
                   ))}
                 </div>
-
-                {/* 지표 */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   {[
                     { label: "기대수익률", value: side.metrics.return, color: "#3B82F6" },
@@ -152,9 +139,7 @@ export default function Compare() {
             ))}
           </div>
 
-          {/* 누적 수익률 라인차트 */}
           <div style={{ background: "#fff", borderRadius: 12, padding: 24, boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }}>
-            <p style={{ color: "#6b7280", fontSize: 11, fontWeight: 600, marginBottom: 4 }}>백테스팅 시뮬레이션</p>
             <h3 style={{ color: NAVY, fontSize: 14, fontWeight: 700, marginBottom: 20 }}>누적 수익률 비교 (기준: 100)</h3>
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={lineData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
