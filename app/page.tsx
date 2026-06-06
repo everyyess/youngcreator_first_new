@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { type DragEvent, useEffect, useMemo, useState } from "react";
+import ExistingPortfolioTab from "../components/ExistingPortfolioTab";
 
 type CustomerId = string;
 
@@ -2063,70 +2064,7 @@ function EditableProfileField({ label, value, placeholder, widthClassName = "w-3
   );
 }
 
-function ExistingPortfolioTab({
-  formData,
-  riskResult,
-  warnings,
-  setFinancial,
-  setRrttllu
-}: {
-  formData: AppState;
-  riskResult: RiskResult;
-  warnings: string[];
-  setFinancial: (key: keyof FinancialInfo, value: string) => void;
-  setRrttllu: (key: keyof RrttlluInfo, value: string) => void;
-}) {
-  return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(380px,0.9fr)]">
-      <section className="space-y-5">
-        <Panel icon={<WalletCards size={18} />} eyebrow="기존 포트폴리오 분석" title="보유 자산 정보">
-          <TextAreaField
-            label="현재 보유하거나 처분을 검토 중인 자산"
-            value={formData.rrttllu.holdingOrDisposalPlan}
-            placeholder="예. 삼성전자 10억 원 계속 보유, 임대용 부동산 1년 내 매각 검토"
-            onChange={(value) => setRrttllu("holdingOrDisposalPlan", value)}
-          />
-          <div className="grid gap-3 md:grid-cols-2">
-            <TextField label="총 자산" value={formData.financial.totalAssets} placeholder="예. 20억 원" onChange={(value) => setFinancial("totalAssets", value)} />
-            <TextField label="금융자산" value={formData.financial.financialAssets} placeholder="예. 8억 원" onChange={(value) => setFinancial("financialAssets", value)} />
-          </div>
-          <TextAreaField
-            label="피하고 싶은 자산"
-            value={formData.rrttllu.avoidedAssets}
-            placeholder="예. 가상자산, 변동성이 큰 테마형 상품"
-            onChange={(value) => setRrttllu("avoidedAssets", value)}
-          />
-        </Panel>
-
-        <Panel icon={<ClipboardList size={18} />} eyebrow="공유 입력" title="포트폴리오 분석에 반영되는 조건">
-          <div className="grid gap-3 md:grid-cols-2">
-            <TextField label="향후 목돈 사용 계획" value={formData.rrttllu.lumpSumPlan} placeholder="예. 5년 후 자녀 유학비 1억원" onChange={(value) => setRrttllu("lumpSumPlan", value)} />
-            <TextField label="정기 현금흐름 필요" value={formData.rrttllu.regularCashflowNeed} placeholder="예. 20년간 월 생활비 500만 원" onChange={(value) => setRrttllu("regularCashflowNeed", value)} />
-            <TextField label="비상예비자금 확보 계획" value={formData.rrttllu.emergencyReservePlan} placeholder="예. 의료비 등 비상 상황 대비 1억 원" onChange={(value) => setRrttllu("emergencyReservePlan", value)} />
-          </div>
-        </Panel>
-      </section>
-
-      <aside className="space-y-5">
-        <ResultCard icon={<ShieldCheck size={18} />} title="고객 성향 연동 요약" accent="gold">
-          <ResultGrid
-            rows={[
-              ["위험점수", `${riskResult.score}/100`],
-              ["위험등급", riskResult.level],
-              ["투자 기간", formData.rrttllu.timeHorizon || "미선택"],
-              ["투자 목적", formData.rrttllu.returnObjective || "미선택"]
-            ]}
-          />
-        </ResultCard>
-        <ResultCard icon={<AlertTriangle size={18} />} title="분석 전 확인 사항" accent={warnings.length ? "orange" : "green"}>
-          <p className="text-sm font-semibold leading-6 text-slate-700">
-            {warnings.length ? "고객 성향 분석 탭의 누락 정보가 기존 포트폴리오 진단에도 반영됩니다." : "현재 입력된 고객 정보가 기존 포트폴리오 분석에 충분히 반영되어 있습니다."}
-          </p>
-        </ResultCard>
-      </aside>
-    </div>
-  );
-}
+// ExistingPortfolioTab is imported from components/ExistingPortfolioTab.tsx
 
 function NewPortfolioTab({
   formData,
