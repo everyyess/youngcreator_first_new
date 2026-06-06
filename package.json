@@ -1,12 +1,14 @@
 {
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -H 127.0.0.1",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
+    "@paper-design/shaders-react": "^0.0.76",
     "@supabase/supabase-js": "^2.107.0",
+    "framer-motion": "^12.40.0",
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
