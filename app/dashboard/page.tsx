@@ -59,17 +59,14 @@ export default function DashboardPage() {
           flexShrink: 0, display: "flex", flexDirection: "column", gap: 8,
           position: "sticky", top: 0, height: "100vh"
         }} className="desktop-nav">
-          <div style={{ padding: "16px 12px 8px", borderBottom: "1px solid #e2e8f0", marginBottom: 8 }}>
-          <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600, letterSpacing: 1, marginBottom: 4 }}>4-3 파트</div>
-          <div style={{ fontSize: 13, color: NAVY, fontWeight: 800, lineHeight: 1.4 }}>신규 포트폴리오<br/>산출 엔진</div>
-        </div>
+        
         {tabs.map((tab, i) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               padding: "10px 12px", border: "none", cursor: "pointer",
               textAlign: "left", borderRadius: 8, minHeight: 44,
               background: activeTab === tab.id ? "#2f2f9d" : "#f8fafc",
               transition: "all 0.15s"
-            }}>
+            }}>     
               <span style={{
                 display: "block", fontSize: 13, fontWeight: 700,
                 color: activeTab === tab.id ? "#fff" : "#475569"
