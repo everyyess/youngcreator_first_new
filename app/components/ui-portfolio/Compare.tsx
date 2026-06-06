@@ -83,8 +83,184 @@ export default function Compare() {
   }
 
   async function handlePDF() {
-    const jsPDF = (await import("jspdf")).default;
-    const html2canvas = (await import("html2canvas")).default;
+    const today = new Date().toLocaleDateString("ko-KR");
+    const lineDataStr = JSON.stringify(lineData);
+
+    const bucketRows = (alloc: Record<string, number>) =>
+      Object.entries(alloc).map(([key, val]) => `
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span style="color:#6b7280">${BUCKET_LABELS[key]}</span>
+            <span style="color:${BUCKET_COLORS[key]};font-weight:700">${val}%</span>
+          </div>
+          <div style="background:#e9ecef;border-radius:4px;height:7px">
+            <div style="width:${val}%;height:100%;background:${BUCKET_COLORS[key]};border-radius:4px"></div>
+          </div>
+        </div>`).join("");
+
+    const metricCards = (metrics: {return:string;vol:string;sharpe:string;mdd:string}) => [
+      { label: "기대수익률", value: metrics.return, color: "#3B82F6" },
+      { label: "변동성",     value: metrics.vol,    color: "#C9A84C" },
+      { label: "샤프지수",   value: metrics.sharpe, color: "#10B981" },
+      { label: "MDD",        value: metrics.mdd,    color: "#EF4444" },
+    ].map(m => `
+      <div style="background:#f9fafb;border-radius:8px;padding:10px;text-align:center">
+        <div style="color:#9ca3af;font-size:11px;margin-bottom:4px">${m.label}</div>
+        <div style="color:${m.color};font-size:17px;font-weight:700">${m.value}</div>
+      </div>`).join("");
+
+    const chartPoints = lineData.map((d, i) => ({
+      x: 60 + i * 90,
+      eY: 220 - (d["기존"] - 95) * 1.8,
+      nY: 220 - (d["신규"] - 95) * 1.8,
+      label: d.year,
+      e: d["기존"],
+      n: d["신규"],
+    }));
+    const ePolyline = chartPoints.map(p => `${p.x},${p.eY}`).join(" ");
+    const nPolyline = chartPoints.map(p => `${p.x},${p.nY}`).join(" ");
+    const chartSvg = `
+      <svg width="560" height="250" xmlns="http://www.w3.org/2000/svg" style="overflow:visible">
+        <line x1="50" y1="20" x2="50" y2="230" stroke="#e5e7eb" stroke-width="1"/>
+        <line x1="50" y1="230" x2="560" y2="230" stroke="#e5e7eb" stroke-width="1"/>
+        ${[100,110,120,130,140,150].map((v,i) => `
+          <line x1="50" y1="${220-(v-95)*1.8}" x2="560" y2="${220-(v-95)*1.8}" stroke="#f0f0f0" stroke-width="1"/>
+          <text x="44" y="${224-(v-95)*1.8}" font-size="10" fill="#9ca3af" text-anchor="end">${v}</text>
+        `).join("")}
+        ${chartPoints.map(pt => `<line x1="${pt.x}" y1="20" x2="${pt.x}" y2="230" stroke="#f0f0f0" stroke-width="1"/>`).join("")}
+        <polyline points="${ePolyline}" fill="none" stroke="#94a3b8" stroke-width="2"/>
+        <polyline points="${nPolyline}" fill="none" stroke="#C9A84C" stroke-width="2.5"/>
+        ${chartPoints.map(pt => `
+          <circle cx="${pt.x}" cy="${pt.eY}" r="4" fill="#94a3b8"/>
+          <circle cx="${pt.x}" cy="${pt.nY}" r="4" fill="#C9A84C"/>
+          <text x="${pt.x}" y="244" font-size="10" fill="#6b7280" text-anchor="middle">${pt.label}</text>
+        `).join("")}
+        <circle cx="380" cy="14" r="5" fill="#94a3b8"/>
+        <text x="390" y="18" font-size="11" fill="#6b7280">기존</text>
+        <circle cx="420" cy="14" r="5" fill="#C9A84C"/>
+        <text x="430" y="18" font-size="11" fill="#6b7280">신규</text>
+      </svg>`;
+
+    const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8"/>
+<title>포트폴리오 비교 — ${p.name}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", sans-serif; background: #fff; color: #1f2937; }
+  .page { width: 210mm; min-height: 297mm; padding: 0; page-break-after: always; position: relative; }
+  .page:last-child { page-break-after: avoid; }
+  .header { background: #0D2B5E; padding: 14px 20px 12px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .header-title { color: #fff; font-size: 15px; font-weight: 700; }
+  .header-sub { color: #C9A84C; font-size: 10px; margin-top: 3px; }
+  .header-date { color: #b0c4de; font-size: 10px; }
+  .body { padding: 20px 22px; }
+  .insight-box { background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; font-size: 11px; color: #1e40af; line-height: 1.6; }
+  .insight-box strong { color: #0D2B5E; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px; }
+  .card-title { color: #0D2B5E; font-size: 13px; font-weight: 700; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid; }
+  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .metric-cell { background: #f9fafb; border-radius: 7px; padding: 9px; text-align: center; }
+  .metric-label { color: #9ca3af; font-size: 10px; margin-bottom: 3px; }
+  .metric-value { font-size: 16px; font-weight: 700; }
+  .section-title { color: #0D2B5E; font-size: 12px; font-weight: 700; margin-bottom: 12px; }
+  .chart-wrap { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  .footer { position: absolute; bottom: 10mm; left: 22px; right: 22px; display: flex; justify-content: space-between; border-top: 1px solid #e5e7eb; padding-top: 6px; }
+  .footer span { color: #9ca3af; font-size: 9px; }
+  .page2-body { padding: 20px 22px; }
+  .ai-badge { background: #C9A84C; color: #fff; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 5px; display: inline-block; margin-bottom: 14px; }
+  .ai-text { color: #374151; font-size: 11.5px; line-height: 1.85; white-space: pre-line; }
+  .disclaimer { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 14px 16px; margin-top: 24px; }
+  .disclaimer-title { color: #6b7280; font-size: 10px; font-weight: 700; margin-bottom: 6px; }
+  .disclaimer-text { color: #9ca3af; font-size: 9.5px; line-height: 1.7; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .page { page-break-after: always; }
+  }
+</style>
+</head>
+<body>
+
+<!-- PAGE 1 -->
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="header-title">삼성증권 VVIP Asset Advisor Hub</div>
+      <div class="header-sub">신규 포트폴리오 산출 리포트 · ${p.name}</div>
+    </div>
+    <div class="header-date">발행일: ${today}</div>
+  </div>
+  <div class="body">
+    <div class="insight-box"><strong>포트폴리오 전환 핵심 </strong>${p.insight}</div>
+    <div class="grid2">
+      <div class="card">
+        <div class="card-title" style="border-color:#94a3b8">기존 포트폴리오</div>
+        ${bucketRows(p.existing)}
+        <div class="metrics-grid">
+          <div class="metric-cell"><div class="metric-label">기대수익률</div><div class="metric-value" style="color:#3B82F6">${p.metrics.existing.return}</div></div>
+          <div class="metric-cell"><div class="metric-label">변동성</div><div class="metric-value" style="color:#C9A84C">${p.metrics.existing.vol}</div></div>
+          <div class="metric-cell"><div class="metric-label">샤프지수</div><div class="metric-value" style="color:#10B981">${p.metrics.existing.sharpe}</div></div>
+          <div class="metric-cell"><div class="metric-label">MDD</div><div class="metric-value" style="color:#EF4444">${p.metrics.existing.mdd}</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="border-color:#C9A84C">신규 포트폴리오</div>
+        ${bucketRows(p.newP)}
+        <div class="metrics-grid">
+          <div class="metric-cell"><div class="metric-label">기대수익률</div><div class="metric-value" style="color:#3B82F6">${p.metrics.newP.return}</div></div>
+          <div class="metric-cell"><div class="metric-label">변동성</div><div class="metric-value" style="color:#C9A84C">${p.metrics.newP.vol}</div></div>
+          <div class="metric-cell"><div class="metric-label">샤프지수</div><div class="metric-value" style="color:#10B981">${p.metrics.newP.sharpe}</div></div>
+          <div class="metric-cell"><div class="metric-label">MDD</div><div class="metric-value" style="color:#EF4444">${p.metrics.newP.mdd}</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="section-title">누적 수익률 비교 (기준: 100)</div>
+      ${chartSvg}
+    </div>
+  </div>
+  <div class="footer">
+    <span>삼성증권 Young Creator 15기 | VVIP Asset Advisor Hub | 4-3 신규 포트폴리오 산출</span>
+    <span>1 / 2</span>
+  </div>
+</div>
+
+<!-- PAGE 2 -->
+<div class="page">
+  <div class="header">
+    <div>
+      <div class="header-title">AI 종합 해설</div>
+      <div class="header-sub">${p.name} 포트폴리오 기준</div>
+    </div>
+    <div class="header-date">발행일: ${today}</div>
+  </div>
+  <div class="page2-body">
+    <div class="ai-badge">AI 분석</div>
+    <div class="ai-text">${p.llmSummary.replace(/\n/g, "<br/>")}</div>
+    <div class="disclaimer">
+      <div class="disclaimer-title">투자 유의사항</div>
+      <div class="disclaimer-text">
+        본 리포트는 투자 참고 목적으로 작성되었으며, 투자 결과에 대한 법적 책임을 지지 않습니다.<br/>
+        금융투자상품은 원금 손실이 발생할 수 있으며, 투자 전 상품설명서 및 약관을 반드시 확인하시기 바랍니다.
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>삼성증권 Young Creator 15기 | VVIP Asset Advisor Hub | 4-3 신규 포트폴리오 산출</span>
+    <span>2 / 2</span>
+  </div>
+</div>
+
+<script>window.onload = () => window.print();</script>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+  }
 
     const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const W = 210;
