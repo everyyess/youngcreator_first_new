@@ -8,7 +8,9 @@
       "PowerShell(Start-Process \"http://localhost:3000\")",
       "Bash(git add *)",
       "Bash(git rm *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/maintab/tab2)"
     ],
     "additionalDirectories": [
       "c:\\Users\\�̼ҿ�\\Desktop\\���ΰ����ڷ�\\AI Study\\youngcreator_first_new\\app"
