@@ -1,8 +1,8 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ── Hero landing page animations ── */
+/* ?? Hero landing page animations ?? */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -29,7 +29,7 @@
   animation: fadeInUp 0.6s ease-out 0.2s forwards;
 }
 
-/* ── Samsung Securities app base styles ── */
+/* ?? Samsung Securities app base styles ?? */
 :root {
   color-scheme: light;
 }
@@ -66,6 +66,7 @@ textarea:focus-visible {
 
 .customer-current-summary > p:last-child {
   grid-column: 1 / -1;
+  text-align: right;
 }
 
 @media (min-width: 768px) {
@@ -74,130 +75,10 @@ textarea:focus-visible {
     line-height: 1.75rem;
   }
 
-  .customer-current-summary > p:last-child {
-    text-align: right;
-  }
 }
 
 .question-card {
-  background: #f8fafc;
+  background: var(--question-card-bg, #e2f2ff);
+  border-color: var(--question-card-border, #b9dcff);
 }
 
-.question-stack > .question-card:nth-of-type(odd) {
-  background: #eaf6ff;
-  border-color: #bfdbfe;
-}
-
-.question-stack > .question-card:nth-of-type(even) {
-  background: #f8fafc;
-  border-color: #d7dde8;
-}
-
-.question-stack > .grid > .question-card:nth-child(odd) {
-  background: #eaf6ff;
-  border-color: #bfdbfe;
-}
-
-.question-stack > .grid > .question-card:nth-child(even) {
-  background: #f8fafc;
-  border-color: #d7dde8;
-}
-
-.question-stack > .question-card.asset-summary-card {
-  background: #f8fafc;
-  border-color: #d7dde8;
-}
-
-.asset-detail-grid > .question-card {
-  background: #f8fafc;
-  border-color: #d7dde8;
-}
-
-.asset-detail-grid > .question-card:nth-child(odd) {
-  background: #eaf6ff;
-  border-color: #bfdbfe;
-}
-
-.risk-ratio-grid > .question-card:nth-child(odd) {
-  background: #f8fafc;
-  border-color: #d7dde8;
-}
-
-.risk-ratio-grid > .question-card:nth-child(even) {
-  background: #eaf6ff;
-  border-color: #bfdbfe;
-}
-
-.question-stack .question-card.risk-mobile-gray {
-  background: #f8fafc !important;
-  border-color: #d7dde8 !important;
-}
-
-.question-stack .question-card.risk-mobile-blue {
-  background: #eaf6ff !important;
-  border-color: #bfdbfe !important;
-}
-
-@media (min-width: 768px) {
-  .question-stack > .grid.md\:grid-cols-2 > .question-card:nth-child(4n + 1),
-  .question-stack > .grid.md\:grid-cols-2 > .question-card:nth-child(4n + 4) {
-    background: #eaf6ff;
-    border-color: #bfdbfe;
-  }
-
-  .question-stack > .grid.md\:grid-cols-2 > .question-card:nth-child(4n + 2),
-  .question-stack > .grid.md\:grid-cols-2 > .question-card:nth-child(4n + 3) {
-    background: #f8fafc;
-    border-color: #d7dde8;
-  }
-
-  .asset-detail-grid > .question-card {
-    background: #f8fafc;
-    border-color: #d7dde8;
-  }
-
-  .asset-detail-grid > .question-card:nth-child(1),
-  .asset-detail-grid > .question-card:nth-child(4) {
-    background: #eaf6ff;
-    border-color: #bfdbfe;
-  }
-
-  .asset-detail-grid > .question-card:nth-child(3) {
-    background: #f8fafc;
-    border-color: #d7dde8;
-  }
-}
-
-@media (min-width: 1024px) {
-  .question-stack > .grid.lg\:grid-cols-2 > .question-card:nth-child(4n + 1),
-  .question-stack > .grid.lg\:grid-cols-2 > .question-card:nth-child(4n + 4) {
-    background: #eaf6ff;
-    border-color: #bfdbfe;
-  }
-
-  .question-stack > .grid.lg\:grid-cols-2 > .question-card:nth-child(4n + 2),
-  .question-stack > .grid.lg\:grid-cols-2 > .question-card:nth-child(4n + 3) {
-    background: #f8fafc;
-    border-color: #d7dde8;
-  }
-
-  .risk-ratio-grid > .question-card:nth-child(1) {
-    background: #f8fafc;
-    border-color: #d7dde8;
-  }
-
-  .risk-ratio-grid > .question-card:nth-child(2) {
-    background: #eaf6ff;
-    border-color: #bfdbfe;
-  }
-
-  .question-stack > .grid > .question-card.question-card-blue {
-    background: #eaf6ff !important;
-    border-color: #bfdbfe !important;
-  }
-
-  .question-stack > .grid > .question-card.question-card-gray {
-    background: #f8fafc !important;
-    border-color: #d7dde8 !important;
-  }
-}

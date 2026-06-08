@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FolderOpen, UserCheck } from "lucide-react";
 import CustomerAnalysisTab from "./CustomerAnalysisTab";
 import ExistingPortfolioTab from "./ExistingPortfolioTab";
@@ -17,23 +17,27 @@ const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
 export default function Tab1Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("tendency");
 
+  useEffect(() => {
+    const stored = window.localStorage.getItem("samsung-vvip-tab1-inner-tab");
+    if (stored === "tendency" || stored === "existing") {
+      setActiveInnerTab(stored);
+    }
+  }, []);
+
+  const selectInnerTab = (tab: InnerTab) => {
+    setActiveInnerTab(tab);
+    window.localStorage.setItem("samsung-vvip-tab1-inner-tab", tab);
+  };
+
   return (
     <>
-      {/* 페이지 헤더 */}
-      <header className="rounded-lg border border-slate-200 bg-white px-6 py-5 shadow-soft">
-        <div className="flex flex-col gap-1">
-          <p className="text-sm font-semibold text-samsung">Samsung Securities PB Advisory</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-normal text-navy md:text-3xl">고객 정보 입력</h1>
-        </div>
-      </header>
-
       {/* 내부 세부 탭 */}
       <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
         {innerTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
-            onClick={() => setActiveInnerTab(tab.id)}
+            onClick={() => selectInnerTab(tab.id)}
             className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${
               activeInnerTab === tab.id
                 ? "bg-[#2f2f9d] text-white shadow-soft"

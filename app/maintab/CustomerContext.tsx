@@ -129,7 +129,7 @@ export type LiquiditySummaryInfo = {
 
 export type CustomerUpdatedMap = Record<CustomerId, number>;
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo };
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -151,6 +151,12 @@ export type StoredCustomerState = {
   selectedCustomer: CustomerId;
 };
 
+export type SmartExtractionPayload = {
+  profile?: Partial<Pick<CustomerProfile, "name" | "gender" | "birthYear" | "birth_year" | "age" | "job">>;
+  financial?: Partial<FinancialInfo>;
+  rrttllu?: Partial<RrttlluInfo>;
+};
+
 export type CustomerRow = {
   id: string;
   profile?: CustomerProfile;
@@ -164,7 +170,7 @@ export type StorageResult = { ok: boolean; message: string };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 export const workspaceTabs = [
-  { id: "profile" as const, label: "고객 성향 분석", description: "재무 정보와 RRTTLLU 입력" },
+  { id: "profile" as const, label: "고객 정보 분석", description: "재무 정보와 RRTTLLU 입력" },
   { id: "create" as const, label: "신규 포트폴리오 생성", description: "추천 조건과 선호 반영" },
   { id: "compare" as const, label: "포트폴리오 비교", description: "기존안과 신규안 비교" },
 ];
@@ -239,7 +245,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] } };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "" };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -265,6 +271,7 @@ export function normalizeAppState(value: unknown): AppState {
   const financial = state.financial && typeof state.financial === "object" ? state.financial : {};
   const rrttllu = state.rrttllu && typeof state.rrttllu === "object" ? state.rrttllu : {};
   return {
+    smartInputNote: typeof state.smartInputNote === "string" ? state.smartInputNote : "",
     financial: { ...defaults.financial, ...financial, irregularIncomeNone: Boolean((financial as Partial<FinancialInfo>).irregularIncomeNone) },
     rrttllu: {
       ...defaults.rrttllu, ...rrttllu,
@@ -417,6 +424,18 @@ function storedStateToCustomerRows(state: StoredCustomerState) {
   return state.customerProfiles.map((p, i) => ({ id: p.id, profile: p, app_state: normalizeAppState(state.customerData[p.id]), sort_order: i, updated_at: new Date().toISOString() }));
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function writeRowsWithFallback(state: StoredCustomerState, op: "insert" | "upsert"): Promise<StorageResult> {
   if (!supabase) return { ok: false, message: "Supabase not configured." };
   const rows = storedStateToCustomerRows(state);
@@ -429,12 +448,20 @@ export const customerStorage = {
   async selectRows(): Promise<{ rows: CustomerRow[]; errorMessage?: string } | null> {
     if (!supabase) return null;
     try {
-      const ordered = await supabase.from("customers").select("*").order("sort_order", { ascending: true });
-      const { data, error } = ordered.error ? await supabase.from("customers").select("*") : ordered;
+      const ordered = await withTimeout(
+        Promise.resolve(supabase.from("customers").select("*").order("sort_order", { ascending: true })),
+        8000,
+        "Supabase customer select timed out.",
+      );
+      const fallback = ordered.error
+        ? await withTimeout(Promise.resolve(supabase.from("customers").select("*")), 8000, "Supabase customer fallback select timed out.")
+        : ordered;
+      const { data, error } = fallback;
       if (error) throw error;
       return { rows: Array.isArray(data) ? (data as CustomerRow[]) : [] };
     } catch (e) {
-      return { rows: [], errorMessage: "Supabase 고객 데이터 로드에 실패했습니다." };
+      console.error("Supabase customer select failed", e);
+      return { rows: [], errorMessage: "Supabase 고객 데이터 로드에 실패했습니다. 기본 화면으로 계속 진행합니다." };
     }
   },
   async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number): Promise<StorageResult> {
@@ -468,6 +495,7 @@ export function storeSelectedCustomerId(customerId: CustomerId) {
 
 // ── Analysis Functions ─────────────────────────────────────────────────────
 const tenPointScale = [10, 8, 5, 3, 0];
+const ratioScale = [0, 3, 5, 8, 10];
 const knowledgeScale = [10, 6, 3, 0];
 const riskAttitudeScale = [25, 18, 10, 0];
 
@@ -502,8 +530,8 @@ export function calculateRiskResult(rrttllu: RrttlluInfo): RiskResult {
     maxSelectedScore(rrttllu.investmentExperience, riskExperienceOptions, tenPointScale) +
     selectedScore(rrttllu.knowledgeLevel, fieldGroups.knowledge, knowledgeScale) +
     selectedScore(rrttllu.derivativesExperience, fieldGroups.derivatives, tenPointScale) +
-    selectedScore(rrttllu.financialAssetRatio, fieldGroups.financialAssetRatio, tenPointScale) +
-    selectedScore(rrttllu.investmentAssetRatio, fieldGroups.investmentAssetRatio, tenPointScale) +
+    selectedScore(rrttllu.financialAssetRatio, fieldGroups.financialAssetRatio, ratioScale) +
+    selectedScore(rrttllu.investmentAssetRatio, fieldGroups.investmentAssetRatio, ratioScale) +
     selectedScore(rrttllu.riskAttitude, fieldGroups.riskAttitude, riskAttitudeScale) +
     selectedScore(rrttllu.lossResponse, fieldGroups.lossResponse, riskAttitudeScale);
   const level = riskLevel(score);
@@ -694,8 +722,11 @@ export type CustomerContextValue = {
   toggleExpectedReturnUnknown: () => void;
   toggleInvestmentExperience: (option: string) => void;
   toggleLegalConstraint: (option: string) => void;
+  setSmartInputNote: (value: string) => void;
   analyzeRrttllu: () => void;
   resetSelectedCustomer: () => void;
+  resetSelectedCustomerInputs: () => void;
+  applySmartExtraction: (payload: SmartExtractionPayload) => void;
   updateCustomerProfile: (key: keyof Omit<CustomerProfile, "id">, value: string) => void;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
 };

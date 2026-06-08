@@ -7,7 +7,7 @@ import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
   type CustomerUpdatedMap, type FinancialInfo, type RiskResult, type RrttlluInfo,
-  type StoredCustomerState,
+  type SmartExtractionPayload, type StoredCustomerState,
   buildStructuredJsonPayload, calculateLiquiditySummary, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState,
@@ -39,6 +39,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [isSeeding, setIsSeeding] = useState(false);
   const [persistedCustomerIds, setPersistedCustomerIds] = useState<CustomerId[]>([]);
   const [customerUpdatedAt, setCustomerUpdatedAt] = useState<CustomerUpdatedMap>({});
+  const [dirtyCustomerData, setDirtyCustomerData] = useState<Record<CustomerId, boolean>>({});
   const [storageErrorMessage, setStorageErrorMessage] = useState("");
   const [analysisRequested, setAnalysisRequested] = useState(false);
   const [confirmedRiskResult, setConfirmedRiskResult] = useState<RiskResult | null>(null);
@@ -55,7 +56,14 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       const selectedRows = await customerStorage.selectRows();
       if (cancelled) return;
       if (!selectedRows) { setStorageErrorMessage("Supabase 환경변수가 설정되지 않아 고객 데이터를 불러올 수 없습니다."); setStorageReady(true); return; }
-      if (selectedRows.errorMessage) { setStorageErrorMessage(selectedRows.errorMessage); setStorageReady(true); return; }
+      if (selectedRows.errorMessage) {
+        setStorageErrorMessage(selectedRows.errorMessage);
+        setCustomerProfiles(defaultCustomerProfiles);
+        setCustomerData(createInitialCustomerData(defaultCustomerProfiles));
+        setSelectedCustomer(defaultCustomerProfiles[0].id);
+        setStorageReady(true);
+        return;
+      }
       let rows = selectedRows.rows;
       if (!rows.length) {
         setIsSeeding(true);
@@ -109,16 +117,21 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (!storageReady || isSeeding || !persistedCustomerIds.includes(selectedCustomer)) return;
+    if (!dirtyCustomerData[selectedCustomer]) return;
     void saveCustomerDataJsonOnly(selectedCustomer, customerDataJsonPayload).then((r) => {
       if (!r.ok) setStorageErrorMessage(r.message);
-      else setStorageErrorMessage("");
+      else {
+        setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: false }));
+        setStorageErrorMessage("");
+      }
     });
-  }, [customerDataJsonPayload, isSeeding, persistedCustomerIds, selectedCustomer, storageReady]);
+  }, [customerDataJsonPayload, dirtyCustomerData, isSeeding, persistedCustomerIds, selectedCustomer, storageReady]);
 
   const markUpdated = (id: CustomerId, ts = Date.now()) => setCustomerUpdatedAt((prev) => ({ ...prev, [id]: ts }));
 
   const setFormData = (updater: (current: AppState) => AppState) => {
     markUpdated(selectedCustomer);
+    setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: true }));
     setCustomerData((prev) => ({ ...prev, [selectedCustomer]: updater(prev[selectedCustomer] ?? createInitialState()) }));
   };
 
@@ -131,13 +144,23 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const resetSelectedCustomer = () => {
     if (window.confirm("현재 고객만 초기화하시겠습니까?")) {
       markUpdated(selectedCustomer);
+      setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: true }));
       setCustomerData((prev) => ({ ...prev, [selectedCustomer]: createInitialState() }));
     } else if (window.confirm("전체 고객을 초기화하시겠습니까?")) {
       const ts = Date.now();
       setCustomerUpdatedAt(Object.fromEntries(customerProfiles.map((p) => [p.id, ts])));
+      setDirtyCustomerData(Object.fromEntries(customerProfiles.map((p) => [p.id, true])));
       setCustomerData(createInitialCustomerData(customerProfiles));
       setSelectedCustomer(customerProfiles[0]?.id ?? defaultCustomerProfiles[0].id);
     }
+    setAnalysisRequested(false); setConfirmedRiskResult(null); setLastAnalysisSnapshot(null);
+    setChangeHistory([]); setChangeHistoryExpanded(false);
+  };
+
+  const resetSelectedCustomerInputs = () => {
+    markUpdated(selectedCustomer);
+    setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: true }));
+    setCustomerData((prev) => ({ ...prev, [selectedCustomer]: createInitialState() }));
     setAnalysisRequested(false); setConfirmedRiskResult(null); setLastAnalysisSnapshot(null);
     setChangeHistory([]); setChangeHistoryExpanded(false);
   };
@@ -201,8 +224,80 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     if (field === "name" || field === "gender" || field === "birth_year" || field === "age" || field === "job") updateCustomerField(selectedCustomer, field, value);
   };
 
+  const hasExtractedText = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+  const mergeExtractedText = <T extends object>(base: T, patch: Partial<T>, keys: (keyof T)[]) => {
+    const next = { ...base };
+    keys.forEach((key) => {
+      const value = patch[key];
+      if (hasExtractedText(value)) (next as Record<keyof T, unknown>)[key] = value;
+    });
+    return next;
+  };
+
+  const applySmartExtraction = (payload: SmartExtractionPayload) => {
+    const profilePatch = payload.profile ?? {};
+    const currentProfile = customerProfiles.find((p) => p.id === selectedCustomer);
+    if (!currentProfile) return;
+
+    const updatedProfile: CustomerProfile = {
+      ...currentProfile,
+      name: hasExtractedText(profilePatch.name) ? profilePatch.name : currentProfile.name,
+      gender: hasExtractedText(profilePatch.gender) ? profilePatch.gender : currentProfile.gender,
+      birthYear: hasExtractedText(profilePatch.birth_year ?? profilePatch.birthYear) ? (profilePatch.birth_year ?? profilePatch.birthYear ?? "") : currentProfile.birthYear,
+      birth_year: hasExtractedText(profilePatch.birth_year ?? profilePatch.birthYear) ? (profilePatch.birth_year ?? profilePatch.birthYear ?? "") : currentProfile.birth_year,
+      age: hasExtractedText(profilePatch.age) ? profilePatch.age : currentProfile.age,
+      job: hasExtractedText(profilePatch.job) ? profilePatch.job : currentProfile.job,
+      sort_order: customerProfiles.findIndex((p) => p.id === selectedCustomer),
+    };
+
+    markUpdated(selectedCustomer);
+    setCustomerProfiles((prev) => prev.map((p) => (p.id === selectedCustomer ? updatedProfile : p)));
+    setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: true }));
+    setCustomerData((prev) => {
+      const current = prev[selectedCustomer] ?? createInitialState();
+      const financialPatch = payload.financial ?? {};
+      const rrttlluPatch = payload.rrttllu ?? {};
+      const financial = mergeExtractedText(current.financial, financialPatch, [
+        "totalAssets", "financialAssets", "realEstate", "debt", "annualFixedIncome", "irregularIncome", "monthlyFixedExpense",
+      ]);
+      if (financialPatch.irregularIncomeNone === true) {
+        financial.irregularIncomeNone = true;
+        financial.irregularIncome = "";
+      } else if (hasExtractedText(financialPatch.irregularIncome)) {
+        financial.irregularIncomeNone = false;
+      }
+
+      const rrttllu = mergeExtractedText(current.rrttllu, rrttlluPatch, [
+        "returnObjective", "expectedReturn", "knowledgeLevel", "derivativesExperience", "financialAssetRatio",
+        "investmentAssetRatio", "riskAttitude", "lossResponse", "timeHorizon", "giftingPlan", "globalTaxImportance",
+        "recentGlobalTaxSubject", "foreignStockTaxImportance", "regularCashflowNeed", "lumpSumPlan",
+        "emergencyReservePlan", "legalConstraintOther", "preferredAssets", "avoidedAssets", "holdingOrDisposalPlan", "uniqueOther",
+      ]);
+      if (Array.isArray(rrttlluPatch.investmentExperience) && rrttlluPatch.investmentExperience.length) {
+        rrttllu.investmentExperience = rrttlluPatch.investmentExperience;
+      }
+      if (Array.isArray(rrttlluPatch.legalConstraints) && rrttlluPatch.legalConstraints.length) {
+        rrttllu.legalConstraints = rrttlluPatch.legalConstraints;
+      }
+      if (rrttlluPatch.expectedReturnUnknown === true) {
+        rrttllu.expectedReturnUnknown = true;
+        rrttllu.expectedReturn = "";
+      } else if (hasExtractedText(rrttlluPatch.expectedReturn)) {
+        rrttllu.expectedReturnUnknown = false;
+      }
+      return { ...prev, [selectedCustomer]: { ...current, financial, rrttllu } };
+    });
+    if (storageReady && !isSeeding) {
+      void saveCustomerProfileColumns(updatedProfile).then((r) => {
+        if (!r.ok) setStorageErrorMessage(r.message);
+        else setStorageErrorMessage("");
+      });
+    }
+  };
+
   const setFinancial = (key: keyof FinancialInfo, value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, [key]: value } }));
   const setRrttllu = (key: keyof RrttlluInfo, value: string) => setFormData((prev) => ({ ...prev, rrttllu: { ...prev.rrttllu, [key]: value } }));
+  const setSmartInputNote = (value: string) => setFormData((prev) => ({ ...prev, smartInputNote: value }));
   const setIrregularIncome = (value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: value, irregularIncomeNone: false } }));
   const toggleNoIrregularIncome = () => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: "", irregularIncomeNone: !prev.financial.irregularIncomeNone } }));
   const setExpectedReturn = (value: string) => setFormData((prev) => ({ ...prev, rrttllu: { ...prev.rrttllu, expectedReturn: value, expectedReturnUnknown: false } }));
@@ -232,8 +327,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     riskResult, financialCompletion, rrttlluCompletion, internalJsonPayload, warnings,
     liquiditySummary, analysisRequested, confirmedRiskResult, changeHistory, changeHistoryExpanded,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
-    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint,
-    analyzeRrttllu, resetSelectedCustomer, updateCustomerProfile, setChangeHistoryExpanded,
+    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote,
+    analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
+    updateCustomerProfile, setChangeHistoryExpanded,
   };
 
   return (
@@ -312,12 +408,12 @@ function CustomerSelector({
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-soft">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+        <div className="flex min-w-0 flex-wrap gap-2">
           <button type="button" onClick={onToggleSearch} className={`min-h-11 rounded-lg px-4 py-2 text-left text-sm font-bold transition ${showCustomers ? "bg-[#2f2f9d] text-white" : "bg-slate-50 text-navy hover:bg-slate-100"}`}>고객명 검색</button>
           <button type="button" onClick={onAddCustomer} className="min-h-11 rounded-lg bg-samsung px-4 py-2 text-left text-sm font-bold text-white transition hover:bg-[#1b35bd]">고객 추가</button>
         </div>
-        <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-center items-center gap-x-2 gap-y-1 self-center md:justify-end">
+        <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-start items-center justify-end gap-x-2 gap-y-1 self-start text-right">
           <p className="text-sm font-bold text-slate-600">현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span></p>
           <button type="button" onClick={onRequestDelete} aria-label="현재 고객 삭제" className="flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition hover:border-red-300 hover:bg-red-100"><Trash2 size={17} /></button>
           <p className="basis-full text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
