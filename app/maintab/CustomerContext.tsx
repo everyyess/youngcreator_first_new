@@ -129,7 +129,7 @@ export type LiquiditySummaryInfo = {
 
 export type CustomerUpdatedMap = Record<CustomerId, number>;
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo };
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -149,6 +149,12 @@ export type StoredCustomerState = {
   customerProfiles: CustomerProfile[];
   customerData: Record<CustomerId, AppState>;
   selectedCustomer: CustomerId;
+};
+
+export type SmartExtractionPayload = {
+  profile?: Partial<Pick<CustomerProfile, "name" | "gender" | "birthYear" | "birth_year" | "age" | "job">>;
+  financial?: Partial<FinancialInfo>;
+  rrttllu?: Partial<RrttlluInfo>;
 };
 
 export type CustomerRow = {
@@ -239,7 +245,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] } };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "" };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -265,6 +271,7 @@ export function normalizeAppState(value: unknown): AppState {
   const financial = state.financial && typeof state.financial === "object" ? state.financial : {};
   const rrttllu = state.rrttllu && typeof state.rrttllu === "object" ? state.rrttllu : {};
   return {
+    smartInputNote: typeof state.smartInputNote === "string" ? state.smartInputNote : "",
     financial: { ...defaults.financial, ...financial, irregularIncomeNone: Boolean((financial as Partial<FinancialInfo>).irregularIncomeNone) },
     rrttllu: {
       ...defaults.rrttllu, ...rrttllu,
@@ -695,8 +702,11 @@ export type CustomerContextValue = {
   toggleExpectedReturnUnknown: () => void;
   toggleInvestmentExperience: (option: string) => void;
   toggleLegalConstraint: (option: string) => void;
+  setSmartInputNote: (value: string) => void;
   analyzeRrttllu: () => void;
   resetSelectedCustomer: () => void;
+  resetSelectedCustomerInputs: () => void;
+  applySmartExtraction: (payload: SmartExtractionPayload) => void;
   updateCustomerProfile: (key: keyof Omit<CustomerProfile, "id">, value: string) => void;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
 };

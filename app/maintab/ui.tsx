@@ -20,7 +20,19 @@ const optionSelectedClass = "border-samsung bg-blue-50 text-samsung shadow-sm";
 const checkerBlue = { bg: "#e2f2ff", border: "#b9dcff" };
 const checkerGray = { bg: "#f8fafc", border: "#d7dde8" };
 
-export function CheckerboardGrid({ children, className, startIndex = 0 }: { children: React.ReactNode; className: string; startIndex?: number }) {
+export function CheckerboardGrid({
+  children,
+  className,
+  startIndex = 0,
+  invert = false,
+  itemClassName,
+}: {
+  children: React.ReactNode;
+  className: string;
+  startIndex?: number;
+  invert?: boolean;
+  itemClassName?: string | ((index: number) => string);
+}) {
   const gridRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(1);
 
@@ -57,13 +69,14 @@ export function CheckerboardGrid({ children, className, startIndex = 0 }: { chil
         const adjustedIndex = startIndex + index;
         const row = Math.floor(adjustedIndex / columnCount);
         const col = adjustedIndex % columnCount;
-        const color = (row + col) % 2 === 0 ? checkerBlue : checkerGray;
+        const color = (row + col + (invert ? 1 : 0)) % 2 === 0 ? checkerBlue : checkerGray;
         const style = {
           "--question-card-bg": color.bg,
           "--question-card-border": color.border,
         } as CSSProperties;
 
-        return <div style={style}>{child}</div>;
+        const itemClass = typeof itemClassName === "function" ? itemClassName(index) : itemClassName;
+        return <div className={itemClass} style={style}>{child}</div>;
       })}
     </div>
   );
