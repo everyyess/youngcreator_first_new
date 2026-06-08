@@ -165,7 +165,6 @@ export type StorageResult = { ok: boolean; message: string };
 // ── Constants ──────────────────────────────────────────────────────────────
 export const workspaceTabs = [
   { id: "profile" as const, label: "고객 성향 분석", description: "재무 정보와 RRTTLLU 입력" },
-  { id: "existing" as const, label: "기존 포트폴리오 분석", description: "보유 자산과 제약 확인" },
   { id: "create" as const, label: "신규 포트폴리오 생성", description: "추천 조건과 선호 반영" },
   { id: "compare" as const, label: "포트폴리오 비교", description: "기존안과 신규안 비교" },
 ];
