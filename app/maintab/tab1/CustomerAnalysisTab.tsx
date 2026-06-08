@@ -161,12 +161,22 @@ function SmartInputCard({
 }: {
   onOpenSummary: () => void;
 }) {
-  const { applySmartExtraction, formData, resetSelectedCustomerInputs, setSmartInputNote } = useCustomerContext();
+  const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, setSmartInputNote } = useCustomerContext();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const note = formData.smartInputNote;
 
   const extract = async () => {
+    const textareaValue = document.querySelector<HTMLTextAreaElement>("[data-smart-input-textarea='true']")?.value ?? "";
+    console.log("Smart Input extract requested", {
+      customerId: selectedCustomer,
+      smartInput: note,
+      smartInputLength: note.length,
+      trimmedLength: note.trim().length,
+      textareaValue,
+      textareaValueLength: textareaValue.length,
+      textareaMatchesState: textareaValue === note,
+    });
     if (!note.trim()) {
       setMessage("자연어 메모를 먼저 입력해주세요.");
       return;
@@ -174,7 +184,7 @@ function SmartInputCard({
     setLoading(true);
     setMessage("");
     try {
-      const response = await fetch("/api/extract-customer/", {
+      const response = await fetch("/api/extract-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ note }),
@@ -190,7 +200,14 @@ function SmartInputCard({
       }
       applySmartExtraction(toSmartExtractionPayload(result.data as SmartExtractionEnvelope));
       setMessage(result.source === "mock" ? "Mock Parser로 추출 가능한 항목을 반영했습니다." : "Gemini 추출 결과를 입력값에 반영했습니다.");
-    } catch {
+    } catch (error) {
+      console.error("Smart Input extraction failed", {
+        error,
+        customerId: selectedCustomer,
+        failedSmartInput: note,
+        failedSmartInputLength: note.length,
+        failedTrimmedLength: note.trim().length,
+      });
       setMessage("추출에 실패했습니다. 직접 입력하거나 다시 시도해주세요.");
     } finally {
       setLoading(false);
@@ -209,6 +226,7 @@ function SmartInputCard({
         <div>
           <p className="mb-2 text-sm font-extrabold text-yellow-900">Smart Input</p>
           <textarea
+            data-smart-input-textarea="true"
             className="min-h-40 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] leading-6 text-ink shadow-inner transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
             value={note}
             placeholder="고객 정보와 니즈를 자연어로 입력합니다."

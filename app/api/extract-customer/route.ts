@@ -438,9 +438,23 @@ async function callGemini(note: string) {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string") throw new Error("Gemini response did not include JSON text.");
-    return { source: "gemini", data: JSON.parse(text) as ExtractionEnvelope };
+    try {
+      return { source: "gemini", data: JSON.parse(text) as ExtractionEnvelope };
+    } catch (parseError) {
+      console.error("Gemini JSON.parse failed", {
+        parseError,
+        rawTextBeforeParse: text,
+        smartInput: note,
+      });
+      throw parseError;
+    }
   } catch (error) {
-    console.error("Gemini extraction failed. Falling back to mock parser.", error);
+    console.error("Gemini extraction failed. Falling back to mock parser.", {
+      error,
+      smartInput: note,
+      smartInputLength: note.length,
+      trimmedLength: note.trim().length,
+    });
     return { source: "mock", fallback: true, data: mockExtract(note) };
   }
 }
@@ -453,7 +467,7 @@ export async function POST(request: Request) {
     const result = await callGemini(note);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    console.error("customer extraction failed", error);
+    console.error("customer extraction failed", { error });
     return NextResponse.json({ error: "추출에 실패했습니다. 직접 입력하거나 다시 시도해주세요." }, { status: 500 });
   }
 }

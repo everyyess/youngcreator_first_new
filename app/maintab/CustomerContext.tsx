@@ -424,6 +424,18 @@ function storedStateToCustomerRows(state: StoredCustomerState) {
   return state.customerProfiles.map((p, i) => ({ id: p.id, profile: p, app_state: normalizeAppState(state.customerData[p.id]), sort_order: i, updated_at: new Date().toISOString() }));
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 async function writeRowsWithFallback(state: StoredCustomerState, op: "insert" | "upsert"): Promise<StorageResult> {
   if (!supabase) return { ok: false, message: "Supabase not configured." };
   const rows = storedStateToCustomerRows(state);
@@ -436,12 +448,20 @@ export const customerStorage = {
   async selectRows(): Promise<{ rows: CustomerRow[]; errorMessage?: string } | null> {
     if (!supabase) return null;
     try {
-      const ordered = await supabase.from("customers").select("*").order("sort_order", { ascending: true });
-      const { data, error } = ordered.error ? await supabase.from("customers").select("*") : ordered;
+      const ordered = await withTimeout(
+        Promise.resolve(supabase.from("customers").select("*").order("sort_order", { ascending: true })),
+        8000,
+        "Supabase customer select timed out.",
+      );
+      const fallback = ordered.error
+        ? await withTimeout(Promise.resolve(supabase.from("customers").select("*")), 8000, "Supabase customer fallback select timed out.")
+        : ordered;
+      const { data, error } = fallback;
       if (error) throw error;
       return { rows: Array.isArray(data) ? (data as CustomerRow[]) : [] };
     } catch (e) {
-      return { rows: [], errorMessage: "Supabase 고객 데이터 로드에 실패했습니다." };
+      console.error("Supabase customer select failed", e);
+      return { rows: [], errorMessage: "Supabase 고객 데이터 로드에 실패했습니다. 기본 화면으로 계속 진행합니다." };
     }
   },
   async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number): Promise<StorageResult> {

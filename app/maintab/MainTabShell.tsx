@@ -56,7 +56,14 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       const selectedRows = await customerStorage.selectRows();
       if (cancelled) return;
       if (!selectedRows) { setStorageErrorMessage("Supabase 환경변수가 설정되지 않아 고객 데이터를 불러올 수 없습니다."); setStorageReady(true); return; }
-      if (selectedRows.errorMessage) { setStorageErrorMessage(selectedRows.errorMessage); setStorageReady(true); return; }
+      if (selectedRows.errorMessage) {
+        setStorageErrorMessage(selectedRows.errorMessage);
+        setCustomerProfiles(defaultCustomerProfiles);
+        setCustomerData(createInitialCustomerData(defaultCustomerProfiles));
+        setSelectedCustomer(defaultCustomerProfiles[0].id);
+        setStorageReady(true);
+        return;
+      }
       let rows = selectedRows.rows;
       if (!rows.length) {
         setIsSeeding(true);
