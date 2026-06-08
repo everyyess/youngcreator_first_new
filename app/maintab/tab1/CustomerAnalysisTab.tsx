@@ -433,12 +433,14 @@ function SummaryPopup({
   formData,
   riskResult,
   liquiditySummary,
+  selectedCustomerProfile,
 }: {
   open: boolean;
   onClose: () => void;
   formData: ReturnType<typeof useCustomerContext>["formData"];
   riskResult: ReturnType<typeof useCustomerContext>["riskResult"];
   liquiditySummary: ReturnType<typeof useCustomerContext>["liquiditySummary"];
+  selectedCustomerProfile: ReturnType<typeof useCustomerContext>["selectedCustomerProfile"];
 }) {
   const [riskGuideOpen, setRiskGuideOpen] = useState(false);
   if (!open) return null;
@@ -487,7 +489,10 @@ function SummaryPopup({
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-bold text-samsung">분석 및 요약</p>
-            <h2 className="mt-1 text-xl font-bold text-navy">고객 재무 현황 및 RRTTLLU 분석 요약</h2>
+            <h2 className="mt-1 flex flex-wrap items-baseline gap-2 text-xl font-bold text-navy">
+              <span>고객 재무 현황 및 RRTTLLU 분석 요약</span>
+              <span className="text-base font-extrabold text-samsung">({selectedCustomerProfile.name || "신규 고객"} 고객님)</span>
+            </h2>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
             닫기
@@ -556,6 +561,7 @@ function SummaryPopup({
 export default function CustomerAnalysisTab() {
   const {
     formData, liquiditySummary, riskResult,
+    selectedCustomerProfile,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome,
     setExpectedReturn, toggleExpectedReturnUnknown, toggleInvestmentExperience,
     toggleLegalConstraint,
@@ -572,6 +578,7 @@ export default function CustomerAnalysisTab() {
         formData={formData}
         riskResult={riskResult}
         liquiditySummary={liquiditySummary}
+        selectedCustomerProfile={selectedCustomerProfile}
       />
 
       {/* 기본 재무 정보 */}
