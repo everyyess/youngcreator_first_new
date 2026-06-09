@@ -175,6 +175,41 @@ export const workspaceTabs = [
   { id: "compare" as const, label: "포트폴리오 비교", description: "기존안과 신규안 비교" },
 ];
 
+// ── Portfolio Analysis Types ───────────────────────────────────────────────
+export type PortfolioAsset = {
+  name: string;
+  asset_class: string;
+  theme: string;
+  country: string;
+  buy_price: number | null;
+  amount: number;
+  amount_type: "quantity" | "value";
+  is_hedged: boolean;
+  needs_review: boolean;
+  review_reason?: string | null;
+  current_price?: number;
+  current_value?: number;
+  weight?: number;
+  gain?: number;
+  price_source?: string;
+  _rawAmount?: string;
+  ticker?: string;       // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
+  productType?: string;  // 상품 유형 (ETF, 개별주식, 채권 등)
+};
+
+export type PortfolioAnalysisResult = {
+  enrichedAssets: PortfolioAsset[];
+  portfolioIssueSummary: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  quantResult?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stressResult?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  healthResult?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tlhResult?: any;
+};
+
 export const defaultCustomerProfiles: CustomerProfile[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "", gender: "", birthYear: "", age: "", job: "", fallbackName: "김준호", fallbackBirthYear: "1991" },
   { id: "22222222-2222-4222-8222-222222222222", name: "", gender: "", birthYear: "", age: "", job: "", fallbackName: "박서현", fallbackBirthYear: "1978" },
