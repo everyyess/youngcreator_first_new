@@ -197,19 +197,23 @@ export function buildProxyMonthlyReturns(annVol, annReturn = 0.06, length = 35) 
 // ============================================================
 
 /**
- * 내부 프록시 API를 통해 Yahoo Finance 3개년 월봉 시계열 수집
- * @param {string} assetName  한글 또는 영문 자산명 (예: '삼성전자', 'NVDA', '금')
+ * 내부 프록시 API를 통해 Yahoo Finance 3개년 월봉 시계열 수집.
+ * ticker 가 유효한 형식(영문·숫자·특수문자)이면 name 해석 없이 직접 조회.
+ *
+ * @param {string} assetNameOrTicker  티커 우선, 없으면 한글/영문 자산명
  * @returns {Promise<{ticker:string, dates:string[], closes:number[], returns:number[]}|null>}
  */
-export async function fetchYahooFinanceHistory(assetName) {
-  const url = `/api/proxy-finance?assetName=${encodeURIComponent(assetName)}`;
+export async function fetchYahooFinanceHistory(assetNameOrTicker) {
+  if (!assetNameOrTicker?.trim()) return null;
+
+  const url = `/api/proxy-finance?assetName=${encodeURIComponent(assetNameOrTicker.trim())}`;
 
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
 
-    const ticker = json.ticker ?? assetName;
+    const ticker = json.ticker ?? assetNameOrTicker;
     const result = json?.chart?.result?.[0];
     if (!result) return null;
 
@@ -353,24 +357,39 @@ export function tagPortfolioAssets(assets) {
 // 6. 데이터 수집 오케스트레이터
 // ============================================================
 
+const TICKER_VALID_RE = /^[\w.\-=^]+$/;
+
 /**
- * 자산 유형에 따라 실 API 또는 Mock을 자동 선택하여 월별 수익률 시계열 반환
- * @param {string} name
+ * 자산 유형에 따라 실 API 또는 Mock을 자동 선택하여 월별 수익률 시계열 반환.
+ * ticker 가 유효한 형식이면 한글 name 대신 ticker 로 Yahoo Finance 직접 조회.
+ * ticker/name 이 비어있거나 조회 실패 시 프록시 시계열로 안전하게 마스킹.
+ *
+ * @param {string} name        종목명 (fallback 용)
  * @param {string} assetClass
+ * @param {string} [productType]
+ * @param {string} [ticker]    Yahoo Finance 티커 (유효 시 우선 사용)
  * @returns {Promise<number[]>}
  */
-export async function fetchAssetReturns(name, assetClass, productType = '') {
-  // 암호화폐: BTC-USD 실시계열 우선 조회, 실패 시 고변동성 프록시 생성
+export async function fetchAssetReturns(name, assetClass, productType = '', ticker = '') {
+  // 유효한 티커 여부 확인 — 영문/숫자/특수문자만 허용
+  const resolvedTicker = ticker?.trim() && TICKER_VALID_RE.test(ticker.trim())
+    ? ticker.trim()
+    : null;
+  // Yahoo 호출에 사용할 최종 쿼리: ticker 우선, 없으면 name
+  const yahooQuery = resolvedTicker ?? name;
+
+  // 암호화폐: 지정 티커 또는 BTC-USD 실시계열 우선 조회
   if (productType === '암호화폐') {
+    const cryptoQuery = resolvedTicker ?? 'BTC-USD';
     const rc = getRiskCoefficients(assetClass, productType);
     try {
-      const data = await fetchYahooFinanceHistory('BTC-USD');
+      const data = await fetchYahooFinanceHistory(cryptoQuery);
       if (data?.returns?.length >= 6) return data.returns;
     } catch { /* fallthrough */ }
     return buildProxyMonthlyReturns(rc.annVol, rc.expRet ?? 0.15, 35);
   }
   if (assetClass === ASSET_CLASS.DOLLAR) {
-    const d = await fetchFxRateMock(name);
+    const d = await fetchFxRateMock(resolvedTicker ?? name);
     return d.returns;
   }
   if (assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.CASH) {
@@ -378,12 +397,16 @@ export async function fetchAssetReturns(name, assetClass, productType = '') {
     return d.returns;
   }
 
-  // 해외주식·해외채권·금·리츠 → 프록시 API 통해 Yahoo Finance 실 데이터
-  const data = await fetchYahooFinanceHistory(name);
-  if (data && data.returns.length >= 6) return data.returns;
+  // 해외주식·해외채권·금·리츠 → ticker 우선으로 Yahoo Finance 실 데이터 조회
+  if (yahooQuery) {
+    try {
+      const data = await fetchYahooFinanceHistory(yahooQuery);
+      if (data && data.returns.length >= 6) return data.returns;
+    } catch { /* fallthrough to proxy */ }
+  }
 
-  // 국내주식 또는 fallback → financialRules 기반 현실적 시계열 생성
-  const proxy = getAssetProxy(name, assetClass, productType);
+  // 국내주식 또는 Yahoo 실패 → financialRules 기반 현실적 시계열 생성 (0 마스킹 방지)
+  const proxy = getAssetProxy(resolvedTicker ?? name, assetClass, productType);
   const rc    = getRiskCoefficients(assetClass, productType);
   return buildProxyMonthlyReturns(proxy.annVol, rc.expRet ?? 0.06, 35);
 }
@@ -725,15 +748,18 @@ export async function runQuantAnalysis(rawAssets, t_marginal, marketReturns) {
   // ── Step 1: 자산 분류 태깅
   const tagged = tagPortfolioAssets(rawAssets);
 
-  // ── Step 2: 각 자산 월별 수익률 시계열 병렬 수집 (고변동성 자산 예외 처리 포함)
+  // ── Step 2: 각 자산 월별 수익률 시계열 병렬 수집 (ticker 우선 조회)
   const withReturns = await Promise.all(
     tagged.map(async asset => {
-      const meta = resolveAssetMeta(asset);
+      const meta   = resolveAssetMeta(asset);
+      // _meta.ticker 에서 Yahoo Finance 티커 추출 (portfolioLogic.ts 가 주입)
+      const ticker = (asset._meta?.ticker || asset.ticker || '').trim();
       let returns;
       try {
-        returns = await fetchAssetReturns(asset.name, meta.assetClass, meta.productType);
+        returns = await fetchAssetReturns(asset.name, meta.assetClass, meta.productType, ticker);
       } catch {
-        const proxy = getAssetProxy(asset.name, meta.assetClass, meta.productType);
+        // 예외 발생 시 프록시 시계열로 0 마스킹 방지
+        const proxy = getAssetProxy(ticker || asset.name, meta.assetClass, meta.productType);
         const rc    = getRiskCoefficients(meta.assetClass, meta.productType);
         returns = buildProxyMonthlyReturns(proxy.annVol, rc.expRet ?? 0.06, 35);
       }

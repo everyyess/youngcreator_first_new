@@ -155,51 +155,42 @@ export default function ExistingPortfolioTab() {
     toastTimerRef.current = setTimeout(() => setToastMsg(""), 3000);
   }, []);
 
-  // ── 지능형 추론 (Gemini 연동 준비) ────────────────────────────────────────
+  // ── 지능형 추론 (Gemini AI 연동) ─────────────────────────────────────────
 
   const handleSmartInference = useCallback(
     async (idx: number, name: string) => {
       if (!name.trim()) return;
       setInferringIdx(idx);
-      showToast("Gemini API 연동 준비 중...");
+      showToast(`'${name}' 분석 중...`);
 
-      // ─────────────────────────────────────────────────────────────────────
-      // [Gemini API 연동 가이드 — 아래 주석 블록을 해제하여 실제 연동 완성]
-      //
-      // try {
-      //   // 1단계: 티커 조회 (proxy-finance → Gemini → Yahoo Search 파이프라인)
-      //   const res = await fetch(
-      //     `/api/proxy-finance?assetName=${encodeURIComponent(name)}`
-      //   );
-      //   if (res.ok) {
-      //     const data = await res.json();
-      //     // data.ticker: '005930.KS', 'TSLA', 'AAPL' 등
-      //
-      //     // 2단계: 추론된 티커로 자산군·상품유형·국가 메타 추론
-      //     // (예: /api/infer-asset-meta?ticker=005930.KS 같은 추가 엔드포인트 연동)
-      //
-      //     updateRow(idx, {
-      //       ticker: data.ticker ?? "",
-      //       // asset_class: data.assetClass ?? EMPTY_ASSET.asset_class,
-      //       // productType: data.productType ?? EMPTY_ASSET.productType,
-      //       // country: data.country ?? EMPTY_ASSET.country,
-      //     });
-      //     showToast(`'${name}' → 티커 '${data.ticker}' 자동 완성`);
-      //     setInferringIdx(null);
-      //     return;
-      //   }
-      // } catch (err) {
-      //   console.warn("[SmartInference] API 오류:", err);
-      // }
-      // ─────────────────────────────────────────────────────────────────────
+      try {
+        const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
+        const data = await res.json();
 
-      // 시뮬레이션: 0.6초 딜레이 후 임시 값 삽입 (API 미연동 상태)
-      await new Promise<void>((resolve) => setTimeout(resolve, 600));
-      updateRow(idx, {
-        ticker: "(자동 완성 예정)",
-        productType: "(자동 완성 예정)",
-      });
-      setInferringIdx(null);
+        if (!res.ok) {
+          showToast(data?.error ?? `오류 (${res.status})`);
+          return;
+        }
+
+        const ticker = typeof data.ticker === "string" && data.ticker ? data.ticker : "";
+        if (!ticker) {
+          showToast(`'${name}'의 티커를 찾을 수 없습니다. 수동으로 입력해주세요.`);
+          return;
+        }
+
+        updateRow(idx, {
+          ticker,
+          ...(data.assetClass  ? { asset_class: data.assetClass  as string } : {}),
+          ...(data.productType ? { productType: data.productType as string } : {}),
+          ...(data.country     ? { country:     data.country     as string } : {}),
+        });
+        showToast(`'${name}' → ${ticker} 자동 완성`);
+      } catch (err) {
+        console.warn("[SmartInference] API 오류:", err);
+        showToast("네트워크 오류가 발생했습니다. 수동으로 입력해주세요.");
+      } finally {
+        setInferringIdx(null);
+      }
     },
     [showToast, updateRow]
   );
@@ -467,7 +458,7 @@ function AssetRow({
             type="text"
             className="h-9 w-28 rounded border border-slate-200 px-2 text-xs text-navy"
             value={a._rawAmount ?? String((a.current_value ?? a.amount) || "")}
-            placeholder="0 또는 1억"
+            placeholder="0 또는 1억 (원화 환산)"
             onChange={(e) => {
               const raw = e.target.value;
               const parsed = parseKoreanAmount(raw);

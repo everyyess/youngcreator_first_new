@@ -127,6 +127,12 @@ function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }) {
             const qty = a.amount;
             const totalCost: number | null = a.amount_type === "value" ? qty : bp !== null ? qty * bp : null;
             const totalCurrentValue: number | null = cp === null ? null : a.amount_type === "quantity" ? qty * cp : bp !== null ? (qty / bp) * cp : null;
+            // value-type 자산은 amount/current_value 자체가 원화 평가금액이므로 직접 표시
+            const displayValue: number | null = totalCurrentValue !== null
+              ? totalCurrentValue
+              : a.amount_type === "value"
+                ? (typeof a.current_value === "number" ? a.current_value : typeof a.amount === "number" ? a.amount : null)
+                : null;
             const gainPct: number | null = cp !== null && bp !== null ? ((cp - bp) / bp) * 100 : null;
             const gainAmt: number | null = totalCurrentValue !== null && totalCost !== null ? totalCurrentValue - totalCost : null;
             const isPos = gainAmt !== null && gainAmt > 0;
@@ -147,7 +153,7 @@ function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }) {
                   {bp !== null ? fmtWon(bp) : <span className="text-slate-300">—</span>}
                 </td>
                 <td className="px-3 py-2.5 text-right text-xs font-semibold text-navy">
-                  {totalCurrentValue !== null ? fmtWon(totalCurrentValue) : <span className="text-slate-300">—</span>}
+                  {displayValue !== null ? fmtWon(displayValue) : <span className="text-slate-300">—</span>}
                 </td>
                 <td className="px-3 py-2.5 text-right text-xs font-bold">
                   {gainPct !== null ? (
@@ -415,9 +421,7 @@ function ExistingPortfolioColumn({ data }: { data: PortfolioAnalysisResult | nul
       <div className="flex min-h-[480px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center px-6">
         <WalletCards size={32} className="text-slate-300" />
         <p className="text-sm font-semibold text-slate-400">
-          <span className="font-bold text-slate-500">1. 고객 정보 분석</span> 탭 →{" "}
-          <span className="font-bold text-slate-500">기존 포트폴리오 분석</span>에서
-          <br />자산을 입력하고 분석을 실행하면 이 영역에 결과가 표시됩니다.
+          1번 탭에서 자산을 입력하고 분석 실행을 눌러주세요.
         </p>
       </div>
     );
@@ -638,17 +642,19 @@ function NewPortfolioPlaceholder() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Tab3Page() {
-  const [data, setData] = useState<PortfolioAnalysisResult | null>(() => {
-    try {
-      if (typeof window === "undefined") return null;
-      const stored = localStorage.getItem("portfolio-result-v1");
-      if (stored) return JSON.parse(stored) ?? null;
-    } catch {}
-    return null;
-  });
+  const [data, setData] = useState<PortfolioAnalysisResult | null>(null);
 
   useEffect(() => {
-    const handler = () => {
+    // 마운트 시 저장된 결과 로드 (SSR/클라이언트 hydration 불일치 방지)
+    try {
+      const stored = localStorage.getItem("portfolio-result-v1");
+      if (stored) {
+        const p = JSON.parse(stored);
+        if (p) setData(p);
+      }
+    } catch {}
+
+    const onResultUpdated = () => {
       try {
         const stored = localStorage.getItem("portfolio-result-v1");
         if (stored) {
@@ -657,8 +663,10 @@ export default function Tab3Page() {
         }
       } catch {}
     };
-    window.addEventListener("portfolio-result-updated", handler);
-    return () => window.removeEventListener("portfolio-result-updated", handler);
+    window.addEventListener("portfolio-result-updated", onResultUpdated);
+    return () => {
+      window.removeEventListener("portfolio-result-updated", onResultUpdated);
+    };
   }, []);
 
   return (

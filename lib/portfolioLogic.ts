@@ -71,11 +71,15 @@ export const runAnalysis = async (
     if (fxRes.ok) {
       const fxJson = await fxRes.json();
       const fxResult = fxJson?.chart?.result?.[0];
-      const fxCloses: (number | null)[] =
-        fxResult?.indicators?.adjclose?.[0]?.adjclose ??
-        fxResult?.indicators?.quote?.[0]?.close ??
-        [];
-      const latestFx = fxCloses.filter((v): v is number => v != null && !Number.isNaN(v)).at(-1);
+      const fxMeta = fxResult?.meta;
+      // regularMarketPrice 우선 (실시간), 없으면 마지막 월봉 종가
+      let latestFx: number | null = null;
+      if (typeof fxMeta?.regularMarketPrice === "number" && fxMeta.regularMarketPrice > 0) {
+        latestFx = fxMeta.regularMarketPrice;
+      } else {
+        const fxCloses: (number | null)[] = fxResult?.indicators?.quote?.[0]?.close ?? [];
+        latestFx = fxCloses.filter((v): v is number => v != null && !Number.isNaN(v)).at(-1) ?? null;
+      }
       if (typeof latestFx === "number" && latestFx > 0) {
         currentExchangeRate = latestFx;
       }
@@ -85,6 +89,9 @@ export const runAnalysis = async (
   }
 
   // ── Step 0-b: quantity 자산에 실시간 현재가 자동 조회 ──
+  // current_price 는 항상 원화(KRW) 로 정규화하여 저장한다.
+  // 통화 판단: Yahoo Finance meta.currency === "USD" 이면 환율을 곱해 원화로 환산.
+  // 이 방식은 FOREIGN_CLASSES 열거 없이도 금·암호화폐·해외ETF 등을 자동 처리한다.
   const enrichedAssets = await Promise.all(
     assets.map(async (a) => {
       if (
@@ -95,7 +102,6 @@ export const runAnalysis = async (
         return a;
       }
       try {
-        // ticker 가 유효한 형식(영문·숫자·특수문자만)이면 이름 해석(Gemini) 없이 직접 조회
         const TICKER_RE = /^[\w.\-=^]+$/;
         const queryParam =
           a.ticker?.trim() && TICKER_RE.test(a.ticker.trim())
@@ -105,17 +111,24 @@ export const runAnalysis = async (
         if (!res.ok) return a;
         const json = await res.json();
         const result = json?.chart?.result?.[0];
-        const closes: (number | null)[] =
-          result?.indicators?.adjclose?.[0]?.adjclose ??
-          result?.indicators?.quote?.[0]?.close ??
-          [];
-        const lastPrice = closes.filter((v): v is number => v != null && !Number.isNaN(v)).at(-1);
+        const meta = result?.meta;
+
+        // regularMarketPrice 우선 사용 → 당일 실시간 가격 (adjclose 오파싱 방지)
+        // 없으면 월봉 quote.close 마지막 값으로 폴백 (adjclose 사용 안 함)
+        let lastPrice: number | null = null;
+        if (typeof meta?.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
+          lastPrice = meta.regularMarketPrice;
+        } else {
+          const closes: (number | null)[] = result?.indicators?.quote?.[0]?.close ?? [];
+          lastPrice = closes.filter((v): v is number => v != null && !Number.isNaN(v)).at(-1) ?? null;
+        }
+
         if (typeof lastPrice === "number" && lastPrice > 0) {
-          const isForeign = FOREIGN_CLASSES.has(a.asset_class);
-          const cvKrw = isForeign
-            ? a.amount * lastPrice * currentExchangeRate
-            : a.amount * lastPrice;
-          return { ...a, current_price: lastPrice, current_value: cvKrw };
+          // meta.currency 로 달러 자산 판단 → USD 이면 원화로 변환
+          const isUsd = (meta?.currency ?? "USD") === "USD";
+          const priceKrw = isUsd ? lastPrice * currentExchangeRate : lastPrice;
+          const cvKrw = a.amount * priceKrw;
+          return { ...a, current_price: priceKrw, current_value: cvKrw };
         }
       } catch {
         /* 조회 실패 시 기존 값 유지 */
