@@ -170,10 +170,46 @@ export type StorageResult = { ok: boolean; message: string };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 export const workspaceTabs = [
-  { id: "profile" as const, label: "고객 정보 분석", description: "재무 정보와 RRTTLLU 입력" },
-  { id: "create" as const, label: "신규 포트폴리오 생성", description: "추천 조건과 선호 반영" },
-  { id: "compare" as const, label: "포트폴리오 비교", description: "기존안과 신규안 비교" },
+  { id: "profile"   as const, label: "고객 성향 분석",       description: "재무 정보와 RRTTLLU 입력" },
+  { id: "existing"  as const, label: "기존 포트폴리오 분석", description: "보유 현황, 위험 및 분산 분석" },
+  { id: "create"    as const, label: "신규 포트폴리오 생성", description: "추천 조건과 선호 반영" },
+  { id: "compare"   as const, label: "포트폴리오 비교",       description: "기존안과 신규안 비교" },
 ];
+
+// ── Portfolio Analysis Types ───────────────────────────────────────────────
+export type PortfolioAsset = {
+  name: string;
+  asset_class: string;
+  theme: string;
+  country: string;
+  buy_price: number | null;
+  amount: number;
+  amount_type: "quantity" | "value";
+  is_hedged: boolean;
+  needs_review: boolean;
+  review_reason?: string | null;
+  current_price?: number;
+  current_value?: number;
+  weight?: number;
+  gain?: number;
+  price_source?: string;
+  _rawAmount?: string;
+  ticker?: string;       // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
+  productType?: string;  // 상품 유형 (ETF, 개별주식, 채권 등)
+};
+
+export type PortfolioAnalysisResult = {
+  enrichedAssets: PortfolioAsset[];
+  portfolioIssueSummary: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  quantResult?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stressResult?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  healthResult?: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tlhResult?: any;
+};
 
 export const defaultCustomerProfiles: CustomerProfile[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "", gender: "", birthYear: "", age: "", job: "", fallbackName: "김준호", fallbackBirthYear: "1991" },

@@ -19,9 +19,10 @@ import {
 } from "./CustomerContext";
 
 const tabPaths: Record<string, string> = {
-  profile: "/maintab/tab1",
-  create: "/maintab/tab2",
-  compare: "/maintab/tab3",
+  profile:  "/maintab/tab1",
+  existing: "/maintab/tab2",
+  create:   "/maintab/tab3",
+  compare:  "/maintab/tab4",
 };
 
 
@@ -46,7 +47,6 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [lastAnalysisSnapshot, setLastAnalysisSnapshot] = useState<ReturnType<typeof buildStructuredJsonPayload> | null>(null);
   const [changeHistory, setChangeHistory] = useState<ChangeEntry[]>([]);
   const [changeHistoryExpanded, setChangeHistoryExpanded] = useState(false);
-
   const formData = customerData[selectedCustomer] ?? createInitialState();
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
 
@@ -369,8 +369,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
 const segmentToTab: Record<string, string> = {
   tab1: "profile",
-  tab2: "create",
-  tab3: "compare",
+  tab2: "existing",
+  tab3: "create",
+  tab4: "compare",
 };
 
 function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
