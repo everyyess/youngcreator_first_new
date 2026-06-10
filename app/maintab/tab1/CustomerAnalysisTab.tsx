@@ -233,8 +233,27 @@ function SmartInputCard() {
         body: JSON.stringify({ note }),
       });
       const result = await response.json();
-      if (!response.ok || !result?.ok) throw new Error(result?.error ?? "extract failed");
-      console.log("Smart Input extraction result", result.data);
+      if (!response.ok || !result?.ok) {
+        console.error("Smart Input extraction API returned an error", {
+          status: response.status,
+          result,
+          customerId: selectedCustomer,
+          smartInput: note,
+        });
+        throw new Error(result?.reason ? `${result.error ?? "extract failed"} (${result.reason})` : result?.error ?? "extract failed");
+      }
+      console.log("Smart Input extraction result", {
+        source: result.source,
+        fallback: result.fallback,
+        fallbackReason: result.fallbackReason ?? result.debug?.usedFallbackReason,
+        data: result.data,
+      });
+      if (result.source === "mock") {
+        console.warn("Smart Input used mock parser", {
+          fallbackReason: result.fallbackReason ?? result.debug?.usedFallbackReason,
+          customerId: selectedCustomer,
+        });
+      }
       if (Array.isArray(result.data?.unmapped) && result.data.unmapped.length) {
         console.warn("Smart Input unmapped fields", result.data.unmapped);
       }

@@ -21,6 +21,7 @@ type ExtractionEnvelope = {
 type GeminiExtractionResult = {
   source: "gemini" | "mock";
   fallback?: boolean;
+  fallbackReason?: string;
   data: ExtractionEnvelope;
   debug?: {
     prompt?: string;
@@ -30,6 +31,18 @@ type GeminiExtractionResult = {
     usedFallbackReason?: string;
   };
 };
+
+class GeminiExtractionError extends Error {
+  reason: string;
+  details?: unknown;
+
+  constructor(reason: string, message: string, details?: unknown) {
+    super(message);
+    this.name = "GeminiExtractionError";
+    this.reason = reason;
+    this.details = details;
+  }
+}
 
 const options = {
   returnObjective: [
@@ -586,16 +599,103 @@ function isEmptyExtraction(data: ExtractionEnvelope) {
     !data.unmapped.length;
 }
 
+function getJsonParseCandidate(rawText: string) {
+  const trimmed = rawText.trim();
+  const unfenced = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  if (unfenced.startsWith("{") && unfenced.endsWith("}")) return unfenced;
+  const start = unfenced.indexOf("{");
+  const end = unfenced.lastIndexOf("}");
+  if (start >= 0 && end > start) return unfenced.slice(start, end + 1);
+  return unfenced;
+}
+
+function normalizeExtractionEnvelope(value: unknown): ExtractionEnvelope {
+  if (!value || typeof value !== "object") {
+    throw new GeminiExtractionError("schema_mismatch", "Gemini JSON root is not an object.", { parsed: value });
+  }
+  const source = value as Partial<ExtractionEnvelope>;
+  const extracted = source.extracted && typeof source.extracted === "object" ? source.extracted : {};
+  const inferred = source.inferred && typeof source.inferred === "object" ? source.inferred : {};
+  const normalized: ExtractionEnvelope = {
+    extracted: {
+      profile: { ...((extracted as ExtractionEnvelope["extracted"]).profile ?? {}) },
+      financialProfile: { ...((extracted as ExtractionEnvelope["extracted"]).financialProfile ?? {}) },
+      rrttllu: { ...((extracted as ExtractionEnvelope["extracted"]).rrttllu ?? {}) },
+    },
+    inferred: {
+      profile: { ...((inferred as ExtractionEnvelope["inferred"]).profile ?? {}) },
+      financialProfile: { ...((inferred as ExtractionEnvelope["inferred"]).financialProfile ?? {}) },
+      rrttllu: { ...((inferred as ExtractionEnvelope["inferred"]).rrttllu ?? {}) },
+    },
+    unmapped: Array.isArray(source.unmapped) ? source.unmapped.filter((item): item is string => typeof item === "string") : [],
+    notes: Array.isArray(source.notes) ? source.notes.filter((item): item is string => typeof item === "string") : [],
+    confidence: source.confidence && typeof source.confidence === "object" && !Array.isArray(source.confidence)
+      ? source.confidence as Record<string, number>
+      : {},
+  };
+  return normalized;
+}
+
+function parseGeminiJson(rawText: string) {
+  try {
+    return normalizeExtractionEnvelope(JSON.parse(rawText));
+  } catch (firstError) {
+    const recovered = getJsonParseCandidate(rawText);
+    if (recovered !== rawText) {
+      try {
+        const parsed = normalizeExtractionEnvelope(JSON.parse(recovered));
+        console.info("Gemini JSON recovered after extracting JSON candidate", {
+          rawLength: rawText.length,
+          recoveredLength: recovered.length,
+        });
+        return parsed;
+      } catch (recoveryError) {
+        throw new GeminiExtractionError("json_parse_failed", "Gemini JSON.parse failed after recovery attempt.", {
+          firstError,
+          recoveryError,
+          rawTextBeforeParse: rawText,
+          recoveredCandidate: recovered,
+        });
+      }
+    }
+    throw new GeminiExtractionError("json_parse_failed", "Gemini JSON.parse failed.", {
+      firstError,
+      rawTextBeforeParse: rawText,
+    });
+  }
+}
+
 async function callGemini(note: string): Promise<GeminiExtractionResult> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { source: "mock", data: mockExtract(note) };
+  if (!apiKey) {
+    console.error("Smart Input extraction fallback: GEMINI_API_KEY is missing. Using mock parser only because API key is absent.", {
+      fallbackReason: "api_key_missing",
+      smartInputLength: note.length,
+      trimmedLength: note.trim().length,
+    });
+    return {
+      source: "mock",
+      fallback: true,
+      fallbackReason: "api_key_missing",
+      data: mockExtract(note),
+      debug: { usedFallbackReason: "api_key_missing" },
+    };
+  }
+
+  const prompt = buildPrompt(note);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+  let result: unknown;
 
   try {
-    const prompt = buildPrompt(note);
     console.log("Gemini extraction prompt", prompt);
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: {
@@ -606,14 +706,27 @@ async function callGemini(note: string): Promise<GeminiExtractionResult> {
       }),
     });
 
-    if (!response.ok) throw new Error(`Gemini request failed: ${response.status}`);
-    const result = await response.json();
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "");
+      const reason = response.status === 429 ? "rate_limit" : "api_request_failed";
+      throw new GeminiExtractionError(reason, `Gemini request failed: ${response.status}`, {
+        status: response.status,
+        statusText: response.statusText,
+        responseBody: errorText,
+      });
+    }
+    result = await response.json();
     console.log("Gemini raw response", result);
-    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== "string") throw new Error("Gemini response did not include JSON text.");
+    const responsePayload = result as { candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }> };
+    const text = responsePayload.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof text !== "string") {
+      throw new GeminiExtractionError("schema_mismatch", "Gemini response did not include JSON text.", {
+        rawResponse: result,
+      });
+    }
     console.log("Gemini raw text before JSON.parse", text);
     try {
-      const parsed = JSON.parse(text) as ExtractionEnvelope;
+      const parsed = parseGeminiJson(text);
       const enriched = enrichUniqueOther(parsed, note);
       console.log("Gemini parsed extraction before client mapping", enriched);
       if (isEmptyExtraction(enriched)) {
@@ -634,28 +747,32 @@ async function callGemini(note: string): Promise<GeminiExtractionResult> {
         },
       };
     } catch (parseError) {
-      console.error("Gemini JSON.parse failed", {
-        parseError,
+      console.error("Gemini JSON parsing or schema validation failed", {
+        reason: parseError instanceof GeminiExtractionError ? parseError.reason : "json_parse_failed",
+        error: parseError,
         rawTextBeforeParse: text,
+        rawResponse: result,
         smartInput: note,
       });
       throw parseError;
     }
   } catch (error) {
-    console.error("Gemini extraction failed. Falling back to mock parser.", {
+    const isAbort = error instanceof Error && error.name === "AbortError";
+    const geminiError = error instanceof GeminiExtractionError
+      ? error
+      : new GeminiExtractionError(isAbort ? "timeout" : "api_request_failed", isAbort ? "Gemini request timed out." : "Gemini extraction failed.", { error });
+    console.error("Gemini extraction failed. Mock parser was NOT used because GEMINI_API_KEY is configured.", {
+      reason: geminiError.reason,
+      message: geminiError.message,
+      details: geminiError.details,
       error,
       smartInput: note,
       smartInputLength: note.length,
       trimmedLength: note.trim().length,
     });
-    return {
-      source: "mock",
-      fallback: true,
-      data: mockExtract(note),
-      debug: {
-        usedFallbackReason: error instanceof Error ? error.message : String(error),
-      },
-    };
+    throw geminiError;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -667,7 +784,17 @@ export async function POST(request: Request) {
     const result = await callGemini(note);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
-    console.error("customer extraction failed", { error });
-    return NextResponse.json({ error: "추출에 실패했습니다. 직접 입력하거나 다시 시도해주세요." }, { status: 500 });
+    const reason = error instanceof GeminiExtractionError ? error.reason : "unknown";
+    console.error("customer extraction failed", {
+      reason,
+      error,
+      details: error instanceof GeminiExtractionError ? error.details : undefined,
+    });
+    return NextResponse.json({
+      ok: false,
+      source: "gemini",
+      error: "추출에 실패했습니다. 직접 입력하거나 다시 시도해주세요.",
+      reason,
+    }, { status: reason === "api_key_missing" ? 500 : 502 });
   }
 }
