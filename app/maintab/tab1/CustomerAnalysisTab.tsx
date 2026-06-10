@@ -46,6 +46,38 @@ const emptyAdvisoryGuide: AdvisoryGuide = {
   explanation: { lines: [] },
 };
 const tab1SubTabStorageKey = "samsung-vvip-tab1-inner-tab";
+const geminiDailyLimit = 20;
+const geminiUsageStorageKey = "samsung-vvip-gemini-usage";
+const smartInputCachePrefix = "samsung-vvip-smart-input-cache";
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function readGeminiUsageToday() {
+  if (typeof window === "undefined") return 0;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(geminiUsageStorageKey) ?? "{}") as { date?: string; count?: number };
+    return parsed.date === todayKey() && typeof parsed.count === "number" ? parsed.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeGeminiUsageToday(count: number) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(geminiUsageStorageKey, JSON.stringify({ date: todayKey(), count }));
+}
+
+function incrementGeminiUsageToday() {
+  const next = readGeminiUsageToday() + 1;
+  writeGeminiUsageToday(next);
+  return next;
+}
+
+function smartInputCacheKey(customerId: string) {
+  return `${smartInputCachePrefix}:${customerId}`;
+}
 
 const inferredSelectableKeys = new Set([
   "returnObjective",
@@ -206,8 +238,13 @@ function SmartInputCard() {
   const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, selectedCustomerProfile, setSmartInputNote } = useCustomerContext();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [usageToday, setUsageToday] = useState(0);
   const [resetOpen, setResetOpen] = useState(false);
   const note = formData.smartInputNote;
+
+  useEffect(() => {
+    setUsageToday(readGeminiUsageToday());
+  }, []);
 
   const extract = async () => {
     const textareaValue = document.querySelector<HTMLTextAreaElement>("[data-smart-input-textarea='true']")?.value ?? "";
@@ -224,13 +261,32 @@ function SmartInputCard() {
       setMessage("자연어 메모를 먼저 입력해주세요.");
       return;
     }
+    const cacheKey = smartInputCacheKey(selectedCustomer);
+    try {
+      const cached = JSON.parse(window.localStorage.getItem(cacheKey) ?? "null") as { note?: string; result?: { data?: SmartExtractionEnvelope; source?: string; fallback?: boolean; fallbackReason?: string; retryDelay?: number; estimatedUsageToday?: number; estimatedRemainingToday?: number; quotaLimit?: number } } | null;
+      if (cached?.note === note && cached.result?.data) {
+        console.info("Smart Input reused cached extraction result", {
+          customerId: selectedCustomer,
+          source: cached.result.source,
+          fallback: cached.result.fallback,
+          fallbackReason: cached.result.fallbackReason,
+        });
+        applySmartExtraction(toSmartExtractionPayload(cached.result.data));
+        const remaining = Math.max(geminiDailyLimit - usageToday, 0);
+        setMessage(`동일한 Smart Input 원문이라 이전 추출 결과를 재사용했습니다. 오늘 Gemini 추정 사용량: ${usageToday}/${geminiDailyLimit}회 · 추정 잔여 횟수: ${remaining}회`);
+        return;
+      }
+    } catch (cacheError) {
+      console.warn("Smart Input cache read failed", { cacheError, customerId: selectedCustomer });
+    }
     setLoading(true);
     setMessage("");
     try {
+      const estimatedUsageToday = readGeminiUsageToday();
       const response = await fetch("/api/extract-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note }),
+        body: JSON.stringify({ note, estimatedUsageToday }),
       });
       const result = await response.json();
       if (!response.ok || !result?.ok) {
@@ -246,6 +302,9 @@ function SmartInputCard() {
         source: result.source,
         fallback: result.fallback,
         fallbackReason: result.fallbackReason ?? result.debug?.usedFallbackReason,
+        retryDelay: result.retryDelay,
+        estimatedUsageToday: result.estimatedUsageToday,
+        estimatedRemainingToday: result.estimatedRemainingToday,
         data: result.data,
       });
       if (result.source === "mock") {
@@ -261,7 +320,33 @@ function SmartInputCard() {
         console.warn("Smart Input preserved candidate notes", result.data.notes);
       }
       applySmartExtraction(toSmartExtractionPayload(result.data as SmartExtractionEnvelope));
-      setMessage(result.source === "mock" ? "Mock Parser로 추출 가능한 항목을 반영했습니다." : "Gemini 추출 결과를 입력값에 반영했습니다.");
+      if (result.source === "gemini") {
+        const nextUsage = incrementGeminiUsageToday();
+        setUsageToday(nextUsage);
+        const remaining = Math.max(geminiDailyLimit - nextUsage, 0);
+        setMessage(`Gemini 추출 결과를 입력값에 반영했습니다. 오늘 Gemini 추정 사용량: ${nextUsage}/${geminiDailyLimit}회 · 추정 잔여 횟수: ${remaining}회`);
+      } else if (result.fallbackReason === "rate_limit") {
+        const serverUsage = typeof result.estimatedUsageToday === "number" ? result.estimatedUsageToday : geminiDailyLimit;
+        setUsageToday(serverUsage);
+        writeGeminiUsageToday(serverUsage);
+        const retryText = typeof result.retryDelay === "number" ? ` 약 ${result.retryDelay}초 후 다시 시도할 수 있습니다.` : "";
+        setMessage(`Gemini 무료 요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.${retryText} Gemini 요청 한도 초과로 임시 추출 결과를 사용했습니다. 오늘 Gemini 추정 사용량: ${serverUsage}/${result.quotaLimit ?? geminiDailyLimit}회 · 추정 잔여 횟수: ${result.estimatedRemainingToday ?? 0}회`);
+      } else {
+        setMessage("Mock Parser로 추출 가능한 항목을 반영했습니다.");
+      }
+      window.localStorage.setItem(cacheKey, JSON.stringify({
+        note,
+        result: {
+          source: result.source,
+          fallback: result.fallback,
+          fallbackReason: result.fallbackReason,
+          retryDelay: result.retryDelay,
+          estimatedUsageToday: result.estimatedUsageToday,
+          estimatedRemainingToday: result.estimatedRemainingToday,
+          quotaLimit: result.quotaLimit,
+          data: result.data,
+        },
+      }));
     } catch (error) {
       console.error("Smart Input extraction failed", {
         error,
@@ -298,6 +383,9 @@ function SmartInputCard() {
             onChange={(e) => setSmartInputNote(e.target.value)}
           />
           {message ? <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-yellow-900"}`}>{message}</p> : null}
+          <p className="mt-2 text-xs font-bold text-yellow-800">
+            오늘 Gemini 추정 사용량: {usageToday}/{geminiDailyLimit}회 · 추정 잔여 횟수: {Math.max(geminiDailyLimit - usageToday, 0)}회
+          </p>
         </div>
         <div className="grid content-start gap-2 lg:pt-10">
           <button

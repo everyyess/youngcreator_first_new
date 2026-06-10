@@ -22,6 +22,10 @@ type GeminiExtractionResult = {
   source: "gemini" | "mock";
   fallback?: boolean;
   fallbackReason?: string;
+  retryDelay?: number;
+  quotaLimit?: number;
+  estimatedUsageToday?: number;
+  estimatedRemainingToday?: number;
   data: ExtractionEnvelope;
   debug?: {
     prompt?: string;
@@ -31,6 +35,8 @@ type GeminiExtractionResult = {
     usedFallbackReason?: string;
   };
 };
+
+const GEMINI_FREE_TIER_DAILY_LIMIT = 20;
 
 class GeminiExtractionError extends Error {
   reason: string;
@@ -668,7 +674,43 @@ function parseGeminiJson(rawText: string) {
   }
 }
 
-async function callGemini(note: string): Promise<GeminiExtractionResult> {
+function parseGeminiErrorDetails(details: unknown) {
+  const body = typeof details === "object" && details && "responseBody" in details
+    ? String((details as { responseBody?: unknown }).responseBody ?? "")
+    : "";
+  let parsed: unknown;
+  try {
+    parsed = body ? JSON.parse(body) : undefined;
+  } catch {
+    parsed = undefined;
+  }
+  const textBody = body || JSON.stringify(details ?? {});
+  const retryDelayText = textBody.match(/"retryDelay"\s*:\s*"(\d+)s"/)?.[1]
+    ?? textBody.match(/retryDelay['"]?\s*[:=]\s*['"]?(\d+)s/)?.[1];
+  const quotaValueText = textBody.match(/"quotaValue"\s*:\s*"(\d+)"/)?.[1]
+    ?? textBody.match(/quotaValue['"]?\s*[:=]\s*['"]?(\d+)/)?.[1];
+  const status = typeof parsed === "object" && parsed && "error" in parsed
+    ? (parsed as { error?: { status?: string; message?: string } }).error?.status
+    : undefined;
+  return {
+    retryDelay: retryDelayText ? Number(retryDelayText) : undefined,
+    quotaLimit: quotaValueText ? Number(quotaValueText) : GEMINI_FREE_TIER_DAILY_LIMIT,
+    status,
+    message: typeof parsed === "object" && parsed && "error" in parsed
+      ? (parsed as { error?: { message?: string } }).error?.message
+      : undefined,
+  };
+}
+
+function quotaEstimate(clientEstimatedUsageToday: number | undefined, quotaLimit: number) {
+  const estimatedUsageToday = Math.min(Math.max(clientEstimatedUsageToday ?? quotaLimit, 0), quotaLimit);
+  return {
+    estimatedUsageToday,
+    estimatedRemainingToday: Math.max(quotaLimit - estimatedUsageToday, 0),
+  };
+}
+
+async function callGemini(note: string, clientEstimatedUsageToday?: number): Promise<GeminiExtractionResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.error("Smart Input extraction fallback: GEMINI_API_KEY is missing. Using mock parser only because API key is absent.", {
@@ -680,6 +722,8 @@ async function callGemini(note: string): Promise<GeminiExtractionResult> {
       source: "mock",
       fallback: true,
       fallbackReason: "api_key_missing",
+      quotaLimit: GEMINI_FREE_TIER_DAILY_LIMIT,
+      ...quotaEstimate(clientEstimatedUsageToday, GEMINI_FREE_TIER_DAILY_LIMIT),
       data: mockExtract(note),
       debug: { usedFallbackReason: "api_key_missing" },
     };
@@ -770,6 +814,30 @@ async function callGemini(note: string): Promise<GeminiExtractionResult> {
       smartInputLength: note.length,
       trimmedLength: note.trim().length,
     });
+    if (geminiError.reason === "rate_limit") {
+      const quota = parseGeminiErrorDetails(geminiError.details);
+      const quotaLimit = quota.quotaLimit ?? GEMINI_FREE_TIER_DAILY_LIMIT;
+      const estimate = quotaEstimate(Math.max(clientEstimatedUsageToday ?? 0, quotaLimit), quotaLimit);
+      console.error("Smart Input extraction fallback: Gemini free tier rate limit reached. Using mock parser.", {
+        fallbackReason: "rate_limit",
+        retryDelay: quota.retryDelay,
+        quotaLimit,
+        estimatedUsageToday: estimate.estimatedUsageToday,
+        estimatedRemainingToday: estimate.estimatedRemainingToday,
+        quotaStatus: quota.status,
+        quotaMessage: quota.message,
+      });
+      return {
+        source: "mock",
+        fallback: true,
+        fallbackReason: "rate_limit",
+        retryDelay: quota.retryDelay,
+        quotaLimit,
+        ...estimate,
+        data: mockExtract(note),
+        debug: { usedFallbackReason: "rate_limit" },
+      };
+    }
     throw geminiError;
   } finally {
     clearTimeout(timeoutId);
@@ -780,8 +848,9 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const note = typeof body?.note === "string" ? body.note.trim() : "";
+    const estimatedUsageToday = typeof body?.estimatedUsageToday === "number" ? body.estimatedUsageToday : undefined;
     if (!note) return NextResponse.json({ error: "메모를 입력해주세요." }, { status: 400 });
-    const result = await callGemini(note);
+    const result = await callGemini(note, estimatedUsageToday);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const reason = error instanceof GeminiExtractionError ? error.reason : "unknown";
