@@ -234,6 +234,36 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     return next;
   };
 
+  const uniqueOtherMeaningKey = (value: string) => {
+    const compact = value.replace(/\s+/g, "");
+    if (/크게흔들리지않|민감하지않|예민하지않/.test(compact)) return "market-stable";
+    if (/빠르지않|급하지않|속도가빠르지않/.test(compact)) return "not-fast-decision";
+    if (/시장뉴스|단기이슈|뉴스.*민감|민감.*뉴스|민감하게반응/.test(compact)) return "market-sensitivity";
+    if (/의사결정.*빠|빠른편|성격.*급|급함|속도가빠/.test(compact)) return "fast-decision";
+    if (/배우자|가족.*의사결정|의사결정.*영향력/.test(compact)) return "family-influence";
+    if (/질문.*많|충분한설명|설명.*선호|납득/.test(compact)) return "explanation-preference";
+    if (/꼼꼼|의심|객관적근거|근거중시/.test(compact)) return "evidence-seeking";
+    if (/부모님|부모관련|고령부모/.test(compact)) return "parent-related";
+    if (/포트폴리오.*부진|벤치마크.*낮|수익률.*훼손|망가진/.test(compact)) return "portfolio-underperformance";
+    if (/급등주|과도한레버리지|레버리지.*손실|손실경험/.test(compact)) return "aggressive-loss-experience";
+    if (/모니터링|관리시간|본업이바빠|주도주편입/.test(compact)) return "monitoring-time";
+    if (/기존PB|PB서비스|불만족/.test(compact)) return "pb-experience";
+    return compact.replace(/[^\p{Script=Hangul}a-zA-Z0-9]/gu, "").slice(0, 32);
+  };
+
+  const mergeUniqueOther = (existing: string, incoming: string) => {
+    const values = [
+      ...incoming.split(/\n/),
+      ...existing.split(/\n/),
+    ].map((value) => value.trim()).filter(Boolean);
+    const byMeaning = new Map<string, string>();
+    values.forEach((value) => {
+      const key = uniqueOtherMeaningKey(value);
+      if (!byMeaning.has(key)) byMeaning.set(key, value);
+    });
+    return Array.from(byMeaning.values()).join("\n");
+  };
+
   const applySmartExtraction = (payload: SmartExtractionPayload) => {
     const profilePatch = payload.profile ?? {};
     const currentProfile = customerProfiles.find((p) => p.id === selectedCustomer);
@@ -271,8 +301,13 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
         "returnObjective", "expectedReturn", "knowledgeLevel", "derivativesExperience", "financialAssetRatio",
         "investmentAssetRatio", "riskAttitude", "lossResponse", "timeHorizon", "giftingPlan", "globalTaxImportance",
         "recentGlobalTaxSubject", "foreignStockTaxImportance", "regularCashflowNeed", "lumpSumPlan",
-        "emergencyReservePlan", "legalConstraintOther", "preferredAssets", "avoidedAssets", "holdingOrDisposalPlan", "uniqueOther",
+        "emergencyReservePlan", "legalConstraintOther", "preferredAssets", "avoidedAssets", "holdingOrDisposalPlan",
       ]);
+      const manualUniqueOther = current.uniqueOtherManual ?? "";
+      const nextSmartUniqueOther = hasExtractedText(rrttlluPatch.uniqueOther) ? rrttlluPatch.uniqueOther : "";
+      rrttllu.uniqueOther = nextSmartUniqueOther
+        ? mergeUniqueOther(manualUniqueOther, nextSmartUniqueOther)
+        : manualUniqueOther;
       if (Array.isArray(rrttlluPatch.investmentExperience) && rrttlluPatch.investmentExperience.length) {
         rrttllu.investmentExperience = rrttlluPatch.investmentExperience;
       }
@@ -285,7 +320,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       } else if (hasExtractedText(rrttlluPatch.expectedReturn)) {
         rrttllu.expectedReturnUnknown = false;
       }
-      return { ...prev, [selectedCustomer]: { ...current, financial, rrttllu } };
+      return { ...prev, [selectedCustomer]: { ...current, financial, rrttllu, smartExtractedUniqueOther: nextSmartUniqueOther } };
     });
     if (storageReady && !isSeeding) {
       void saveCustomerProfileColumns(updatedProfile).then((r) => {
@@ -296,8 +331,16 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   };
 
   const setFinancial = (key: keyof FinancialInfo, value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, [key]: value } }));
-  const setRrttllu = (key: keyof RrttlluInfo, value: string) => setFormData((prev) => ({ ...prev, rrttllu: { ...prev.rrttllu, [key]: value } }));
+  const setRrttllu = (key: keyof RrttlluInfo, value: string) => setFormData((prev) => (
+    key === "uniqueOther"
+      ? { ...prev, uniqueOtherManual: value, smartExtractedUniqueOther: "", rrttllu: { ...prev.rrttllu, uniqueOther: value } }
+      : { ...prev, rrttllu: { ...prev.rrttllu, [key]: value } }
+  ));
   const setSmartInputNote = (value: string) => setFormData((prev) => ({ ...prev, smartInputNote: value }));
+  const setAiGuidePbNote = (checkpointId: string, value: string) => setFormData((prev) => ({
+    ...prev,
+    aiGuidePbNotes: { ...(prev.aiGuidePbNotes ?? {}), [checkpointId]: value },
+  }));
   const setIrregularIncome = (value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: value, irregularIncomeNone: false } }));
   const toggleNoIrregularIncome = () => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: "", irregularIncomeNone: !prev.financial.irregularIncomeNone } }));
   const setExpectedReturn = (value: string) => setFormData((prev) => ({ ...prev, rrttllu: { ...prev.rrttllu, expectedReturn: value, expectedReturnUnknown: false } }));
@@ -327,7 +370,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     riskResult, financialCompletion, rrttlluCompletion, internalJsonPayload, warnings,
     liquiditySummary, analysisRequested, confirmedRiskResult, changeHistory, changeHistoryExpanded,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
-    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote,
+    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
     updateCustomerProfile, setChangeHistoryExpanded,
   };

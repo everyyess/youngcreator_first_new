@@ -98,6 +98,52 @@ export function Panel({ icon, eyebrow, title, note, children }: { icon: React.Re
   );
 }
 
+export function ConfirmModal({
+  icon,
+  title,
+  body,
+  cancelLabel = "취소",
+  confirmLabel = "삭제",
+  onCancel,
+  onConfirm,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: React.ReactNode;
+  cancelLabel?: string;
+  confirmLabel?: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6">
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-2xl">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-600">
+          {icon}
+        </div>
+        <h2 className="mt-4 text-xl font-extrabold text-navy">{title}</h2>
+        <div className="mt-3 text-sm font-semibold leading-6 text-slate-600">{body}</div>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-h-11 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 transition hover:bg-slate-50"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="min-h-11 rounded-lg border border-red-600 bg-red-600 px-4 py-2 text-sm font-extrabold text-white transition hover:bg-red-700"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function TextField({ label, value, placeholder, onChange, compact = false, tone }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean; tone?: "blue" | "gray" }) {
   return (
     <label className={`question-card ${tone ? `question-card-${tone}` : ""} block rounded-lg border border-slate-200 ${compact ? "p-3" : "p-4"}`}>

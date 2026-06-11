@@ -129,7 +129,7 @@ export type LiquiditySummaryInfo = {
 
 export type CustomerUpdatedMap = Record<CustomerId, number>;
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string };
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string> };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -281,7 +281,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "" };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {} };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -308,6 +308,9 @@ export function normalizeAppState(value: unknown): AppState {
   const rrttllu = state.rrttllu && typeof state.rrttllu === "object" ? state.rrttllu : {};
   return {
     smartInputNote: typeof state.smartInputNote === "string" ? state.smartInputNote : "",
+    uniqueOtherManual: typeof state.uniqueOtherManual === "string" ? state.uniqueOtherManual : "",
+    smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
+    aiGuidePbNotes: state.aiGuidePbNotes && typeof state.aiGuidePbNotes === "object" && !Array.isArray(state.aiGuidePbNotes) ? state.aiGuidePbNotes as Record<string, string> : {},
     financial: { ...defaults.financial, ...financial, irregularIncomeNone: Boolean((financial as Partial<FinancialInfo>).irregularIncomeNone) },
     rrttllu: {
       ...defaults.rrttllu, ...rrttllu,
@@ -759,6 +762,7 @@ export type CustomerContextValue = {
   toggleInvestmentExperience: (option: string) => void;
   toggleLegalConstraint: (option: string) => void;
   setSmartInputNote: (value: string) => void;
+  setAiGuidePbNote: (checkpointId: string, value: string) => void;
   analyzeRrttllu: () => void;
   resetSelectedCustomer: () => void;
   resetSelectedCustomerInputs: () => void;
