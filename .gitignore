@@ -6,3 +6,6 @@ work/
 *.log
 *.tsbuildinfo
 .env*.local
+
+.vercel
+.env.vercel

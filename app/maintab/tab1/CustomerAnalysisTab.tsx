@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
-import { BarChart3, ClipboardList, Info, LockKeyhole, PieChart, ShieldCheck, Sparkles, UserRound, WalletCards } from "lucide-react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { BarChart3, ClipboardList, Info, LockKeyhole, PieChart, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from "lucide-react";
 import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
 import type { SmartExtractionPayload } from "../CustomerContext";
-import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, LiquiditySummary, CheckerboardGrid } from "../ui";
+import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, LiquiditySummary, CheckerboardGrid, ConfirmModal } from "../ui";
 
 const grayQuestionCardStyle = {
   "--question-card-bg": "#f8fafc",
@@ -30,6 +30,54 @@ type SmartExtractionEnvelope = {
   notes?: string[];
   confidence?: Record<string, number>;
 };
+
+type AdvisoryGuideLine = { text: string; highlights?: string[] };
+type AdvisoryGuideCheckpoint = { id: string; title: string; prompt?: string };
+type AdvisoryGuide = {
+  conflicts: { lines: AdvisoryGuideLine[] };
+  followUps: { lines: AdvisoryGuideLine[]; checkpoints: AdvisoryGuideCheckpoint[] };
+  explanation: { lines: AdvisoryGuideLine[] };
+};
+type Tab1SubTab = "input" | "analysis" | "guide";
+
+const emptyAdvisoryGuide: AdvisoryGuide = {
+  conflicts: { lines: [] },
+  followUps: { lines: [], checkpoints: [] },
+  explanation: { lines: [] },
+};
+const tab1SubTabStorageKey = "samsung-vvip-tab1-inner-tab";
+const geminiDailyLimit = 20;
+const geminiUsageStorageKey = "samsung-vvip-gemini-usage";
+const smartInputCachePrefix = "samsung-vvip-smart-input-cache";
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function readGeminiUsageToday() {
+  if (typeof window === "undefined") return 0;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(geminiUsageStorageKey) ?? "{}") as { date?: string; count?: number };
+    return parsed.date === todayKey() && typeof parsed.count === "number" ? parsed.count : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeGeminiUsageToday(count: number) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(geminiUsageStorageKey, JSON.stringify({ date: todayKey(), count }));
+}
+
+function incrementGeminiUsageToday() {
+  const next = readGeminiUsageToday() + 1;
+  writeGeminiUsageToday(next);
+  return next;
+}
+
+function smartInputCacheKey(customerId: string) {
+  return `${smartInputCachePrefix}:${customerId}`;
+}
 
 const inferredSelectableKeys = new Set([
   "returnObjective",
@@ -71,6 +119,18 @@ function pickSelectable(section?: ExtractionSection) {
   return next;
 }
 
+function normalizeUniqueMeaning(value: string) {
+  const compact = value.replace(/\s+/g, "");
+  if (/시장뉴스|단기이슈|뉴스.*민감|민감.*뉴스|민감하게반응/.test(compact)) return "market-sensitivity";
+  if (/의사결정.*빠|빠른편|성격.*급|급함|속도가빠/.test(compact)) return "fast-decision";
+  if (/배우자|가족.*의사결정|의사결정.*영향력/.test(compact)) return "family-influence";
+  if (/질문.*많|충분한설명|설명.*선호|납득/.test(compact)) return "explanation-preference";
+  if (/부모님|부모관련|고령부모/.test(compact)) return "parent-related";
+  if (/포트폴리오.*부진|벤치마크.*낮|수익률.*훼손|망가진/.test(compact)) return "portfolio-underperformance";
+  if (/급등주|과도한레버리지|레버리지.*손실|손실경험/.test(compact)) return "aggressive-loss-experience";
+  return compact.replace(/[^\p{Script=Hangul}a-zA-Z0-9]/gu, "").slice(0, 32);
+}
+
 function mergeUniqueNotes(existing: unknown, notes: string[]) {
   const values = [
     ...(typeof existing === "string" ? existing.split(/\n/) : []),
@@ -78,9 +138,18 @@ function mergeUniqueNotes(existing: unknown, notes: string[]) {
   ]
     .map((value) => value.trim())
     .filter(Boolean);
-  return values.filter((value, index, list) => {
-    return index === list.findIndex((other) => other === value || other.includes(value) || value.includes(other));
-  }).join("\n");
+  const byMeaning = new Map<string, string>();
+  values.forEach((value) => {
+    const key = normalizeUniqueMeaning(value);
+    const current = byMeaning.get(key);
+    if (!current) {
+      byMeaning.set(key, value);
+      return;
+    }
+    const currentLooksRaw = current.length < value.length && !/[.습니다|합니다|편|경향|가능성]/.test(current);
+    if (currentLooksRaw) byMeaning.set(key, value);
+  });
+  return Array.from(byMeaning.values()).join("\n");
 }
 
 function toSmartExtractionPayload(envelope: SmartExtractionEnvelope): SmartExtractionPayload {
@@ -156,15 +225,26 @@ function CustomerInfoCard() {
   );
 }
 
-function SmartInputCard({
-  onOpenSummary,
-}: {
-  onOpenSummary: () => void;
-}) {
-  const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, setSmartInputNote } = useCustomerContext();
+function PbPrivateNotice() {
+  return (
+    <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+      <LockKeyhole size={14} />
+      <span>PB 참고용 정보입니다. 고객에게 노출되지 않도록 주의하세요.</span>
+    </div>
+  );
+}
+
+function SmartInputCard() {
+  const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, selectedCustomerProfile, setSmartInputNote } = useCustomerContext();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [usageToday, setUsageToday] = useState(0);
+  const [resetOpen, setResetOpen] = useState(false);
   const note = formData.smartInputNote;
+
+  useEffect(() => {
+    setUsageToday(readGeminiUsageToday());
+  }, []);
 
   const extract = async () => {
     const textareaValue = document.querySelector<HTMLTextAreaElement>("[data-smart-input-textarea='true']")?.value ?? "";
@@ -181,17 +261,62 @@ function SmartInputCard({
       setMessage("자연어 메모를 먼저 입력해주세요.");
       return;
     }
+    const cacheKey = smartInputCacheKey(selectedCustomer);
+    try {
+      const cached = JSON.parse(window.localStorage.getItem(cacheKey) ?? "null") as { note?: string; result?: { data?: SmartExtractionEnvelope; source?: string; fallback?: boolean; fallbackReason?: string; retryDelay?: number; estimatedUsageToday?: number; estimatedRemainingToday?: number; quotaLimit?: number } } | null;
+      if (cached?.note === note && cached.result?.data) {
+        console.info("Smart Input reused cached extraction result", {
+          customerId: selectedCustomer,
+          source: cached.result.source,
+          fallback: cached.result.fallback,
+          fallbackReason: cached.result.fallbackReason,
+        });
+        applySmartExtraction(toSmartExtractionPayload(cached.result.data));
+        setMessage("동일한 Smart Input 원문이라 이전 추출 결과를 재사용했습니다.");
+        return;
+      }
+    } catch (cacheError) {
+      console.warn("Smart Input cache read failed", { cacheError, customerId: selectedCustomer });
+    }
     setLoading(true);
     setMessage("");
     try {
+      const estimatedUsageToday = readGeminiUsageToday();
+      console.info("[Gemini Call Trigger] extract-customer", {
+        customerId: selectedCustomer,
+        smartInputLength: note.length,
+        estimatedUsageToday,
+      });
       const response = await fetch("/api/extract-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note }),
+        body: JSON.stringify({ note, estimatedUsageToday }),
       });
       const result = await response.json();
-      if (!response.ok || !result?.ok) throw new Error(result?.error ?? "extract failed");
-      console.log("Smart Input extraction result", result.data);
+      if (!response.ok || !result?.ok) {
+        console.error("Smart Input extraction API returned an error", {
+          status: response.status,
+          result,
+          customerId: selectedCustomer,
+          smartInput: note,
+        });
+        throw new Error(result?.reason ? `${result.error ?? "extract failed"} (${result.reason})` : result?.error ?? "extract failed");
+      }
+      console.log("Smart Input extraction result", {
+        source: result.source,
+        fallback: result.fallback,
+        fallbackReason: result.fallbackReason ?? result.debug?.usedFallbackReason,
+        retryDelay: result.retryDelay,
+        estimatedUsageToday: result.estimatedUsageToday,
+        estimatedRemainingToday: result.estimatedRemainingToday,
+        data: result.data,
+      });
+      if (result.source === "mock") {
+        console.warn("Smart Input used mock parser", {
+          fallbackReason: result.fallbackReason ?? result.debug?.usedFallbackReason,
+          customerId: selectedCustomer,
+        });
+      }
       if (Array.isArray(result.data?.unmapped) && result.data.unmapped.length) {
         console.warn("Smart Input unmapped fields", result.data.unmapped);
       }
@@ -199,7 +324,31 @@ function SmartInputCard({
         console.warn("Smart Input preserved candidate notes", result.data.notes);
       }
       applySmartExtraction(toSmartExtractionPayload(result.data as SmartExtractionEnvelope));
-      setMessage(result.source === "mock" ? "Mock Parser로 추출 가능한 항목을 반영했습니다." : "Gemini 추출 결과를 입력값에 반영했습니다.");
+      if (result.source === "gemini") {
+        const nextUsage = incrementGeminiUsageToday();
+        setUsageToday(nextUsage);
+        setMessage("");
+      } else if (result.fallbackReason === "rate_limit") {
+        const serverUsage = typeof result.estimatedUsageToday === "number" ? result.estimatedUsageToday : geminiDailyLimit;
+        setUsageToday(serverUsage);
+        writeGeminiUsageToday(serverUsage);
+        setMessage("gemini_rate_limit");
+      } else {
+        setMessage("Mock Parser로 추출 가능한 항목을 반영했습니다.");
+      }
+      window.localStorage.setItem(cacheKey, JSON.stringify({
+        note,
+        result: {
+          source: result.source,
+          fallback: result.fallback,
+          fallbackReason: result.fallbackReason,
+          retryDelay: result.retryDelay,
+          estimatedUsageToday: result.estimatedUsageToday,
+          estimatedRemainingToday: result.estimatedRemainingToday,
+          quotaLimit: result.quotaLimit,
+          data: result.data,
+        },
+      }));
     } catch (error) {
       console.error("Smart Input extraction failed", {
         error,
@@ -215,16 +364,19 @@ function SmartInputCard({
   };
 
   const resetAll = () => {
-    if (!window.confirm("지금까지 입력한 정보가 사라집니다. 정말 초기화하시겠습니까?")) return;
     setMessage("");
     resetSelectedCustomerInputs();
+    setResetOpen(false);
   };
 
   return (
     <section className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 shadow-soft sm:p-5">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_140px]">
         <div>
-          <p className="mb-2 text-sm font-extrabold text-yellow-900">Smart Input</p>
+          <div className="mb-2 flex flex-wrap items-center gap-3">
+            <p className="text-sm font-extrabold text-yellow-900">Smart Input</p>
+            <PbPrivateNotice />
+          </div>
           <textarea
             data-smart-input-textarea="true"
             className="min-h-40 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] leading-6 text-ink shadow-inner transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
@@ -232,9 +384,24 @@ function SmartInputCard({
             placeholder="고객 정보와 니즈를 자연어로 입력합니다."
             onChange={(e) => setSmartInputNote(e.target.value)}
           />
-          {message ? <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-yellow-900"}`}>{message}</p> : null}
+          {message === "gemini_rate_limit" ? (
+            <div className="mt-2 space-y-1">
+              <p className="text-sm font-extrabold text-yellow-900">■ Gemini 무료 요청 한도를 초과했습니다. 내일 다시 시도해주세요.</p>
+              <p className="text-xs font-bold text-yellow-800">
+                오늘 Gemini 추정 사용량: {usageToday}/{geminiDailyLimit}회 · 추정 잔여 횟수: {Math.max(geminiDailyLimit - usageToday, 0)}회
+              </p>
+              <p className="text-sm font-extrabold text-yellow-900">■ Gemini 요청 한도 초과로 임시 추출 결과를 사용했습니다.</p>
+            </div>
+          ) : message ? (
+            <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-yellow-900"}`}>{message}</p>
+          ) : null}
+          {message !== "gemini_rate_limit" ? (
+            <p className="mt-2 text-xs font-bold text-yellow-800">
+              오늘 Gemini 추정 사용량: {usageToday}/{geminiDailyLimit}회 · 추정 잔여 횟수: {Math.max(geminiDailyLimit - usageToday, 0)}회
+            </p>
+          ) : null}
         </div>
-        <div className="grid content-start gap-2 lg:pt-7">
+        <div className="grid content-start gap-2 lg:pt-10">
           <button
             type="button"
             onClick={extract}
@@ -245,20 +412,24 @@ function SmartInputCard({
           </button>
           <button
             type="button"
-            onClick={onOpenSummary}
-            className="min-h-11 rounded-lg border border-yellow-300 bg-white px-4 py-2 text-sm font-extrabold text-yellow-900 transition hover:bg-yellow-100"
-          >
-            분석 및 요약
-          </button>
-          <button
-            type="button"
-            onClick={resetAll}
+            onClick={() => setResetOpen(true)}
             className="min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-extrabold text-red-700 transition hover:bg-red-50"
           >
             초기화
           </button>
         </div>
       </div>
+      {resetOpen ? (
+        <ConfirmModal
+          icon={<Trash2 size={26} />}
+          title="Smart Input 및 설문조사 초기화"
+          body={`${selectedCustomerProfile.name || "현재 고객"} Smart Input과 설문조사 입력 내용이 모두 사라집니다. 정말 초기화하시겠습니까?`}
+          cancelLabel="취소"
+          confirmLabel="삭제"
+          onCancel={() => setResetOpen(false)}
+          onConfirm={resetAll}
+        />
+      ) : null}
     </section>
   );
 }
@@ -427,23 +598,18 @@ function SummaryChips({ rows }: { rows: [string, string][] }) {
   );
 }
 
-function SummaryPopup({
-  open,
-  onClose,
+function SummaryAnalysisCard({
   formData,
   riskResult,
   liquiditySummary,
   selectedCustomerProfile,
 }: {
-  open: boolean;
-  onClose: () => void;
   formData: ReturnType<typeof useCustomerContext>["formData"];
   riskResult: ReturnType<typeof useCustomerContext>["riskResult"];
   liquiditySummary: ReturnType<typeof useCustomerContext>["liquiditySummary"];
   selectedCustomerProfile: ReturnType<typeof useCustomerContext>["selectedCustomerProfile"];
 }) {
   const [riskGuideOpen, setRiskGuideOpen] = useState(false);
-  if (!open) return null;
 
   const financial = formData.financial;
   const rrttllu = formData.rrttllu;
@@ -484,8 +650,7 @@ function SummaryPopup({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 px-4 py-6">
-      <section className="max-h-[86vh] w-full max-w-4xl overflow-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-bold text-samsung">분석 및 요약</p>
@@ -494,9 +659,6 @@ function SummaryPopup({
               <span className="text-base font-extrabold text-samsung">({selectedCustomerProfile.name || "신규 고객"} 고객님)</span>
             </h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
-            닫기
-          </button>
         </div>
         <div className="grid gap-2">
           <SummaryRow label="고객 재무 현황"><SummaryChips rows={financialSummary} /></SummaryRow>
@@ -553,7 +715,144 @@ function SummaryPopup({
           </div>
         ) : null}
       </section>
+  );
+}
+
+function HighlightedGuideText({ line }: { line: AdvisoryGuideLine }) {
+  const highlights = (line.highlights ?? []).filter(Boolean).sort((a, b) => b.length - a.length);
+  if (!highlights.length) return <>{line.text}</>;
+
+  const parts: React.ReactNode[] = [];
+  let remaining = line.text;
+  let key = 0;
+  while (remaining) {
+    const match = highlights
+      .map((highlight) => ({ highlight, index: remaining.indexOf(highlight) }))
+      .filter((item) => item.index >= 0)
+      .sort((a, b) => a.index - b.index || b.highlight.length - a.highlight.length)[0];
+    if (!match) {
+      parts.push(<span key={key++}>{remaining}</span>);
+      break;
+    }
+    if (match.index > 0) parts.push(<span key={key++}>{remaining.slice(0, match.index)}</span>);
+    parts.push(<strong key={key++} className="font-extrabold text-red-600">{match.highlight}</strong>);
+    remaining = remaining.slice(match.index + match.highlight.length);
+  }
+  return <>{parts}</>;
+}
+
+function GuideLines({ lines }: { lines: AdvisoryGuideLine[] }) {
+  const displayLines = lines.length ? lines : [{ text: "현재 입력된 정보 기준으로 특별한 유의사항이 감지되지 않았습니다." }];
+  return (
+    <div className="space-y-2">
+      {displayLines.map((line, index) => (
+        <p key={`${line.text}-${index}`} className="flex gap-2 text-sm font-semibold leading-6 text-slate-700">
+          <span className="shrink-0 font-extrabold text-samsung">■</span>
+          <span>
+            <HighlightedGuideText line={line} />
+          </span>
+        </p>
+      ))}
     </div>
+  );
+}
+
+function AdvisoryGuideSection({
+  title,
+  lines,
+  children,
+}: {
+  title: string;
+  lines: AdvisoryGuideLine[];
+  children?: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+      <h3 className="text-base font-extrabold text-navy">{title}</h3>
+      <div className="mt-3">
+        <GuideLines lines={lines} />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function UniqueOtherReferenceSection({ value }: { value: string }) {
+  const displayValue = value.trim() || "입력된 기타 참고 정보가 없습니다.";
+  return (
+    <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+      <h3 className="text-base font-extrabold text-navy">[4] (참조) Unique Circumstances - 기타</h3>
+      <p className="mt-2 text-xs font-bold leading-5 text-amber-700">
+        AI 재분류나 요약 없이, Unique Circumstances의 Q. 기타 입력 내용을 PB 참고용으로 그대로 표시합니다.
+      </p>
+      <div className="mt-3 whitespace-pre-wrap rounded-lg border border-amber-100 bg-white px-4 py-3 text-sm font-semibold leading-6 text-slate-700">
+        {displayValue}
+      </div>
+    </section>
+  );
+}
+
+function AiConsultingGuideCard({
+  guide,
+  loading,
+  error,
+}: {
+  guide: AdvisoryGuide;
+  loading: boolean;
+  error: string;
+}) {
+  const { formData, setAiGuidePbNote } = useCustomerContext();
+  const checkpoints = guide.followUps.checkpoints.length
+    ? guide.followUps.checkpoints
+    : [
+        { id: "followup-1", title: "월평균 잉여현금흐름" },
+        { id: "followup-2", title: "향후 1년 내 확정 지출" },
+      ];
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-100 text-samsung">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-normal text-slate-500">AI 상담 가이드</p>
+            <p className="mt-2 text-sm font-semibold leading-6 text-slate-600">
+              고객 입력값과 분석 결과를 바탕으로 PB 상담 시 참고할 가이드를 생성합니다.
+            </p>
+          </div>
+        </div>
+        <PbPrivateNotice />
+      </div>
+      {loading ? <p className="mt-4 rounded-lg border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-bold text-samsung">AI 상담 가이드를 생성하는 중입니다.</p> : null}
+      {error ? <p className="mt-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p> : null}
+      <div className="mt-4 grid gap-3">
+        <AdvisoryGuideSection title="[1] 상충 정보 탐지" lines={guide.conflicts.lines} />
+        <AdvisoryGuideSection title="[2] 추가 확인 필요" lines={guide.followUps.lines}>
+          <div className="mt-4 rounded-lg border border-red-100 bg-white p-3">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <p className="text-sm font-extrabold text-navy">PB 확인 메모</p>
+            </div>
+            <div className="grid gap-2">
+              {checkpoints.map((checkpoint) => (
+                <label key={checkpoint.id} className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-[280px_minmax(0,1fr)] md:items-center">
+                  <span className="whitespace-nowrap text-sm font-extrabold text-slate-700">{checkpoint.title}</span>
+                  <input
+                    className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+                    value={formData.aiGuidePbNotes?.[checkpoint.id] ?? ""}
+                    placeholder="상담 중 확인한 내용을 입력하세요."
+                    onChange={(e) => setAiGuidePbNote(checkpoint.id, e.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        </AdvisoryGuideSection>
+        <AdvisoryGuideSection title="[3] 설명 방식 제안" lines={guide.explanation.lines} />
+        <UniqueOtherReferenceSection value={formData.rrttllu.uniqueOther} />
+      </div>
+    </section>
   );
 }
 
@@ -561,25 +860,127 @@ function SummaryPopup({
 export default function CustomerAnalysisTab() {
   const {
     formData, liquiditySummary, riskResult,
-    selectedCustomerProfile,
+    selectedCustomerProfile, selectedCustomer, internalJsonPayload,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome,
     setExpectedReturn, toggleExpectedReturnUnknown, toggleInvestmentExperience,
     toggleLegalConstraint,
   } = useCustomerContext();
-  const [summaryOpen, setSummaryOpen] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<Tab1SubTab>("input");
+  const [advisoryGuide, setAdvisoryGuide] = useState<AdvisoryGuide>(emptyAdvisoryGuide);
+  const [advisoryGuideLoading, setAdvisoryGuideLoading] = useState(false);
+  const [advisoryGuideError, setAdvisoryGuideError] = useState("");
+  const [lastGuideSignature, setLastGuideSignature] = useState("");
+
+  const advisoryGuidePayload = useMemo(() => ({
+    customerId: selectedCustomer,
+    profile: selectedCustomerProfile,
+    smartInputNote: formData.smartInputNote,
+    formData: {
+      financial: formData.financial,
+      rrttllu: formData.rrttllu,
+    },
+    riskResult,
+    liquiditySummary,
+    structuredJson: internalJsonPayload,
+    uniqueOther: formData.rrttllu.uniqueOther,
+    pbNotes: formData.aiGuidePbNotes,
+    smartInputContext: {
+      raw: formData.smartInputNote,
+      reflectedUniqueOther: formData.rrttllu.uniqueOther,
+      smartExtractedUniqueOther: formData.smartExtractedUniqueOther,
+      reflectedPreferredAssets: formData.rrttllu.preferredAssets,
+      reflectedAvoidedAssets: formData.rrttllu.avoidedAssets,
+      reflectedExistingAssetPlan: formData.rrttllu.holdingOrDisposalPlan,
+    },
+  }), [formData.aiGuidePbNotes, formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartExtractedUniqueOther, internalJsonPayload, liquiditySummary, riskResult, selectedCustomer, selectedCustomerProfile]);
+
+  const advisoryGuideSignature = useMemo(() => JSON.stringify(advisoryGuidePayload), [advisoryGuidePayload]);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(tab1SubTabStorageKey);
+    if (stored === "input" || stored === "analysis" || stored === "guide") setActiveSubTab(stored);
+  }, []);
+
+  const selectSubTab = (tab: Tab1SubTab) => {
+    setActiveSubTab(tab);
+    window.localStorage.setItem(tab1SubTabStorageKey, tab);
+  };
+
+  useEffect(() => {
+    if (activeSubTab !== "guide") return;
+    if (lastGuideSignature === advisoryGuideSignature) {
+      console.info("[Gemini Call Skip] advisory-guide cached signature", {
+        customerId: selectedCustomer,
+        signatureLength: advisoryGuideSignature.length,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    async function generateGuide() {
+      setAdvisoryGuideLoading(true);
+      setAdvisoryGuideError("");
+      try {
+        console.info("[Gemini Call Trigger] advisory-guide", {
+          customerId: selectedCustomer,
+          signatureLength: advisoryGuideSignature.length,
+          smartInputLength: formData.smartInputNote.length,
+          uniqueOtherLength: formData.rrttllu.uniqueOther.length,
+        });
+        const response = await fetch("/api/generate-advisory-guide", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(advisoryGuidePayload),
+        });
+        const result = await response.json();
+        if (!response.ok || !result?.ok) throw new Error(result?.error ?? "AI 상담 가이드 생성 실패");
+        if (cancelled) return;
+        setAdvisoryGuide(result.data ?? emptyAdvisoryGuide);
+        setLastGuideSignature(advisoryGuideSignature);
+      } catch (error) {
+        console.error("AI advisory guide request failed", { error, advisoryGuidePayload });
+        if (cancelled) return;
+        setAdvisoryGuide(emptyAdvisoryGuide);
+        setAdvisoryGuideError("AI 상담 가이드 생성에 실패했습니다. 입력 정보를 확인하거나 다시 시도해주세요.");
+      } finally {
+        if (!cancelled) setAdvisoryGuideLoading(false);
+      }
+    }
+
+    void generateGuide();
+    return () => { cancelled = true; };
+  }, [activeSubTab, advisoryGuidePayload, advisoryGuideSignature, lastGuideSignature]);
 
   return (
     <div className="space-y-5">
+      <div className="mx-auto flex w-fit max-w-full gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
+        {[
+          { id: "input" as const, label: "고객 정보 입력", icon: <ClipboardList size={15} /> },
+          { id: "analysis" as const, label: "성향 및 니즈 분석", icon: <BarChart3 size={15} /> },
+          { id: "guide" as const, label: "AI 상담 가이드", icon: <Sparkles size={15} /> },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => selectSubTab(tab.id)}
+            className={`min-w-[220px] shrink-0 rounded-md px-6 py-2.5 text-sm font-bold transition ${
+              activeSubTab === tab.id
+                ? "bg-samsung text-white shadow-sm"
+                : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            <span className="inline-flex items-center justify-center gap-2">
+              {tab.icon}
+              {tab.label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {activeSubTab === "input" ? (
+        <>
+      <SmartInputCard />
       <CustomerInfoCard />
-      <SmartInputCard onOpenSummary={() => setSummaryOpen(true)} />
-      <SummaryPopup
-        open={summaryOpen}
-        onClose={() => setSummaryOpen(false)}
-        formData={formData}
-        riskResult={riskResult}
-        liquiditySummary={liquiditySummary}
-        selectedCustomerProfile={selectedCustomerProfile}
-      />
 
       {/* 기본 재무 정보 */}
       <Panel icon={<WalletCards size={18} />} eyebrow="기본 재무 정보" title="고객 재무 현황" note="※ 금액은 원화(KRW) 기준으로 입력해주세요.">
@@ -665,12 +1066,43 @@ export default function CustomerAnalysisTab() {
         </CheckerboardGrid>
         <CheckerboardGrid className="grid gap-3">
           <TextAreaField label="계속 보유하거나 향후 처분할 계획" value={formData.rrttllu.holdingOrDisposalPlan} placeholder="예. 삼성전자 10억 원은 계속 보유, 1년 내 임대용 부동산 매각" onChange={(v) => setRrttllu("holdingOrDisposalPlan", v)} />
-          <TextAreaField label="기타" value={formData.rrttllu.uniqueOther} placeholder="예. 투자 의사결정에 영향을 줄 수 있는 가족 상황, 선호 상담 방식 등" onChange={(v) => setRrttllu("uniqueOther", v)} />
+          <div>
+            <div className="question-card block rounded-lg border border-slate-200 p-4">
+              <div className="mb-2 flex flex-wrap items-center gap-3">
+                <span className="block text-[15px] font-bold leading-6 text-slate-800">Q. 기타</span>
+                <PbPrivateNotice />
+              </div>
+              <textarea
+                className="min-h-28 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-[15px] leading-6 text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+                value={formData.rrttllu.uniqueOther}
+                placeholder="예. 투자 의사결정에 영향을 줄 수 있는 가족 상황, 선호 상담 방식 등"
+                onChange={(e) => setRrttllu("uniqueOther", e.target.value)}
+              />
+            </div>
+          </div>
         </CheckerboardGrid>
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">선호 자산은 추천 시 우선 고려하고, 비선호 자산은 추천 후보에서 제외하거나 최대 비중 0% 제한 조건으로 저장됩니다.</div>
       </Panel>
 
       <p className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold leading-6 text-slate-600 shadow-soft">민감 정보는 필수 입력이 아니며, 제공이 어려운 경우 대략적인 범위만 입력하셔도 됩니다.</p>
+        </>
+      ) : (
+        activeSubTab === "analysis" ? (
+        <>
+          <CustomerInfoCard />
+          <SummaryAnalysisCard
+            formData={formData}
+            riskResult={riskResult}
+            liquiditySummary={liquiditySummary}
+            selectedCustomerProfile={selectedCustomerProfile}
+          />
+        </>
+        ) : (
+        <>
+          <AiConsultingGuideCard guide={advisoryGuide} loading={advisoryGuideLoading} error={advisoryGuideError} />
+        </>
+        )
+      )}
     </div>
   );
 }
