@@ -19,10 +19,11 @@ import {
 } from "./CustomerContext";
 
 const tabPaths: Record<string, string> = {
-  profile:  "/maintab/tab1",
-  existing: "/maintab/tab2",
-  create:   "/maintab/tab3",
-  compare:  "/maintab/tab4",
+  profile:   "/maintab/tab1",
+  existing:  "/maintab/tab2",
+  create:    "/maintab/tab3",
+  recommend: "/maintab/tab4",
+  compare:   "/maintab/tab5",
 };
 
 
@@ -413,9 +414,9 @@ const segmentToTab: Record<string, string> = {
   tab1: "profile",
   tab2: "existing",
   tab3: "create",
-  tab4: "compare",
+  tab4: "recommend",
+  tab5: "compare",
 };
-
 function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const segment = useSelectedLayoutSegment();
   const activeTab = (segment ? segmentToTab[segment] : null) ?? "profile";
