@@ -120,6 +120,7 @@ const financialProfileSchema = {
     monthlyFixedExpense: stringField,
     irregularIncome: stringField,
     irregularIncomeNone: booleanField,
+    investableAssets: stringField,
   },
 };
 const rrttlluSchema = {
@@ -405,6 +406,10 @@ function mockExtract(note: string): ExtractionEnvelope {
     /((?:지분\s*)?매각[^,.;\n]*(?:수십억|수백억|자금\s*유입|원|억|만)[^,.;\n]*)/,
     /((?:수십억|수백억)[^,.;\n]*(?:자금\s*유입|예상|기대)[^,.;\n]*)/,
   ]);
+  const investableAssets = firstMatch(text, [
+    /(?:투자\s*가능\s*자산|투자\s*가능\s*금액|포트폴리오\s*구성\s*가능\s*자금)[^,.;\n]*?(\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|만)?\s*원?)/,
+    /(?:실제\s*투자|운용\s*가능|투입\s*가능)[^,.;\n]*?(\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|만)?\s*원?)/,
+  ]);
   if (totalAssets) result.extracted.financialProfile.totalAssets = totalAssets;
   if (financialAssets) result.extracted.financialProfile.financialAssets = financialAssets;
   if (realEstate) result.extracted.financialProfile.realEstate = realEstate;
@@ -412,6 +417,7 @@ function mockExtract(note: string): ExtractionEnvelope {
   if (annualIncome) result.extracted.financialProfile.annualFixedIncome = annualIncome;
   if (monthlyExpense) result.extracted.financialProfile.monthlyFixedExpense = monthlyExpense;
   if (irregularIncome) result.extracted.financialProfile.irregularIncome = irregularIncome;
+  if (investableAssets) result.extracted.financialProfile.investableAssets = investableAssets;
 
   const expectedReturn = extractExpectedReturn(text);
   if (expectedReturn) {
@@ -574,6 +580,7 @@ function buildPrompt(note: string) {
     "For preferredAssets, include assets the customer wants, prefers, is interested in, wants to buy, or asks to include.",
     "For avoidedAssets, include assets the customer wants to avoid, is cautious about, or should limit. Do not put caution assets into preferredAssets.",
     "For irregularIncome, capture future non-recurring inflows such as bonus, stock options, business sale proceeds, share/equity sale proceeds, and large expected cash inflows even when exact amount is approximate.",
+    "For investableAssets, capture the amount the customer can actually use for portfolio construction or investment operation. This is a user-provided amount, not a calculated value.",
     "For Liquidity, capture recurring cashflow needs, large lump-sum use plans, and emergency reserve needs separately when possible.",
     "Liquidity cashflow needs must be captured even when no exact amount exists. Expressions such as 안정적인 현금흐름 필요, 현금흐름이 중요, 생활비 확보가 중요, 정기적인 현금 유입 필요, 은퇴 후 생활비 확보 필요, 월급 외 현금흐름 필요, 배당 기반 현금흐름 선호, 노후 생활비 확보 목적 should map to regularCashflowNeed.",
     "For Tax, capture tax concerns including financial income comprehensive taxation, gift/inheritance tax, capital gains tax, and general tax reduction needs.",

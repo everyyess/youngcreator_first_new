@@ -14,6 +14,7 @@ export type FinancialInfo = {
   annualFixedIncome: string;
   irregularIncome: string;
   irregularIncomeNone: boolean;
+  investableAssets: string;
   monthlyFixedExpense: string;
 };
 
@@ -68,6 +69,7 @@ export type StructuredJsonPayload = {
     asset_summary: string | null;
     annual_fixed_income: string | null;
     irregular_income: string | null;
+    investable_assets: string | null;
     monthly_fixed_expense: string | null;
   };
   rrttllu: {
@@ -260,7 +262,7 @@ export const riskInterpretations: Record<RiskLevel, string> = {
 // ── Initial State ──────────────────────────────────────────────────────────
 const emptyFinancial: FinancialInfo = {
   totalAssets: "", financialAssets: "", realEstate: "", debt: "",
-  annualFixedIncome: "", irregularIncome: "", irregularIncomeNone: false, monthlyFixedExpense: "",
+  annualFixedIncome: "", irregularIncome: "", irregularIncomeNone: false, investableAssets: "", monthlyFixedExpense: "",
 };
 
 const emptyRrttllu: RrttlluInfo = {
@@ -642,6 +644,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   const assetSummary = assetParts.length ? assetParts.join(", ") : null;
   const annualFixedIncome = nullableText(financial.annualFixedIncome);
   const irregularIncome = financial.irregularIncomeNone ? "없음" : nullableText(financial.irregularIncome);
+  const investableAssets = nullableText(financial.investableAssets);
   const monthlyFixedExpense = nullableText(financial.monthlyFixedExpense);
   const expectedInterestIncome = nullableText(rrttllu.expectedInterestIncome);
   const expectedDividendIncome = nullableText(rrttllu.expectedDividendIncome);
@@ -660,7 +663,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   };
 
   if (hasMissingProfile) warnings.push("기본 신상 정보가 부족합니다.");
-  if (!assetSummary || !annualFixedIncome || !monthlyFixedExpense || !irregularIncome) warnings.push("기본 재무 정보가 부족합니다.");
+  if (!assetSummary || !annualFixedIncome || !monthlyFixedExpense || !irregularIncome || !investableAssets) warnings.push("기본 재무 정보가 부족합니다.");
   if (!nullableText(rrttllu.returnObjective) || (!nullableText(rrttllu.expectedReturn) && !rrttllu.expectedReturnUnknown)) warnings.push("목표 수익률 (Return) 정보가 부족합니다.");
   if (Object.values(riskAnswers).some((v) => v === null)) warnings.push("위험 허용도 (Risk) 정보가 부족합니다.");
   if (!nullableText(rrttllu.timeHorizon)) warnings.push("투자 기간 (Time Horizon) 정보가 부족합니다.");
@@ -671,7 +674,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   if (!nullableText(rrttllu.preferredAssets) || !nullableText(rrttllu.avoidedAssets) || !nullableText(rrttllu.holdingOrDisposalPlan)) warnings.push("고객 고유 상황 (Unique Circumstances) 정보가 부족합니다.");
 
   return {
-    basic_financial_info: { asset_summary: assetSummary, annual_fixed_income: annualFixedIncome, irregular_income: irregularIncome, monthly_fixed_expense: monthlyFixedExpense },
+    basic_financial_info: { asset_summary: assetSummary, annual_fixed_income: annualFixedIncome, irregular_income: irregularIncome, investable_assets: investableAssets, monthly_fixed_expense: monthlyFixedExpense },
     rrttllu: {
       return: { objective: nullableText(rrttllu.returnObjective), expected_return: rrttllu.expectedReturnUnknown ? "구체적인 수치는 모름" : nullableText(rrttllu.expectedReturn) },
       risk: { score: riskResult.score, level: riskResult.level, answers: riskAnswers, interpretation: riskResult.interpretation },

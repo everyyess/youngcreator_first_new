@@ -101,6 +101,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     formData.financial.totalAssets, formData.financial.financialAssets, formData.financial.realEstate,
     formData.financial.debt, formData.financial.annualFixedIncome,
     formData.financial.irregularIncomeNone ? "없음" : formData.financial.irregularIncome,
+    formData.financial.investableAssets,
     formData.financial.monthlyFixedExpense,
   ]), [formData.financial]);
 
@@ -286,7 +287,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       const financialPatch = payload.financial ?? {};
       const rrttlluPatch = payload.rrttllu ?? {};
       const financial = mergeExtractedText(current.financial, financialPatch, [
-        "totalAssets", "financialAssets", "realEstate", "debt", "annualFixedIncome", "irregularIncome", "monthlyFixedExpense",
+        "totalAssets", "financialAssets", "realEstate", "debt", "annualFixedIncome", "irregularIncome", "investableAssets", "monthlyFixedExpense",
       ]);
       if (financialPatch.irregularIncomeNone === true) {
         financial.irregularIncomeNone = true;

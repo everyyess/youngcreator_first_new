@@ -573,11 +573,28 @@ function SummaryChips({ rows }: { rows: [string, string][] }) {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-2">
       {rows.map(([label, value]) => (
-        <div key={label} className="flex flex-wrap items-center gap-2">
+        <div key={label} className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
           <span className="rounded-md bg-sky-100 px-2.5 py-1 text-xs font-extrabold text-samsung">{label}</span>
           <span>{value}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function FinancialSummaryChips({ rows, investableValue }: { rows: [string, string][]; investableValue: string }) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-2">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
+          <span className="rounded-md bg-sky-100 px-2.5 py-1 text-xs font-extrabold text-samsung">{label}</span>
+          <span>{value}</span>
+        </div>
+      ))}
+      <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
+        <span className="rounded-md bg-red-100 px-2.5 py-1 text-xs font-extrabold text-red-700">★ 투자 가능 자산</span>
+        <span className="font-extrabold text-red-700">{investableValue}</span>
+      </div>
     </div>
   );
 }
@@ -644,7 +661,9 @@ function SummaryAnalysisCard({
           </div>
         </div>
         <div className="grid gap-2">
-          <SummaryRow label="고객 재무 현황"><SummaryChips rows={financialSummary} /></SummaryRow>
+          <SummaryRow label="고객 재무 현황">
+            <FinancialSummaryChips rows={financialSummary} investableValue={summaryValue(financial.investableAssets)} />
+          </SummaryRow>
           <SummaryRow label="Return"><SummaryChips rows={returnRows} /></SummaryRow>
           <SummaryRow
             label={
@@ -977,8 +996,9 @@ export default function CustomerAnalysisTab() {
             <TextField compact label="(가구 기준) 월 고정지출" value={formData.financial.monthlyFixedExpense} placeholder="예. 500만 원~1,000만 원" onChange={(v) => setFinancial("monthlyFixedExpense", v)} />
           </CheckerboardGrid>
         </div>
-        <CheckerboardGrid className="grid gap-3">
+        <CheckerboardGrid className="grid gap-3 lg:grid-cols-2">
           <IncomeWithNoneField label="향후 예상되는 비정기 소득" value={formData.financial.irregularIncome} placeholder="예. 연 성과급 6~7억 원, 3년 내 스톡옵션 행사" noneSelected={formData.financial.irregularIncomeNone} onChange={setIrregularIncome} onToggleNone={toggleNoIrregularIncome} />
+          <TextField label="투자 가능 자산" value={formData.financial.investableAssets} placeholder="예. 10억" onChange={(v) => setFinancial("investableAssets", v)} />
         </CheckerboardGrid>
       </Panel>
 
