@@ -906,13 +906,7 @@ export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult |
         <DonutChart assets={enrichedAssets} />
       </ResultCard>
 
-      {/* 3. 보유 자산 현황 */}
-      <ResultCard icon={<WalletCards size={18} />} title="보유 자산 현황" accent="slate">
-        <HoldingPerformanceTable assets={enrichedAssets} />
-        {!enrichedAssets.filter((a) => a.name).length && (
-          <p className="text-sm text-slate-400">표시할 자산이 없습니다.</p>
-        )}
-      </ResultCard>
+     
 
       {/* 4. 핵심 지표 요약 */}
       {quantResult && (
