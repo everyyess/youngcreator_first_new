@@ -1,18 +1,20 @@
 "use client";
 
-import { type DragEvent, useEffect, useMemo, useState } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
-  type CustomerUpdatedMap, type FinancialInfo, type RiskResult, type RrttlluInfo,
+  type CustomerUpdatedMap, type FinancialInfo, type PortfolioAnalysisResult,
+  type PortfolioAsset, type RiskResult, type RrttlluInfo,
   type SmartExtractionPayload, type StoredCustomerState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState,
-  createNewCustomerProfile, expectedReturnDisplay, fieldGroups, formatChangeDate,
-  formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
+  createNewCustomerProfile, EMPTY_PORTFOLIO_ASSET, expectedReturnDisplay, fieldGroups,
+  formatChangeDate, formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
+  loadAnalysisResult, loadPortfolioAssets, savePortfolioAssets,
   noLegalConstraint, noneExperience, nullableText, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
@@ -49,6 +51,20 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [changeHistory, setChangeHistory] = useState<ChangeEntry[]>([]);
   const [changeHistoryExpanded, setChangeHistoryExpanded] = useState(false);
   const formData = customerData[selectedCustomer] ?? createInitialState();
+
+  // ── 포트폴리오 전역 상태 — Tab 1의 customerData Map 패턴과 동일 구조 ──────
+  // Map keyed by customerId: 고객 전환 시 절대 삭제하지 않음 (읽는 key만 변경)
+  const [portfolioAssetsMap, setPortfolioAssetsMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [portfolioLoadedMap, setPortfolioLoadedMap] = useState<Record<CustomerId, boolean>>({});
+  const [dirtyPortfolioMap, setDirtyPortfolioMap] = useState<Record<CustomerId, boolean>>({});
+  const [analysisResultMap, setAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
+  const portfolioLoadedRef = useRef(new Set<CustomerId>()); // 중복 로드 방지 (렌더 독립적)
+
+  // 파생값 — 공개 인터페이스는 Tab 1의 formData/riskResult 패턴과 동일
+  const portfolioAssets = portfolioAssetsMap[selectedCustomer] ?? [];
+  const isPortfolioLoaded = portfolioLoadedMap[selectedCustomer] ?? false;
+  const analysisResult = analysisResultMap[selectedCustomer] ?? null;
+
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
 
   useEffect(() => {
@@ -96,6 +112,71 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     return () => { cancelled = true; };
   }, []);
 
+  // ── 고객 전환 시 포트폴리오 1회 레이지 로드 — Tab 1의 초기 load()와 동일 구조
+  // Map에 영구 보관하므로 고객 전환 시 데이터를 절대 삭제하지 않는다
+  useEffect(() => {
+    const customerId = selectedCustomer;
+    if (portfolioLoadedRef.current.has(customerId)) return; // 이미 로드됨 — 스킵
+    portfolioLoadedRef.current.add(customerId); // 중복 로드 방지 선점
+    let cancelled = false;
+
+    Promise.all([
+      loadPortfolioAssets(customerId),
+      loadAnalysisResult(customerId),
+    ]).then(([assets, result]) => {
+      if (cancelled) {
+        portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
+        return;
+      }
+      setPortfolioAssetsMap(prev => ({ ...prev, [customerId]: assets }));
+      setAnalysisResultMap(prev => ({ ...prev, [customerId]: result as PortfolioAnalysisResult | null }));
+      setPortfolioLoadedMap(prev => ({ ...prev, [customerId]: true }));
+    });
+
+    return () => { cancelled = true; };
+  }, [selectedCustomer]);
+
+  // ── 자산 변경 즉시 저장 — Tab 1의 saveCustomerDataJsonOnly 패턴과 완전히 동일
+  // debounce 없음: 변경 즉시 저장하여 고객 전환 전에 항상 DB 반영 완료
+  useEffect(() => {
+    if (!portfolioLoadedMap[selectedCustomer]) return;
+    if (!dirtyPortfolioMap[selectedCustomer]) return;
+
+    const customerId = selectedCustomer;
+    const assets = portfolioAssetsMap[customerId] ?? [];
+
+    void savePortfolioAssets(customerId, assets).then(() => {
+      setDirtyPortfolioMap(prev => ({ ...prev, [customerId]: false }));
+    });
+  }, [portfolioAssetsMap, portfolioLoadedMap, dirtyPortfolioMap, selectedCustomer]);
+
+  // ── 포트폴리오 행 조작 함수 — Tab 1의 setFinancial/setRrttllu 패턴과 동일 ──
+  const addPortfolioRow = () => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: [...(prev[selectedCustomer] ?? []), { ...EMPTY_PORTFOLIO_ASSET, owner_customer_id: selectedCustomer }],
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
+  const removePortfolioRow = (index: number) => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: (prev[selectedCustomer] ?? []).filter((_, i) => i !== index),
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
+  const updatePortfolioRow = (index: number, patch: Partial<PortfolioAsset>) => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: (prev[selectedCustomer] ?? []).map((a, i) => (i === index ? { ...a, ...patch } : a)),
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
+  const setPortfolioDirty = (dirty: boolean) => setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: dirty }));
+  const setAnalysisResult = (result: PortfolioAnalysisResult | null) => {
+    setAnalysisResultMap(prev => ({ ...prev, [selectedCustomer]: result }));
+  };
+
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
   const financialCompletion = useMemo(() => completion([
@@ -136,6 +217,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   };
 
   const selectCustomer = (id: CustomerId) => {
+    // dirty 플래그는 per-customer Map으로 관리 — 전환 시 별도 소거 불필요
     setSelectedCustomer(id); storeSelectedCustomerId(id);
     setAnalysisRequested(false); setConfirmedRiskResult(null); setLastAnalysisSnapshot(null);
     setChangeHistory([]); setChangeHistoryExpanded(false);
@@ -198,9 +280,20 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     const nextId = nextProfiles[0].id;
     setCustomerProfiles(nextProfiles);
     setCustomerData((prev) => { const next = { ...prev }; delete next[selectedCustomer]; if (!next[nextId]) next[nextId] = createInitialState(); return next; });
-    void customerStorage.remove(selectedCustomer).then((r) => {
+    const deletedId = selectedCustomer;
+    void customerStorage.remove(deletedId).then((r) => {
       if (!r.ok) setStorageErrorMessage(r.message);
-      else { setPersistedCustomerIds((prev) => prev.filter((id) => id !== selectedCustomer)); setCustomerUpdatedAt((prev) => { const next = { ...prev }; delete next[selectedCustomer]; return next; }); setStorageErrorMessage(""); }
+      else {
+        setPersistedCustomerIds((prev) => prev.filter((id) => id !== deletedId));
+        setCustomerUpdatedAt((prev) => { const next = { ...prev }; delete next[deletedId]; return next; });
+        // 삭제된 고객의 포트폴리오 Map 항목 정리
+        setPortfolioAssetsMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setPortfolioLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setDirtyPortfolioMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setAnalysisResultMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        portfolioLoadedRef.current.delete(deletedId);
+        setStorageErrorMessage("");
+      }
     });
     selectCustomer(nextId); setDeleteConfirmOpen(false);
   };
@@ -373,6 +466,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
     updateCustomerProfile, setChangeHistoryExpanded,
+    // 포트폴리오 전역 상태
+    portfolioAssets, isPortfolioLoaded, analysisResult,
+    addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
   };
 
   return (

@@ -438,34 +438,6 @@ function summaryValue(value: string | null | undefined) {
   return value && value.trim() ? value : "입력 대기";
 }
 
-const reasonFieldPattern = /(?:이유|reason|rationale|description|설명)\s*[:：]/i;
-const assetFieldPattern = /(?:선호\s*자산|선호하는\s*자산|기피\s*자산|피하고\s*싶은\s*자산|자산|asset|assets|preferred_assets|avoided_assets|계획)\s*[:：]/i;
-
-function extractAssetSegment(line: string) {
-  const trimmed = line.trim().replace(/^[-•·\s]+/, "");
-  if (!trimmed || reasonFieldPattern.test(trimmed) && trimmed.search(reasonFieldPattern) === 0) return "";
-
-  const reasonIndex = trimmed.search(reasonFieldPattern);
-  const beforeReason = reasonIndex >= 0 ? trimmed.slice(0, reasonIndex) : trimmed;
-  const assetMatch = beforeReason.match(assetFieldPattern);
-  const assetText = assetMatch ? beforeReason.slice((assetMatch.index ?? 0) + assetMatch[0].length) : beforeReason;
-
-  return assetText
-    .replace(/\([^)]*\)/g, "")
-    .replace(/(?:이유|reason|rationale|description|설명)\s*[:：].*$/i, "")
-    .trim();
-}
-
-function assetNamesOnly(value: string) {
-  const items = value
-    .split(/\n|;/)
-    .map(extractAssetSegment)
-    .flatMap((segment) => segment.split(","))
-    .map((item) => item.trim().replace(/^[-•·\s]+/, ""))
-    .filter(Boolean);
-  return items.length ? items.join(", ") : "입력 대기";
-}
-
 const riskGradeGuide = [
   {
     range: "85~100점",
@@ -643,12 +615,6 @@ function SummaryAnalysisCard({
     ["목돈 사용 계획", summaryValue(rrttllu.lumpSumPlan)],
     ["비상예비자금 계획", summaryValue(rrttllu.emergencyReservePlan)],
   ];
-  const uniqueRows: [string, string][] = [
-    ["선호하는 자산", assetNamesOnly(rrttllu.preferredAssets)],
-    ["피하고 싶은 자산", assetNamesOnly(rrttllu.avoidedAssets)],
-    ["계속 보유하거나 향후 처분할 계획", assetNamesOnly(rrttllu.holdingOrDisposalPlan)],
-  ];
-
   return (
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -691,7 +657,6 @@ function SummaryAnalysisCard({
           <SummaryRow label="Tax"><SummaryChips rows={taxSummary} /></SummaryRow>
           <SummaryRow label="Liquidity"><SummaryChips rows={liquidityRows} /></SummaryRow>
           <SummaryRow label="Legal"><SummaryChips rows={legalRows} /></SummaryRow>
-          <SummaryRow label="Unique Circumstances"><SummaryChips rows={uniqueRows} /></SummaryRow>
         </div>
         {riskGuideOpen ? (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 px-4 py-6">
@@ -783,9 +748,9 @@ function UniqueOtherReferenceSection({ value }: { value: string }) {
   const displayValue = value.trim() || "입력된 기타 참고 정보가 없습니다.";
   return (
     <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-      <h3 className="text-base font-extrabold text-navy">[4] (참조) Unique Circumstances - 기타</h3>
+      <h3 className="text-base font-extrabold text-navy">[4] (참조) Unique Circumstances</h3>
       <p className="mt-2 text-xs font-bold leading-5 text-amber-700">
-        AI 재분류나 요약 없이, Unique Circumstances의 Q. 기타 입력 내용을 PB 참고용으로 그대로 표시합니다.
+        AI 재분류나 요약 없이, 고객의 추가 고려사항을 PB 참고용으로 그대로 표시합니다.
       </p>
       <div className="mt-3 whitespace-pre-wrap rounded-lg border border-amber-100 bg-white px-4 py-3 text-sm font-semibold leading-6 text-slate-700">
         {displayValue}
@@ -1060,18 +1025,21 @@ export default function CustomerAnalysisTab() {
       </Panel>
 
       {/* ⑦ Unique */}
-      <Panel icon={<Sparkles size={18} />} eyebrow="RRTTLLU" title="⑦ Unique Circumstances 고객 고유 상황">
-        <CheckerboardGrid className="grid gap-3 md:grid-cols-2">
-          <TextAreaField label="선호하는 자산" value={formData.rrttllu.preferredAssets} placeholder="예. 미국 배당주 ETF, 은퇴 후 안정적 현금흐름" onChange={(v) => setRrttllu("preferredAssets", v)} />
-          <TextAreaField label="피하고 싶은 자산" value={formData.rrttllu.avoidedAssets} placeholder="예. 가상자산, 가치 평가가 어려움" onChange={(v) => setRrttllu("avoidedAssets", v)} />
-        </CheckerboardGrid>
+      <Panel
+        icon={<Sparkles size={18} />}
+        eyebrow="RRTTLLU"
+        title={
+          <span className="flex flex-wrap items-center gap-3">
+            <span>⑦ Unique Circumstances 고객 고유 상황</span>
+            <PbPrivateNotice />
+          </span>
+        }
+      >
         <CheckerboardGrid className="grid gap-3">
-          <TextAreaField label="계속 보유하거나 향후 처분할 계획" value={formData.rrttllu.holdingOrDisposalPlan} placeholder="예. 삼성전자 10억 원은 계속 보유, 1년 내 임대용 부동산 매각" onChange={(v) => setRrttllu("holdingOrDisposalPlan", v)} />
           <div>
             <div className="question-card block rounded-lg border border-slate-200 p-4">
               <div className="mb-2 flex flex-wrap items-center gap-3">
-                <span className="block text-[15px] font-bold leading-6 text-slate-800">Q. 기타</span>
-                <PbPrivateNotice />
+                <span className="block text-[15px] font-bold leading-6 text-slate-800">Q. 추가 고려사항</span>
               </div>
               <textarea
                 className="min-h-28 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-[15px] leading-6 text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
@@ -1082,7 +1050,6 @@ export default function CustomerAnalysisTab() {
             </div>
           </div>
         </CheckerboardGrid>
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">선호 자산은 추천 시 우선 고려하고, 비선호 자산은 추천 후보에서 제외하거나 최대 비중 0% 제한 조건으로 저장됩니다.</div>
       </Panel>
 
       <p className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold leading-6 text-slate-600 shadow-soft">민감 정보는 필수 입력이 아니며, 제공이 어려운 경우 대략적인 범위만 입력하셔도 됩니다.</p>

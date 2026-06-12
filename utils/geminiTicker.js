@@ -48,20 +48,35 @@ export async function resolveTickerWithGemini(assetName) {
     '{"ticker":"티커","englishName":"영문명","assetClass":"자산군","productType":"상품유형","country":"국가"}\n\n' +
     '규칙:\n' +
     '- ticker: Yahoo Finance(yfinance) 호환 티커. 확실하지 않으면 "UNKNOWN"\n' +
+    '- [필수] 한국 주식(KOSPI) 티커는 반드시 숫자 코드 뒤에 ".KS" 접미사를 붙일 것.\n' +
+    '  한국 주식(KOSDAQ) 티커는 반드시 숫자 코드 뒤에 ".KQ" 접미사를 붙일 것.\n' +
+    '  KODEX·TIGER·KBSTAR 등 국내 상장 ETF도 동일하게 ".KS" 접미사 필수.\n' +
+    '  (예: 삼성전자 → 005930.KS, 삼성전기 → 009150.KS, SK하이닉스 → 000660.KS,\n' +
+    '       KODEX 200 → 069500.KS, KODEX 레버리지 → 122630.KS,\n' +
+    '       TIGER 미국나스닥100 → 133690.KS, 카카오 → 035720.KQ,\n' +
+    '       셀트리온헬스케어 → 091990.KQ)\n' +
+    '  이 규칙을 어기면 yfinance에서 종목 조회가 완전히 차단된다.\n' +
     '- englishName: Yahoo Finance 검색 API에 전달할 최적 영문 종목명.\n' +
     '  티커를 모르더라도 영문명은 반드시 추론할 것.\n' +
     '  (예: 테슬라 → "Tesla", 엔비디아 → "Nvidia", 삼전 → "Samsung Electronics",\n' +
     '       애플 → "Apple", 아마존 → "Amazon", 구글 → "Alphabet")\n' +
     '- assetClass: "국내주식","해외주식","국내채권","해외채권","금","리츠","현금","달러" 중 하나\n' +
     '- productType: "개별주식","ETF","채권","리츠","펀드","현금","외화","암호화폐" 중 하나\n' +
+    '  [필수] TLT·SHY·IEF·BND·AGG·LQD·HYG 및 거래소에 상장된 채권형 ETF는 productType을\n' +
+    '  반드시 "ETF"로 반환할 것. "채권"으로 반환하면 안 됨. (예: TLT → productType:"ETF")\n' +
+    '  국내 채권형 ETF(114260.KS KODEX국고채10년, 148070.KS KOSEF국고채 등)도 동일하게 "ETF".\n' +
     '- country: "한국","미국","일본","중국","유럽","기타" 중 하나\n\n' +
     '예시:\n' +
     '삼성전자 → {"ticker":"005930.KS","englishName":"Samsung Electronics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
     '삼전 → {"ticker":"005930.KS","englishName":"Samsung Electronics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
+    '삼성전기 → {"ticker":"009150.KS","englishName":"Samsung Electro-Mechanics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
+    'KODEX 200 → {"ticker":"069500.KS","englishName":"KODEX 200 ETF","assetClass":"국내주식","productType":"ETF","country":"한국"}\n' +
+    'KODEX 레버리지 → {"ticker":"122630.KS","englishName":"KODEX Leverage ETF","assetClass":"국내주식","productType":"ETF","country":"한국"}\n' +
+    'TIGER 미국나스닥100 → {"ticker":"133690.KS","englishName":"TIGER US Nasdaq 100","assetClass":"해외주식","productType":"ETF","country":"한국"}\n' +
+    '카카오 → {"ticker":"035720.KQ","englishName":"Kakao Corp","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
     '테슬라 → {"ticker":"TSLA","englishName":"Tesla","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
     '엔비디아 → {"ticker":"NVDA","englishName":"Nvidia","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
     'SPY → {"ticker":"SPY","englishName":"SPDR S&P 500 ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
-    'TIGER 미국나스닥100 → {"ticker":"133690.KS","englishName":"TIGER US Nasdaq 100","assetClass":"해외주식","productType":"ETF","country":"한국"}\n' +
     '미국 국채 10년 → {"ticker":"^TNX","englishName":"10-Year Treasury Yield","assetClass":"해외채권","productType":"채권","country":"미국"}\n\n' +
     '마크다운·설명 없이 JSON 한 줄만 출력해줘.\n\n' +
     `입력: ${assetName}`;

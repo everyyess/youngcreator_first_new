@@ -1,37 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { FileUp, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
-import { useCustomerContext } from "../CustomerContext";
+import {
+  useCustomerContext,
+  saveAnalysisResult,
+} from "../CustomerContext";
 import type { PortfolioAsset } from "../CustomerContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const ASSET_CLASSES = [
-  "국내주식", "해외주식", "국내채권", "해외채권", "금", "리츠", "현금", "달러",
-];
+// 통합 상품유형 — 자산군 + 상품유형을 단일 드롭다운으로 통합
+const UNIFIED_PRODUCT_TYPES = [
+  "국내주식", "해외주식", "국내채권", "해외채권",
+  "국내ETF", "해외ETF", "예적금/현금",
+  "금", "리츠", "외화", "암호화폐",
+] as const;
 
-const PRODUCT_TYPES = [
-  "개별주식", "ETF", "채권", "리츠", "펀드", "현금", "외화", "암호화폐",
-];
+const BOND_TYPES = new Set<string>(["국내채권", "해외채권"]);
 
 const COUNTRIES = ["한국", "미국", "일본", "중국", "유럽", "기타"];
 
-const PORTFOLIO_INPUT_KEY = "portfolio-input-assets-v1";
-
-const EMPTY_ASSET: PortfolioAsset = {
-  name: "",
-  asset_class: "해외주식",
-  theme: "기타",
-  country: "미국",
-  buy_price: null,
-  amount: 0,
-  amount_type: "quantity",
-  is_hedged: false,
-  needs_review: false,
-  ticker: "",
-  productType: "ETF",
-};
+// EMPTY_ASSET은 CustomerContext에 EMPTY_PORTFOLIO_ASSET으로 이관됨
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -47,61 +37,72 @@ function parseKoreanAmount(str: string): number {
   return result;
 }
 
+// 통합 productType → asset_class 매핑 (계산 파이프라인 호환)
+function deriveAssetClass(unifiedType: string): string {
+  switch (unifiedType) {
+    case "국내주식":    return "국내주식";
+    case "해외주식":    return "해외주식";
+    case "국내채권":    return "국내채권";
+    case "해외채권":    return "해외채권";
+    case "국내ETF":     return "국내주식";
+    case "해외ETF":     return "해외주식";
+    case "예적금/현금": return "현금";
+    case "금":          return "금";
+    case "리츠":        return "리츠";
+    case "외화":        return "달러";
+    case "암호화폐":    return "암호화폐";
+    default:            return "해외주식";
+  }
+}
+
+// 통합 productType → 기본 country 매핑
+function deriveCountry(unifiedType: string): string {
+  if (unifiedType.startsWith("국내") || unifiedType === "예적금/현금") return "한국";
+  if (unifiedType === "외화" || unifiedType === "암호화폐") return "기타";
+  if (unifiedType === "금" || unifiedType === "리츠") return "미국";
+  return "미국";
+}
+
+// Gemini 응답의 (assetClass, productType) 조합 → 통합 productType 변환
+function toUnifiedProductType(assetClass: string, productType: string): string {
+  const isEtf = productType === "ETF";
+  if (assetClass === "국내주식") return isEtf ? "국내ETF" : "국내주식";
+  if (assetClass === "해외주식") return isEtf ? "해외ETF" : "해외주식";
+  // 채권형 ETF(TLT/BND/114260.KS 등) — 거래소 상장 상품이므로 채권이 아닌 ETF로 분류
+  if (assetClass === "국내채권") return isEtf ? "국내ETF" : "국내채권";
+  if (assetClass === "해외채권") return isEtf ? "해외ETF" : "해외채권";
+  if (assetClass === "현금" || assetClass === "달러") return "예적금/현금";
+  if (assetClass === "금")      return "금";
+  if (assetClass === "리츠")    return "리츠";
+  if (productType === "외화")   return "외화";
+  if (productType === "암호화폐") return "암호화폐";
+  return isEtf ? "해외ETF" : "해외주식";
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function ExistingPortfolioTab() {
-  const { formData } = useCustomerContext();
+  const {
+    formData, selectedCustomer,
+    portfolioAssets, isPortfolioLoaded,
+    addPortfolioRow: addRow,
+    removePortfolioRow: removeRow,
+    updatePortfolioRow: updateRow,
+    setAnalysisResult,
+    setPortfolioDirty,
+  } = useCustomerContext();
 
-  const [portfolioAssets, setPortfolioAssets] = useState<PortfolioAsset[]>([]);
-  // isLoaded 는 State → 다음 렌더까지 반영이 지연됨 = save effect의 초기 [] 덮어쓰기 차단 키
-  const [isLoaded, setIsLoaded] = useState(false);
   const [portfolioIsRunning, setPortfolioIsRunning] = useState(false);
   const [portfolioStatusMsg, setPortfolioStatusMsg] = useState("");
   const [portfolioErrorMsg, setPortfolioErrorMsg] = useState("");
   const [analysisComplete, setAnalysisComplete] = useState(false);
 
-  // 티커 셀 더블클릭 인라인 편집
   const [editingTickerIdx, setEditingTickerIdx] = useState<number | null>(null);
-
-  // Gemini 자동완성 추론 중 행 인덱스
   const [inferringIdx, setInferringIdx] = useState<number | null>(null);
-
-  // 토스트 메시지
   const [toastMsg, setToastMsg] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── 영속화 ────────────────────────────────────────────────────────────────
-  //
-  // 경쟁 조건 방지 구조:
-  //   1) 마운트 effect(deps=[]) → localStorage 복원 후 setIsLoaded(true) 예약
-  //   2) 저장 effect(deps=[portfolioAssets, isLoaded]) → isLoaded가 false면 즉시 return
-  //
-  // isLoaded는 State이므로 같은 커밋 배치 내 save effect가 실행될 때 아직 false 유지됨.
-  // 따라서 초기 [] 가 localStorage 를 덮어쓰는 일이 원천 차단된다.
-
-  // (1) 마운트 시 복원
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(PORTFOLIO_INPUT_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as PortfolioAsset[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPortfolioAssets(parsed);
-        }
-      }
-    } catch {}
-    setIsLoaded(true); // State 업데이트 → 다음 렌더에서야 반영
-  }, []);
-
-  // (2) 변경 시 실시간 저장 — isLoaded=false(초기 렌더 배치) 구간은 건너뜀
-  useEffect(() => {
-    if (!isLoaded) return;
-    try {
-      localStorage.setItem(PORTFOLIO_INPUT_KEY, JSON.stringify(portfolioAssets));
-    } catch {}
-  }, [portfolioAssets, isLoaded]);
 
   // ── 한계세율 추정 ─────────────────────────────────────────────────────────
 
@@ -134,10 +135,12 @@ export default function ExistingPortfolioTab() {
           setPortfolioErrorMsg("자산 총액이 0원입니다. 수량과 매수단가를 입력해 주세요.");
           return;
         }
-        try {
-          localStorage.setItem("portfolio-result-v1", JSON.stringify(result));
-          window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
-        } catch {}
+        // Supabase에 최신 자산 rows + 분석 결과를 동시에 upsert
+        setPortfolioStatusMsg("분석 결과 저장 중...");
+        await saveAnalysisResult(selectedCustomer, result);
+        // 전역 Context에 즉시 반영 — Tab2·Tab4가 다음 렌더에서 바로 읽는다
+        setAnalysisResult(result);
+        setPortfolioDirty(false);
         setAnalysisComplete(true);
         setPortfolioStatusMsg("");
       } catch (err: unknown) {
@@ -148,17 +151,7 @@ export default function ExistingPortfolioTab() {
         setPortfolioIsRunning(false);
       }
     },
-    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome]
-  );
-
-  // ── 행 조작 ───────────────────────────────────────────────────────────────
-
-  const addRow = () => setPortfolioAssets((prev) => [...prev, { ...EMPTY_ASSET }]);
-  const removeRow = (i: number) => setPortfolioAssets((prev) => prev.filter((_, idx) => idx !== i));
-  const updateRow = useCallback(
-    (i: number, patch: Partial<PortfolioAsset>) =>
-      setPortfolioAssets((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a))),
-    []
+    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty]
   );
 
   // ── 토스트 ────────────────────────────────────────────────────────────────
@@ -192,11 +185,24 @@ export default function ExistingPortfolioTab() {
           return;
         }
 
+        // Gemini assetClass + productType → 통합 productType으로 변환
+        const geminiAssetClass  = typeof data.assetClass  === "string" ? data.assetClass  : "";
+        const geminiProductType = typeof data.productType === "string" ? data.productType : "";
+        const unifiedType = geminiAssetClass
+          ? toUnifiedProductType(geminiAssetClass, geminiProductType)
+          : undefined;
+
         updateRow(idx, {
           ticker,
-          ...(data.assetClass  ? { asset_class: data.assetClass  as string } : {}),
-          ...(data.productType ? { productType: data.productType as string } : {}),
-          ...(data.country     ? { country:     data.country     as string } : {}),
+          ...(unifiedType ? {
+            productType: unifiedType,
+            asset_class: deriveAssetClass(unifiedType),
+            country:     deriveCountry(unifiedType),
+          } : {}),
+          // 통합 productType이 없을 때도 country 개별 반영
+          ...(!unifiedType && data.country ? { country: data.country as string } : {}),
+          // 환헤지는 항상 false 고정
+          is_hedged: false,
         });
         showToast(`'${name}' → ${ticker} 자동 완성`);
       } catch (err) {
@@ -281,10 +287,10 @@ export default function ExistingPortfolioTab() {
                     "티커",
                     "상품유형",
                     "투자국가",
-                    "자산군",
                     "수량(주/개)",
                     "매수단가(원화)",
-                    "환헤지",
+                    "채권수익률(%)",
+                    "만기(년)",
                     "",
                   ].map((h) => (
                     <th
@@ -336,7 +342,7 @@ export default function ExistingPortfolioTab() {
   );
 }
 
-// ─── AssetRow (행 분리로 재렌더 최소화) ──────────────────────────────────────
+// ─── AssetRow ─────────────────────────────────────────────────────────────────
 
 interface AssetRowProps {
   idx: number;
@@ -354,6 +360,19 @@ function AssetRow({
   idx, asset: a, isInferring, editingTicker,
   onUpdate, onRemove, onInfer, onStartEditTicker, onEndEditTicker,
 }: AssetRowProps) {
+  const isBond = BOND_TYPES.has(a.productType ?? "");
+
+  const handleProductTypeChange = (val: string) => {
+    onUpdate(idx, {
+      productType: val,
+      asset_class: deriveAssetClass(val),
+      country:     deriveCountry(val),
+      is_hedged:   false,
+      // 채권이 아닌 유형으로 바꾸면 채권 필드 초기화
+      ...(!BOND_TYPES.has(val) ? { bond_yield: null, bond_maturity: null } : {}),
+    });
+  };
+
   return (
     <tr className="bg-white hover:bg-slate-50">
 
@@ -361,20 +380,26 @@ function AssetRow({
       <td className="px-3 py-2">
         <div className="flex items-center gap-1">
           <input
-            className="h-9 w-28 rounded border border-slate-200 px-2 text-xs text-navy"
-            placeholder="종목명"
-            value={a.name}
+            className={[
+              "h-9 w-28 rounded border px-2 text-xs text-navy",
+              isBond
+                ? "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400"
+                : "border-slate-200",
+            ].join(" ")}
+            placeholder={isBond ? "채권(직접입력불가)" : "종목명"}
+            value={isBond ? "" : a.name}
+            disabled={isBond}
             onChange={(e) => onUpdate(idx, { name: e.target.value })}
             onBlur={(e) => {
-              if (e.target.value.trim()) onInfer(idx, e.target.value.trim());
+              if (!isBond && e.target.value.trim()) onInfer(idx, e.target.value.trim());
             }}
           />
           <button
             type="button"
             title="Gemini AI 자동 완성"
-            disabled={isInferring || !a.name.trim()}
+            disabled={isBond || isInferring || !a.name.trim()}
             onClick={() => onInfer(idx, a.name)}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-violet-200 bg-violet-50 text-violet-500 transition hover:bg-violet-100 disabled:opacity-40"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-violet-200 bg-violet-50 text-violet-500 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isInferring
               ? <Loader2 size={13} className="animate-spin" />
@@ -383,9 +408,13 @@ function AssetRow({
         </div>
       </td>
 
-      {/* 티커 — 더블클릭으로 인라인 편집 */}
+      {/* 티커 — 채권일 때 disabled, 아니면 더블클릭 인라인 편집 */}
       <td className="px-3 py-2">
-        {editingTicker ? (
+        {isBond ? (
+          <span className="flex h-9 min-w-[96px] cursor-not-allowed items-center rounded bg-slate-100 px-2 font-mono text-xs text-slate-400">
+            —
+          </span>
+        ) : editingTicker ? (
           <input
             autoFocus
             className="h-9 w-28 rounded border border-blue-300 bg-blue-50 px-2 text-xs font-mono text-navy outline-none"
@@ -405,15 +434,15 @@ function AssetRow({
         )}
       </td>
 
-      {/* 상품유형 */}
+      {/* 통합 상품유형 */}
       <td className="px-3 py-2">
         <select
           className="h-9 rounded border border-slate-200 px-2 text-xs text-navy"
           value={a.productType ?? ""}
-          onChange={(e) => onUpdate(idx, { productType: e.target.value })}
+          onChange={(e) => handleProductTypeChange(e.target.value)}
         >
           <option value="">선택</option>
-          {PRODUCT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          {UNIFIED_PRODUCT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
       </td>
 
@@ -425,17 +454,6 @@ function AssetRow({
           onChange={(e) => onUpdate(idx, { country: e.target.value })}
         >
           {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </td>
-
-      {/* 자산군 */}
-      <td className="px-3 py-2">
-        <select
-          className="h-9 rounded border border-slate-200 px-2 text-xs text-navy"
-          value={a.asset_class}
-          onChange={(e) => onUpdate(idx, { asset_class: e.target.value })}
-        >
-          {ASSET_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </td>
 
@@ -464,13 +482,39 @@ function AssetRow({
         />
       </td>
 
-      {/* 환헤지 */}
-      <td className="px-3 py-2 text-center">
+      {/* 채권 수익률(%) — 채권 유형일 때만 활성화 */}
+      <td className="px-3 py-2">
         <input
-          type="checkbox"
-          checked={a.is_hedged}
-          onChange={(e) => onUpdate(idx, { is_hedged: e.target.checked })}
-          className="h-4 w-4 accent-samsung"
+          type="number"
+          step="0.01"
+          className={[
+            "h-9 w-20 rounded border px-2 text-xs",
+            isBond
+              ? "border-slate-200 text-navy"
+              : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400",
+          ].join(" ")}
+          placeholder={isBond ? "예: 3.5" : "—"}
+          value={isBond ? (a.bond_yield ?? "") : ""}
+          disabled={!isBond}
+          onChange={(e) => onUpdate(idx, { bond_yield: e.target.value ? Number(e.target.value) : null })}
+        />
+      </td>
+
+      {/* 만기(년) — 채권 유형일 때만 활성화 */}
+      <td className="px-3 py-2">
+        <input
+          type="number"
+          step="1"
+          className={[
+            "h-9 w-16 rounded border px-2 text-xs",
+            isBond
+              ? "border-slate-200 text-navy"
+              : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400",
+          ].join(" ")}
+          placeholder={isBond ? "예: 5" : "—"}
+          value={isBond ? (a.bond_maturity ?? "") : ""}
+          disabled={!isBond}
+          onChange={(e) => onUpdate(idx, { bond_maturity: e.target.value ? Number(e.target.value) : null })}
         />
       </td>
 

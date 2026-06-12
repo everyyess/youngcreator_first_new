@@ -24,7 +24,7 @@ export interface PortfolioAssetInput {
   buy_price: number | null;
   amount: number;
   amount_type: "quantity" | "value";
-  is_hedged: boolean;
+  is_hedged: boolean;        // 항상 false — 환노출 고정
   needs_review: boolean;
   review_reason?: string | null;
   current_price?: number;
@@ -33,8 +33,10 @@ export interface PortfolioAssetInput {
   gain?: number;
   price_source?: string;
   _rawAmount?: string;
-  ticker?: string;       // Yahoo Finance 티커 — 설정 시 이름 해석(Gemini) 생략
-  productType?: string;  // 상품 유형 (ETF, 개별주식, 채권 등)
+  ticker?: string;           // Yahoo Finance 티커 — 설정 시 이름 해석(Gemini) 생략
+  productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
+  bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만
+  bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만
 }
 
 export interface RunAnalysisResult {

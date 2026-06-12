@@ -18,11 +18,24 @@ export const ASSET_CLASS_BENCHMARK = {
   '리츠':     'VNQ',        // Vanguard Real Estate ETF
   '현금':     null,         // 무위험자산 대체 (Rf)
   '달러':     'KRW=X',      // USD/KRW 환율
+  '암호화폐': 'BTC-USD',    // Bitcoin (초고위험 대안자산 대표)
 };
 
 // ── 2. 상품유형 우선 벤치마크 (자산군 무관하게 덮어쓰기) ──────────
+// 통합 상품유형(新) + 기존 상품유형 모두 포함
 export const PRODUCT_TYPE_BENCHMARK = {
-  '암호화폐': 'BTC-USD',
+  // 신규 통합 상품유형
+  '국내주식':    '^KS11',
+  '해외주식':    '^GSPC',
+  '국내채권':    '114260.KS',
+  '해외채권':    'TLT',
+  '국내ETF':     '^KS11',
+  '해외ETF':     '^GSPC',
+  '예적금/현금': null,
+  '금':          'GC=F',
+  '리츠':        'VNQ',
+  '외화':        'KRW=X',
+  '암호화폐':    'BTC-USD',
 };
 
 // ── 3. 투자국가별 주식/ETF 벤치마크 ──────────────────────────────
@@ -46,19 +59,31 @@ export const ASSET_CLASS_RISK = {
   '리츠':     { annVol: 0.20, mdd: 0.27, beta: 0.60,  expRet: 0.06 },
   '현금':     { annVol: 0.005, mdd: 0.001, beta: 0.00, expRet: 0.035 },
   '달러':     { annVol: 0.08, mdd: 0.12,  beta: 0.00, expRet: 0.03 },
+  '암호화폐': { annVol: 0.72, mdd: 0.82,  beta: 0.55, expRet: 0.20 },
 };
 
 // ── 5. 상품유형별 리스크 오버라이드 ──────────────────────────────
 // volMult: 자산군 annVol × 배율, 나머지 필드: 직접 덮어쓰기
+// 기존 상품유형 + 통합 상품유형(新) 모두 등록
 export const PRODUCT_TYPE_RISK = {
+  // ── 기존 상품유형 ──────────────────────────────────────────
   '암호화폐': { annVol: 0.72, mdd: 0.82, beta: 0.55,  expRet: 0.20 },
-  '개별주식': { volMult: 1.20 },  // ETF 대비 개별 종목 변동성 +20%
-  'ETF':      { volMult: 0.85 },  // 분산 효과로 변동성 -15%
+  '개별주식': { volMult: 1.20 },
+  'ETF':      { volMult: 0.85 },
   '채권':     { annVol: 0.06, mdd: 0.08, beta: 0.01,  expRet: 0.04 },
   '리츠':     { annVol: 0.20, mdd: 0.27, beta: 0.58,  expRet: 0.06 },
-  '펀드':     { volMult: 0.90 },  // 펀드 분산 효과
+  '펀드':     { volMult: 0.90 },
   '현금':     { annVol: 0.005, mdd: 0.001, beta: 0.00, expRet: 0.035 },
   '외화':     { annVol: 0.10, mdd: 0.15,  beta: 0.00, expRet: 0.02 },
+  // ── 통합 상품유형(新) ──────────────────────────────────────
+  '국내주식':    { volMult: 1.10 },   // 개별주식 대비 약간 낮은 변동성
+  '해외주식':    { volMult: 1.10 },
+  '국내채권':    { annVol: 0.04, mdd: 0.06, beta: 0.02,  expRet: 0.035 },
+  '해외채권':    { annVol: 0.08, mdd: 0.12, beta: -0.05, expRet: 0.04 },
+  '국내ETF':     { volMult: 0.85 },   // ETF 분산 효과
+  '해외ETF':     { volMult: 0.85 },
+  '예적금/현금': { annVol: 0.005, mdd: 0.001, beta: 0.00, expRet: 0.035 },
+  '금':          { annVol: 0.14, mdd: 0.20, beta: 0.05,  expRet: 0.05 },
 };
 
 // ── 6. 스트레스 시나리오별 상품유형 추가 충격 ─────────────────────
@@ -82,8 +107,8 @@ export const STRESS_PRODUCT_TYPE_SHOCK = {
  * @returns {string|null}
  */
 export function getBenchmarkTicker(assetClass = '', productType = '', country = '') {
-  // 상품유형 우선 (암호화폐 등)
-  if (PRODUCT_TYPE_BENCHMARK[productType]) return PRODUCT_TYPE_BENCHMARK[productType];
+  // 상품유형 우선: null(무위험) 포함 정확히 키 존재 여부로 판단
+  if (productType in PRODUCT_TYPE_BENCHMARK) return PRODUCT_TYPE_BENCHMARK[productType];
   // 주식/ETF는 투자국가별 벤치마크 선택
   const isEquityLike = ['국내주식', '해외주식'].includes(assetClass);
   if (isEquityLike && country && COUNTRY_BENCHMARK[country]) return COUNTRY_BENCHMARK[country];

@@ -72,6 +72,7 @@ export const ASSET_CLASS = Object.freeze({
   REITS:          '리츠',
   CASH:           '현금',
   DOLLAR:         '달러',
+  CRYPTO:         '암호화폐',
 });
 
 export const THEME = Object.freeze({
@@ -110,16 +111,19 @@ const ASSET_MAPPING_TABLE = [
   { keywords: ['AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'META', 'NVDA', 'TSLA', 'NFLX', 'AMD',
                '미국주식', '해외주식', '빅테크', 'S&P500', 'S&P 500', 'Magnificent 7'],
     assetClass: ASSET_CLASS.FOREIGN_STOCK, taxType: TAX_TYPE.DIRECT_STOCK, theme: THEME.TECH },
-  // 해외주식 – ETF (국내상장 해외ETF 포함)
+  // 해외주식 – ETF (국내상장 해외ETF + 채권형 ETF 포함)
+  // 채권형 ETF(TLT/SHY/IEF/BND/AGG/LQD 등)는 거래소 상장 상품이므로 ETF로 분류 (BOND row 우선순위보다 먼저 매칭)
   { keywords: ['QQQ', 'SPY', 'IVV', 'VOO', 'VTI', 'SCHD', 'JEPI', 'GDX', '미국 ETF', '해외 ETF',
                'TIGER', 'KODEX', 'KINDEX', 'ARIRANG', 'HANARO', 'ACE', 'SOL',
-               '나스닥', 'S&P', 'MSCI', '미국나스닥', '미국S&P'],
+               '나스닥', 'S&P', 'MSCI', '미국나스닥', '미국S&P',
+               'TLT', 'SHY', 'IEF', 'BND', 'AGG', 'LQD', 'HYG', 'VCIT', 'VCSH', 'BSV',
+               '114260', '148070', '157450'],
     assetClass: ASSET_CLASS.FOREIGN_STOCK, taxType: TAX_TYPE.INDIRECT_FUND, theme: THEME.ETF },
-  // 국내채권
+  // 국내채권 (실물 채권 — 거래소 비상장)
   { keywords: ['국채', '국고채', '회사채', '국내채권', '한국채권', 'KTB', '통화안정채', '통안채'],
     assetClass: ASSET_CLASS.DOMESTIC_BOND, taxType: TAX_TYPE.FIXED_INCOME, theme: THEME.OTHER },
-  // 해외채권
-  { keywords: ['미국채', 'TLT', 'IEF', 'SHY', 'AGG', 'BND', '해외채권', '달러채권', 'US Treasury', 'USD Bond'],
+  // 해외채권 (실물 채권 — 거래소 비상장)
+  { keywords: ['미국채', '해외채권', '달러채권', 'US Treasury', 'USD Bond'],
     assetClass: ASSET_CLASS.FOREIGN_BOND, taxType: TAX_TYPE.FIXED_INCOME, theme: THEME.OTHER },
   // 금·원자재
   { keywords: ['금', 'GOLD', 'GLD', 'IAU', '골드', '원자재', '귀금속', 'Commodity', '원유', 'USO', 'DJP'],
@@ -128,11 +132,14 @@ const ASSET_MAPPING_TABLE = [
   { keywords: ['리츠', 'REITs', 'REIT', 'VNQ', 'IYR', 'SCHH', '부동산펀드', '리테일리츠', '물류리츠'],
     assetClass: ASSET_CLASS.REITS, taxType: TAX_TYPE.INDIRECT_FUND, theme: THEME.OTHER },
   // 현금성
-  { keywords: ['현금', 'MMF', 'CMA', '예금', '적금', '파킹통장', '단기채', '발행어음'],
+  { keywords: ['현금', 'MMF', 'CMA', '예금', '적금', '파킹통장', '단기채', '발행어음', '예적금'],
     assetClass: ASSET_CLASS.CASH, taxType: TAX_TYPE.FIXED_INCOME, theme: THEME.OTHER },
   // 달러·외화
   { keywords: ['달러', 'USD', '달러화', '달러예금', '외화예금', 'FX', '환율', 'Dollar'],
     assetClass: ASSET_CLASS.DOLLAR, taxType: TAX_TYPE.FIXED_INCOME, theme: THEME.OTHER },
+  // 암호화폐 (초고위험 대안자산)
+  { keywords: ['비트코인', 'BTC', 'ETH', '이더리움', '암호화폐', 'Crypto', 'COIN', '코인', 'USDT', 'SOL', 'XRP', '리플'],
+    assetClass: ASSET_CLASS.CRYPTO, taxType: TAX_TYPE.DIRECT_STOCK, theme: THEME.OTHER },
 ];
 
 // 자산군별 기본 프록시 (ASSET_MAPPING_TABLE 이후 ASSET_CLASS 참조 가능)
@@ -145,6 +152,7 @@ const ASSET_CLASS_PROXY_DEFAULT = {
   [ASSET_CLASS.REITS]:          { annVol: 0.18, mdd: 0.25, beta: 0.60 },
   [ASSET_CLASS.CASH]:           { annVol: 0.01, mdd: 0.00, beta: 0.00 },
   [ASSET_CLASS.DOLLAR]:         { annVol: 0.08, mdd: 0.12, beta: 0.00 },
+  [ASSET_CLASS.CRYPTO]:         { annVol: 0.72, mdd: 0.82, beta: 0.55 },
 };
 
 /**
@@ -370,60 +378,100 @@ const TICKER_VALID_RE = /^[\w.\-=^]+$/;
  * @param {string} [ticker]    Yahoo Finance 티커 (유효 시 우선 사용)
  * @returns {Promise<number[]>}
  */
+// 자산군별 기본 티커 (명칭/티커 미입력 시 대표 벤치마크로 폴백)
+const DEFAULT_TICKER_BY_CLASS = {
+  [ASSET_CLASS.GOLD]:   'GC=F',
+  [ASSET_CLASS.REITS]:  'VNQ',
+  [ASSET_CLASS.CRYPTO]: 'BTC-USD',
+  [ASSET_CLASS.DOLLAR]: 'KRW=X',
+};
+
 export async function fetchAssetReturns(name, assetClass, productType = '', ticker = '') {
-  // 유효한 티커 여부 확인 — 영문/숫자/특수문자만 허용
   const resolvedTicker = ticker?.trim() && TICKER_VALID_RE.test(ticker.trim())
     ? ticker.trim()
     : null;
-  // Yahoo 호출에 사용할 최종 쿼리: ticker 우선, 없으면 name
-  const yahooQuery = resolvedTicker ?? name;
 
-  // 암호화폐: 지정 티커 또는 BTC-USD 실시계열 우선 조회
-  if (productType === '암호화폐') {
+  // 암호화폐: assetClass 또는 productType 기준 모두 처리
+  if (productType === '암호화폐' || assetClass === ASSET_CLASS.CRYPTO) {
     const cryptoQuery = resolvedTicker ?? 'BTC-USD';
-    const rc = getRiskCoefficients(assetClass, productType);
+    const rc = getRiskCoefficients(ASSET_CLASS.CRYPTO, '암호화폐');
     try {
       const data = await fetchYahooFinanceHistory(cryptoQuery);
-      if (data?.returns?.length >= 6) return data.returns;
+      if (data?.returns?.length >= 6) return filterFinite(data.returns);
     } catch { /* fallthrough */ }
     return buildProxyMonthlyReturns(rc.annVol, rc.expRet ?? 0.15, 35);
   }
-  if (assetClass === ASSET_CLASS.DOLLAR) {
-    const d = await fetchFxRateMock(resolvedTicker ?? name);
-    return d.returns;
-  }
-  if (assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.CASH) {
-    const d = await fetchDomesticBondMock(name);
-    return d.returns;
+
+  // 외화/달러
+  if (assetClass === ASSET_CLASS.DOLLAR || productType === '외화') {
+    try {
+      const d = await fetchFxRateMock((resolvedTicker ?? name) || 'USD/KRW');
+      return filterFinite(d.returns);
+    } catch {
+      return buildProxyMonthlyReturns(0.08, 0.02, 35);
+    }
   }
 
-  // 해외주식·해외채권·금·리츠 → ticker 우선으로 Yahoo Finance 실 데이터 조회
+  // 채권·현금·예적금
+  if (
+    assetClass === ASSET_CLASS.DOMESTIC_BOND ||
+    assetClass === ASSET_CLASS.CASH ||
+    productType === '국내채권' || productType === '해외채권' || productType === '예적금/현금'
+  ) {
+    try {
+      const d = await fetchDomesticBondMock(name || '예금');
+      return filterFinite(d.returns);
+    } catch {
+      return buildProxyMonthlyReturns(0.04, 0.035, 35);
+    }
+  }
+
+  // 금·리츠: 기본 대표 티커 사용 (미입력 시 대체)
+  const defaultTicker = DEFAULT_TICKER_BY_CLASS[assetClass];
+  const yahooQuery = resolvedTicker ?? defaultTicker ?? (name || null);
+
   if (yahooQuery) {
     try {
       const data = await fetchYahooFinanceHistory(yahooQuery);
-      if (data && data.returns.length >= 6) return data.returns;
+      if (data?.returns?.length >= 6) return filterFinite(data.returns);
     } catch { /* fallthrough to proxy */ }
   }
 
-  // 국내주식 또는 Yahoo 실패 → financialRules 기반 현실적 시계열 생성 (0 마스킹 방지)
-  const proxy = getAssetProxy(resolvedTicker ?? name, assetClass, productType);
+  // 국내주식 또는 Yahoo 실패 → financialRules 기반 프록시 시계열 (NaN 0건 보장)
+  const proxy = getAssetProxy(resolvedTicker ?? name ?? '', assetClass, productType);
   const rc    = getRiskCoefficients(assetClass, productType);
-  return buildProxyMonthlyReturns(proxy.annVol, rc.expRet ?? 0.06, 35);
+  return buildProxyMonthlyReturns(
+    safeNum(proxy.annVol, 0.18),
+    safeNum(rc.expRet, 0.06),
+    35
+  );
 }
 
 // ============================================================
 // 7. 기초 통계 유틸
 // ============================================================
 
+/** NaN · Infinity를 안전한 수치로 대체 */
+function safeNum(v, fallback = 0) {
+  return (typeof v === 'number' && Number.isFinite(v)) ? v : fallback;
+}
+
+/** NaN/Infinity를 배열에서 제거 */
+function filterFinite(arr) {
+  return arr.filter(v => typeof v === 'number' && Number.isFinite(v));
+}
+
 export function mean(arr) {
-  if (!arr.length) return 0;
-  return arr.reduce((s, v) => s + v, 0) / arr.length;
+  const a = filterFinite(arr);
+  if (!a.length) return 0;
+  return a.reduce((s, v) => s + v, 0) / a.length;
 }
 
 export function variance(arr) {
-  if (arr.length < 2) return 0;
-  const m = mean(arr);
-  return arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - 1);
+  const a = filterFinite(arr);
+  if (a.length < 2) return 0;
+  const m = mean(a);
+  return a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1);
 }
 
 export function stdDev(arr) {
@@ -503,7 +551,12 @@ export function portfolioReturns(assets) {
   const maxLen = Math.max(0, ...assets.map(a => a.returns.length));
   if (!maxLen) return [];
   return Array.from({ length: maxLen }, (_, i) =>
-    assets.reduce((sum, a) => sum + (a.returns[i] ?? 0) * a.weight, 0)
+    assets.reduce((sum, a) => {
+      const r = a.returns[i];
+      const w = a.weight ?? 0;
+      // NaN/Infinity인 수익률은 0으로 처리(해당 자산 비중만큼 무위험자산 준용)
+      return sum + (Number.isFinite(r) ? r : 0) * w;
+    }, 0)
   );
 }
 
@@ -798,60 +851,62 @@ export async function runQuantAnalysis(rawAssets, t_marginal, marketReturns) {
 
   // 자산별 베타: 실제 벤치마크 시계열 공분산/분산 → 없으면 financialRules 프록시
   const assetBetas = tagged.map((asset, i) => {
-    const meta  = resolveAssetMeta(asset);
-    const bm    = assetBMs[i];
-    const bmRet = bm ? (bmReturnCache[bm] ?? null) : null;
-    const aRet  = withReturns[i]?.returns ?? [];
+    const meta    = resolveAssetMeta(asset);
+    const bm      = assetBMs[i];
+    const bmRet   = bm ? (bmReturnCache[bm] ?? null) : null;
+    const aRet    = filterFinite(withReturns[i]?.returns ?? []);
+    const defBeta = safeNum(getRiskCoefficients(meta.assetClass, meta.productType).beta, 1.0);
     if (bmRet && aRet.length >= 6) {
       try {
         const varBM = variance(bmRet);
-        return varBM > 0
-          ? covariance(aRet, bmRet) / varBM
-          : getRiskCoefficients(meta.assetClass, meta.productType).beta;
+        if (varBM > 0) {
+          const computedBeta = covariance(aRet, bmRet) / varBM;
+          return safeNum(computedBeta, defBeta);
+        }
       } catch { /* fallthrough */ }
     }
-    return getRiskCoefficients(meta.assetClass, meta.productType).beta;
+    return defBeta;
   });
 
-  // 포트폴리오 가중 리스크 팩터 (annVol/mdd는 프록시, beta는 벤치마크 실 계산)
+  // 포트폴리오 가중 리스크 팩터 (NaN·Infinity 완전 차단)
   const proxyMetrics = tagged.reduce((acc, asset, i) => {
     const meta  = resolveAssetMeta(asset);
     const proxy = getAssetProxy(asset.name, meta.assetClass, meta.productType);
-    const w     = rawAssets[i]?.weight ?? 0;
+    const w     = safeNum(rawAssets[i]?.weight ?? 0);
     return {
-      annVol: acc.annVol + w * proxy.annVol,
-      mdd:    acc.mdd    + w * proxy.mdd,
-      beta:   acc.beta   + w * assetBetas[i],
+      annVol: safeNum(acc.annVol + w * safeNum(proxy.annVol, 0.18)),
+      mdd:    safeNum(acc.mdd    + w * safeNum(proxy.mdd, 0.25)),
+      beta:   safeNum(acc.beta   + w * safeNum(assetBetas[i], 1.0)),
     };
   }, { annVol: 0, mdd: 0, beta: 0 });
 
-  const annualRet = mean(portRet) * 12;
-  const beta      = proxyMetrics.beta;
-  const mktAnnRet = mean(mktRet) * 12;
+  const annualRet = safeNum(mean(portRet) * 12);
+  const beta      = safeNum(proxyMetrics.beta, 1.0);
+  const mktAnnRet = safeNum(mean(mktRet) * 12, 0.07);
 
-  // ── Step 6: 그룹 1 – 성과 및 효율성
+  // ── Step 6: 그룹 1 – 성과 및 효율성 (NaN 가드 적용)
   const performance = {
-    afterTaxExpectedReturn: afterTaxExpectedReturn(annualRet, t_marginal),
-    sharpeRatio:            sharpeRatio(portRet),
-    sortinoRatio:           sortinoRatio(portRet),
-    jensensAlpha:           jensensAlpha(annualRet, beta, mktAnnRet),
+    afterTaxExpectedReturn: safeNum(afterTaxExpectedReturn(annualRet, t_marginal)),
+    sharpeRatio:            safeNum(sharpeRatio(portRet)),
+    sortinoRatio:           safeNum(sortinoRatio(portRet)),
+    jensensAlpha:           safeNum(jensensAlpha(annualRet, beta, mktAnnRet)),
   };
 
-  // ── Step 7: 그룹 2 – 리스크 및 하방 손실 (프록시 가중 지표 적용)
+  // ── Step 7: 그룹 2 – 리스크 및 하방 손실 (NaN 가드 적용)
   const divInfo = diversificationScore(withReturns);
   const risk = {
-    volatility:           proxyMetrics.annVol,
-    mdd:                  proxyMetrics.mdd,
-    diversificationScore: divInfo.score,
+    volatility:           safeNum(proxyMetrics.annVol, 0.15),
+    mdd:                  safeNum(proxyMetrics.mdd, 0.10),
+    diversificationScore: safeNum(divInfo.score, 0),
     correlationHeatmap:   { matrix: divInfo.heatmap, labels: divInfo.labels },
-    var95:                valueAtRisk95(totalPortValue, proxyMetrics.annVol),
+    var95:                safeNum(valueAtRisk95(totalPortValue, proxyMetrics.annVol)),
   };
 
-  // ── Step 8: 그룹 3 – 민감도 및 쏠림 (프록시 가중 베타 적용)
+  // ── Step 8: 그룹 3 – 민감도 및 쏠림 (NaN 가드 적용)
   const hhi = hhiConcentration(tagged);
   const sensitivity = {
-    beta,
-    hhi:              hhi.hhi,
+    beta:             safeNum(beta, 1.0),
+    hhi:              safeNum(hhi.hhi),
     hhiWarning:       hhi.warning,
     hhiWarningAssets: hhi.warningAssets,
   };
@@ -971,31 +1026,42 @@ export function getPriceAt(history, targetDate) {
  * quantEngine tagged format(camelCase) / assetPipeline _meta format(snake_case) 모두 지원
  */
 function resolveAssetMeta(asset) {
-  const assetClass = asset.assetClass ?? asset._meta?.asset_class ?? ASSET_CLASS.FOREIGN_STOCK;
+  // 사용자가 직접 지정한 _meta.asset_class를 keyword 기반 classifyAsset보다 우선 적용.
+  // tagPortfolioAssets가 classifyAsset 결과를 spread하여 asset.assetClass를 덮어쓰므로
+  // 명시적 _meta 값이 존재할 때는 그것을 우선한다.
+  const userClass = asset._meta?.asset_class;
+  const assetClass = (userClass && userClass.trim())
+    ? userClass
+    : (asset.assetClass ?? ASSET_CLASS.FOREIGN_STOCK);
+
   const isForeignClass = [
     ASSET_CLASS.FOREIGN_STOCK, ASSET_CLASS.FOREIGN_BOND,
-    ASSET_CLASS.GOLD, ASSET_CLASS.DOLLAR,
+    ASSET_CLASS.GOLD, ASSET_CLASS.DOLLAR, ASSET_CLASS.CRYPTO,
   ].includes(assetClass);
-  // isHedging: 새 필드명(isHedging) 및 기존 필드명(is_hedged) 모두 지원
+
   const isHedging =
     asset.isHedging         ??
     asset._meta?.isHedging  ??
     asset._meta?.is_hedged  ??
     false;
-  const productType = asset.productType ?? asset._meta?.productType ?? '';
+
+  // 사용자 지정 productType(_meta) > tagged productType > 빈 문자열
+  const productType = (asset._meta?.productType && asset._meta.productType.trim())
+    ? asset._meta.productType
+    : (asset.productType ?? '');
 
   return {
     assetClass,
     productType,
     theme:     asset.theme    ?? asset._meta?.theme     ?? THEME.OTHER,
     taxType:   asset.taxType  ?? asset._meta?.taxType   ?? TAX_TYPE.DIRECT_STOCK,
-    country:   asset._meta?.country    ?? (isForeignClass ? '미국' : '한국'),
+    country:   asset._meta?.country ?? (isForeignClass ? '미국' : '한국'),
     isHedging,
-    is_hedged: isHedging,   // 하위 호환 별칭
-    weight:    asset.weight   ?? 0,
-    value:     asset.value    ?? 0,
-    gain:      asset.gain     ?? 0,
-    name:      asset.name     ?? '',
+    is_hedged: isHedging,
+    weight:    safeNum(asset.weight ?? 0),
+    value:     safeNum(asset.value  ?? 0),
+    gain:      safeNum(asset.gain   ?? 0),
+    name:      asset.name ?? '',
   };
 }
 

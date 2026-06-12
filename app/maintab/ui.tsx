@@ -82,7 +82,7 @@ export function CheckerboardGrid({
   );
 }
 
-export function Panel({ icon, eyebrow, title, note, children }: { icon: React.ReactNode; eyebrow: string; title: string; note?: string; children: React.ReactNode }) {
+export function Panel({ icon, eyebrow, title, note, children }: { icon: React.ReactNode; eyebrow: string; title: React.ReactNode; note?: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft sm:p-5">
       <div className="mb-4 flex items-start gap-3">

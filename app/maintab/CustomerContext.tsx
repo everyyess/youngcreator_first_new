@@ -181,7 +181,7 @@ export type PortfolioAsset = {
   buy_price: number | null;
   amount: number;
   amount_type: "quantity" | "value";
-  is_hedged: boolean;
+  is_hedged: boolean;        // 항상 false — 환노출 고정
   needs_review: boolean;
   review_reason?: string | null;
   current_price?: number;
@@ -190,8 +190,12 @@ export type PortfolioAsset = {
   gain?: number;
   price_source?: string;
   _rawAmount?: string;
-  ticker?: string;       // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
-  productType?: string;  // 상품 유형 (ETF, 개별주식, 채권 등)
+  ticker?: string;           // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
+  productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
+  bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만 사용
+  bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만 사용
+  // 데이터 소유권 낙인 — 로드 시 해당 고객 ID로 강제 찍힘, null이면 미확정 상태
+  owner_customer_id?: string | null;
 };
 
 export type PortfolioAnalysisResult = {
@@ -205,6 +209,24 @@ export type PortfolioAnalysisResult = {
   healthResult?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tlhResult?: any;
+};
+
+// 빈 자산 행 템플릿 — MainTabShell과 ExistingPortfolioTab에서 공용으로 사용
+export const EMPTY_PORTFOLIO_ASSET: PortfolioAsset = {
+  name: "",
+  asset_class: "해외주식",
+  theme: "기타",
+  country: "미국",
+  buy_price: null,
+  amount: 0,
+  amount_type: "quantity",
+  is_hedged: false,
+  needs_review: false,
+  ticker: "",
+  productType: "해외주식",
+  bond_yield: null,
+  bond_maturity: null,
+  owner_customer_id: null,  // 소유권 미확정 — addPortfolioRow 시 selectedCustomer로 덮어씌워짐
 };
 
 export const defaultCustomerProfiles: CustomerProfile[] = [
@@ -721,6 +743,68 @@ export function expectedReturnDisplay(rrttllu: RrttlluInfo) {
   return rrttllu.expectedReturn || "입력 대기";
 }
 
+// ── Portfolio & Analysis Supabase Helpers ─────────────────────────────────
+
+export async function loadPortfolioAssets(customerId: CustomerId): Promise<PortfolioAsset[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("portfolio_assets")
+      .select("assets")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return [];
+    const raw: PortfolioAsset[] = Array.isArray((data as { assets?: unknown }).assets)
+      ? ((data as { assets: PortfolioAsset[] }).assets)
+      : [];
+    // 로드 완료 즉시 전 행에 소유권 낙인 — 이 배열이 메모리에 올라가는 순간부터
+    // owner_customer_id가 customerId와 일치해야만 저장이 허용된다
+    return raw.map(a => ({ ...a, owner_customer_id: customerId }));
+  } catch {
+    return [];
+  }
+}
+
+export async function savePortfolioAssets(customerId: CustomerId, assets: PortfolioAsset[]): Promise<void> {
+  if (!supabase) return;
+  // ── 데이터 소유권 낙인 검증 (절대 가드) ────────────────────────────────────
+  // 저장 배열 내 모든 행의 owner_customer_id가 customerId와 완전 일치해야만 통과.
+  // 단 한 행이라도 소유권이 불일치(다른 고객 ID, null, undefined)하면 즉시 차단.
+  // 이 가드는 비동기 타이머·유령 Effect·레이스 컨디션 어떤 경로로 호출되어도
+  // 데이터 객체 자체의 낙인이 틀리면 DB를 절대 터치하지 못한다.
+  const isOwnershipValid = assets.length > 0 &&
+    assets.every(a => a.owner_customer_id === customerId);
+  if (!isOwnershipValid) return;
+  // ── 콘텐츠 가드: 모든 행이 빈 껍데기이면 저장 차단 ──────────────────────
+  const hasContent = assets.some(a => (a.name ?? "").trim() || (a.ticker ?? "").trim());
+  if (!hasContent) return;
+  await supabase
+    .from("portfolio_assets")
+    .upsert({ customer_id: customerId, assets, updated_at: new Date().toISOString() }, { onConflict: "customer_id" });
+}
+
+export async function loadAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("analysis_results")
+      .select("result")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as { result?: unknown }).result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAnalysisResult(customerId: CustomerId, result: unknown): Promise<void> {
+  if (!supabase) return;
+  await supabase
+    .from("analysis_results")
+    .upsert({ customer_id: customerId, result, updated_at: new Date().toISOString() }, { onConflict: "customer_id" });
+}
+
 // ── Context ────────────────────────────────────────────────────────────────
 export type CustomerContextValue = {
   formData: AppState;
@@ -752,6 +836,15 @@ export type CustomerContextValue = {
   applySmartExtraction: (payload: SmartExtractionPayload) => void;
   updateCustomerProfile: (key: keyof Omit<CustomerProfile, "id">, value: string) => void;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  // ── 포트폴리오 전역 상태 (탭 이동 시에도 메모리에서 유지됨) ──────────────
+  portfolioAssets: PortfolioAsset[];
+  isPortfolioLoaded: boolean;
+  analysisResult: PortfolioAnalysisResult | null;
+  addPortfolioRow: () => void;
+  removePortfolioRow: (index: number) => void;
+  updatePortfolioRow: (index: number, patch: Partial<PortfolioAsset>) => void;
+  setAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
+  setPortfolioDirty: (dirty: boolean) => void;
 };
 
 export const CustomerContext = createContext<CustomerContextValue | null>(null);
