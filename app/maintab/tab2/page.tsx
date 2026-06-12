@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Activity, FolderOpen, GitBranch, RefreshCcw } from "lucide-react";
+import { Activity, BarChart2, FolderOpen, GitBranch, RefreshCcw } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
   DistributionAndRiskSection,
@@ -9,16 +9,20 @@ import {
   HoldingAndDiagnosisSection,
   usePortfolioResult,
 } from "../PortfolioResultComponents";
+import TechnicalAnalysisTab from "./TechnicalAnalysisTab";
+import OptionAnalysisTab from "./OptionAnalysisTab";
+import RebalancingPortfolioInput from "../RebalancingPortfolioInput";
 
 // ─── Sub-tab 정의 ─────────────────────────────────────────────────────────────
 
-type InnerTab = "holding" | "risk" | "technical" | "rebalancing";
+type InnerTab = "holding" | "risk" | "technical" | "options" | "rebalancing";
 
 const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
   { id: "holding",     label: "보유 현황 및 진단",  icon: <FolderOpen size={15} /> },
   { id: "risk",        label: "분산 및 위험 분석",  icon: <Activity size={15} /> },
   { id: "technical",   label: "기술적 분석",        icon: <GitBranch size={15} /> },
-  { id: "rebalancing", label: "리밸런싱 추천",      icon: <RefreshCcw size={15} /> },
+  { id: "options",     label: "옵션 분석",          icon: <BarChart2 size={15} /> },
+  { id: "rebalancing", label: "리밸런싱(매도/유지)", icon: <RefreshCcw size={15} /> },
 ];
 
 const STORAGE_KEY = "samsung-vvip-tab2-inner-tab";
@@ -31,7 +35,7 @@ export default function Tab2Page() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === "holding" || stored === "risk" || stored === "technical" || stored === "rebalancing") {
+    if (stored === "holding" || stored === "risk" || stored === "technical" || stored === "options" || stored === "rebalancing") {
       setActiveInnerTab(stored);
     }
   }, []);
@@ -80,19 +84,26 @@ export default function Tab2Page() {
       )}
 
       {activeInnerTab === "technical" && (
-        <section className="rounded-lg border border-slate-200 bg-white px-6 py-10 text-center shadow-soft">
-          <GitBranch size={32} className="mx-auto mb-3 text-slate-300" />
-          <p className="text-lg font-bold text-navy">기술적 분석</p>
-          <p className="mt-2 text-sm text-slate-400">해당 영역은 추후 작업 예정입니다.</p>
-        </section>
+        <div className="space-y-5">
+          <TechnicalAnalysisTab />
+        </div>
+      )}
+
+      {activeInnerTab === "options" && (
+        <div className="space-y-5">
+          <OptionAnalysisTab />
+        </div>
       )}
 
       {activeInnerTab === "rebalancing" && (
-        <section className="rounded-lg border border-slate-200 bg-white px-6 py-10 text-center shadow-soft">
-          <RefreshCcw size={32} className="mx-auto mb-3 text-slate-300" />
-          <p className="text-lg font-bold text-navy">리밸런싱 추천</p>
-          <p className="mt-2 text-sm text-slate-400">해당 영역은 추후 작업 예정입니다.</p>
-        </section>
+        <RebalancingPortfolioInput
+          seedStorageKey="portfolio-input-assets-v1"
+          storageKey="rebalancing-sell-v1"
+          sectionTitle="자산 입력 및 분석 실행"
+          sectionBadge="리밸런싱 편출 관리"
+          noticeBanner="보유 현황 및 진단 페이지의 포트폴리오를 불러왔습니다. 편출(매도)할 종목을 삭제하거나 수량을 조정하세요. 이 페이지의 변경사항은 보유 현황 및 진단 페이지에 반영되지 않습니다."
+          confirmSuccessMessage="편출 목록이 확정되었습니다. TAB3 리밸런싱(매수) 페이지에서 편입할 종목을 추가하세요."
+        />
       )}
     </>
   );

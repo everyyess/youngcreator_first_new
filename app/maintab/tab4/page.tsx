@@ -28,6 +28,9 @@ interface Product {
 interface Client {
   riskAppetite: number; targetReturn: number; investmentPeriod: number;
   liquidityRatio: number; isTaxTarget: boolean; isHighIncomeWorker: boolean; age: number;
+  monthlyIncome: number; monthlyCashflow: number;
+  lumpSumAmount: number; lumpSumTimepoint: number;
+  emergencyAmount: number; investableAssets: number;
 }
 
 const PRODUCT_DOCS: Record<string, string> = {
@@ -46,11 +49,9 @@ const PRODUCT_DOCS: Record<string, string> = {
   f5: "/docs/fund-valuelife65.pdf",
   f6: "/docs/fund-dollar-bond.pdf",
   f7: "/docs/fund-valuelife35.pdf",
-  f8: "/docs/fund-gold-etf.pdf",
   f9: "/docs/fund-dividend30.pdf",
   f10: "/docs/fund-short-bond.pdf",
   f11: "/docs/fund-pension.pdf",
-  f12: "/docs/fund-gov-bond.pdf",
   f13: "/docs/fund-bluechip.pdf",
   f14: "/docs/fund-kosdaq-venture.pdf",
 };
@@ -80,16 +81,59 @@ const PRODUCTS: Product[] = [
   { id:"f14", name:"삼성코스닥벤처플러스증권투자신탁[주식]-A", type:"펀드", riskGrade:1, return1Y:32.09, return3Y:25.31, bucket:"절세", isInstantRedeem:false, taxType:"소득공제", desc:"투자금 10% 소득공제 최대 300만원 (조특법 16조)", aum:"19.36억", manager:"삼성액티브자산운용", inception:"2018-04", isHighIncomeOnly:true, strategy:"코스닥 벤처기업 신주, IPO, CB, BW 투자. 3년 보유 조건.", taxBenefit:"조특법 16조: 투자금 10% 소득공제 최대 300만원. 근로/사업소득 고소득자 전용. 2028년까지 연장.", topHoldings:["로킷헬스케어","액트로","알지노믹스","노타","큐리오시스"] },
 ];
 
+// 텍스트에서 금액 파싱
+function parseAmount(text: string): number {
+  if (!text) return 0;
+  const t = text.replace(/,/g, "").replace(/\s/g, "");
+  const m = t.match(/(\d+(?:\.\d+)?)\s*(억|천만|백만|만)?/);
+  if (!m) return 0;
+  const n = parseFloat(m[1]);
+  if (m[2] === "억") return n * 1e8;
+  if (m[2] === "천만") return n * 1e7;
+  if (m[2] === "백만") return n * 1e6;
+  if (m[2] === "만") return n * 1e4;
+  return n;
+}
+
+// 텍스트에서 시점 파싱 (년 단위)
+function parseTimepoint(text: string): number {
+  if (!text) return 5;
+  if (/즉시|당장|6개월|올해|1년\s*이내/.test(text)) return 0.5;
+  if (/1~?2년|1년/.test(text)) return 1.5;
+  if (/2~?3년|2년/.test(text)) return 2.5;
+  if (/3~?5년|3년|4년/.test(text)) return 4;
+  if (/5년\s*이상|5년|10년|장기/.test(text)) return 7;
+  return 3;
+}
+
 function getBlended(p: Product) {
   return p.return3Y !== null ? p.return1Y * 0.7 + p.return3Y * 0.3 : p.return1Y;
 }
+
 function calcWeights(c: Client) {
-  const timeLeft = Math.max(0, 10 - c.investmentPeriod);
   const uG = Math.max(c.targetReturn * (6 - c.riskAppetite) + c.investmentPeriod * 2, 1);
   const uI = Math.max((c.age / 100) * 50 + (6 - c.riskAppetite) * 5, 1);
   const uH = Math.max(c.riskAppetite * 15, 1);
-  const uL = Math.max(c.liquidityRatio * 80 + timeLeft * 3, 1);
   const uT = c.isTaxTarget ? 100 : 5;
+
+  // 정기현금흐름점수 (30%)
+  const cashflowRatio = c.monthlyIncome > 0 ? c.monthlyCashflow / c.monthlyIncome : 0.5;
+  const cashflowScore = Math.max(cashflowRatio * 100, 1);
+
+  // 목돈점수 (50%)
+  const lumpRatio = c.investableAssets > 0 ? c.lumpSumAmount / c.investableAssets : 0;
+  const tp = c.lumpSumTimepoint;
+  const tpBase = tp <= 1 ? 80 : tp <= 3 ? 60 : tp <= 5 ? 40 : 20;
+  const tpWeight = tp <= 1 ? 1.0 : tp <= 3 ? 0.8 : tp <= 5 ? 0.5 : 0.2;
+  const lumpScore = Math.max(tpBase + lumpRatio * 100 * tpWeight * 0.5, 1);
+
+  // 비상금점수 (20%)
+  const emergencyRatio = c.investableAssets > 0 ? c.emergencyAmount / c.investableAssets : 0;
+  const emergencyScore = Math.max(50 + emergencyRatio * 50, 1);
+
+  // 유동성 최종
+  const uL = Math.max(cashflowScore * 0.30 + lumpScore * 0.50 + emergencyScore * 0.20, 1);
+
   const total = uG + uI + uH + uL + uT;
   const arr: { bucket: BucketType; w: number }[] = [
     { bucket:"자본증식", w:uG/total }, { bucket:"인컴창출", w:uI/total },
@@ -97,6 +141,7 @@ function calcWeights(c: Client) {
   ];
   return { G:uG/total, I:uI/total, H:uH/total, L:uL/total, T:uT/total, topBucket:arr.reduce((a,b)=>a.w>b.w?a:b).bucket };
 }
+
 function calcScore(p: Product, c: Client, w: ReturnType<typeof calcWeights>, all: Product[]) {
   const blended = getBlended(p);
   const allB = all.map(getBlended);
@@ -114,6 +159,7 @@ function calcScore(p: Product, c: Client, w: ReturnType<typeof calcWeights>, all
   const base = w.G*returnScore + w.I*(returnScore*0.5+stabilityScore*0.5) + w.H*stabilityScore + w.L*liquidityScore + w.T*taxScore;
   return base*0.9 + (p.bucket===w.topBucket?10:0);
 }
+
 function riskLevelToAppetite(l: string): number {
   return ({"초고위험":1,"고위험":2,"중위험":3,"저위험":4,"초저위험":5} as Record<string,number>)[l]??3;
 }
@@ -209,15 +255,11 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
           )}
           {product.strategy&&<div className="rounded-xl border border-blue-100 bg-blue-50 p-4"><p className="mb-2 text-xs font-bold text-blue-800">운용 전략</p><p className="text-xs leading-5 text-blue-900">{product.strategy}</p></div>}
           {product.taxBenefit&&<div className="rounded-xl border border-rose-100 bg-rose-50 p-4"><p className="mb-2 text-xs font-bold text-rose-800">세금 정보</p><p className="text-xs leading-5 text-rose-900">{product.taxBenefit}</p></div>}
-          {docUrl ? (
+          {docUrl && (
             <a href={docUrl} target="_blank" rel="noopener noreferrer"
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-navy py-3 text-sm font-bold text-white hover:bg-navy/90 transition">
               <FileText size={14}/>약관 다운로드
             </a>
-          ) : (
-            <div className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-100 py-3 text-sm font-bold text-slate-400">
-              <FileText size={14}/>약관 준비 중
-            </div>
           )}
         </div>
       </div>
@@ -235,11 +277,24 @@ export default function Tab4Page() {
   const [modalProduct, setModalProduct] = useState<Product|null>(null);
 
   const client: Client = useMemo(() => {
-    if (!rrttlluReady) return { riskAppetite:3, targetReturn:8, investmentPeriod:3, liquidityRatio:0.2, isTaxTarget:false, isHighIncomeWorker:false, age:50 };
+    if (!rrttlluReady) return {
+      riskAppetite:3, targetReturn:8, investmentPeriod:3, liquidityRatio:0.2,
+      isTaxTarget:false, isHighIncomeWorker:false, age:50,
+      monthlyIncome:0, monthlyCashflow:0,
+      lumpSumAmount:0, lumpSumTimepoint:5,
+      emergencyAmount:0, investableAssets:0,
+    };
     const isTaxTarget = internalJsonPayload.rrttllu.tax.financial_income_tax_alert.includes("초과");
     const age = parseInt(selectedCustomerProfile.age||"50");
     const fa = parseFloat(formData.financial.financialAssets.replace(/[^0-9.]/g,""))||0;
     const ta = parseFloat(formData.financial.totalAssets.replace(/[^0-9.]/g,""))||0;
+    const annualIncome = parseAmount(formData.financial.annualFixedIncome);
+    const monthlyIncome = annualIncome / 12;
+    const monthlyCashflow = parseAmount(formData.financial.monthlyFixedExpense);
+    const investableAssets = parseAmount(formData.financial.investableAssets);
+    const lumpSumAmount = parseAmount(formData.rrttllu.lumpSumPlan);
+    const lumpSumTimepoint = parseTimepoint(formData.rrttllu.lumpSumPlan);
+    const emergencyAmount = parseAmount(formData.rrttllu.emergencyReservePlan);
     return {
       riskAppetite: riskLevelToAppetite(riskResult.level),
       targetReturn: returnObjectiveToPercent(formData.rrttllu.returnObjective),
@@ -247,6 +302,9 @@ export default function Tab4Page() {
       liquidityRatio: fa&&ta ? Math.min(fa/ta,1) : 0.2,
       isTaxTarget, isHighIncomeWorker:false,
       age: isNaN(age)?50:age,
+      monthlyIncome, monthlyCashflow,
+      lumpSumAmount, lumpSumTimepoint,
+      emergencyAmount, investableAssets,
     };
   }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady]);
 
