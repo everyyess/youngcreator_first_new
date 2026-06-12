@@ -887,7 +887,7 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
 
 // ─── Comparison Left Column (Tab4 용) ─────────────────────────────────────────
 
-export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult | null }) {
+export function ComparisonLeftColumn({ data, afterAssets }: { data: PortfolioAnalysisResult | null; afterAssets?: React.ReactNode }) {
   if (!data) {
     return (
       <div className="flex min-h-[480px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center px-6">
@@ -924,6 +924,8 @@ export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult |
           <p className="text-sm text-slate-400">표시할 자산이 없습니다.</p>
         )}
       </ResultCard>
+
+      {afterAssets}
 
       {/* 4. 핵심 지표 요약 */}
       {quantResult && (

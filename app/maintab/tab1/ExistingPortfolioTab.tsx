@@ -5,10 +5,8 @@ import { FileUp, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { useCustomerContext, parseKrwAmount } from "../CustomerContext";
 import type { PortfolioAsset } from "../CustomerContext";
 import {
-  FinancialIncomeGauge,
   calcFinancialIncomeSummary,
   FINANCIAL_INCOME_STORAGE_KEY,
-  type FinancialIncomeSummary,
   type AssetForIncomeCalc,
 } from "./FinancialIncomeGauge";
 
@@ -68,9 +66,6 @@ export default function ExistingPortfolioTab({ hideDividendColumn = false }: Exi
   const [portfolioErrorMsg, setPortfolioErrorMsg] = useState("");
   const [analysisComplete, setAnalysisComplete] = useState(false);
 
-  // 금융소득 요약
-  const [financialSummary, setFinancialSummary] = useState<FinancialIncomeSummary | null>(null);
-
   const [editingTickerIdx, setEditingTickerIdx] = useState<number | null>(null);
   const [inferringIdx, setInferringIdx] = useState<number | null>(null);
   const [toastMsg, setToastMsg] = useState("");
@@ -86,8 +81,6 @@ export default function ExistingPortfolioTab({ hideDividendColumn = false }: Exi
         const parsed = JSON.parse(stored) as PortfolioAssetEnriched[];
         if (Array.isArray(parsed) && parsed.length > 0) setPortfolioAssets(parsed);
       }
-      const storedSummary = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY);
-      if (storedSummary) setFinancialSummary(JSON.parse(storedSummary));
     } catch {}
     setIsLoaded(true);
   }, []);
@@ -118,29 +111,34 @@ export default function ExistingPortfolioTab({ hideDividendColumn = false }: Exi
     if (!isLoaded) return;
 
     if (portfolioAssets.length === 0) {
-      setFinancialSummary(null);
       localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY);
       return;
     }
 
-    const assetsForCalc: AssetForIncomeCalc[] = portfolioAssets.map((a) => ({
-      name: a.name,
-      ticker: a.ticker ?? "",
-      asset_class: a.asset_class,
-      productType: a.productType,
-      country: a.country,
-      current_price: a.current_price,
-      current_value: a.current_value,
-      amount: a.amount,
-      amount_type: a.amount_type,
-      buy_price: a.buy_price,
-      dividendYield: a.dividendYield,
-      trailingAnnualDividendRate: a.trailingAnnualDividendRate,
-      interestRate: a.bond_yield != null ? a.bond_yield / 100 : undefined,
-    }));
+    const assetsForCalc: AssetForIncomeCalc[] = portfolioAssets.map((a) => {
+      // 수량 변경 시 current_value를 항상 재계산해서 최신 수량 반영
+      const current_value =
+        a.amount_type === "quantity" && a.current_price != null && a.current_price > 0
+          ? a.current_price * a.amount
+          : a.current_value;
+      return {
+        name: a.name,
+        ticker: a.ticker ?? "",
+        asset_class: a.asset_class,
+        productType: a.productType,
+        country: a.country,
+        current_price: a.current_price,
+        current_value,
+        amount: a.amount,
+        amount_type: a.amount_type,
+        buy_price: a.buy_price,
+        dividendYield: a.dividendYield,
+        trailingAnnualDividendRate: a.trailingAnnualDividendRate,
+        interestRate: a.bond_yield != null ? a.bond_yield / 100 : undefined,
+      };
+    });
 
     const summary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
-    setFinancialSummary(summary);
 
     try {
       localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(summary));
@@ -205,7 +203,6 @@ export default function ExistingPortfolioTab({ hideDividendColumn = false }: Exi
           interestRate: a.bond_yield != null ? a.bond_yield / 100 : undefined,
         }));
         const summary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
-        setFinancialSummary(summary);
         try {
           localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(summary));
           window.dispatchEvent(new CustomEvent("financial-income-updated"));
