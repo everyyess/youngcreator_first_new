@@ -413,11 +413,23 @@ export async function fetchAssetReturns(name, assetClass, productType = '', tick
   }
 
   // 채권·현금·예적금
+  // 실물 국내채권 → 114260.KS(KODEX 국고채10년) 프록시, 실물 해외채권 → TLT 프록시 시계열 우선 사용
   if (
     assetClass === ASSET_CLASS.DOMESTIC_BOND ||
+    assetClass === ASSET_CLASS.FOREIGN_BOND ||
     assetClass === ASSET_CLASS.CASH ||
     productType === '국내채권' || productType === '해외채권' || productType === '예적금/현금'
   ) {
+    const isBond = assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.FOREIGN_BOND ||
+                   productType === '국내채권' || productType === '해외채권';
+    if (isBond) {
+      const proxyTicker = (assetClass === ASSET_CLASS.FOREIGN_BOND || productType === '해외채권')
+        ? 'TLT' : '114260.KS';
+      try {
+        const data = await fetchYahooFinanceHistory(proxyTicker);
+        if (data?.returns?.length >= 6) return filterFinite(data.returns);
+      } catch { /* fallthrough */ }
+    }
     try {
       const d = await fetchDomesticBondMock(name || '예금');
       return filterFinite(d.returns);
@@ -633,7 +645,24 @@ export function portfolioVolatility(monthlyReturns) {
  */
 export function diversificationScore(assets) {
   const n = assets.length;
-  if (n < 2) return { score: 1, heatmap: [[1]], labels: assets.map(a => a.name) };
+
+  // 히트맵 레이블 결정
+  // portfolioLogic.ts가 productType/asset_class를 quantInput top-level에 직접 노출하므로
+  // a.productType(3순위)에서 "국내채권"/"해외채권"을 정확히 잡는다.
+  // a.assetClass는 classifyAsset("")이 "해외주식"을 덮어쓰므로 _meta 체크 이후에 배치한다.
+  const resolveLabel = (a) => {
+    return a.name        ||
+           a.종목명      ||
+           a.productType ||
+           a.상품유형    ||
+           a.asset_class ||
+           a._meta?.productType ||
+           a._meta?.asset_class ||
+           a.assetClass  ||
+           '채권';
+  };
+
+  if (n < 2) return { score: 1, heatmap: [[1]], labels: assets.map(resolveLabel) };
 
   const heatmap = Array.from({ length: n }, (_, i) =>
     Array.from({ length: n }, (_, j) => {
@@ -655,7 +684,7 @@ export function diversificationScore(assets) {
   // 분산 점수: 1 − 평균 상관계수 (1에 가까울수록 분산 우수)
   const score = +(1 - avgCorr).toFixed(4);
 
-  return { score, heatmap, labels: assets.map(a => a.name) };
+  return { score, heatmap, labels: assets.map(resolveLabel) };
 }
 
 /**
@@ -1094,8 +1123,11 @@ function getScenario1Shock(asset) {
     return isForeign ? -0.15 : -0.18;
   if (theme === THEME.FINANCIAL)
     return isForeign ? +0.03 : +0.05;
-  if (assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.FOREIGN_BOND)
-    return -(estimateBondDuration(name) * 0.01);
+  if (assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.FOREIGN_BOND) {
+    const maturity = asset._meta?.bond_maturity ?? estimateBondDuration(name);
+    const yld = asset._meta?.bond_yield ? asset._meta.bond_yield / 100 : 0.035;
+    return -(maturity / (1 + yld / 2) * 0.01);
+  }
   if (assetClass === ASSET_CLASS.REITS)   return -0.10;
   if (assetClass === ASSET_CLASS.GOLD)    return -0.05;  // 실질금리 상승 시 금 하락
   if (assetClass === ASSET_CLASS.CASH)    return +0.01;  // 단기 예금 수혜
@@ -1167,10 +1199,19 @@ function getScenario4Shock(asset) {
 
 /** Expected Loss = Sum(w_i × Shock_i) */
 function computeExpectedLoss(assets, shockFn, portfolioValue) {
+  // 채권은 asset.name = "" 이므로 productType / _meta 체인으로 표시명 해결
+  const getDisplayName = (asset) =>
+    asset.name        ||
+    asset.productType ||
+    asset.asset_class ||
+    asset._meta?.productType ||
+    asset._meta?.asset_class ||
+    '자산';
+
   const details = assets.map(asset => {
-    const { weight, name } = resolveAssetMeta(asset);
+    const { weight } = resolveAssetMeta(asset);
     const shock = shockFn(asset);
-    return { name, shock, contribution: weight * shock };
+    return { name: getDisplayName(asset), shock, contribution: weight * shock };
   });
   const lossRate   = details.reduce((s, d) => s + d.contribution, 0);
   const lossAmount = portfolioValue * lossRate;

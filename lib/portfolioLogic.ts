@@ -139,8 +139,22 @@ export const runAnalysis = async (
     })
   );
 
+  // ── Step 0-c: 실물 채권 cost-basis 폴백 ──
+  // Yahoo Finance 조회가 불가한 실물 채권은 매수단가(buy_price) × 수량으로 평가금액을 직접 산출한다.
+  const enrichedWithBonds = enrichedAssets.map((a) => {
+    if (
+      (a.productType === '국내채권' || a.productType === '해외채권') &&
+      a.amount_type === 'quantity' &&
+      (a.current_price == null || a.current_price === 0) &&
+      a.buy_price != null && a.buy_price > 0
+    ) {
+      return { ...a, current_price: a.buy_price, current_value: a.amount * a.buy_price };
+    }
+    return a;
+  });
+
   // 자산 총액이 0원이면 분석 불가
-  const totalCheck = enrichedAssets.reduce((s, a) => {
+  const totalCheck = enrichedWithBonds.reduce((s, a) => {
     const v =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
@@ -158,7 +172,7 @@ export const runAnalysis = async (
   } = await import("../utils/quantEngine.js") as any;
 
   // ── Step 1: 총 자산 가치 계산 ──
-  const totalValue = enrichedAssets.reduce((s, a) => {
+  const totalValue = enrichedWithBonds.reduce((s, a) => {
     const v =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
@@ -166,7 +180,7 @@ export const runAnalysis = async (
   }, 0);
 
   // ── Step 2: 비중(w_i) 및 평가손익 계산 ──
-  const assetsWithWeights = enrichedAssets.map((a) => {
+  const assetsWithWeights = enrichedWithBonds.map((a) => {
     const value =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
@@ -188,6 +202,8 @@ export const runAnalysis = async (
   // ── Step 3: quantEngine 입력 형식 변환 ──
   const quantInput = assetsWithWeights.map((a) => ({
     name: a.name,
+    productType: a.productType ?? '',
+    asset_class: a.asset_class ?? '',
     weight: a.weight ?? 0,
     value: a.current_value ?? 0,
     gain: a.gain ?? 0,
@@ -203,6 +219,8 @@ export const runAnalysis = async (
       current_price: a.current_price,
       amount: a.amount,
       amount_type: a.amount_type,
+      bond_yield: a.bond_yield,
+      bond_maturity: a.bond_maturity,
     },
   }));
 

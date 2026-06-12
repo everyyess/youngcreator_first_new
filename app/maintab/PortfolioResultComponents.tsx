@@ -238,10 +238,16 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
 
 export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
   const [hoveredCls, setHoveredCls] = useState<string | null>(null);
-  const totalValue = assets.reduce((s, a) => s + (a.current_value ?? a.amount ?? 0), 0);
+  const getAssetValue = (a: PortfolioAsset): number => {
+    if (a.current_value != null && a.current_value > 0) return a.current_value;
+    if (a.amount_type === 'quantity' && a.buy_price != null && a.buy_price > 0 && a.amount > 0)
+      return a.buy_price * a.amount;
+    return a.amount ?? 0;
+  };
+  const totalValue = assets.reduce((s, a) => s + getAssetValue(a), 0);
   const byClass: Record<string, number> = {};
   for (const a of assets) {
-    const value = a.current_value ?? a.amount ?? 0;
+    const value = getAssetValue(a);
     if (!Number.isFinite(value) || value <= 0) continue;
     const pct = totalValue > 0 ? (value / totalValue) * 100 : (a.weight ?? 0) * 100;
     if (!Number.isFinite(pct) || pct <= 0) continue;
@@ -300,7 +306,7 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
 
 export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; labels: string[] }) {
   if (!matrix.length || !labels.length) return null;
-  const shortLabel = (l: string) => l.slice(0, 4);
+  const shortLabel = (l: string) => l.length > 0 ? l.slice(0, 4) : '자산';
   function cellStyles(val: number): { bg: string; text: string } {
     if (val >= 0.7)  return { bg: "bg-red-500",     text: "text-white font-bold" };
     if (val >= 0.3)  return { bg: "bg-orange-400",  text: "text-slate-900 font-semibold" };
@@ -314,8 +320,8 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
           <thead>
             <tr>
               <th className="bg-slate-200 p-3 w-14 rounded-sm text-center align-middle" />
-              {labels.map((l) => (
-                <th key={l} className="bg-slate-200 p-3 text-center align-middle text-slate-700 font-bold rounded-sm">{shortLabel(l)}</th>
+              {labels.map((l, i) => (
+                <th key={i} className="bg-slate-200 p-3 text-center align-middle text-slate-700 font-bold rounded-sm">{shortLabel(l)}</th>
               ))}
             </tr>
           </thead>
