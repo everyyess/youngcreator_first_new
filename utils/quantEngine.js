@@ -446,10 +446,37 @@ export async function fetchAssetReturns(name, assetClass, productType = '', tick
     try {
       const data = await fetchYahooFinanceHistory(yahooQuery);
       if (data?.returns?.length >= 6) return filterFinite(data.returns);
-    } catch { /* fallthrough to proxy */ }
+    } catch { /* fallthrough to ETF proxy */ }
   }
 
-  // 국내주식 또는 Yahoo 실패 → financialRules 기반 프록시 시계열 (NaN 0건 보장)
+  // ── ETF 기초지수 프록시 폴백 ─────────────────────────────────────────────────
+  // 신규·레버리지 ETF(TSLL, SOXL, TQQQ 등)는 상장 기간이 짧아 3개년 데이터가
+  // 없거나 Yahoo Finance 조회에 실패하면 lossRate가 0%로 뭉개진다.
+  // 기초지수 대표 ETF 시계열로 미러링하여 의미 있는 충격계수를 확보한다.
+  //   나스닥 계열 / TSLA·반도체 레버리지 → QQQ
+  //   국내 코스피 추종 ETF              → 069500.KS (KODEX 200)
+  //   그 외 해외 ETF                    → SPY (S&P500 대표)
+  if (productType === '국내ETF' || productType === '해외ETF') {
+    const upper = (resolvedTicker ?? name ?? '').toUpperCase();
+    const isNasdaqLinked = [
+      'QQQ', 'NDX', 'NASDAQ', 'TQQQ', 'SQQQ',
+      'TSLL', 'NVDL', 'FNGU', 'SOXL', 'SOXS',
+      '133690', '379800',  // TIGER 미국나스닥100, KODEX 미국나스닥100
+    ].some(k => upper.includes(k));
+    const isDomesticKospi = productType === '국내ETF' &&
+      !upper.includes('미국') && !upper.includes('TIGER미국') &&
+      (upper.includes('069500') || upper.includes('122630') || upper.includes('KODEX200') || resolvedTicker?.endsWith('.KS'));
+    const etfProxy = isDomesticKospi ? '069500.KS' : (isNasdaqLinked ? 'QQQ' : 'SPY');
+    try {
+      const proxyData = await fetchYahooFinanceHistory(etfProxy);
+      if (proxyData?.returns?.length >= 6) {
+        console.log(`[quantEngine] ETF 기초지수 프록시 폴백: ${upper || name} → ${etfProxy}`);
+        return filterFinite(proxyData.returns);
+      }
+    } catch { /* fallthrough to synthetic */ }
+  }
+
+  // 최종 폴백: financialRules 기반 합성 프록시 시계열 (NaN 0건 보장)
   const proxy = getAssetProxy(resolvedTicker ?? name ?? '', assetClass, productType);
   const rc    = getRiskCoefficients(assetClass, productType);
   return buildProxyMonthlyReturns(

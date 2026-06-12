@@ -845,6 +845,15 @@ export type CustomerContextValue = {
   updatePortfolioRow: (index: number, patch: Partial<PortfolioAsset>) => void;
   setAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
   setPortfolioDirty: (dirty: boolean) => void;
+  // ── 리밸런싱 파이프라인 (탭2보유현황 → 탭2리밸런싱 → 탭3매수 → 탭5비교) ──
+  rebalancingSellAssets: PortfolioAsset[];
+  rebalancingBuyAssets: PortfolioAsset[];
+  newPortfolioAnalysisResult: PortfolioAnalysisResult | null;
+  pushToRebalancingSell: () => void;
+  setRebalancingSellAssets: (assets: PortfolioAsset[]) => void;
+  confirmRebalancingSell: () => void;
+  setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
+  setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
 };
 
 export const CustomerContext = createContext<CustomerContextValue | null>(null);

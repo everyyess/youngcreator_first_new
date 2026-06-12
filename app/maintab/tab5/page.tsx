@@ -6,9 +6,12 @@ import {
   NewPortfolioPlaceholder,
   usePortfolioResult,
 } from "../PortfolioResultComponents";
+import { useCustomerContext } from "../CustomerContext";
+import RebalancedPortfolioColumn from "./RebalancedPortfolioColumn";
 
-export default function Tab4Page() {
+export default function Tab5Page() {
   const data = usePortfolioResult();
+  const { newPortfolioAnalysisResult } = useCustomerContext();
 
   return (
     <div className="space-y-6">
@@ -38,10 +41,15 @@ export default function Tab4Page() {
         {/* 우측: 신규 포트폴리오 */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-soft">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-300 text-xs font-bold text-white">B</span>
-            <span className="text-sm font-bold text-slate-400">신규 포트폴리오 (준비 중)</span>
+            <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white ${newPortfolioAnalysisResult ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
+            <span className={`text-sm font-bold ${newPortfolioAnalysisResult ? "text-navy" : "text-slate-400"}`}>
+              {newPortfolioAnalysisResult ? "신규 포트폴리오 (리밸런싱 완료)" : "신규 포트폴리오 (준비 중)"}
+            </span>
           </div>
-          <NewPortfolioPlaceholder />
+          {newPortfolioAnalysisResult
+            ? <RebalancedPortfolioColumn data={newPortfolioAnalysisResult} />
+            : <NewPortfolioPlaceholder />
+          }
         </div>
 
       </div>

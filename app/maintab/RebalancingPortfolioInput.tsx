@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, FileUp, Loader2, Plus, RotateCcw, Sparkles, X } from "lucide-react";
 import type { PortfolioAsset } from "./CustomerContext";
 
@@ -8,15 +8,13 @@ import type { PortfolioAsset } from "./CustomerContext";
 
 const UNIFIED_PRODUCT_TYPES = [
   "국내주식", "해외주식", "국내채권", "해외채권",
-  "국내ETF", "해외ETF", "예적금/현금",
-  "금", "리츠", "외화", "암호화폐",
+  "국내ETF", "해외ETF",
 ] as const;
 
 const BOND_TYPES = new Set<string>(["국내채권", "해외채권"]);
 
 const COUNTRIES = ["한국", "미국", "일본", "중국", "유럽", "기타"];
 
-// 탭 2-1과 동일한 EMPTY_ASSET (bond 필드 포함)
 const EMPTY_ASSET: PortfolioAsset = {
   name: "",
   asset_class: "해외주식",
@@ -35,7 +33,15 @@ const EMPTY_ASSET: PortfolioAsset = {
 
 // ─── Helpers (탭 2-1 ExistingPortfolioTab 완전 동일) ─────────────────────────
 
-// 통합 productType → asset_class 매핑 (계산 파이프라인 호환)
+function fmtNum(v: number | null | undefined): string {
+  if (v == null || v === 0) return "";
+  return v.toLocaleString("ko-KR");
+}
+function fmtDec(v: number | null | undefined): string {
+  if (v == null) return "";
+  return v.toLocaleString("ko-KR", { maximumFractionDigits: 4 });
+}
+
 function deriveAssetClass(unifiedType: string): string {
   switch (unifiedType) {
     case "국내주식":    return "국내주식";
@@ -53,7 +59,6 @@ function deriveAssetClass(unifiedType: string): string {
   }
 }
 
-// 통합 productType → 기본 country 매핑
 function deriveCountry(unifiedType: string): string {
   if (unifiedType.startsWith("국내") || unifiedType === "예적금/현금") return "한국";
   if (unifiedType === "외화" || unifiedType === "암호화폐") return "기타";
@@ -61,7 +66,6 @@ function deriveCountry(unifiedType: string): string {
   return "미국";
 }
 
-// Gemini 응답의 (assetClass, productType) 조합 → 통합 productType 변환
 function toUnifiedProductType(assetClass: string, productType: string): string {
   const isEtf = productType === "ETF";
   if (assetClass === "국내주식") return isEtf ? "국내ETF" : "국내주식";
@@ -79,8 +83,11 @@ function toUnifiedProductType(assetClass: string, productType: string): string {
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 interface RebalancingPortfolioInputProps {
-  seedStorageKey: string;
-  storageKey: string;
+  assets: PortfolioAsset[];
+  seedAssets: PortfolioAsset[];
+  onAssetsChange: (assets: PortfolioAsset[]) => void;
+  onConfirm: () => void | Promise<void>;
+  isConfirming?: boolean;
   sectionTitle: string;
   sectionBadge: string;
   noticeBanner?: string;
@@ -90,130 +97,100 @@ interface RebalancingPortfolioInputProps {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function RebalancingPortfolioInput({
-  seedStorageKey,
-  storageKey,
+  assets,
+  seedAssets,
+  onAssetsChange,
+  onConfirm,
+  isConfirming = false,
   sectionTitle,
   sectionBadge,
   noticeBanner,
   confirmSuccessMessage,
 }: RebalancingPortfolioInputProps) {
-  const [portfolioAssets, setPortfolioAssets] = useState<PortfolioAsset[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [editingTickerIdx, setEditingTickerIdx] = useState<number | null>(null);
   const [inferringIdx, setInferringIdx] = useState<number | null>(null);
   const [toastMsg, setToastMsg] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── 영속화 ────────────────────────────────────────────────────────────────
-  // 자신의 storageKey에 데이터가 있으면 그것을 사용, 없으면 seedStorageKey에서 복사
-
+  // 자산 목록 변경 시 확정 배너 숨기기
+  const prevAssetsRef = useRef(assets);
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(storageKey);
-      if (stored) {
-        const parsed = JSON.parse(stored) as PortfolioAsset[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPortfolioAssets(parsed);
-          setIsLoaded(true);
-          return;
-        }
-      }
-      const seed = localStorage.getItem(seedStorageKey);
-      if (seed) {
-        const parsed = JSON.parse(seed) as PortfolioAsset[];
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPortfolioAssets(parsed);
-        }
-      }
-    } catch {}
-    setIsLoaded(true);
-  }, [storageKey, seedStorageKey]);
-
-  // 변경 시 자신의 storageKey에만 저장 (seed key는 절대 건드리지 않음)
-  useEffect(() => {
-    if (!isLoaded) return;
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(portfolioAssets));
-    } catch {}
-    setConfirmed(false);
-  }, [portfolioAssets, isLoaded, storageKey]);
-
-  // ── 초기화 — seed key에서 다시 복사 ──────────────────────────────────────
-
-  const handleReset = useCallback(() => {
-    try {
-      const seed = localStorage.getItem(seedStorageKey);
-      if (seed) {
-        const parsed = JSON.parse(seed) as PortfolioAsset[];
-        if (Array.isArray(parsed)) setPortfolioAssets(parsed);
-      }
-    } catch {}
-  }, [seedStorageKey]);
+    if (prevAssetsRef.current !== assets) {
+      setConfirmed(false);
+      prevAssetsRef.current = assets;
+    }
+  });
 
   // ── 행 조작 ───────────────────────────────────────────────────────────────
 
-  const addRow = () => setPortfolioAssets((prev) => [...prev, { ...EMPTY_ASSET }]);
-  const removeRow = (i: number) => setPortfolioAssets((prev) => prev.filter((_, idx) => idx !== i));
-  const updateRow = useCallback(
-    (i: number, patch: Partial<PortfolioAsset>) =>
-      setPortfolioAssets((prev) => prev.map((a, idx) => (idx === i ? { ...a, ...patch } : a))),
-    []
-  );
+  const addRow = () => onAssetsChange([...assets, { ...EMPTY_ASSET }]);
+  const removeRow = (i: number) => onAssetsChange(assets.filter((_, idx) => idx !== i));
+  const updateRow = (i: number, patch: Partial<PortfolioAsset>) =>
+    onAssetsChange(assets.map((a, idx) => (idx === i ? { ...a, ...patch } : a)));
+
+  // ── 초기화 — seedAssets deep-copy ──────────────────────────────────────────
+
+  const handleReset = () => {
+    onAssetsChange(seedAssets.map(a => ({ ...a })));
+  };
 
   // ── 토스트 ────────────────────────────────────────────────────────────────
 
-  const showToast = useCallback((msg: string) => {
+  const showToast = (msg: string) => {
     setToastMsg(msg);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMsg(""), 3000);
-  }, []);
+  };
 
   // ── Gemini AI 자동 추론 — 탭 2-1 동일 매핑 파이프라인 ────────────────────
 
-  const handleSmartInference = useCallback(
-    async (idx: number, name: string) => {
-      if (!name.trim()) return;
-      setInferringIdx(idx);
-      showToast(`'${name}' 분석 중...`);
-      try {
-        const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
-        const data = await res.json();
-        if (!res.ok) {
-          showToast(data?.error ?? `오류 (${res.status})`);
-          return;
-        }
-        const ticker = typeof data.ticker === "string" && data.ticker ? data.ticker : "";
-        if (!ticker) {
-          showToast(`'${name}'의 티커를 찾을 수 없습니다. 수동으로 입력해주세요.`);
-          return;
-        }
-        // 탭 2-1과 동일한 통합 productType 변환 파이프라인
-        const geminiAssetClass  = typeof data.assetClass  === "string" ? data.assetClass  : "";
-        const geminiProductType = typeof data.productType === "string" ? data.productType : "";
-        const unifiedType = geminiAssetClass
-          ? toUnifiedProductType(geminiAssetClass, geminiProductType)
-          : undefined;
-        updateRow(idx, {
-          ticker,
-          ...(unifiedType ? {
-            productType: unifiedType,
-            asset_class: deriveAssetClass(unifiedType),
-            country:     deriveCountry(unifiedType),
-          } : {}),
-          ...(!unifiedType && data.country ? { country: data.country as string } : {}),
-          is_hedged: false,
-        });
-        showToast(`'${name}' → ${ticker} 자동 완성`);
-      } catch (err) {
-        console.warn("[SmartInference] API 오류:", err);
-        showToast("네트워크 오류가 발생했습니다. 수동으로 입력해주세요.");
-      } finally {
-        setInferringIdx(null);
+  const handleSmartInference = async (idx: number, name: string) => {
+    if (!name.trim()) return;
+    setInferringIdx(idx);
+    showToast(`'${name}' 분석 중...`);
+    try {
+      const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data?.error ?? `오류 (${res.status})`);
+        return;
       }
-    },
-    [showToast, updateRow]
-  );
+      const ticker = typeof data.ticker === "string" && data.ticker ? data.ticker : "";
+      if (!ticker) {
+        showToast(`'${name}'의 티커를 찾을 수 없습니다. 수동으로 입력해주세요.`);
+        return;
+      }
+      const geminiAssetClass  = typeof data.assetClass  === "string" ? data.assetClass  : "";
+      const geminiProductType = typeof data.productType === "string" ? data.productType : "";
+      const unifiedType = geminiAssetClass
+        ? toUnifiedProductType(geminiAssetClass, geminiProductType)
+        : undefined;
+      updateRow(idx, {
+        ticker,
+        ...(unifiedType ? {
+          productType: unifiedType,
+          asset_class: deriveAssetClass(unifiedType),
+          country:     deriveCountry(unifiedType),
+        } : {}),
+        ...(!unifiedType && data.country ? { country: data.country as string } : {}),
+        is_hedged: false,
+      });
+      showToast(`'${name}' → ${ticker} 자동 완성`);
+    } catch (err) {
+      console.warn("[SmartInference] API 오류:", err);
+      showToast("네트워크 오류가 발생했습니다. 수동으로 입력해주세요.");
+    } finally {
+      setInferringIdx(null);
+    }
+  };
+
+  // ── 확정 ──────────────────────────────────────────────────────────────────
+
+  const handleConfirmClick = async () => {
+    await onConfirm();
+    setConfirmed(true);
+  };
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -242,10 +219,13 @@ export default function RebalancingPortfolioInput({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={() => setConfirmed(true)}
-            className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#1b35bd]"
+            disabled={isConfirming}
+            onClick={handleConfirmClick}
+            className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#1b35bd] disabled:opacity-50"
           >
-            <CheckCircle2 size={16} />
+            {isConfirming
+              ? <Loader2 size={16} className="animate-spin" />
+              : <CheckCircle2 size={16} />}
             리밸런싱 확정
           </button>
           <button
@@ -284,7 +264,7 @@ export default function RebalancingPortfolioInput({
         )}
 
         {/* 자산 입력 테이블 — 탭 2-1과 동일한 8컬럼 구성 */}
-        {portfolioAssets.length > 0 ? (
+        {assets.length > 0 ? (
           <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
             <table className="w-full text-sm">
               <thead className="border-b border-slate-200 bg-slate-50">
@@ -310,7 +290,7 @@ export default function RebalancingPortfolioInput({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {portfolioAssets.map((a, i) => (
+                {assets.map((a, i) => (
                   <AssetRow
                     key={i}
                     idx={i}
@@ -366,7 +346,6 @@ function AssetRow({
       asset_class: deriveAssetClass(val),
       country:     deriveCountry(val),
       is_hedged:   false,
-      // 채권 외 유형으로 변경 시 채권 전용 필드 초기화
       ...(!BOND_TYPES.has(val) ? { bond_yield: null, bond_maturity: null } : {}),
     });
   };
@@ -460,30 +439,38 @@ function AssetRow({
       {/* 수량(주/개) */}
       <td className="px-3 py-2">
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
           className="h-9 w-24 rounded border border-slate-200 px-2 text-xs text-navy"
           placeholder="수량"
-          value={a.amount || ""}
-          onChange={(e) => onUpdate(idx, { amount: Number(e.target.value), amount_type: "quantity" })}
+          value={fmtNum(a.amount)}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { amount: raw ? Number(raw) : 0, amount_type: "quantity" });
+          }}
         />
       </td>
 
       {/* 매수단가(원화) */}
       <td className="px-3 py-2">
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
           className="h-9 w-24 rounded border border-slate-200 px-2 text-xs text-navy"
-          value={a.buy_price ?? ""}
+          value={fmtNum(a.buy_price)}
           placeholder="—"
-          onChange={(e) => onUpdate(idx, { buy_price: e.target.value ? Number(e.target.value) : null })}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { buy_price: raw ? Number(raw) : null });
+          }}
         />
       </td>
 
       {/* 채권수익률(%) — 채권 유형일 때만 활성화 */}
       <td className="px-3 py-2">
         <input
-          type="number"
-          step="0.01"
+          type="text"
+          inputMode="decimal"
           className={[
             "h-9 w-20 rounded border px-2 text-xs",
             isBond
@@ -491,17 +478,20 @@ function AssetRow({
               : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400",
           ].join(" ")}
           placeholder={isBond ? "예: 3.5" : "—"}
-          value={isBond ? (a.bond_yield ?? "") : ""}
+          value={isBond ? fmtDec(a.bond_yield) : ""}
           disabled={!isBond}
-          onChange={(e) => onUpdate(idx, { bond_yield: e.target.value ? Number(e.target.value) : null })}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { bond_yield: raw ? parseFloat(raw) : null });
+          }}
         />
       </td>
 
       {/* 만기(년) — 채권 유형일 때만 활성화 */}
       <td className="px-3 py-2">
         <input
-          type="number"
-          step="1"
+          type="text"
+          inputMode="numeric"
           className={[
             "h-9 w-16 rounded border px-2 text-xs",
             isBond
@@ -509,9 +499,12 @@ function AssetRow({
               : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400",
           ].join(" ")}
           placeholder={isBond ? "예: 5" : "—"}
-          value={isBond ? (a.bond_maturity ?? "") : ""}
+          value={isBond ? (a.bond_maturity != null ? a.bond_maturity.toLocaleString("ko-KR") : "") : ""}
           disabled={!isBond}
-          onChange={(e) => onUpdate(idx, { bond_maturity: e.target.value ? Number(e.target.value) : null })}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { bond_maturity: raw ? Number(raw) : null });
+          }}
         />
       </td>
 

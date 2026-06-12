@@ -306,7 +306,16 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
 
 export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; labels: string[] }) {
   if (!matrix.length || !labels.length) return null;
-  const shortLabel = (l: string) => l.length > 0 ? l.slice(0, 4) : '자산';
+
+  const n = labels.length;
+  // 자산 수에 따라 폰트·패딩을 동적 축소 (잘림 없이 전체 레이블 표시)
+  const isCompact = n >= 6;
+  const isTiny    = n >= 9;
+  const labelFont  = isTiny ? "text-[9px]"  : isCompact ? "text-[10px]" : "text-xs";
+  const headerPad  = isTiny ? "p-0.5"       : isCompact ? "p-1"         : "p-2.5";
+  const cellPad    = isTiny ? "p-0.5"       : isCompact ? "p-1.5"       : "p-3";
+  const valueFont  = isTiny ? "text-[9px]"  : isCompact ? "text-[10px]" : "text-xs";
+
   function cellStyles(val: number): { bg: string; text: string } {
     if (val >= 0.7)  return { bg: "bg-red-500",     text: "text-white font-bold" };
     if (val >= 0.3)  return { bg: "bg-orange-400",  text: "text-slate-900 font-semibold" };
@@ -316,22 +325,38 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
   return (
     <div className="flex flex-col gap-3">
       <div className="overflow-x-auto w-full">
-        <table className="w-full text-xs border-separate" style={{ borderSpacing: "2px" }}>
+        <table className="border-separate" style={{ borderSpacing: "2px" }}>
           <thead>
             <tr>
-              <th className="bg-slate-200 p-3 w-14 rounded-sm text-center align-middle" />
+              {/* 좌상단 빈 셀 */}
+              <th className={`bg-slate-200 ${headerPad} rounded-sm`} />
               {labels.map((l, i) => (
-                <th key={i} className="bg-slate-200 p-3 text-center align-middle text-slate-700 font-bold rounded-sm">{shortLabel(l)}</th>
+                <th
+                  key={i}
+                  className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold rounded-sm ${labelFont} leading-tight break-words`}
+                  style={{ maxWidth: isCompact ? "4rem" : "6rem", wordBreak: "break-word" }}
+                >
+                  {l || '자산'}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {matrix.map((row, ri) => (
               <tr key={ri}>
-                <td className="bg-slate-200 p-3 text-center align-middle text-slate-700 font-bold whitespace-nowrap rounded-sm">{shortLabel(labels[ri])}</td>
+                <td
+                  className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold rounded-sm ${labelFont} leading-tight break-words`}
+                  style={{ maxWidth: isCompact ? "4rem" : "6rem", wordBreak: "break-word" }}
+                >
+                  {labels[ri] || '자산'}
+                </td>
                 {row.map((val, ci) => {
                   const { bg, text } = cellStyles(val);
-                  return <td key={ci} className={`p-4 text-center align-middle rounded-sm select-none ${bg} ${text}`}>{val.toFixed(2)}</td>;
+                  return (
+                    <td key={ci} className={`${cellPad} text-center align-middle rounded-sm select-none ${bg} ${text} ${valueFont}`}>
+                      {val.toFixed(2)}
+                    </td>
+                  );
                 })}
               </tr>
             ))}

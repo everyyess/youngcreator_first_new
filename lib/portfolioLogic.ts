@@ -153,8 +153,28 @@ export const runAnalysis = async (
     return a;
   });
 
+  // ── Step 0-d: ETF cost-basis 폴백 ──
+  // 신규·레버리지 ETF(TSLL, SOXL 등)는 Yahoo Finance 시세 조회가 실패하거나
+  // 데이터가 부족할 수 있다. 이 경우 current_value가 0이 되어 weight=0 → 스트레스
+  // 테스트 기여도 0%로 뭉개지는 버그를 매수단가 × 수량으로 방어한다.
+  const enrichedFinal = enrichedWithBonds.map((a) => {
+    if (
+      (a.productType === '국내ETF' || a.productType === '해외ETF') &&
+      a.amount_type === 'quantity' &&
+      (a.current_price == null || a.current_price === 0) &&
+      a.buy_price != null && a.buy_price > 0
+    ) {
+      const isUsdAsset = a.asset_class === '해외주식' || a.asset_class === '해외채권';
+      const priceKrw   = isUsdAsset
+        ? a.buy_price * currentExchangeRate
+        : a.buy_price;
+      return { ...a, current_price: priceKrw, current_value: a.amount * priceKrw };
+    }
+    return a;
+  });
+
   // 자산 총액이 0원이면 분석 불가
-  const totalCheck = enrichedWithBonds.reduce((s, a) => {
+  const totalCheck = enrichedFinal.reduce((s, a) => {
     const v =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
@@ -172,7 +192,7 @@ export const runAnalysis = async (
   } = await import("../utils/quantEngine.js") as any;
 
   // ── Step 1: 총 자산 가치 계산 ──
-  const totalValue = enrichedWithBonds.reduce((s, a) => {
+  const totalValue = enrichedFinal.reduce((s, a) => {
     const v =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
@@ -180,7 +200,7 @@ export const runAnalysis = async (
   }, 0);
 
   // ── Step 2: 비중(w_i) 및 평가손익 계산 ──
-  const assetsWithWeights = enrichedWithBonds.map((a) => {
+  const assetsWithWeights = enrichedFinal.map((a) => {
     const value =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);

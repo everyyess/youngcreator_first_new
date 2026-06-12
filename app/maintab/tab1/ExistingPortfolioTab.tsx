@@ -13,8 +13,7 @@ import type { PortfolioAsset } from "../CustomerContext";
 // 통합 상품유형 — 자산군 + 상품유형을 단일 드롭다운으로 통합
 const UNIFIED_PRODUCT_TYPES = [
   "국내주식", "해외주식", "국내채권", "해외채권",
-  "국내ETF", "해외ETF", "예적금/현금",
-  "금", "리츠", "외화", "암호화폐",
+  "국내ETF", "해외ETF",
 ] as const;
 
 const BOND_TYPES = new Set<string>(["국내채권", "해외채권"]);
@@ -35,6 +34,16 @@ function parseKoreanAmount(str: string): number {
   if (man) result += parseFloat(man[1]) * 1e4;
   if (!eok && !man) result = parseFloat(n.replace(/[^0-9.]/g, "")) || 0;
   return result;
+}
+
+// 회계 형식 콤마 포맷 헬퍼 — 내부 state는 순수 숫자, UI만 포맷
+function fmtNum(v: number | null | undefined): string {
+  if (v == null || v === 0) return "";
+  return v.toLocaleString("ko-KR");
+}
+function fmtDec(v: number | null | undefined): string {
+  if (v == null) return "";
+  return v.toLocaleString("ko-KR", { maximumFractionDigits: 4 });
 }
 
 // 통합 productType → asset_class 매핑 (계산 파이프라인 호환)
@@ -90,6 +99,7 @@ export default function ExistingPortfolioTab() {
     updatePortfolioRow: updateRow,
     setAnalysisResult,
     setPortfolioDirty,
+    pushToRebalancingSell,
   } = useCustomerContext();
 
   const [portfolioIsRunning, setPortfolioIsRunning] = useState(false);
@@ -140,6 +150,8 @@ export default function ExistingPortfolioTab() {
         await saveAnalysisResult(selectedCustomer, result);
         // 전역 Context에 즉시 반영 — Tab2·Tab4가 다음 렌더에서 바로 읽는다
         setAnalysisResult(result);
+        // 리밸런싱 파이프라인 시드 — deep-copy로 역오염 차단
+        pushToRebalancingSell();
         setPortfolioDirty(false);
         setAnalysisComplete(true);
         setPortfolioStatusMsg("");
@@ -151,7 +163,7 @@ export default function ExistingPortfolioTab() {
         setPortfolioIsRunning(false);
       }
     },
-    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty]
+    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty, pushToRebalancingSell]
   );
 
   // ── 토스트 ────────────────────────────────────────────────────────────────
@@ -460,13 +472,14 @@ function AssetRow({
       {/* 수량(주/개) */}
       <td className="px-3 py-2">
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
           className="h-9 w-24 rounded border border-slate-200 px-2 text-xs text-navy"
           placeholder="수량"
-          value={a.amount || ""}
+          value={fmtNum(a.amount)}
           onChange={(e) => {
-            const qty = Number(e.target.value);
-            onUpdate(idx, { amount: qty, amount_type: "quantity" });
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { amount: raw ? Number(raw) : 0, amount_type: "quantity" });
           }}
         />
       </td>
@@ -474,19 +487,23 @@ function AssetRow({
       {/* 매수단가(원화) */}
       <td className="px-3 py-2">
         <input
-          type="number"
+          type="text"
+          inputMode="numeric"
           className="h-9 w-24 rounded border border-slate-200 px-2 text-xs text-navy"
-          value={a.buy_price ?? ""}
+          value={fmtNum(a.buy_price)}
           placeholder="—"
-          onChange={(e) => onUpdate(idx, { buy_price: e.target.value ? Number(e.target.value) : null })}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { buy_price: raw ? Number(raw) : null });
+          }}
         />
       </td>
 
       {/* 채권 수익률(%) — 채권 유형일 때만 활성화 */}
       <td className="px-3 py-2">
         <input
-          type="number"
-          step="0.01"
+          type="text"
+          inputMode="decimal"
           className={[
             "h-9 w-20 rounded border px-2 text-xs",
             isBond
@@ -494,17 +511,20 @@ function AssetRow({
               : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400",
           ].join(" ")}
           placeholder={isBond ? "예: 3.5" : "—"}
-          value={isBond ? (a.bond_yield ?? "") : ""}
+          value={isBond ? fmtDec(a.bond_yield) : ""}
           disabled={!isBond}
-          onChange={(e) => onUpdate(idx, { bond_yield: e.target.value ? Number(e.target.value) : null })}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { bond_yield: raw ? parseFloat(raw) : null });
+          }}
         />
       </td>
 
       {/* 만기(년) — 채권 유형일 때만 활성화 */}
       <td className="px-3 py-2">
         <input
-          type="number"
-          step="1"
+          type="text"
+          inputMode="numeric"
           className={[
             "h-9 w-16 rounded border px-2 text-xs",
             isBond
@@ -512,9 +532,12 @@ function AssetRow({
               : "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400",
           ].join(" ")}
           placeholder={isBond ? "예: 5" : "—"}
-          value={isBond ? (a.bond_maturity ?? "") : ""}
+          value={isBond ? (a.bond_maturity != null ? a.bond_maturity.toLocaleString("ko-KR") : "") : ""}
           disabled={!isBond}
-          onChange={(e) => onUpdate(idx, { bond_maturity: e.target.value ? Number(e.target.value) : null })}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/,/g, "");
+            onUpdate(idx, { bond_maturity: raw ? Number(raw) : null });
+          }}
         />
       </td>
 

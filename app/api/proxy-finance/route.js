@@ -133,23 +133,46 @@ const FALLBACK_ASSET_DICT = {
   'tiger미국sp500':     { ticker: '360750.KS', assetClass: '해외주식', productType: 'ETF', country: '한국' },
   'kodex200':           { ticker: '069500.KS', assetClass: '국내주식', productType: 'ETF', country: '한국' },
   'kodex미국나스닥100': { ticker: '379800.KS', assetClass: '해외주식', productType: 'ETF', country: '한국' },
-  // ── 미국 대형주 ────────────────────────────────────────────
-  '테슬라':  { ticker: 'TSLA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '애플':    { ticker: 'AAPL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '엔비디아': { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  // ── 미국 대형주 (한글 명칭 매핑 포함) ──────────────────────
+  '테슬라':      { ticker: 'TSLA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '애플':        { ticker: 'AAPL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '엔비디아':    { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
   '마이크로소프트': { ticker: 'MSFT', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '구글':    { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '아마존':  { ticker: 'AMZN', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '메타':    { ticker: 'META', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'nvda':    { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'nvidia':  { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'nvdia':   { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' }, // 오타 방어
-  'tsla':    { ticker: 'TSLA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'aapl':    { ticker: 'AAPL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'msft':    { ticker: 'MSFT', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'googl':   { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'amzn':    { ticker: 'AMZN', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'meta':    { ticker: 'META', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '마소':        { ticker: 'MSFT', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '구글':        { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '알파벳':      { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '아마존':      { ticker: 'AMZN', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '메타':        { ticker: 'META', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '인텔':        { ticker: 'INTC', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '넷플릭스':    { ticker: 'NFLX', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '팔란티어':    { ticker: 'PLTR', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '버크셔':      { ticker: 'BRK-B', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '코카콜라':    { ticker: 'KO',   assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '존슨앤존슨':  { ticker: 'JNJ',  assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '비자':        { ticker: 'V',    assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  '마스터카드':  { ticker: 'MA',   assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'nvda':        { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'nvidia':      { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'nvdia':       { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' }, // 오타 방어
+  'tsla':        { ticker: 'TSLA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'aapl':        { ticker: 'AAPL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'msft':        { ticker: 'MSFT', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'googl':       { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'amzn':        { ticker: 'AMZN', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'meta':        { ticker: 'META', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'intc':        { ticker: 'INTC', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'nflx':        { ticker: 'NFLX', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  'pltr':        { ticker: 'PLTR', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  // ── 미국 레버리지·인버스 ETF ────────────────────────────
+  'tsll':   { ticker: 'TSLL',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'soxl':   { ticker: 'SOXL',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'soxs':   { ticker: 'SOXS',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'tqqq':   { ticker: 'TQQQ',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'sqqq':   { ticker: 'SQQQ',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'fngu':   { ticker: 'FNGU',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'nvdl':   { ticker: 'NVDL',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'upro':   { ticker: 'UPRO',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
+  'spxl':   { ticker: 'SPXL',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
   // ── 미국 ETF / 채권 ────────────────────────────────────────
   'spy':     { ticker: 'SPY',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
   'qqq':     { ticker: 'QQQ',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
@@ -514,6 +537,22 @@ export async function GET(request) {
       { error: '거래가 정지되거나 상장 폐지된 종목입니다.', ticker },
       { status: 404 }
     );
+  }
+
+  // ── quoteType 기반 ETF 강제 분류 보정 ──────────────────────────────────────
+  // Gemini / 정적 딕셔너리가 ETF를 개별주식으로 오분류한 경우를 Yahoo Finance
+  // quoteType 실측값으로 최종 교정한다. (TSLL·SOXL 등 레버리지 ETF 오분류 방어)
+  const quoteType = yahooJson.chart?.result?.[0]?.meta?.quoteType ?? null;
+  if (quoteType === 'ETF' && assetMeta.productType !== 'ETF') {
+    const isKorean = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
+    assetMeta = {
+      ...assetMeta,
+      productType: 'ETF',
+      // assetClass가 null이면 티커 기반으로 채움 (Korean suffix → 국내주식)
+      assetClass: assetMeta.assetClass ?? (isKorean ? '국내주식' : '해외주식'),
+      country:    assetMeta.country    ?? (isKorean ? '한국'    : '미국'),
+    };
+    console.log(`[proxy-finance] quoteType=ETF 감지 → productType 강제 보정: ${ticker} (Korean=${isKorean})`);
   }
 
   return Response.json({ ticker, ...assetMeta, ...yahooJson });

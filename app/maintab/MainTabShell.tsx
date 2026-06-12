@@ -60,10 +60,18 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [analysisResultMap, setAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
   const portfolioLoadedRef = useRef(new Set<CustomerId>()); // 중복 로드 방지 (렌더 독립적)
 
+  // ── 리밸런싱 파이프라인 상태 Maps (고객별 격리) ────────────────────────────
+  const [rebalancingSellMap, setRebalancingSellMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [rebalancingBuyMap, setRebalancingBuyMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [newPortfolioAnalysisResultMap, setNewPortfolioAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
+
   // 파생값 — 공개 인터페이스는 Tab 1의 formData/riskResult 패턴과 동일
   const portfolioAssets = portfolioAssetsMap[selectedCustomer] ?? [];
   const isPortfolioLoaded = portfolioLoadedMap[selectedCustomer] ?? false;
   const analysisResult = analysisResultMap[selectedCustomer] ?? null;
+  const rebalancingSellAssets = rebalancingSellMap[selectedCustomer] ?? [];
+  const rebalancingBuyAssets = rebalancingBuyMap[selectedCustomer] ?? [];
+  const newPortfolioAnalysisResult = newPortfolioAnalysisResultMap[selectedCustomer] ?? null;
 
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
 
@@ -175,6 +183,25 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const setPortfolioDirty = (dirty: boolean) => setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: dirty }));
   const setAnalysisResult = (result: PortfolioAnalysisResult | null) => {
     setAnalysisResultMap(prev => ({ ...prev, [selectedCustomer]: result }));
+  };
+
+  // ── 리밸런싱 파이프라인 액션 — 단방향, 역오염 차단 ──────────────────────
+  const pushToRebalancingSell = () => {
+    const deepCopy = portfolioAssets.map(a => ({ ...a }));
+    setRebalancingSellMap(prev => ({ ...prev, [selectedCustomer]: deepCopy }));
+  };
+  const setRebalancingSellAssets = (assets: PortfolioAsset[]) => {
+    setRebalancingSellMap(prev => ({ ...prev, [selectedCustomer]: assets }));
+  };
+  const confirmRebalancingSell = () => {
+    const deepCopy = (rebalancingSellMap[selectedCustomer] ?? []).map(a => ({ ...a }));
+    setRebalancingBuyMap(prev => ({ ...prev, [selectedCustomer]: deepCopy }));
+  };
+  const setRebalancingBuyAssets = (assets: PortfolioAsset[]) => {
+    setRebalancingBuyMap(prev => ({ ...prev, [selectedCustomer]: assets }));
+  };
+  const setNewPortfolioAnalysisResult = (result: PortfolioAnalysisResult | null) => {
+    setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [selectedCustomer]: result }));
   };
 
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
@@ -291,6 +318,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
         setPortfolioLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setDirtyPortfolioMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setAnalysisResultMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setRebalancingSellMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setRebalancingBuyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setNewPortfolioAnalysisResultMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         portfolioLoadedRef.current.delete(deletedId);
         setStorageErrorMessage("");
       }
@@ -469,6 +499,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     // 포트폴리오 전역 상태
     portfolioAssets, isPortfolioLoaded, analysisResult,
     addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
+    // 리밸런싱 파이프라인
+    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult,
+    pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell,
+    setRebalancingBuyAssets, setNewPortfolioAnalysisResult,
   };
 
   return (

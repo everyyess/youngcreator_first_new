@@ -12,6 +12,7 @@ import {
 import TechnicalAnalysisTab from "./TechnicalAnalysisTab";
 import OptionAnalysisTab from "./OptionAnalysisTab";
 import RebalancingPortfolioInput from "../RebalancingPortfolioInput";
+import { useCustomerContext } from "../CustomerContext";
 
 // ─── Sub-tab 정의 ─────────────────────────────────────────────────────────────
 
@@ -32,6 +33,12 @@ const STORAGE_KEY = "samsung-vvip-tab2-inner-tab";
 export default function Tab2Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
   const data = usePortfolioResult();
+  const {
+    portfolioAssets,
+    rebalancingSellAssets,
+    setRebalancingSellAssets,
+    confirmRebalancingSell,
+  } = useCustomerContext();
 
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -97,8 +104,10 @@ export default function Tab2Page() {
 
       {activeInnerTab === "rebalancing" && (
         <RebalancingPortfolioInput
-          seedStorageKey="portfolio-input-assets-v1"
-          storageKey="rebalancing-sell-v1"
+          assets={rebalancingSellAssets}
+          seedAssets={portfolioAssets}
+          onAssetsChange={setRebalancingSellAssets}
+          onConfirm={confirmRebalancingSell}
           sectionTitle="자산 입력 및 분석 실행"
           sectionBadge="리밸런싱 편출 관리"
           noticeBanner="보유 현황 및 진단 페이지의 포트폴리오를 불러왔습니다. 편출(매도)할 종목을 삭제하거나 수량을 조정하세요. 이 페이지의 변경사항은 보유 현황 및 진단 페이지에 반영되지 않습니다."
