@@ -65,7 +65,7 @@ export default function Tab2Page() {
       {/* 서브 탭 콘텐츠 */}
       {activeInnerTab === "holding" && (
         <div className="space-y-5">
-          <ExistingPortfolioTab />
+          <ExistingPortfolioTab hideDividendColumn={true} />
           {data && <HoldingAndDiagnosisSection data={data} />}
         </div>
       )}

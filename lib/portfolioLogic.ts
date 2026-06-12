@@ -35,6 +35,8 @@ export interface PortfolioAssetInput {
   _rawAmount?: string;
   ticker?: string;       // Yahoo Finance 티커 — 설정 시 이름 해석(Gemini) 생략
   productType?: string;  // 상품 유형 (ETF, 개별주식, 채권 등)
+  dividendYield?: number;
+  trailingAnnualDividendRate?: number;
 }
 
 export interface RunAnalysisResult {
@@ -128,7 +130,30 @@ export const runAnalysis = async (
           const isUsd = (meta?.currency ?? "USD") === "USD";
           const priceKrw = isUsd ? lastPrice * currentExchangeRate : lastPrice;
           const cvKrw = a.amount * priceKrw;
-          return { ...a, current_price: priceKrw, current_value: cvKrw };
+
+          // 배당률: 기존 값이 없을 때만 API 응답에서 보완
+          const dy =
+            typeof json?.dividendYield === "number" && json.dividendYield > 0
+              ? json.dividendYield
+              : typeof meta?.dividendYield === "number" && meta.dividendYield > 0
+                ? meta.dividendYield
+                : typeof meta?.trailingAnnualDividendYield === "number" && meta.trailingAnnualDividendYield > 0
+                  ? meta.trailingAnnualDividendYield
+                  : undefined;
+          const tadr =
+            typeof json?.trailingAnnualDividendRate === "number" && json.trailingAnnualDividendRate > 0
+              ? json.trailingAnnualDividendRate
+              : typeof meta?.trailingAnnualDividendRate === "number" && meta.trailingAnnualDividendRate > 0
+                ? meta.trailingAnnualDividendRate
+                : undefined;
+
+          return {
+            ...a,
+            current_price: priceKrw,
+            current_value: cvKrw,
+            ...(a.dividendYield == null && dy != null ? { dividendYield: dy } : {}),
+            ...(a.trailingAnnualDividendRate == null && tadr != null ? { trailingAnnualDividendRate: tadr } : {}),
+          };
         }
       } catch {
         /* 조회 실패 시 기존 값 유지 */

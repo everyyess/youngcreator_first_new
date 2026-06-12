@@ -858,15 +858,18 @@ export async function runQuantAnalysis(rawAssets, t_marginal, marketReturns) {
 
   // ── Step 9: 세금 연산
   const foreignDirectGain = withReturns
-    .filter(a => a.taxType === TAX_TYPE.DIRECT_STOCK && a.assetClass === ASSET_CLASS.FOREIGN_STOCK)
+    .filter(a => {
+      const meta = resolveAssetMeta(a);
+      return meta.taxType === TAX_TYPE.DIRECT_STOCK && meta.assetClass === ASSET_CLASS.FOREIGN_STOCK;
+    })
     .reduce((s, a) => s + (a.gain ?? 0), 0);
 
   const totalInterest = withReturns
-    .filter(a => a.taxType === TAX_TYPE.FIXED_INCOME)
+    .filter(a => resolveAssetMeta(a).taxType === TAX_TYPE.FIXED_INCOME)
     .reduce((s, a) => s + (a.gain ?? 0), 0);
 
   const totalDividend = withReturns
-    .filter(a => a.taxType === TAX_TYPE.INDIRECT_FUND)
+    .filter(a => resolveAssetMeta(a).taxType === TAX_TYPE.INDIRECT_FUND)
     .reduce((s, a) => s + (a.gain ?? 0), 0);
 
   const totalGain = rawAssets.reduce((s, a) => s + (a.gain ?? 0), 0);
@@ -971,7 +974,7 @@ export function getPriceAt(history, targetDate) {
  * quantEngine tagged format(camelCase) / assetPipeline _meta format(snake_case) 모두 지원
  */
 function resolveAssetMeta(asset) {
-  const assetClass = asset.assetClass ?? asset._meta?.asset_class ?? ASSET_CLASS.FOREIGN_STOCK;
+  const assetClass = asset._meta?.asset_class || asset.assetClass || ASSET_CLASS.FOREIGN_STOCK;
   const isForeignClass = [
     ASSET_CLASS.FOREIGN_STOCK, ASSET_CLASS.FOREIGN_BOND,
     ASSET_CLASS.GOLD, ASSET_CLASS.DOLLAR,
@@ -982,14 +985,26 @@ function resolveAssetMeta(asset) {
     asset._meta?.isHedging  ??
     asset._meta?.is_hedged  ??
     false;
-  const productType = asset.productType ?? asset._meta?.productType ?? '';
+  const productType = asset._meta?.productType || asset.productType || '';
+  const country = asset._meta?.country || asset.country || (isForeignClass ? '미국' : '국내');
+
+  let taxType = asset.taxType || asset._meta?.taxType || TAX_TYPE.DIRECT_STOCK;
+  if (productType === '채권형' || productType === '예금' || assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.FOREIGN_BOND || assetClass === ASSET_CLASS.CASH || assetClass === ASSET_CLASS.DOLLAR) {
+    taxType = TAX_TYPE.FIXED_INCOME;
+  } else if (country !== '국내' && country !== '한국') {
+    taxType = TAX_TYPE.DIRECT_STOCK;
+  } else if (productType === 'ETF' || productType === '리츠' || productType === '금' || assetClass === ASSET_CLASS.GOLD || assetClass === ASSET_CLASS.REITS) {
+    taxType = TAX_TYPE.INDIRECT_FUND;
+  } else if (productType === '주식형' || assetClass === ASSET_CLASS.DOMESTIC_STOCK || assetClass === ASSET_CLASS.FOREIGN_STOCK) {
+    taxType = TAX_TYPE.DIRECT_STOCK;
+  }
 
   return {
     assetClass,
     productType,
-    theme:     asset.theme    ?? asset._meta?.theme     ?? THEME.OTHER,
-    taxType:   asset.taxType  ?? asset._meta?.taxType   ?? TAX_TYPE.DIRECT_STOCK,
-    country:   asset._meta?.country    ?? (isForeignClass ? '미국' : '한국'),
+    theme:     asset._meta?.theme || asset.theme || THEME.OTHER,
+    taxType,
+    country,
     isHedging,
     is_hedged: isHedging,   // 하위 호환 별칭
     weight:    asset.weight   ?? 0,

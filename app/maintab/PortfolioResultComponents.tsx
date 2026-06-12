@@ -11,6 +11,11 @@ import {
   WalletCards,
 } from "lucide-react";
 import type { PortfolioAnalysisResult, PortfolioAsset } from "./CustomerContext";
+import {
+  FinancialIncomeGauge,
+  FINANCIAL_INCOME_STORAGE_KEY,
+  type FinancialIncomeSummary,
+} from "./tab1/FinancialIncomeGauge";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -851,13 +856,30 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
 // ─── Comparison Left Column (Tab4 용) ─────────────────────────────────────────
 
 export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult | null }) {
+  const [financialSummary, setFinancialSummary] = useState<FinancialIncomeSummary | null>(null);
+
+  useEffect(() => {
+    const load = () => {
+      try {
+        const stored = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY);
+        if (stored) setFinancialSummary(JSON.parse(stored));
+      } catch {}
+    };
+    load();
+    window.addEventListener("financial-income-updated", load);
+    return () => window.removeEventListener("financial-income-updated", load);
+  }, []);
+
   if (!data) {
     return (
-      <div className="flex min-h-[480px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center px-6">
-        <WalletCards size={32} className="text-slate-300" />
-        <p className="text-sm font-semibold text-slate-400">
-          2번 탭에서 자산을 입력하고 분석 실행을 눌러주세요.
-        </p>
+      <div className="space-y-5">
+        <FinancialIncomeGauge summary={financialSummary} />
+        <div className="flex min-h-[480px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center px-6">
+          <WalletCards size={32} className="text-slate-300" />
+          <p className="text-sm font-semibold text-slate-400">
+            2번 탭에서 자산을 입력하고 분석 실행을 눌러주세요.
+          </p>
+        </div>
       </div>
     );
   }
@@ -882,6 +904,9 @@ export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult |
           <p className="text-sm text-slate-400">표시할 자산이 없습니다.</p>
         )}
       </ResultCard>
+
+      {/* 금융소득종합과세 및 해외양도세 점검 */}
+      <FinancialIncomeGauge summary={financialSummary} />
 
       {/* 3. 포트폴리오 건강 진단 */}
       {healthResult && (
