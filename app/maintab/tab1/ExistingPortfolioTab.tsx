@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FileUp, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import {
   useCustomerContext,
+  parseKrwAmount,
   saveAnalysisResult,
 } from "../CustomerContext";
 import type { PortfolioAsset } from "../CustomerContext";
@@ -13,17 +14,38 @@ import {
   type AssetForIncomeCalc,
 } from "./FinancialIncomeGauge";
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────
 
-// 통합 상품유형 — 자산군 + 상품유형을 단일 드롭다운으로 통합
-const UNIFIED_PRODUCT_TYPES = [
-  "국내주식", "해외주식", "국내채권", "해외채권",
-  "국내ETF", "해외ETF",
-] as const;
+const ASSET_CLASSES = [
+  "국내주식", "해외주식", "국내채권", "해외채권", "금", "리츠", "달러", "기타",
+];
 
+const PRODUCT_TYPES = [
+  "주식형", "ETF", "채권형", "리츠", "달러", "금", "예금", "암호화폐",
+];
+
+const COUNTRIES = ["국내", "미국", "일본", "중국", "유럽", "기타"];
+
+const PORTFOLIO_INPUT_KEY = "portfolio-input-assets-v1";
+
+const EMPTY_ASSET: PortfolioAsset = {
+  name: "",
+  asset_class: "해외주식",
+  theme: "기타",
+  country: "미국",
+  buy_price: null,
+  amount: 0,
+  amount_type: "quantity",
+  is_hedged: false,
+  needs_review: false,
+  ticker: "",
+  productType: "ETF",
+};
+
+// AssetRow 에서 채권 여부 판별에 사용 (기존 로직 유지)
 const BOND_TYPES = new Set<string>(["국내채권", "해외채권"]);
-
-const COUNTRIES = ["한국", "미국", "일본", "중국", "유럽", "기타"];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
