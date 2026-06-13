@@ -81,7 +81,7 @@ export default function Tab3Page() {
             const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
             if (!resolvedName) return null;
             const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
-            const enriched = a as Record<string, unknown>;
+            const enriched = a as unknown as Record<string, unknown>;
             return {
               name: resolvedName,
               ticker: a.ticker ?? "",

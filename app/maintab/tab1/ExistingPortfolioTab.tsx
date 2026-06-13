@@ -26,6 +26,11 @@ const PRODUCT_TYPES = [
   "주식형", "ETF", "채권형", "리츠", "달러", "금", "예금", "암호화폐",
 ];
 
+const UNIFIED_PRODUCT_TYPES = [
+  "국내주식", "해외주식", "국내채권", "해외채권",
+  "국내ETF", "해외ETF",
+] as const;
+
 const COUNTRIES = ["국내", "미국", "일본", "중국", "유럽", "기타"];
 
 const PORTFOLIO_INPUT_KEY = "portfolio-input-assets-v1";
