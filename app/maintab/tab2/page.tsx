@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Activity, BarChart2, FolderOpen, GitBranch, RefreshCcw } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
@@ -13,6 +13,12 @@ import TechnicalAnalysisTab from "./TechnicalAnalysisTab";
 import OptionAnalysisTab from "./OptionAnalysisTab";
 import RebalancingPortfolioInput from "../RebalancingPortfolioInput";
 import { useCustomerContext } from "../CustomerContext";
+import {
+  calcFinancialIncomeSummary,
+  NEW_PORTFOLIO_INCOME_STORAGE_KEY,
+  type AssetForIncomeCalc,
+} from "../tab1/FinancialIncomeGauge";
+import { parseKoreanNumber } from "@/lib/portfolioLogic";
 
 // ─── Sub-tab 정의 ─────────────────────────────────────────────────────────────
 
@@ -38,7 +44,60 @@ export default function Tab2Page() {
     rebalancingSellAssets,
     setRebalancingSellAssets,
     confirmRebalancingSell,
+    analysisResult,
+    formData,
   } = useCustomerContext();
+
+  const tMarginal = useMemo(() => {
+    const total = parseKoreanNumber(formData.financial.totalAssets);
+    if (total >= 5e9) return 0.45;
+    if (total >= 3e9) return 0.40;
+    if (total >= 1.2e9) return 0.35;
+    return 0.38;
+  }, [formData.financial.totalAssets]);
+
+  const handleConfirmSell = () => {
+    confirmRebalancingSell();
+
+    const enrichedMap = new Map(
+      (analysisResult?.enrichedAssets ?? []).map(e => [
+        `${e.name ?? ""}::${e.ticker ?? ""}`, e as Record<string, unknown>
+      ])
+    );
+
+    const assetsForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
+      .map((a) => {
+        const isBond = a.productType === "국내채권" || a.productType === "해외채권";
+        const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
+        if (!resolvedName) return null;
+        const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
+        const enriched = enrichedMap.get(key);
+        const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
+        return {
+          name: resolvedName,
+          ticker: a.ticker ?? "",
+          asset_class: a.asset_class,
+          productType: a.productType,
+          country: a.country,
+          current_price: (enriched?.current_price as number | undefined) ?? a.current_price,
+          current_value: (enriched?.current_value as number | undefined) ?? a.current_value,
+          amount: a.amount,
+          amount_type: a.amount_type,
+          buy_price: a.buy_price,
+          dividendYield: enriched?.dividendYield as number | undefined,
+          interestRate,
+        } as AssetForIncomeCalc;
+      })
+      .filter((x): x is AssetForIncomeCalc => x !== null);
+
+    if (assetsForCalc.length > 0) {
+      const summary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
+      try {
+        localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(summary));
+        window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
+      } catch {}
+    }
+  };
 
   useEffect(() => {
     const stored = window.localStorage.getItem(STORAGE_KEY);
@@ -107,7 +166,7 @@ export default function Tab2Page() {
           assets={rebalancingSellAssets}
           seedAssets={portfolioAssets}
           onAssetsChange={setRebalancingSellAssets}
-          onConfirm={confirmRebalancingSell}
+          onConfirm={handleConfirmSell}
           sectionTitle="자산 입력 및 분석 실행"
           sectionBadge="리밸런싱 편출 관리"
           noticeBanner="보유 현황 및 진단 페이지의 포트폴리오를 불러왔습니다. 편출(매도)할 종목을 삭제하거나 수량을 조정하세요. 이 페이지의 변경사항은 보유 현황 및 진단 페이지에 반영되지 않습니다."

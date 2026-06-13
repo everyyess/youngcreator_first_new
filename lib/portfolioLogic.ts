@@ -37,6 +37,8 @@ export interface PortfolioAssetInput {
   productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
   bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만
   bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만
+  dividendYield?: number;              // Yahoo Finance 연간 배당수익률 (소수)
+  trailingAnnualDividendRate?: number; // Yahoo Finance 주당 연간 배당금
 }
 
 export interface RunAnalysisResult {
@@ -96,13 +98,10 @@ export const runAnalysis = async (
   // 이 방식은 FOREIGN_CLASSES 열거 없이도 금·암호화폐·해외ETF 등을 자동 처리한다.
   const enrichedAssets = await Promise.all(
     assets.map(async (a) => {
-      if (
-        a.amount_type !== "quantity" ||
-        !a.name ||
-        (a.current_price != null && a.current_price > 0)
-      ) {
-        return a;
-      }
+      if (a.amount_type !== "quantity" || !a.name) return a;
+      // 현재가와 배당수익률이 모두 있으면 API 재요청 생략
+      if (a.current_price != null && a.current_price > 0 && a.dividendYield != null) return a;
+
       try {
         const TICKER_RE = /^[\w.\-=^]+$/;
         const queryParam =
@@ -115,8 +114,23 @@ export const runAnalysis = async (
         const result = json?.chart?.result?.[0];
         const meta = result?.meta;
 
-        // regularMarketPrice 우선 사용 → 당일 실시간 가격 (adjclose 오파싱 방지)
-        // 없으면 월봉 quote.close 마지막 값으로 폴백 (adjclose 사용 안 함)
+        // 배당수익률 — proxy-finance 응답 최상단에 반환됨
+        const dy   = typeof json.dividendYield === "number" && json.dividendYield > 0
+          ? json.dividendYield : undefined;
+        const tadr = typeof json.trailingAnnualDividendRate === "number" && json.trailingAnnualDividendRate > 0
+          ? json.trailingAnnualDividendRate : undefined;
+
+        // 현재가가 이미 있으면 배당 데이터만 보완하고 리턴
+        if (a.current_price != null && a.current_price > 0) {
+          return {
+            ...a,
+            current_value: a.amount * a.current_price,
+            ...(dy   != null ? { dividendYield:              dy   } : {}),
+            ...(tadr != null ? { trailingAnnualDividendRate: tadr } : {}),
+          };
+        }
+
+        // regularMarketPrice 우선 사용 → 당일 실시간 가격
         let lastPrice: number | null = null;
         if (typeof meta?.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
           lastPrice = meta.regularMarketPrice;
@@ -126,11 +140,16 @@ export const runAnalysis = async (
         }
 
         if (typeof lastPrice === "number" && lastPrice > 0) {
-          // meta.currency 로 달러 자산 판단 → USD 이면 원화로 변환
           const isUsd = (meta?.currency ?? "USD") === "USD";
           const priceKrw = isUsd ? lastPrice * currentExchangeRate : lastPrice;
           const cvKrw = a.amount * priceKrw;
-          return { ...a, current_price: priceKrw, current_value: cvKrw };
+          return {
+            ...a,
+            current_price: priceKrw,
+            current_value: cvKrw,
+            ...(dy   != null ? { dividendYield:              dy   } : {}),
+            ...(tadr != null ? { trailingAnnualDividendRate: tadr } : {}),
+          };
         }
       } catch {
         /* 조회 실패 시 기존 값 유지 */

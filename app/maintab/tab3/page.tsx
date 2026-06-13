@@ -7,6 +7,11 @@ import CorrelationDomesticTab from "./CorrelationDomesticTab";
 import RebalancingPortfolioInput from "../RebalancingPortfolioInput";
 import { useCustomerContext } from "../CustomerContext";
 import { parseKoreanNumber } from "@/lib/portfolioLogic";
+import {
+  calcFinancialIncomeSummary,
+  NEW_PORTFOLIO_INCOME_STORAGE_KEY,
+  type AssetForIncomeCalc,
+} from "../tab1/FinancialIncomeGauge";
 
 // ─── Sub-tab 정의 ─────────────────────────────────────────────────────────────
 
@@ -55,7 +60,7 @@ export default function Tab3Page() {
     return 0.38;
   }, [formData.financial.totalAssets]);
 
-  // 리밸런싱 매수 확정 → 신규 포트폴리오 정량 분석 실행
+  // 리밸런싱 매수 확정 → 신규 포트폴리오 정량 분석 + 세금 계산
   const handleConfirmBuy = useCallback(async () => {
     if (!rebalancingBuyAssets.length) return;
     setIsAnalyzing(true);
@@ -68,6 +73,39 @@ export default function Tab3Page() {
       });
       if (result) {
         setNewPortfolioAnalysisResult(result);
+
+        // 신규 포트폴리오 세금 요약 계산 후 Tab4 게이지에 반영
+        const assetsForCalc: AssetForIncomeCalc[] = (result.enrichedAssets ?? [])
+          .map((a) => {
+            const isBond = a.productType === "국내채권" || a.productType === "해외채권";
+            const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
+            if (!resolvedName) return null;
+            const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
+            const enriched = a as unknown as Record<string, unknown>;
+            return {
+              name: resolvedName,
+              ticker: a.ticker ?? "",
+              asset_class: a.asset_class,
+              productType: a.productType,
+              country: a.country,
+              current_price: a.current_price,
+              current_value: a.current_value,
+              amount: a.amount,
+              amount_type: a.amount_type,
+              buy_price: a.buy_price,
+              dividendYield: enriched.dividendYield as number | undefined,
+              interestRate,
+            } as AssetForIncomeCalc;
+          })
+          .filter((x): x is AssetForIncomeCalc => x !== null);
+
+        if (assetsForCalc.length > 0) {
+          const newTaxSummary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
+          try {
+            localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newTaxSummary));
+            window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
+          } catch {}
+        }
       }
     } catch (err) {
       console.error("[Tab3] 신규 포트폴리오 분석 실패:", err);

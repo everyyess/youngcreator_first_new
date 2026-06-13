@@ -13,156 +13,60 @@ export const runtime = 'nodejs';
 
 import { resolveTickerWithGemini } from '../../../utils/geminiTicker.js';
 
-// ══════════════════════════════════════════════════════════════════
-// Static Mapping Master — 국내 대형주 공식 티커 영구 고정 테이블
-// ──────────────────────────────────────────────────────────────────
-// Gemini / Yahoo 결과와 무관하게 이 테이블이 최우선 오버라이드.
-// 계열사 합병·분할·리스팅 변경 이력이 있는 종목은 구형 코드 사용을
-// 원천 차단하기 위해 별도 코멘트로 이전 티커를 명시해 둔다.
-// 키: 소문자 + 공백 제거 (normalizedInput 과 1:1 매칭)
-const DOMESTIC_STATIC_MASTER = {
-  // ── 삼성 그룹 ────────────────────────────────────────────────
-  '삼성전자':         { ticker: '005930.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼전':             { ticker: '005930.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성전자우':       { ticker: '005935.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // 삼성물산: 2015년 제일모직(028260)에 흡수합병. 구코드 000830 사용 금지.
-  '삼성물산':         { ticker: '028260.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성물산주식':     { ticker: '028260.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성c&t':          { ticker: '028260.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성전기':         { ticker: '009150.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성sdi':          { ticker: '006400.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성바이오로직스': { ticker: '207940.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성바이오':       { ticker: '207940.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성생명':         { ticker: '032830.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성화재':         { ticker: '000810.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼성증권':         { ticker: '016360.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '제일기획':         { ticker: '030000.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── SK 그룹 ─────────────────────────────────────────────────
-  'sk하이닉스':       { ticker: '000660.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '하이닉스':         { ticker: '000660.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'sk텔레콤':         { ticker: '017670.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'skt':              { ticker: '017670.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'sk이노베이션':     { ticker: '096770.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'sk이노':           { ticker: '096770.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'sk바이오팜':       { ticker: '326030.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'sk네트웍스':       { ticker: '001740.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── LG 그룹 ─────────────────────────────────────────────────
-  'lg전자':           { ticker: '066570.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lg화학':           { ticker: '051910.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lg에너지솔루션':   { ticker: '373220.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lges':             { ticker: '373220.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lg디스플레이':     { ticker: '034220.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lgd':              { ticker: '034220.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lg유플러스':       { ticker: '032640.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lgu+':             { ticker: '032640.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'lg이노텍':         { ticker: '011070.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── 현대 그룹 ────────────────────────────────────────────────
-  '현대차':           { ticker: '005380.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '현대자동차':       { ticker: '005380.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '기아':             { ticker: '000270.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '기아차':           { ticker: '000270.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '현대모비스':       { ticker: '012330.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '현대건설':         { ticker: '000720.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '현대중공업지주':   { ticker: '267250.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'hd현대':           { ticker: '267250.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '현대글로비스':     { ticker: '086280.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '현대위아':         { ticker: '011210.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── POSCO 그룹 ───────────────────────────────────────────────
-  'posco홀딩스':      { ticker: '005490.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'posco':            { ticker: '005490.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '포스코홀딩스':     { ticker: '005490.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '포스코퓨처엠':     { ticker: '003670.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '포스코dx':         { ticker: '022100.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '포스코인터내셔널': { ticker: '047050.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── 한화 그룹 ────────────────────────────────────────────────
-  '한화에어로스페이스': { ticker: '012450.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '한화에어로':       { ticker: '012450.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '한화솔루션':       { ticker: '009830.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '한화오션':         { ticker: '042660.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '한화비전':         { ticker: '213420.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── 금융 그룹 ────────────────────────────────────────────────
-  'kb금융':           { ticker: '105560.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '신한지주':         { ticker: '055550.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '신한금융지주':     { ticker: '055550.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '하나금융지주':     { ticker: '086790.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '우리금융지주':     { ticker: '316140.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '메리츠금융지주':   { ticker: '138040.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '미래에셋증권':     { ticker: '006800.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '한국금융지주':     { ticker: '071050.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── 통신 ────────────────────────────────────────────────────
-  'kt':               { ticker: '030200.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'kt&g':             { ticker: '033780.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── 바이오·헬스케어 ──────────────────────────────────────────
-  '셀트리온':         { ticker: '068270.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '유한양행':         { ticker: '000100.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '한미약품':         { ticker: '128940.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  // ── 기타 대형주 ──────────────────────────────────────────────
-  '카카오':           { ticker: '035720.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '카카오코프':       { ticker: '035720.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '네이버':           { ticker: '035420.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'naver':            { ticker: '035420.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '맥쿼리인프라':     { ticker: '088980.KS', assetClass: '리츠',     productType: '개별주식', country: '한국' },
-  'cj제일제당':       { ticker: '097950.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '롯데케미칼':       { ticker: '011170.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '두산에너빌리티':   { ticker: '034020.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '두산밥캣':         { ticker: '241560.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '두산로보틱스':     { ticker: '454910.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-};
-
 // ── 1단계: 정적 Fallback 딕셔너리 (ticker + 완전한 메타데이터) ──
 // 키: 소문자 + 공백 제거 (normalizedInput 과 1:1 매칭)
 // 값: { ticker, assetClass, productType, country }
 // 여기 등록된 종목은 Gemini/Yahoo 호출 없이 0초에 완전한 규격 데이터 반환
 const FALLBACK_ASSET_DICT = {
-  // ── 국내 주식 (이미 DOMESTIC_STATIC_MASTER에 포함 — 중복 등록으로 호환 유지) ──
-  '삼성전자':   { ticker: '005930.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '삼전':       { ticker: '005930.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'sk하이닉스': { ticker: '000660.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'sk하이닉스(000660)': { ticker: '000660.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '하이닉스':   { ticker: '000660.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '카카오':     { ticker: '035720.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '카카오코프': { ticker: '035720.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '맥쿼리인프라': { ticker: '088980.KS', assetClass: '리츠',    productType: '개별주식', country: '한국' },
-  'lg에너지솔루션': { ticker: '373220.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '현대차':     { ticker: '005380.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  '기아':       { ticker: '000270.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
-  'posco홀딩스': { ticker: '005490.KS', assetClass: '국내주식', productType: '개별주식', country: '한국' },
+  // ── 국내 주식 ──────────────────────────────────────────────
+  '삼성전자':   { ticker: '005930.KS', assetClass: '국내주식', productType: '주식형', country: '한국', dividendYield: 0.0049 },
+  '삼전':       { ticker: '005930.KS', assetClass: '국내주식', productType: '주식형', country: '한국', dividendYield: 0.0049 },
+  'sk하이닉스': { ticker: '000660.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  'sk하이닉스(000660)': { ticker: '000660.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  '하이닉스':   { ticker: '000660.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  '카카오':     { ticker: '035720.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  '카카오코프': { ticker: '035720.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  '맥쿼리인프라': { ticker: '088980.KS', assetClass: '리츠',    productType: '주식형', country: '한국' },
+  'lg에너지솔루션': { ticker: '373220.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  '현대차':     { ticker: '005380.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  '기아':       { ticker: '000270.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
+  'posco홀딩스': { ticker: '005490.KS', assetClass: '국내주식', productType: '주식형', country: '한국' },
   // ── 국내 ETF ───────────────────────────────────────────────
   'tiger미국나스닥100':  { ticker: '133690.KS', assetClass: '해외주식', productType: 'ETF', country: '한국' },
   'tiger미국s&p500':    { ticker: '360750.KS', assetClass: '해외주식', productType: 'ETF', country: '한국' },
   'tiger미국sp500':     { ticker: '360750.KS', assetClass: '해외주식', productType: 'ETF', country: '한국' },
   'kodex200':           { ticker: '069500.KS', assetClass: '국내주식', productType: 'ETF', country: '한국' },
   'kodex미국나스닥100': { ticker: '379800.KS', assetClass: '해외주식', productType: 'ETF', country: '한국' },
-  // ── 미국 대형주 (한글 명칭 매핑 포함) ──────────────────────
-  '테슬라':      { ticker: 'TSLA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '애플':        { ticker: 'AAPL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '엔비디아':    { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '마이크로소프트': { ticker: 'MSFT', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '마소':        { ticker: 'MSFT', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '구글':        { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '알파벳':      { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '아마존':      { ticker: 'AMZN', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '메타':        { ticker: 'META', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '인텔':        { ticker: 'INTC', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '넷플릭스':    { ticker: 'NFLX', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '팔란티어':    { ticker: 'PLTR', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '버크셔':      { ticker: 'BRK-B', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '코카콜라':    { ticker: 'KO',   assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '존슨앤존슨':  { ticker: 'JNJ',  assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '비자':        { ticker: 'V',    assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  '마스터카드':  { ticker: 'MA',   assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'nvda':        { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'nvidia':      { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'nvdia':       { ticker: 'NVDA', assetClass: '해외주식', productType: '개별주식', country: '미국' }, // 오타 방어
-  'tsla':        { ticker: 'TSLA', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'aapl':        { ticker: 'AAPL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'msft':        { ticker: 'MSFT', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'googl':       { ticker: 'GOOGL', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'amzn':        { ticker: 'AMZN', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'meta':        { ticker: 'META', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'intc':        { ticker: 'INTC', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'nflx':        { ticker: 'NFLX', assetClass: '해외주식', productType: '개별주식', country: '미국' },
-  'pltr':        { ticker: 'PLTR', assetClass: '해외주식', productType: '개별주식', country: '미국' },
+  // ── 미국 대형주 ────────────────────────────────────────────
+  '테슬라':  { ticker: 'TSLA', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '애플':    { ticker: 'AAPL', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '엔비디아': { ticker: 'NVDA', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '마이크로소프트': { ticker: 'MSFT', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '마소':    { ticker: 'MSFT', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '구글':    { ticker: 'GOOGL', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '알파벳':  { ticker: 'GOOGL', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '아마존':  { ticker: 'AMZN', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '메타':    { ticker: 'META', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '인텔':    { ticker: 'INTC', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '넷플릭스': { ticker: 'NFLX', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '팔란티어': { ticker: 'PLTR', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '버크셔':  { ticker: 'BRK-B', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '코카콜라': { ticker: 'KO',  assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '존슨앤존슨': { ticker: 'JNJ', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '비자':    { ticker: 'V',   assetClass: '해외주식', productType: '주식형', country: '미국' },
+  '마스터카드': { ticker: 'MA', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'nvda':    { ticker: 'NVDA', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'nvidia':  { ticker: 'NVDA', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'nvdia':   { ticker: 'NVDA', assetClass: '해외주식', productType: '주식형', country: '미국' }, // 오타 방어
+  'tsla':    { ticker: 'TSLA', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'aapl':    { ticker: 'AAPL', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'msft':    { ticker: 'MSFT', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'googl':   { ticker: 'GOOGL', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'amzn':    { ticker: 'AMZN', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'meta':    { ticker: 'META', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'intc':    { ticker: 'INTC', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'nflx':    { ticker: 'NFLX', assetClass: '해외주식', productType: '주식형', country: '미국' },
+  'pltr':    { ticker: 'PLTR', assetClass: '해외주식', productType: '주식형', country: '미국' },
   // ── 미국 레버리지·인버스 ETF ────────────────────────────
   'tsll':   { ticker: 'TSLL',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
   'soxl':   { ticker: 'SOXL',  assetClass: '해외주식', productType: 'ETF', country: '미국' },
@@ -233,22 +137,12 @@ function hasKorean(str) {
   return /[가-힯ᄀ-ᇿ㄰-㆏]/.test(str);
 }
 
-// ── 한국 6자리 코드에 .KS/.KQ 접미사 자동 보완 ─────────────────
-// KOSPI/KOSDAQ 종목은 6자리 숫자. 접미사 없이 반환되면 yfinance 조회가 실패하므로
-// 순수 6자리 숫자 티커는 무조건 .KS 를 붙인다 (KOSDAQ은 Gemini가 .KQ로 반환).
-function ensureKoreanSuffix(ticker) {
-  if (!ticker) return ticker;
-  const trimmed = ticker.trim();
-  if (/^\d{6}$/.test(trimmed)) return trimmed + '.KS';
-  return trimmed;
-}
-
 // ── 티커 패턴 기반 메타데이터 추론 (Gemini 미사용 경로 Fallback) ──
 function inferMetaFromTicker(ticker) {
-  if (!ticker) return { assetClass: '해외주식', productType: '개별주식', country: '미국' };
+  if (!ticker) return { assetClass: '해외주식', productType: '주식형', country: '미국' };
   const t = ticker.toUpperCase();
   if (t.endsWith('.KS') || t.endsWith('.KQ'))
-    return { assetClass: '국내주식', productType: '개별주식', country: '한국' };
+    return { assetClass: '국내주식', productType: '주식형', country: '한국' };
   if (t.endsWith('=F'))
     return { assetClass: '금', productType: 'ETF', country: '미국' };
   if (t.endsWith('=X'))
@@ -258,10 +152,10 @@ function inferMetaFromTicker(ticker) {
   if (t.startsWith('^'))
     return { assetClass: '해외주식', productType: 'ETF', country: '미국' };
   if (t.endsWith('.T'))
-    return { assetClass: '해외주식', productType: '개별주식', country: '일본' };
+    return { assetClass: '해외주식', productType: '주식형', country: '일본' };
   if (t.endsWith('.HK') || t.endsWith('.SS') || t.endsWith('.SZ'))
-    return { assetClass: '해외주식', productType: '개별주식', country: '중국' };
-  return { assetClass: '해외주식', productType: '개별주식', country: '미국' };
+    return { assetClass: '해외주식', productType: '주식형', country: '중국' };
+  return { assetClass: '해외주식', productType: '주식형', country: '미국' };
 }
 
 // ── 공통 브라우저 헤더 – 봇 차단(403) 우회 ───────────────────
@@ -419,12 +313,16 @@ export async function GET(request) {
     );
   }
 
-  // 1순위: Static Mapping Master → FALLBACK_ASSET_DICT 순으로 조회
-  // DOMESTIC_STATIC_MASTER 가 우선 — Gemini 결과와 무관하게 공식 티커를 보장한다
-  const dictEntry = DOMESTIC_STATIC_MASTER[normalizedInput] ?? FALLBACK_ASSET_DICT[normalizedInput] ?? null;
-  let ticker    = dictEntry?.ticker ? ensureKoreanSuffix(dictEntry.ticker) : null;
+  // 1순위: 정적 딕셔너리 — ticker + 완전한 메타데이터 즉시 반환
+  const dictEntry = FALLBACK_ASSET_DICT[normalizedInput] ?? null;
+  let ticker    = dictEntry?.ticker ?? null;
   let assetMeta = dictEntry
-    ? { assetClass: dictEntry.assetClass, productType: dictEntry.productType, country: dictEntry.country }
+    ? { 
+        assetClass: dictEntry.assetClass, 
+        productType: dictEntry.productType, 
+        country: dictEntry.country,
+        ...(dictEntry.dividendYield !== undefined && { dividendYield: dictEntry.dividendYield }),
+      }
     : { assetClass: null, productType: null, country: null };
 
   // Yahoo Search에 전달할 검색어 — 한글이면 Gemini englishName으로 교체
@@ -434,8 +332,7 @@ export async function GET(request) {
   if (!ticker && hasKorean(assetName)) {
     const geminiResult = await resolveTickerWithGemini(assetName);
     if (geminiResult) {
-      // Gemini가 6자리 숫자만 반환할 경우 .KS 자동 보완
-      if (geminiResult.ticker) ticker = ensureKoreanSuffix(geminiResult.ticker);
+      if (geminiResult.ticker) ticker = geminiResult.ticker;
       assetMeta = {
         assetClass:  geminiResult.assetClass  ?? null,
         productType: geminiResult.productType ?? null,
@@ -454,8 +351,7 @@ export async function GET(request) {
     try {
       const searchResult = await fetchTickerFromYahoo(yahooSearchQuery);
       if (searchResult) {
-        // Yahoo Search 결과도 6자리 숫자면 .KS 보완
-        ticker = ensureKoreanSuffix(searchResult);
+        ticker = searchResult;
       } else {
         // null 반환 = 400/404/파싱 실패 등 → 404 응답
         return Response.json(
@@ -483,7 +379,7 @@ export async function GET(request) {
   const startTs = endTs - 3 * 365 * 24 * 3600;
   const yahooUrl =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
-    `?period1=${startTs}&period2=${endTs}&interval=1mo&events=history`;
+    `?period1=${startTs}&period2=${endTs}&interval=1mo&events=dividends%7Chistory`;
 
   // ① 타임아웃 fetch
   let chartRes;
@@ -539,21 +435,66 @@ export async function GET(request) {
     );
   }
 
-  // ── quoteType 기반 ETF 강제 분류 보정 ──────────────────────────────────────
-  // Gemini / 정적 딕셔너리가 ETF를 개별주식으로 오분류한 경우를 Yahoo Finance
-  // quoteType 실측값으로 최종 교정한다. (TSLL·SOXL 등 레버리지 ETF 오분류 방어)
+  // ── quoteType 기반 ETF 강제 분류 보정 ─────────────────────────────────────
   const quoteType = yahooJson.chart?.result?.[0]?.meta?.quoteType ?? null;
   if (quoteType === 'ETF' && assetMeta.productType !== 'ETF') {
     const isKorean = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
     assetMeta = {
       ...assetMeta,
       productType: 'ETF',
-      // assetClass가 null이면 티커 기반으로 채움 (Korean suffix → 국내주식)
       assetClass: assetMeta.assetClass ?? (isKorean ? '국내주식' : '해외주식'),
       country:    assetMeta.country    ?? (isKorean ? '한국'    : '미국'),
     };
-    console.log(`[proxy-finance] quoteType=ETF 감지 → productType 강제 보정: ${ticker} (Korean=${isKorean})`);
   }
 
-  return Response.json({ ticker, ...assetMeta, ...yahooJson });
+  // ── 4단계: events.dividends에서 최근 1년 배당금 합산 → 배당수익률 계산 ──
+  const meta = yahooJson.chart?.result?.[0]?.meta ?? {};
+  const regularMarketPrice = typeof meta.regularMarketPrice === "number" ? meta.regularMarketPrice : 0;
+
+  const rawDividends = yahooJson.chart?.result?.[0]?.events?.dividends ?? {};
+  const oneYearAgo = Math.floor(Date.now() / 1000) - 365 * 24 * 3600;
+
+  const eventsTrailingRate = Object.values(rawDividends).reduce((sum, entry) => {
+    const ts  = typeof entry.date   === "number" ? entry.date   : 0;
+    const amt = typeof entry.amount === "number" ? entry.amount : 0;
+    return ts >= oneYearAgo ? sum + amt : sum;
+  }, 0);
+
+  const eventsDividendYield =
+    eventsTrailingRate > 0 && regularMarketPrice > 0
+      ? eventsTrailingRate / regularMarketPrice
+      : 0;
+
+  // ── 5단계: quoteSummary API로 더 정확한 배당 데이터 조회 (3개 URL 순차 시도) ──
+  const quoteSummaryUrls = [
+    `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail`,
+    `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail`,
+    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?modules=summaryDetail`,
+  ];
+
+  let summaryDividendYield = 0;
+  let summaryTrailingRate = 0;
+
+  for (const url of quoteSummaryUrls) {
+    try {
+      const summaryRes = await fetchWithTimeout(url, { headers: BROWSER_HEADERS }, 5_000);
+      if (!summaryRes.ok) continue;
+      const summaryJson = await summaryRes.json();
+      const detail = summaryJson?.quoteSummary?.result?.[0]?.summaryDetail;
+      if (!detail) continue;
+      const dy   = detail.dividendYield?.raw;
+      const tadr = detail.trailingAnnualDividendRate?.raw;
+      if (typeof dy   === 'number') summaryDividendYield = dy;
+      if (typeof tadr === 'number') summaryTrailingRate  = tadr;
+      break;
+    } catch {
+      // 실패 시 다음 URL 시도
+    }
+  }
+
+  // quoteSummary 값 우선, 없으면 events.dividends 폴백
+  const dividendYield          = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
+  const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
+
+  return Response.json({ ticker, ...assetMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
 }

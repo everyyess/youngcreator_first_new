@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type React from "react";
 import {
   Activity,
@@ -11,9 +11,6 @@ import {
   TrendingUp,
   WalletCards,
 } from "lucide-react";
-import {
-  useCustomerContext,
-} from "./CustomerContext";
 import type { PortfolioAnalysisResult, PortfolioAsset } from "./CustomerContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -92,10 +89,24 @@ export function normalizeAssetClass(cls: string): string {
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-// 전역 Context에서 직독 — Supabase fetch·CustomEvent 불필요
-// MainTabShell이 고객 전환 시 자동 로드, 분석 실행 후 setAnalysisResult로 즉시 갱신된다
 export function usePortfolioResult(): PortfolioAnalysisResult | null {
-  return useCustomerContext().analysisResult;
+  const [result, setResult] = useState<PortfolioAnalysisResult | null>(null);
+
+  useEffect(() => {
+    const load = () => {
+      try {
+        const stored = localStorage.getItem("portfolio-result-v1");
+        setResult(stored ? JSON.parse(stored) : null);
+      } catch {
+        setResult(null);
+      }
+    };
+    load();
+    window.addEventListener("portfolio-result-updated", load);
+    return () => window.removeEventListener("portfolio-result-updated", load);
+  }, []);
+
+  return result;
 }
 
 // ─── Layout Primitives ───────────────────────────────────────────────────────
@@ -901,7 +912,7 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
 
 // ─── Comparison Left Column (Tab4 용) ─────────────────────────────────────────
 
-export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult | null }) {
+export function ComparisonLeftColumn({ data, afterAssets }: { data: PortfolioAnalysisResult | null; afterAssets?: React.ReactNode }) {
   if (!data) {
     return (
       <div className="flex min-h-[480px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center px-6">
@@ -930,6 +941,8 @@ export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult |
       <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
         <DonutChart assets={enrichedAssets} />
       </ResultCard>
+
+      {afterAssets}
 
       {/* 4. 핵심 지표 요약 */}
       {quantResult && (
