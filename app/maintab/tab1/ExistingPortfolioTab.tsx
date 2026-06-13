@@ -190,7 +190,7 @@ export default function ExistingPortfolioTab() {
           const ae = enriched as PortfolioAssetEnriched;
 
           // 채권수익률: 원본 입력값 우선 (enrichedAssets에서 유실될 수 있음)
-          const bondYield = orig?.bond_yield ?? (enriched as Record<string, unknown>).bond_yield as number | null | undefined;
+          const bondYield = orig?.bond_yield ?? (enriched as unknown as Record<string, unknown>).bond_yield as number | null | undefined;
           const interestRate = bondYield != null && bondYield > 0 ? bondYield / 100 : undefined;
 
           // 채권은 name 입력 불가 → orig.productType으로 폴백
