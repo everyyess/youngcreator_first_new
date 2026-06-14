@@ -827,7 +827,7 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
               <MetricCard label="연환산 변동성" value={fmtPct(quantResult.risk.volatility)} sub="연간 가격 흔들림 폭" />
               <MetricCard label="최대 낙폭(MDD)" value={fmtPct(Math.abs(quantResult.risk.mdd))} sub="최고점 대비 최악 하락률" />
               <MetricCard label="95% VaR" value={fmtWon(quantResult.risk.var95)} sub="월간 최대 손실 가능액" />
-              <MetricCard label="분산화 점수" value={fmt(quantResult.risk.diversificationScore)} sub="1에 가까울수록 동조화 강함" />
+              <MetricCard label="분산화 점수" value={fmt(quantResult.risk.diversificationScore)} sub="1에 가까울수록 분산효과 우수 (0에 가까울수록 동조화)" />
             </div>
             {quantResult.sensitivity.hhiWarning && (
               <p className="mt-3 rounded-lg bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-800">

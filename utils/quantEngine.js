@@ -666,6 +666,48 @@ export function portfolioVolatility(monthlyReturns) {
 }
 
 /**
+ * MPT 공분산 행렬 기반 포트폴리오 연환산 변동성
+ * σ_p = sqrt(W^T × Σ × W) × sqrt(12)
+ *
+ * 단순 비중 가중평균(σ_p ≈ Σ w_i σ_i)과 달리, 자산 간 공분산을 반영하므로
+ * 음의 상관관계에 의한 분산 감소(diversification benefit)가 정확히 계산된다.
+ *
+ * @param {Array<{returns: number[], weight: number}>} assets  withReturns 배열
+ * @returns {number} 연환산 포트폴리오 변동성 (소수, 예: 0.12 = 12%)
+ */
+export function portfolioVolatilityMatrix(assets) {
+  const n = assets.length;
+  if (n === 0) return 0;
+  if (n === 1) {
+    const rets = filterFinite(assets[0].returns ?? []);
+    return rets.length >= 2 ? safeNum(stdDev(rets) * Math.sqrt(12)) : 0;
+  }
+
+  const weights = assets.map(a => safeNum(a.weight ?? 0));
+
+  // 공분산 행렬 Σ 구성 (월별 기준)
+  const sigma = Array.from({ length: n }, (_, i) =>
+    Array.from({ length: n }, (_, j) => {
+      const ri = filterFinite(assets[i].returns ?? []);
+      const rj = filterFinite(assets[j].returns ?? []);
+      if (i === j) return ri.length >= 2 ? variance(ri) : 0;
+      return (ri.length >= 2 && rj.length >= 2) ? covariance(ri, rj) : 0;
+    })
+  );
+
+  // W^T × Σ × W (이중 합산)
+  let portVarianceMonthly = 0;
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      portVarianceMonthly += weights[i] * weights[j] * sigma[i][j];
+    }
+  }
+
+  // 월분산 → 연환산 변동성 (음수 방지용 max(0) 적용)
+  return safeNum(Math.sqrt(Math.max(portVarianceMonthly, 0)) * Math.sqrt(12));
+}
+
+/**
  * 자산 간 상관계수 히트맵 및 분산 점수 산출
  * @param {Array<{name:string, returns:number[]}>} assets
  * @returns {{ score:number, heatmap:number[][], labels:string[] }}
@@ -879,6 +921,15 @@ export async function runQuantAnalysis(rawAssets, t_marginal, marketReturns) {
   // ── Step 3: 포트폴리오 합산 수익률
   const portRet = portfolioReturns(withReturns);
 
+  // ── Step 3.5-a: 자산별 런타임 변동성·역사적 MDD 역산 (프록시 하드코딩 대체)
+  // 6개 월봉 이상 존재할 때만 실측 사용, 부족 시 null → 이후 프록시 폴백
+  const assetRuntimeMetrics = withReturns.map(asset => {
+    const rets = filterFinite(asset.returns ?? []);
+    const runtimeVol = rets.length >= 6 ? safeNum(stdDev(rets) * Math.sqrt(12)) : null;
+    const runtimeMdd = rets.length >= 6 ? safeNum(maximumDrawdown(rets))        : null;
+    return { runtimeVol, runtimeMdd };
+  });
+
   // ── Step 3.5: 자산별 벤치마크 결정 및 유니크 벤치마크 병렬 수집 (캐시)
   const assetBMs = tagged.map(asset => {
     const meta = resolveAssetMeta(asset);
@@ -948,14 +999,25 @@ export async function runQuantAnalysis(rawAssets, t_marginal, marketReturns) {
     jensensAlpha:           safeNum(jensensAlpha(annualRet, beta, mktAnnRet)),
   };
 
-  // ── Step 7: 그룹 2 – 리스크 및 하방 손실 (NaN 가드 적용)
+  // ── Step 7: 그룹 2 – 리스크 및 하방 손실 (MPT 공분산 행렬 + 실측 MDD)
   const divInfo = diversificationScore(withReturns);
+
+  // MPT 공분산 행렬 기반 포트폴리오 연환산 변동성 σ_p = sqrt(W^T Σ W) × sqrt(12)
+  // 음의 상관관계 분산 감소 효과가 자동 반영됨; 시계열 부족 시 proxy 가중합 폴백
+  const mptVol = safeNum(portfolioVolatilityMatrix(withReturns), proxyMetrics.annVol);
+
+  // 포트폴리오 합산 수익률 시계열 기반 실측 MDD (단순 프록시 가중합 대체)
+  const actualPortMdd = portRet.length >= 6
+    ? safeNum(maximumDrawdown(portRet), proxyMetrics.mdd)
+    : safeNum(proxyMetrics.mdd, 0.10);
+
   const risk = {
-    volatility:           safeNum(proxyMetrics.annVol, 0.15),
-    mdd:                  safeNum(proxyMetrics.mdd, 0.10),
+    volatility:           mptVol,
+    mdd:                  actualPortMdd,
     diversificationScore: safeNum(divInfo.score, 0),
     correlationHeatmap:   { matrix: divInfo.heatmap, labels: divInfo.labels },
-    var95:                safeNum(valueAtRisk95(totalPortValue, proxyMetrics.annVol)),
+    var95:                safeNum(valueAtRisk95(totalPortValue, mptVol)),
+    assetRuntimeMetrics,
   };
 
   // ── Step 8: 그룹 3 – 민감도 및 쏠림 (NaN 가드 적용)
@@ -1368,10 +1430,14 @@ function scoreSingleSectorConcentration(assets) {
 }
 
 function scoreVolatility(vol) {
+  // 금융투자협회 표준투자권유준칙 위험등급 기준선 적용
+  //   저위험~중위험: 15% 이하 → 2점
+  //   고위험:       15% 초과~25% 이하 → 1점
+  //   초고위험:     25% 초과 → 0점
   const pct = (vol * 100).toFixed(1);
-  if (vol <= 0.10) return { score: 2, grade: '양호', detail: `연환산 변동성 ${pct}% – 안정적 수준.` };
-  if (vol <= 0.20) return { score: 1, grade: '주의', detail: `연환산 변동성 ${pct}% – 중간 수준. 고위험 자산 비중 점검.` };
-  return                  { score: 0, grade: '문제', detail: `연환산 변동성 ${pct}% – 20% 초과 고변동성. 리스크 자산 축소 권고.` };
+  if (vol <= 0.15) return { score: 2, grade: '양호', detail: `포트폴리오 연변동성 ${pct}% – 금투협 저위험~중위험(15% 이하) 기준 충족.` };
+  if (vol <= 0.25) return { score: 1, grade: '주의', detail: `포트폴리오 연변동성 ${pct}% – 금투협 고위험(15%~25%) 구간. 방어 자산 편입 검토.` };
+  return                  { score: 0, grade: '문제', detail: `포트폴리오 연변동성 ${pct}% – 금투협 초고위험(25% 초과). 리스크 자산 대폭 축소 권고.` };
 }
 
 function scoreSharpeRatio(sharpe) {
@@ -1382,10 +1448,11 @@ function scoreSharpeRatio(sharpe) {
 }
 
 function scoreMDD(mdd) {
+  // 포트폴리오 합산 수익률 시계열에서 역산한 실측 MDD 기준 채점
   const pct = (mdd * 100).toFixed(1);
-  if (mdd <= 0.10) return { score: 2, grade: '양호', detail: `최대낙폭(MDD) ${pct}% – 하방 손실 위험 낮음.` };
-  if (mdd <= 0.20) return { score: 1, grade: '주의', detail: `최대낙폭(MDD) ${pct}% – 중간 수준. 손실 제한 전략 검토.` };
-  return                  { score: 0, grade: '문제', detail: `최대낙폭(MDD) ${pct}% – 20% 초과 고낙폭. 방어 자산 편입 권고.` };
+  if (mdd <= 0.10) return { score: 2, grade: '양호', detail: `실측 최대낙폭(MDD) ${pct}% – 하방 손실 위험 낮음.` };
+  if (mdd <= 0.20) return { score: 1, grade: '주의', detail: `실측 최대낙폭(MDD) ${pct}% – 중간 수준. 손실 제한 전략 검토.` };
+  return                  { score: 0, grade: '문제', detail: `실측 최대낙폭(MDD) ${pct}% – 20% 초과 고낙폭. 방어 자산 편입 권고.` };
 }
 
 function scoreTaxEfficiency(financialIncomeTax) {
