@@ -1213,9 +1213,11 @@ function getScenario1Shock(asset) {
   if (theme === THEME.FINANCIAL)
     return isForeign ? +0.03 : +0.05;
   if (assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.FOREIGN_BOND) {
-    const maturity = asset._meta?.bond_maturity ?? estimateBondDuration(name);
-    const yld = asset._meta?.bond_yield ? asset._meta.bond_yield / 100 : 0.035;
-    return -(maturity / (1 + yld / 2) * 0.01);
+    const rawMaturity = asset._meta?.bond_maturity;
+    const maturity = (rawMaturity != null && rawMaturity > 0) ? rawMaturity : estimateBondDuration(name);
+    const rawYield = asset._meta?.bond_yield;
+    const yld = (rawYield != null && rawYield > 0) ? rawYield / 100 : 0.035;
+    return -(maturity * 0.01) / (1 + yld / 2);
   }
   if (assetClass === ASSET_CLASS.REITS)   return -0.10;
   if (assetClass === ASSET_CLASS.GOLD)    return -0.05;  // 실질금리 상승 시 금 하락

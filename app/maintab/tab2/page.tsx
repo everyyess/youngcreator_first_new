@@ -46,6 +46,7 @@ export default function Tab2Page() {
     confirmRebalancingSell,
     analysisResult,
     formData,
+    saveTaxSummary,
   } = useCustomerContext();
 
   const tMarginal = useMemo(() => {
@@ -96,6 +97,7 @@ export default function Tab2Page() {
         localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(summary));
         window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
       } catch {}
+      saveTaxSummary('new', summary);
     }
   };
 

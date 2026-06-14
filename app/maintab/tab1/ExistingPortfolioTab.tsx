@@ -85,6 +85,13 @@ function effectivePriceOf(a: PortfolioAsset): number {
   return Number.isFinite(bp) && bp > 0 ? bp : 0;
 }
 
+// 채권은 amount가 수량이 아닌 투자금액이므로 price 자체를 평가금액으로 취급한다.
+// 비채권은 수량 × 가격의 일반 산식을 유지한다.
+function effectiveValueOf(a: PortfolioAsset): number {
+  if (BOND_TYPES.has(a.productType ?? "")) return effectivePriceOf(a);
+  return a.amount * effectivePriceOf(a);
+}
+
 function deriveAssetClass(unifiedType: string): string {
   switch (unifiedType) {
     case "국내주식":    return "국내주식";
@@ -141,6 +148,7 @@ export default function ExistingPortfolioTab() {
     setAnalysisResult,
     setPortfolioDirty,
     pushToRebalancingSell,
+    saveTaxSummary,
   } = useCustomerContext();
 
   const [portfolioIsRunning, setPortfolioIsRunning] = useState(false);
@@ -234,6 +242,7 @@ export default function ExistingPortfolioTab() {
           localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(summary));
           window.dispatchEvent(new CustomEvent("financial-income-updated"));
         } catch {}
+        saveTaxSummary('current', summary);
 
         setAnalysisComplete(true);
         setPortfolioStatusMsg("");
@@ -427,10 +436,10 @@ export default function ExistingPortfolioTab() {
               <tbody className="divide-y divide-slate-100">
                 {(() => {
                   const totalValue = portfolioAssets.reduce(
-                    (sum, a) => sum + a.amount * effectivePriceOf(a), 0
+                    (sum, a) => sum + effectiveValueOf(a), 0
                   );
                   return portfolioAssets.map((a, i) => {
-                    const assetValue = a.amount * effectivePriceOf(a);
+                    const assetValue = effectiveValueOf(a);
                     const weight = totalValue > 0 ? (assetValue / totalValue) * 100 : 0;
                     return (
                       <AssetRow

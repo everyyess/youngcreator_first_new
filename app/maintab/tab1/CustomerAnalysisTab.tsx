@@ -590,7 +590,7 @@ function SummaryAnalysisCard({
     ["기대수익률", rrttllu.expectedReturnUnknown ? "구체적인 수치는 모름" : summaryValue(rrttllu.expectedReturn)],
   ];
   const financialSummary: [string, string][] = [
-    ["총 자산", summaryValue(financial.totalAssets)],
+    ["순자산", summaryValue(financial.totalAssets)],
     ["금융자산", summaryValue(financial.financialAssets)],
     ["부동산", summaryValue(financial.realEstate)],
     ["부채", summaryValue(financial.debt)],
@@ -953,7 +953,7 @@ export default function CustomerAnalysisTab() {
         <div className="question-card asset-summary-card rounded-lg border border-slate-200 p-4" style={grayQuestionCardStyle}>
           <p className="text-sm font-bold text-slate-800">Q. 현재 자산 현황을 알려주세요.</p>
           <CheckerboardGrid className="asset-detail-grid mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[0.72fr_0.72fr_0.72fr_0.72fr_1.45fr_1.45fr]">
-            <TextField compact label="총 자산" value={formData.financial.totalAssets} placeholder="예. 20억 원" onChange={(v) => setFinancial("totalAssets", v)} />
+            <TextField compact label="순자산" value={formData.financial.totalAssets} placeholder="예. 20억 원" onChange={(v) => setFinancial("totalAssets", v)} />
             <TextField compact label="금융자산" value={formData.financial.financialAssets} placeholder="예. 8억 원" onChange={(v) => setFinancial("financialAssets", v)} />
             <TextField compact label="부동산" value={formData.financial.realEstate} placeholder="예. 15억 원" onChange={(v) => setFinancial("realEstate", v)} />
             <TextField compact label="부채" value={formData.financial.debt} placeholder="예. 3억 원" onChange={(v) => setFinancial("debt", v)} />

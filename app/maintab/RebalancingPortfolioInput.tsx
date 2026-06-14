@@ -52,6 +52,13 @@ function effectivePriceOf(a: PortfolioAsset): number {
   return Number.isFinite(bp) && bp > 0 ? bp : 0;
 }
 
+// 채권은 amount가 수량이 아닌 투자금액이므로 price 자체를 평가금액으로 취급한다.
+// 비채권은 수량 × 가격의 일반 산식을 유지한다.
+function effectiveValueOf(a: PortfolioAsset): number {
+  if (BOND_TYPES.has(a.productType ?? "")) return effectivePriceOf(a);
+  return a.amount * effectivePriceOf(a);
+}
+
 function deriveAssetClass(unifiedType: string): string {
   switch (unifiedType) {
     case "국내주식":    return "국내주식";
@@ -337,10 +344,10 @@ export default function RebalancingPortfolioInput({
               <tbody className="divide-y divide-slate-100">
                 {(() => {
                   const totalValue = assets.reduce(
-                    (sum, a) => sum + a.amount * effectivePriceOf(a), 0
+                    (sum, a) => sum + effectiveValueOf(a), 0
                   );
                   return assets.map((a, i) => {
-                    const assetValue = a.amount * effectivePriceOf(a);
+                    const assetValue = effectiveValueOf(a);
                     const weight = totalValue > 0 ? (assetValue / totalValue) * 100 : 0;
                     return (
                       <AssetRow

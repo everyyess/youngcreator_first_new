@@ -482,11 +482,9 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload } = useCustomerContext();
+  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw } = useCustomerContext();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
-
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bucketOffset, setBucketOffset] = useState<Partial<Record<BucketType,number>>>({});
   const [modalProduct, setModalProduct] = useState<Product|null>(null);
   const [activeEffectId, setActiveEffectId] = useState<string|null>(null);
@@ -557,20 +555,20 @@ export default function Tab5Page() {
 
   const handleSelect = (p: Product) => {
     if (selectedIds.includes(p.id)) {
-      setSelectedIds(prev=>prev.filter(x=>x!==p.id));
+      setSelectedIdsRaw(selectedIds.filter(x=>x!==p.id));
       return;
     }
     if (isUnsuitable(p, client)) {
       setUnsuitableWarning(p);
       return;
     }
-    setSelectedIds(prev=>[...prev,p.id]);
+    setSelectedIdsRaw([...selectedIds, p.id]);
     setActiveEffectId(p.id);
   };
 
   const confirmUnsuitable = () => {
     if (!unsuitableWarning) return;
-    setSelectedIds(prev=>[...prev, unsuitableWarning.id]);
+    setSelectedIdsRaw([...selectedIds, unsuitableWarning.id]);
     setActiveEffectId(unsuitableWarning.id);
     setUnsuitableWarning(null);
   };
@@ -785,7 +783,7 @@ export default function Tab5Page() {
                 <h2 className="text-lg font-bold text-navy">총 {selectedProducts.length}개 상품 선택됨</h2>
               </div>
             </div>
-            <button type="button" onClick={()=>{setSelectedIds([]);setActiveEffectId(null);}} className="text-xs font-bold text-slate-400 hover:text-red-500 transition">전체 해제</button>
+            <button type="button" onClick={()=>{setSelectedIdsRaw([]);setActiveEffectId(null);}} className="text-xs font-bold text-slate-400 hover:text-red-500 transition">전체 해제</button>
           </div>
           <div className="space-y-2">
             {BUCKETS.map(bucket=>{

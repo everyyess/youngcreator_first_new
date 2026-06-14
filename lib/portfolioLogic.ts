@@ -221,8 +221,9 @@ export const runAnalysis = async (
   // ── Step 2: 비중(w_i) 및 평가손익 계산 ──
   const assetsWithWeights = enrichedFinal.map((a) => {
     const value =
-      a.current_value ??
-      (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
+      (a.current_value != null && a.current_value > 0)
+        ? a.current_value
+        : (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
     const weight = totalValue > 0 ? value / totalValue : 0;
 
     let gain = a.gain ?? 0;

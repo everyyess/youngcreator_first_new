@@ -167,7 +167,7 @@ export type StorageResult = { ok: boolean; message: string };
 export const workspaceTabs = [
   { id: "profile"   as const, label: "고객 성향 분석",       description: "기본 정보와 RRTTLLU 입력" },
   { id: "existing"  as const, label: "기존 포트폴리오 분석", description: "보유 자산, 위험 및 건강 분석" },
-  { id: "create"    as const, label: "신규 포트폴리오 분석", description: "RRTTLLU 기반 신규 배분" },
+  { id: "create"    as const, label: "신규 포트폴리오 생성", description: "RRTTLLU 기반 신규 배분" },
   { id: "compare"   as const, label: "포트폴리오 비교",       description: "기존과 신규 비교" },
   { id: "recommend" as const, label: "상품 추천",             description: "버킷별 상품 추천" },
 ];
@@ -805,6 +805,117 @@ export async function saveAnalysisResult(customerId: CustomerId, result: unknown
     .upsert({ customer_id: customerId, result, updated_at: new Date().toISOString() }, { onConflict: "customer_id" });
 }
 
+// ── Rebalancing State Helpers ─────────────────────────────────────────────
+export async function loadRebalancingState(customerId: CustomerId): Promise<{ sellAssets: PortfolioAsset[]; buyAssets: PortfolioAsset[] }> {
+  if (!supabase) return { sellAssets: [], buyAssets: [] };
+  try {
+    const { data, error } = await supabase
+      .from("rebalancing_state")
+      .select("sell_assets, buy_assets")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return { sellAssets: [], buyAssets: [] };
+    const d = data as { sell_assets?: unknown; buy_assets?: unknown };
+    return {
+      sellAssets: Array.isArray(d.sell_assets) ? (d.sell_assets as PortfolioAsset[]) : [],
+      buyAssets: Array.isArray(d.buy_assets) ? (d.buy_assets as PortfolioAsset[]) : [],
+    };
+  } catch {
+    return { sellAssets: [], buyAssets: [] };
+  }
+}
+
+export async function saveRebalancingState(customerId: CustomerId, sellAssets: PortfolioAsset[], buyAssets: PortfolioAsset[]): Promise<void> {
+  if (!supabase) return;
+  await supabase
+    .from("rebalancing_state")
+    .upsert(
+      { customer_id: customerId, sell_assets: sellAssets, buy_assets: buyAssets, updated_at: new Date().toISOString() },
+      { onConflict: "customer_id" },
+    );
+}
+
+// ── New Portfolio Analysis Result Helpers ─────────────────────────────────
+export async function loadNewAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("new_analysis_results")
+      .select("result")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as { result?: unknown }).result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveNewAnalysisResult(customerId: CustomerId, result: unknown): Promise<void> {
+  if (!supabase) return;
+  await supabase
+    .from("new_analysis_results")
+    .upsert(
+      { customer_id: customerId, result, updated_at: new Date().toISOString() },
+      { onConflict: "customer_id" },
+    );
+}
+
+// ── Tax Summary Helpers ───────────────────────────────────────────────────
+export async function loadTaxSummaries(customerId: CustomerId): Promise<{ currentSummary: unknown | null; newSummary: unknown | null }> {
+  if (!supabase) return { currentSummary: null, newSummary: null };
+  try {
+    const { data, error } = await supabase
+      .from("tax_summaries")
+      .select("current_summary, new_summary")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return { currentSummary: null, newSummary: null };
+    const d = data as { current_summary?: unknown; new_summary?: unknown };
+    return { currentSummary: d.current_summary ?? null, newSummary: d.new_summary ?? null };
+  } catch {
+    return { currentSummary: null, newSummary: null };
+  }
+}
+
+export async function saveTaxSummaryToDb(customerId: CustomerId, type: 'current' | 'new', summary: unknown): Promise<void> {
+  if (!supabase) return;
+  const column = type === 'current' ? 'current_summary' : 'new_summary';
+  await supabase
+    .from("tax_summaries")
+    .upsert(
+      { customer_id: customerId, [column]: summary, updated_at: new Date().toISOString() },
+      { onConflict: "customer_id" },
+    );
+}
+
+// ── Product Selection Helpers ─────────────────────────────────────────────
+export async function loadProductSelections(customerId: CustomerId): Promise<string[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("product_selections")
+      .select("selected_ids")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return [];
+    const d = data as { selected_ids?: unknown };
+    return Array.isArray(d.selected_ids) ? (d.selected_ids as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveProductSelections(customerId: CustomerId, selectedIds: string[]): Promise<void> {
+  if (!supabase) return;
+  await supabase
+    .from("product_selections")
+    .upsert(
+      { customer_id: customerId, selected_ids: selectedIds, updated_at: new Date().toISOString() },
+      { onConflict: "customer_id" },
+    );
+}
+
 // ── Context ────────────────────────────────────────────────────────────────
 export type CustomerContextValue = {
   formData: AppState;
@@ -854,6 +965,11 @@ export type CustomerContextValue = {
   confirmRebalancingSell: () => void;
   setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
   setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
+  // ── Tab 5 상품 선택 (고객별 격리, Supabase 영속) ──────────────────────────
+  productSelectedIds: string[];
+  setProductSelectedIds: (ids: string[]) => void;
+  // ── 세금 요약 Supabase 저장 (Tab 2/3에서 호출) ────────────────────────────
+  saveTaxSummary: (type: 'current' | 'new', summary: unknown) => void;
 };
 
 export const CustomerContext = createContext<CustomerContextValue | null>(null);

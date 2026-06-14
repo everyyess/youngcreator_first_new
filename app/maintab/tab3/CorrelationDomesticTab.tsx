@@ -25,19 +25,31 @@ export default function CorrelationDomesticTab() {
   const { riskResult } = useCustomerContext();
   const initStrategy = scoreToStrategy(riskResult.score);
 
+  const [isMounted, setIsMounted] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>(initStrategy);
   const [k, setK] = useState(3);
-  const [activeSrc, setActiveSrc] = useState(() => buildSrc(initStrategy, 3));
+  // SSR에서 Date.now() 호출 방지: 초기값 빈 문자열, 클라이언트 마운트 후 실 src 주입
+  const [activeSrc, setActiveSrc] = useState("");
   const [loading, setLoading] = useState(true);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const kRef = useRef(k);
   useEffect(() => { kRef.current = k; }, [k]);
 
+  // 클라이언트 마운트 확인 후 최초 src 생성 (SSR 타임스탬프 불일치 방지)
   useEffect(() => {
+    setIsMounted(true);
+    setActiveSrc(buildSrc(initStrategy, k));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // riskResult.score 변경 시 전략 동기화 — 마운트 전 스킵
+  useEffect(() => {
+    if (!isMounted) return;
     const next = scoreToStrategy(riskResult.score);
     setStrategy(next);
     setLoading(true);
     setActiveSrc(buildSrc(next, kRef.current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riskResult.score]);
 
   const handleApply = useCallback(() => {
@@ -118,16 +130,19 @@ export default function CorrelationDomesticTab() {
             <p className="text-xs text-slate-400">30종목 × 6개 기간 Pearson 상관행렬 연산</p>
           </div>
         )}
-        <iframe
-          ref={iframeRef}
-          key={activeSrc}
-          src={activeSrc}
-          className="w-full border-0"
-          style={{ height: "1150px" }}
-          onLoad={() => setLoading(false)}
-          title="ETF 분산투자 최적화 (국내)"
-          sandbox="allow-scripts"
-        />
+        {/* 마운트 후 조건부 렌더링: SSR 단계에서 src 속성 불일치 원천 차단 */}
+        {isMounted && (
+          <iframe
+            ref={iframeRef}
+            key={activeSrc}
+            src={activeSrc}
+            className="w-full border-0"
+            style={{ height: "1150px" }}
+            onLoad={() => setLoading(false)}
+            title="ETF 분산투자 최적화 (국내)"
+            sandbox="allow-scripts"
+          />
+        )}
       </div>
     </div>
   );

@@ -35,6 +35,7 @@ export default function Tab3Page() {
     rebalancingBuyAssets,
     setRebalancingBuyAssets,
     setNewPortfolioAnalysisResult,
+    saveTaxSummary,
   } = useCustomerContext();
 
   const selectInnerTab = (tab: InnerTab) => {
@@ -95,6 +96,7 @@ export default function Tab3Page() {
             localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newTaxSummary));
             window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
           } catch {}
+          saveTaxSummary('new', newTaxSummary);
         }
       }
     } catch (err) {
@@ -141,10 +143,10 @@ export default function Tab3Page() {
           onAssetsChange={setRebalancingBuyAssets}
           onConfirm={handleConfirmBuy}
           isConfirming={isAnalyzing}
-          sectionTitle="자산 입력 및 분석 실행"
+          sectionTitle="자산 입력 및 생성 실행"
           sectionBadge="리밸런싱 편입 관리"
           noticeBanner="TAB2 리밸런싱에서 편출 결정된 포트폴리오를 불러왔습니다. 편입(매수)할 종목을 추가하세요. 이 페이지의 변경사항은 TAB2 리밸런싱 또는 보유 현황 및 진단 페이지에 반영되지 않습니다."
-          confirmSuccessMessage="신규 포트폴리오 분석이 완료되었습니다. TAB4 포트폴리오 비교 페이지에서 결과를 확인하세요."
+          confirmSuccessMessage="신규 포트폴리오 생성이 완료되었습니다. TAB4 포트폴리오 비교 페이지에서 결과를 확인하세요."
         />
       )}
     </>
