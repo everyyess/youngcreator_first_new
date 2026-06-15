@@ -104,6 +104,7 @@ interface RebalancingPortfolioInputProps {
   seedAssets: PortfolioAsset[];
   onAssetsChange: (assets: PortfolioAsset[]) => void;
   onConfirm: () => void | Promise<void>;
+  onReset?: () => void;
   isConfirming?: boolean;
   sectionTitle: string;
   sectionBadge: string;
@@ -118,6 +119,7 @@ export default function RebalancingPortfolioInput({
   seedAssets,
   onAssetsChange,
   onConfirm,
+  onReset,
   isConfirming = false,
   sectionTitle,
   sectionBadge,
@@ -151,6 +153,7 @@ export default function RebalancingPortfolioInput({
 
   const handleReset = () => {
     onAssetsChange(seedAssets.map(a => ({ ...a })));
+    onReset?.();
   };
 
   // ── 토스트 ────────────────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ export type FinancialInfo = {
 
 export type HeaderAssetSummaryState = {
   confirmedOperatingAssetsAfterSell: number | null;
+  confirmedOperatingAssetsAfterBuy: number | null;
   confirmedBuyAmount: number | null;
 };
 
@@ -323,7 +324,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedBuyAmount: null } };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -354,10 +355,11 @@ export function normalizeAppState(value: unknown): AppState {
     smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
     aiGuidePbNotes: state.aiGuidePbNotes && typeof state.aiGuidePbNotes === "object" && !Array.isArray(state.aiGuidePbNotes) ? state.aiGuidePbNotes as Record<string, string> : {},
     headerAssetSummary: state.headerAssetSummary && typeof state.headerAssetSummary === "object" && !Array.isArray(state.headerAssetSummary)
-      ? {
-          confirmedOperatingAssetsAfterSell: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell ?? null : null,
-          confirmedBuyAmount: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount ?? null : null,
-        }
+        ? {
+            confirmedOperatingAssetsAfterSell: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell ?? null : null,
+            confirmedOperatingAssetsAfterBuy: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterBuy === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterBuy ?? null : null,
+            confirmedBuyAmount: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount ?? null : null,
+          }
       : defaults.headerAssetSummary,
     financial: { ...defaults.financial, ...financial, irregularIncomeNone: Boolean((financial as Partial<FinancialInfo>).irregularIncomeNone) },
     rrttllu: {
@@ -1110,7 +1112,9 @@ export type CustomerContextValue = {
   pushToRebalancingSell: () => void;
   setRebalancingSellAssets: (assets: PortfolioAsset[]) => void;
   confirmRebalancingSell: () => void;
+  resetRebalancingSellSummary: () => void;
   confirmRebalancingBuy: () => void;
+  resetRebalancingBuySummary: () => void;
   setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
   setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
   updateTab3AnalysisState: (patch: Partial<Tab3AnalysisState>) => void;

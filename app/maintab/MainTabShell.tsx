@@ -76,15 +76,32 @@ function formatHeaderKrw(value: number) {
   return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
 }
 
-function buildHeaderAssetSummaryText(financial: FinancialInfo, summary: HeaderAssetSummaryState) {
-  const baseOperatingAssets = parseKrwAmount(financial.existingInvestmentAssets || financial.financialAssets) ?? 0;
+function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetSummaryState, assets: PortfolioAsset[]) {
+  const baseOperatingAssets = sumPortfolioCurrentValue(assets);
   const baseAdditionalAssets = parseKrwAmount(financial.investableAssets) ?? 0;
-  const operatingAfterSell = summary.confirmedOperatingAssetsAfterSell ?? baseOperatingAssets;
+  const operatingAfterSell = summary.confirmedOperatingAssetsAfterSell;
+
+  if (operatingAfterSell == null) {
+    return {
+      operatingAssets: formatHeaderKrw(baseOperatingAssets),
+      additionalAssets: formatHeaderKrw(baseAdditionalAssets),
+    };
+  }
+
   const additionalAfterSell = baseAdditionalAssets + (baseOperatingAssets - operatingAfterSell);
-  const confirmedBuyAmount = summary.confirmedBuyAmount ?? 0;
-  const operatingAssets = operatingAfterSell + confirmedBuyAmount;
-  const additionalAssets = additionalAfterSell - confirmedBuyAmount;
-  return `운용 자산 ${formatHeaderKrw(operatingAssets)} | 추가 투자 의향 ${formatHeaderKrw(additionalAssets)}`;
+  const operatingAfterBuy = summary.confirmedOperatingAssetsAfterBuy;
+
+  if (operatingAfterBuy == null) {
+    return {
+      operatingAssets: formatHeaderKrw(operatingAfterSell),
+      additionalAssets: formatHeaderKrw(additionalAfterSell),
+    };
+  }
+
+  return {
+    operatingAssets: formatHeaderKrw(operatingAfterBuy),
+    additionalAssets: formatHeaderKrw(additionalAfterSell - (operatingAfterBuy - operatingAfterSell)),
+  };
 }
 
 
@@ -398,8 +415,13 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     const snap = (rebalancingSellMapRef.current[cid] ?? []).map(a => ({ ...a }));
     const confirmedOperatingAssetsAfterSell = sumPortfolioCurrentValue(snap);
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
-    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterSell }));
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterSell, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null }));
   }, []); // stable — Ref 기반, 의존성 없음
+  const resetRebalancingSellSummary = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null }));
+  }, [updateHeaderAssetSummary]);
+
   const setRebalancingBuyAssets = useCallback((assets: PortfolioAsset[]) => {
     const cid = selectedCustomerRef.current;
     setRebalancingBuyMap(prev => ({ ...prev, [cid]: assets }));
@@ -408,8 +430,13 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
   const confirmRebalancingBuy = useCallback(() => {
     const cid = selectedCustomerRef.current;
-    const confirmedBuyAmount = sumPortfolioBuyCost(rebalancingBuyMapRef.current[cid] ?? []);
-    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedBuyAmount }));
+    const confirmedOperatingAssetsAfterBuy = sumPortfolioCurrentValue(rebalancingBuyMapRef.current[cid] ?? []);
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterBuy, confirmedBuyAmount: null }));
+  }, [updateHeaderAssetSummary]);
+
+  const resetRebalancingBuySummary = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null }));
   }, [updateHeaderAssetSummary]);
 
   const setNewPortfolioAnalysisResult = useCallback((result: PortfolioAnalysisResult | null) => {
@@ -454,9 +481,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const internalJsonPayload = useMemo(() => buildStructuredJsonPayload(formData, confirmedRiskResult ?? riskResult, selectedCustomerProfile), [confirmedRiskResult, formData, riskResult, selectedCustomerProfile]);
   const warnings = internalJsonPayload.rrttllu.warnings;
   const customerDataJsonPayload = useMemo(() => ({ appState: formData, analysis: { riskResult, internalJsonPayload, financialCompletion, rrttlluCompletion } }), [financialCompletion, formData, internalJsonPayload, riskResult, rrttlluCompletion]);
-  const headerAssetSummaryText = useMemo(
-    () => buildHeaderAssetSummaryText(formData.financial, formData.headerAssetSummary),
-    [formData.financial, formData.headerAssetSummary],
+  const headerAssetSummary = useMemo(
+    () => buildHeaderAssetSummary(formData.financial, formData.headerAssetSummary, portfolioAssets),
+    [formData.financial, formData.headerAssetSummary, portfolioAssets],
   );
 
   useEffect(() => {
@@ -746,8 +773,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
     // 리밸런싱 파이프라인
     rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
-    pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell,
-    confirmRebalancingBuy, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
+    pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
+    confirmRebalancingBuy, resetRebalancingBuySummary, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
     // Tab 5 상품 선택 (고객별 Supabase 영속)
     productSelectedIds, setProductSelectedIds,
     // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)
@@ -766,7 +793,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
             onDragStartCustomer={setDraggedCustomerId} draggedCustomerId={draggedCustomerId}
             dropIndex={customerDropIndex} onSetDropIndex={setCustomerDropIndex}
             onDropCustomer={reorderCustomer} recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
-            assetSummaryText={headerAssetSummaryText}
+            assetSummary={headerAssetSummary}
             storageErrorMessage={storageErrorMessage}
           />
           <div className="flex flex-col gap-5 xl:flex-row">
@@ -818,14 +845,14 @@ function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
 function CustomerSelector({
   customers, selectedCustomer, showCustomers, onToggleSearch, onSelectCustomer, onAddCustomer,
   onRequestDelete, onDragStartCustomer, draggedCustomerId, dropIndex, onSetDropIndex,
-  onDropCustomer, recentUpdatedAt, assetSummaryText, storageErrorMessage,
+  onDropCustomer, recentUpdatedAt, assetSummary, storageErrorMessage,
 }: {
   customers: CustomerProfile[]; selectedCustomer: CustomerId; showCustomers: boolean;
   onToggleSearch: () => void; onSelectCustomer: (id: CustomerId) => void; onAddCustomer: () => void;
   onRequestDelete: () => void; onDragStartCustomer: (id: CustomerId | null) => void;
   draggedCustomerId: CustomerId | null; dropIndex: number | null;
   onSetDropIndex: (i: number | null) => void; onDropCustomer: (i: number) => void;
-  recentUpdatedAt: number; assetSummaryText: string; storageErrorMessage: string;
+  recentUpdatedAt: number; assetSummary: { operatingAssets: string; additionalAssets: string }; storageErrorMessage: string;
 }) {
   const currentCustomer = customers.find((c) => c.id === selectedCustomer);
   const [isDraggingTab, setIsDraggingTab] = useState(false);
@@ -840,7 +867,11 @@ function CustomerSelector({
         <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-start items-center justify-end gap-x-2 gap-y-1 self-start text-right">
           <p className="text-sm font-bold text-slate-600">현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span></p>
           <button type="button" onClick={onRequestDelete} aria-label="현재 고객 삭제" className="flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition hover:border-red-300 hover:bg-red-100"><Trash2 size={17} /></button>
-          <p className="col-span-2 text-xs font-extrabold text-slate-600">{assetSummaryText}</p>
+          <p className="col-span-2 text-[13px] font-extrabold text-slate-600">
+            운용 자산 <span className="text-samsung">{assetSummary.operatingAssets}</span>
+            <span className="px-1 text-slate-400">|</span>
+            추가 투자 의향 <span className="text-samsung">{assetSummary.additionalAssets}</span>
+          </p>
           <p className="col-span-2 text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
         </div>
       </div>
