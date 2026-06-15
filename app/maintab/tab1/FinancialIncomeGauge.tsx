@@ -222,7 +222,7 @@ export function FinancialIncomeGauge({
 
   const dividendItems = (summary?.breakdown ?? []).filter(b => b.incomeType.startsWith("배당"));
   const interestItems = (summary?.breakdown ?? []).filter(b => b.incomeType === "이자");
-  const visibleGainsItems = (summary?.capitalGainsBreakdown ?? []).filter(item => item.tax > 0);
+  const visibleGainsItems = (summary?.capitalGainsBreakdown ?? []).filter(item => item.gain !== 0);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-soft overflow-hidden flex-1">
