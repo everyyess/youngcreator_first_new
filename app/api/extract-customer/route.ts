@@ -114,6 +114,8 @@ const financialProfileSchema = {
   properties: {
     totalAssets: stringField,
     financialAssets: stringField,
+    existingInvestmentAssets: stringField,
+    cashAssets: stringField,
     realEstate: stringField,
     debt: stringField,
     annualFixedIncome: stringField,
@@ -393,6 +395,8 @@ function mockExtract(note: string): ExtractionEnvelope {
 
   const totalAssets = extractAmountNear(text, "총\\s*자산");
   const financialAssets = extractAmountNear(text, "금융\\s*자산");
+  const existingInvestmentAssets = extractAmountNear(text, "기존\\s*투자자산|투자\\s*자산|운용\\s*자산");
+  const cashAssets = extractAmountNear(text, "현금성\\s*자산|현금\\s*자산|예금|적금|CMA|MMF|RP");
   const realEstate = extractAmountNear(text, "부동산");
   const debt = extractAmountNear(text, "부채|대출");
   const annualIncome = extractAmountNear(text, "연\\s*(?:고정)?소득|연봉|사업소득");
@@ -412,6 +416,8 @@ function mockExtract(note: string): ExtractionEnvelope {
   ]);
   if (totalAssets) result.extracted.financialProfile.totalAssets = totalAssets;
   if (financialAssets) result.extracted.financialProfile.financialAssets = financialAssets;
+  if (existingInvestmentAssets) result.extracted.financialProfile.existingInvestmentAssets = existingInvestmentAssets;
+  if (cashAssets) result.extracted.financialProfile.cashAssets = cashAssets;
   if (realEstate) result.extracted.financialProfile.realEstate = realEstate;
   if (debt) result.extracted.financialProfile.debt = debt;
   if (annualIncome) result.extracted.financialProfile.annualFixedIncome = annualIncome;
@@ -579,8 +585,12 @@ function buildPrompt(note: string) {
     "Return objective and expectedReturn are separate fields. Map high expected return context to returnObjective, but always preserve the numeric percentage in expectedReturn.",
     "For preferredAssets, include assets the customer wants, prefers, is interested in, wants to buy, or asks to include.",
     "For avoidedAssets, include assets the customer wants to avoid, is cautious about, or should limit. Do not put caution assets into preferredAssets.",
+    "For existingInvestmentAssets, capture current invested financial assets such as stocks, ETFs, funds, bonds, REITs, ELS, risk assets, and existing managed investment positions.",
+    "For cashAssets, capture current cash-like assets such as deposits, savings, CMA, MMF, RP, cash reserves, and immediately available liquidity.",
+    "For financialAssets, capture it only when the memo explicitly states total financial assets. In the app, financialAssets is usually calculated from existingInvestmentAssets + cashAssets.",
+    "For totalAssets, capture it only when the memo explicitly states net assets or total assets. In the app, net assets can be calculated from financial assets + real estate - debt.",
     "For irregularIncome, capture future non-recurring inflows such as bonus, stock options, business sale proceeds, share/equity sale proceeds, and large expected cash inflows even when exact amount is approximate.",
-    "For investableAssets, capture the amount the customer can actually use for portfolio construction or investment operation. This is a user-provided amount, not a calculated value.",
+    "For investableAssets, capture the additional amount the customer is willing to invest from cash-like assets. This is a user-provided future allocation intention, not a calculated value.",
     "For Liquidity, capture recurring cashflow needs, large lump-sum use plans, and emergency reserve needs separately when possible.",
     "Liquidity cashflow needs must be captured even when no exact amount exists. Expressions such as 안정적인 현금흐름 필요, 현금흐름이 중요, 생활비 확보가 중요, 정기적인 현금 유입 필요, 은퇴 후 생활비 확보 필요, 월급 외 현금흐름 필요, 배당 기반 현금흐름 선호, 노후 생활비 확보 목적 should map to regularCashflowNeed.",
     "For Tax, capture tax concerns including financial income comprehensive taxation, gift/inheritance tax, capital gains tax, and general tax reduction needs.",

@@ -11,7 +11,7 @@ import {
   TrendingUp,
   WalletCards,
 } from "lucide-react";
-import type { PortfolioAnalysisResult, PortfolioAsset } from "./CustomerContext";
+import { useCustomerContext, type PortfolioAnalysisResult, type PortfolioAsset } from "./CustomerContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -90,6 +90,7 @@ export function normalizeAssetClass(cls: string): string {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function usePortfolioResult(): PortfolioAnalysisResult | null {
+  const { analysisResult } = useCustomerContext();
   const [result, setResult] = useState<PortfolioAnalysisResult | null>(null);
 
   useEffect(() => {
@@ -106,7 +107,7 @@ export function usePortfolioResult(): PortfolioAnalysisResult | null {
     return () => window.removeEventListener("portfolio-result-updated", load);
   }, []);
 
-  return result;
+  return analysisResult ?? result;
 }
 
 // ─── Layout Primitives ───────────────────────────────────────────────────────

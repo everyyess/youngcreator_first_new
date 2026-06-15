@@ -6,12 +6,12 @@ import { Trash2 } from "lucide-react";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
-  type CustomerUpdatedMap, type FinancialInfo, type PortfolioAnalysisResult,
-  type PortfolioAsset, type RiskResult, type RrttlluInfo,
+  type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
+  type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredCustomerState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
-  customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState,
+  customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
   createNewCustomerProfile, EMPTY_PORTFOLIO_ASSET, expectedReturnDisplay, fieldGroups,
   formatChangeDate, formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
   loadAnalysisResult, loadPortfolioAssets, savePortfolioAssets,
@@ -19,7 +19,8 @@ import {
   loadNewAnalysisResult, saveNewAnalysisResult,
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
-  noLegalConstraint, noneExperience, nullableText, riskExperienceOptions,
+  loadTab3AnalysisState, saveTab3AnalysisState,
+  noLegalConstraint, noneExperience, nullableText, parseKrwAmount, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
 } from "./CustomerContext";
@@ -32,6 +33,59 @@ const tabPaths: Record<string, string> = {
   compare:   "/maintab/tab4",
   recommend: "/maintab/tab5",
 };
+
+function toFiniteNumber(value: unknown) {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function portfolioCurrentValue(asset: PortfolioAsset) {
+  const currentValue = toFiniteNumber(asset.current_value);
+  if (currentValue > 0) return currentValue;
+  const amount = toFiniteNumber(asset.amount);
+  if (asset.amount_type === "value") return amount;
+  return amount * toFiniteNumber(asset.current_price);
+}
+
+function portfolioBuyCost(asset: PortfolioAsset) {
+  const amount = toFiniteNumber(asset.amount);
+  if (asset.amount_type === "value") return amount;
+  return amount * toFiniteNumber(asset.buy_price);
+}
+
+function sumPortfolioCurrentValue(assets: PortfolioAsset[]) {
+  return assets.reduce((sum, asset) => sum + portfolioCurrentValue(asset), 0);
+}
+
+function sumPortfolioBuyCost(assets: PortfolioAsset[]) {
+  return assets.reduce((sum, asset) => sum + portfolioBuyCost(asset), 0);
+}
+
+function formatHeaderKrw(value: number) {
+  if (!Number.isFinite(value)) return "0억";
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  if (abs >= 100000000) {
+    const eok = abs / 100000000;
+    return `${sign}${Number.isInteger(eok) ? eok.toFixed(0) : eok.toFixed(1)}억`;
+  }
+  if (abs >= 10000) {
+    const man = abs / 10000;
+    return `${sign}${Number.isInteger(man) ? man.toFixed(0) : man.toFixed(0)}만`;
+  }
+  return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
+}
+
+function buildHeaderAssetSummaryText(financial: FinancialInfo, summary: HeaderAssetSummaryState) {
+  const baseOperatingAssets = parseKrwAmount(financial.existingInvestmentAssets || financial.financialAssets) ?? 0;
+  const baseAdditionalAssets = parseKrwAmount(financial.investableAssets) ?? 0;
+  const operatingAfterSell = summary.confirmedOperatingAssetsAfterSell ?? baseOperatingAssets;
+  const additionalAfterSell = baseAdditionalAssets + (baseOperatingAssets - operatingAfterSell);
+  const confirmedBuyAmount = summary.confirmedBuyAmount ?? 0;
+  const operatingAssets = operatingAfterSell + confirmedBuyAmount;
+  const additionalAssets = additionalAfterSell - confirmedBuyAmount;
+  return `운용 자산 ${formatHeaderKrw(operatingAssets)} | 추가 투자 의향 ${formatHeaderKrw(additionalAssets)}`;
+}
 
 
 export default function MainTabShell({ children }: { children: React.ReactNode }) {
@@ -67,7 +121,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [lastAnalysisSnapshot, setLastAnalysisSnapshot] = useState<ReturnType<typeof buildStructuredJsonPayload> | null>(null);
   const [changeHistory, setChangeHistory] = useState<ChangeEntry[]>([]);
   const [changeHistoryExpanded, setChangeHistoryExpanded] = useState(false);
-  const formData = customerData[selectedCustomer] ?? createInitialState();
+  const formData = deriveCalculatedAppState(customerData[selectedCustomer] ?? createInitialState());
 
   // ── 포트폴리오 전역 상태 — Tab 1의 customerData Map 패턴과 동일 구조 ──────
   // Map keyed by customerId: 고객 전환 시 절대 삭제하지 않음 (읽는 key만 변경)
@@ -83,6 +137,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [newPortfolioAnalysisResultMap, setNewPortfolioAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
   const [rebalancingLoadedMap, setRebalancingLoadedMap] = useState<Record<CustomerId, boolean>>({});
   const [rebalancingDirtyMap, setRebalancingDirtyMap] = useState<Record<CustomerId, boolean>>({});
+  const [tab3AnalysisStateMap, setTab3AnalysisStateMap] = useState<Record<CustomerId, Tab3AnalysisState>>({});
 
   // ── Tab 5 상품 선택 Maps (고객별 격리) ───────────────────────────────────
   const [productSelectionsMap, setProductSelectionsMap] = useState<Record<CustomerId, string[]>>({});
@@ -94,6 +149,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   // 매 렌더에서 .current를 동기 갱신하면 항상 최신 커밋 값을 보장한다.
   const portfolioAssetsMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const rebalancingSellMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
+  const rebalancingBuyMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
+  const tab3AnalysisStateMapRef = useRef<Record<CustomerId, Tab3AnalysisState>>({});
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
 
   // 파생값 — 공개 인터페이스는 Tab 1의 formData/riskResult 패턴과 동일
@@ -103,12 +160,15 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const rebalancingSellAssets = rebalancingSellMap[selectedCustomer] ?? [];
   const rebalancingBuyAssets = rebalancingBuyMap[selectedCustomer] ?? [];
   const newPortfolioAnalysisResult = newPortfolioAnalysisResultMap[selectedCustomer] ?? null;
+  const tab3AnalysisState = tab3AnalysisStateMap[selectedCustomer] ?? {};
   const productSelectedIds = productSelectionsMap[selectedCustomer] ?? [];
 
   // Ref 동기화 — 렌더마다 최신 커밋 값 기록 (useEffect 없이 동기 할당)
   // 이를 통해 async 콜백이 stale 클로저 없이 항상 최신 상태를 읽을 수 있다
   portfolioAssetsMapRef.current = portfolioAssetsMap;
   rebalancingSellMapRef.current = rebalancingSellMap;
+  rebalancingBuyMapRef.current = rebalancingBuyMap;
+  tab3AnalysisStateMapRef.current = tab3AnalysisStateMap;
   selectedCustomerRef.current = selectedCustomer;
 
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
@@ -184,9 +244,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       loadAnalysisResult(customerId),
       loadRebalancingState(customerId),
       loadNewAnalysisResult(customerId),
+      loadTab3AnalysisState(customerId),
       loadTaxSummaries(customerId),
       loadProductSelections(customerId),
-    ]).then(([assets, result, rebalancing, newResult, taxSummaries, productIds]) => {
+    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds]) => {
       if (cancelled) {
         portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
         return;
@@ -198,6 +259,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       setRebalancingSellMap(prev => ({ ...prev, [customerId]: rebalancing.sellAssets }));
       setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
       setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
+      setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
       setRebalancingLoadedMap(prev => ({ ...prev, [customerId]: true }));
 
       setProductSelectionsMap(prev => ({ ...prev, [customerId]: productIds }));
@@ -301,6 +363,21 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   // 3. 함수형 setter(prev => ...) — React가 최신 prev 상태를 보장하므로
   //    연속 호출 시에도 덮어쓰기 없이 순서가 보장됨.
   //
+  const updateHeaderAssetSummary = useCallback((cid: CustomerId, updater: (current: HeaderAssetSummaryState) => HeaderAssetSummaryState) => {
+    setCustomerUpdatedAt((prev) => ({ ...prev, [cid]: Date.now() }));
+    setDirtyCustomerData((prev) => ({ ...prev, [cid]: true }));
+    setCustomerData((prev) => {
+      const current = prev[cid] ?? createInitialState();
+      return {
+        ...prev,
+        [cid]: {
+          ...current,
+          headerAssetSummary: updater(current.headerAssetSummary ?? createInitialState().headerAssetSummary),
+        },
+      };
+    });
+  }, []);
+
   const pushToRebalancingSell = useCallback(() => {
     const cid = selectedCustomerRef.current;
     const snap = (portfolioAssetsMapRef.current[cid] ?? []).map(a => ({ ...a }));
@@ -319,8 +396,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     // rebalancingSellMapRef.current: 마지막 렌더에서 커밋된 최신 값
     // → 버튼 클릭 직전의 편집 내용이 이미 반영되어 있음이 보장됨
     const snap = (rebalancingSellMapRef.current[cid] ?? []).map(a => ({ ...a }));
-    setRebalancingBuyMap(prev => ({ ...prev, [cid]: snap }));
+    const confirmedOperatingAssetsAfterSell = sumPortfolioCurrentValue(snap);
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterSell }));
   }, []); // stable — Ref 기반, 의존성 없음
   const setRebalancingBuyAssets = useCallback((assets: PortfolioAsset[]) => {
     const cid = selectedCustomerRef.current;
@@ -328,10 +406,23 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
   }, []); // stable
 
+  const confirmRebalancingBuy = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    const confirmedBuyAmount = sumPortfolioBuyCost(rebalancingBuyMapRef.current[cid] ?? []);
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedBuyAmount }));
+  }, [updateHeaderAssetSummary]);
+
   const setNewPortfolioAnalysisResult = useCallback((result: PortfolioAnalysisResult | null) => {
     const cid = selectedCustomerRef.current;
     setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [cid]: result }));
     void saveNewAnalysisResult(cid, result); // 분석 완료 즉시 저장 (더티 플래그 없음)
+  }, []); // stable
+
+  const updateTab3AnalysisState = useCallback((patch: Partial<Tab3AnalysisState>) => {
+    const cid = selectedCustomerRef.current;
+    const nextState = { ...(tab3AnalysisStateMapRef.current[cid] ?? {}), ...patch };
+    setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: nextState }));
+    void saveTab3AnalysisState(cid, nextState);
   }, []); // stable
 
   const setProductSelectedIds = useCallback((ids: string[]) => {
@@ -348,7 +439,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
   const financialCompletion = useMemo(() => completion([
-    formData.financial.totalAssets, formData.financial.financialAssets, formData.financial.realEstate,
+    formData.financial.existingInvestmentAssets, formData.financial.cashAssets, formData.financial.realEstate,
     formData.financial.debt, formData.financial.annualFixedIncome,
     formData.financial.irregularIncomeNone ? "없음" : formData.financial.irregularIncome,
     formData.financial.investableAssets,
@@ -363,6 +454,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const internalJsonPayload = useMemo(() => buildStructuredJsonPayload(formData, confirmedRiskResult ?? riskResult, selectedCustomerProfile), [confirmedRiskResult, formData, riskResult, selectedCustomerProfile]);
   const warnings = internalJsonPayload.rrttllu.warnings;
   const customerDataJsonPayload = useMemo(() => ({ appState: formData, analysis: { riskResult, internalJsonPayload, financialCompletion, rrttlluCompletion } }), [financialCompletion, formData, internalJsonPayload, riskResult, rrttlluCompletion]);
+  const headerAssetSummaryText = useMemo(
+    () => buildHeaderAssetSummaryText(formData.financial, formData.headerAssetSummary),
+    [formData.financial, formData.headerAssetSummary],
+  );
 
   useEffect(() => {
     if (!storageReady || isSeeding || !persistedCustomerIds.includes(selectedCustomer)) return;
@@ -381,7 +476,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const setFormData = (updater: (current: AppState) => AppState) => {
     markUpdated(selectedCustomer);
     setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: true }));
-    setCustomerData((prev) => ({ ...prev, [selectedCustomer]: updater(prev[selectedCustomer] ?? createInitialState()) }));
+    setCustomerData((prev) => ({ ...prev, [selectedCustomer]: deriveCalculatedAppState(updater(prev[selectedCustomer] ?? createInitialState())) }));
   };
 
   const selectCustomer = (id: CustomerId) => {
@@ -430,14 +525,17 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
   const reorderCustomer = (dropIndex: number) => {
     if (!draggedCustomerId) return;
-    setCustomerProfiles((prev) => {
-      const srcIdx = prev.findIndex((p) => p.id === draggedCustomerId);
-      if (srcIdx < 0) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(srcIdx, 1);
-      const adjusted = srcIdx < dropIndex ? dropIndex - 1 : dropIndex;
-      next.splice(Math.max(0, Math.min(adjusted, next.length)), 0, moved);
-      return next;
+    const srcIdx = customerProfiles.findIndex((p) => p.id === draggedCustomerId);
+    if (srcIdx < 0) return;
+    const next = [...customerProfiles];
+    const [moved] = next.splice(srcIdx, 1);
+    const adjusted = srcIdx < dropIndex ? dropIndex - 1 : dropIndex;
+    next.splice(Math.max(0, Math.min(adjusted, next.length)), 0, moved);
+    const ordered = next.map((profile, index) => ({ ...profile, sort_order: index }));
+    setCustomerProfiles(ordered);
+    void customerStorage.saveSortOrders(ordered).then((r) => {
+      if (!r.ok) setStorageErrorMessage(r.message);
+      else setStorageErrorMessage("");
     });
     setDraggedCustomerId(null); setCustomerDropIndex(null);
   };
@@ -462,6 +560,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
         setRebalancingSellMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setRebalancingBuyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setNewPortfolioAnalysisResultMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setTab3AnalysisStateMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setRebalancingLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setRebalancingDirtyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setProductSelectionsMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
@@ -557,7 +656,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       const financialPatch = payload.financial ?? {};
       const rrttlluPatch = payload.rrttllu ?? {};
       const financial = mergeExtractedText(current.financial, financialPatch, [
-        "totalAssets", "financialAssets", "realEstate", "debt", "annualFixedIncome", "irregularIncome", "investableAssets", "monthlyFixedExpense",
+        "existingInvestmentAssets", "cashAssets", "realEstate", "debt", "annualFixedIncome", "irregularIncome", "investableAssets", "monthlyFixedExpense",
       ]);
       if (financialPatch.irregularIncomeNone === true) {
         financial.irregularIncomeNone = true;
@@ -589,7 +688,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       } else if (hasExtractedText(rrttlluPatch.expectedReturn)) {
         rrttllu.expectedReturnUnknown = false;
       }
-      return { ...prev, [selectedCustomer]: { ...current, financial, rrttllu, smartExtractedUniqueOther: nextSmartUniqueOther } };
+      return { ...prev, [selectedCustomer]: deriveCalculatedAppState({ ...current, financial, rrttllu, smartExtractedUniqueOther: nextSmartUniqueOther }) };
     });
     if (storageReady && !isSeeding) {
       void saveCustomerProfileColumns(updatedProfile).then((r) => {
@@ -599,7 +698,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     }
   };
 
-  const setFinancial = (key: keyof FinancialInfo, value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, [key]: value } }));
+  const setFinancial = (key: keyof FinancialInfo, value: string) => setFormData((prev) => deriveCalculatedAppState({ ...prev, financial: { ...prev.financial, [key]: value } }));
   const setRrttllu = (key: keyof RrttlluInfo, value: string) => setFormData((prev) => (
     key === "uniqueOther"
       ? { ...prev, uniqueOtherManual: value, smartExtractedUniqueOther: "", rrttllu: { ...prev.rrttllu, uniqueOther: value } }
@@ -646,9 +745,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     portfolioAssets, isPortfolioLoaded, analysisResult,
     addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
     // 리밸런싱 파이프라인
-    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult,
+    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell,
-    setRebalancingBuyAssets, setNewPortfolioAnalysisResult,
+    confirmRebalancingBuy, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
     // Tab 5 상품 선택 (고객별 Supabase 영속)
     productSelectedIds, setProductSelectedIds,
     // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)
@@ -667,6 +766,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
             onDragStartCustomer={setDraggedCustomerId} draggedCustomerId={draggedCustomerId}
             dropIndex={customerDropIndex} onSetDropIndex={setCustomerDropIndex}
             onDropCustomer={reorderCustomer} recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
+            assetSummaryText={headerAssetSummaryText}
             storageErrorMessage={storageErrorMessage}
           />
           <div className="flex flex-col gap-5 xl:flex-row">
@@ -718,14 +818,14 @@ function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
 function CustomerSelector({
   customers, selectedCustomer, showCustomers, onToggleSearch, onSelectCustomer, onAddCustomer,
   onRequestDelete, onDragStartCustomer, draggedCustomerId, dropIndex, onSetDropIndex,
-  onDropCustomer, recentUpdatedAt, storageErrorMessage,
+  onDropCustomer, recentUpdatedAt, assetSummaryText, storageErrorMessage,
 }: {
   customers: CustomerProfile[]; selectedCustomer: CustomerId; showCustomers: boolean;
   onToggleSearch: () => void; onSelectCustomer: (id: CustomerId) => void; onAddCustomer: () => void;
   onRequestDelete: () => void; onDragStartCustomer: (id: CustomerId | null) => void;
   draggedCustomerId: CustomerId | null; dropIndex: number | null;
   onSetDropIndex: (i: number | null) => void; onDropCustomer: (i: number) => void;
-  recentUpdatedAt: number; storageErrorMessage: string;
+  recentUpdatedAt: number; assetSummaryText: string; storageErrorMessage: string;
 }) {
   const currentCustomer = customers.find((c) => c.id === selectedCustomer);
   const [isDraggingTab, setIsDraggingTab] = useState(false);
@@ -740,7 +840,8 @@ function CustomerSelector({
         <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-start items-center justify-end gap-x-2 gap-y-1 self-start text-right">
           <p className="text-sm font-bold text-slate-600">현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span></p>
           <button type="button" onClick={onRequestDelete} aria-label="현재 고객 삭제" className="flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition hover:border-red-300 hover:bg-red-100"><Trash2 size={17} /></button>
-          <p className="basis-full text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
+          <p className="col-span-2 text-xs font-extrabold text-slate-600">{assetSummaryText}</p>
+          <p className="col-span-2 text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
         </div>
       </div>
       {storageErrorMessage ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{storageErrorMessage}</div> : null}

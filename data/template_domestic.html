@@ -121,15 +121,26 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 const PERIOD_DATA = ##PERIOD_DATA_JS##;
 const K_VAL = ##K_VAL_JS##;
 const STRATEGY_TYPE = "##STRATEGY_TYPE##";
+const INITIAL_PERIOD = "##INITIAL_PERIOD##";
+const INITIAL_LOCKED_TICKER = "##INITIAL_LOCKED_TICKER##";
+const INITIAL_ACTIVE_TAB = "##INITIAL_ACTIVE_TAB##";
 
 const SECTORS = {"069500.KS":{"sector":"주식시장(코스피)","color":"#DC2626","name":"KODEX 200"},"229200.KS":{"sector":"주식시장(코스닥)","color":"#7F1D1D","name":"KODEX 코스닥150"},"091160.KS":{"sector":"반도체","color":"#3B82F6","name":"KODEX 반도체"},"305720.KS":{"sector":"2차전지","color":"#84CC16","name":"KODEX 2차전지산업"},"091180.KS":{"sector":"자동차","color":"#6B7280","name":"KODEX 자동차"},"441680.KS":{"sector":"신재생에너지","color":"#22C55E","name":"KODEX K-신재생에너지액티브"},"143460.KS":{"sector":"바이오","color":"#EC4899","name":"KODEX 바이오"},"445290.KS":{"sector":"로보틱스","color":"#6366F1","name":"KODEX 로봇액티브"},"472870.KS":{"sector":"방산","color":"#9F1239","name":"KODEX 방산TOP10"},"0098F0.KS":{"sector":"원자력","color":"#F59E0B","name":"KODEX 원자력SMR"},"449170.KS":{"sector":"자율주행","color":"#8B5CF6","name":"KODEX 자율주행액티브"},"488290.KS":{"sector":"조선","color":"#0EA5E9","name":"KODEX 조선TOP10"},"475080.KS":{"sector":"AI·전력","color":"#A855F7","name":"KODEX AI전력핵심설비"},"104530.KS":{"sector":"건설","color":"#F97316","name":"KODEX 건설"},"228810.KS":{"sector":"경기소비재","color":"#CA8A04","name":"KODEX 경기소비재"},"228820.KS":{"sector":"기계장비","color":"#78716C","name":"KODEX 기계장비"},"091170.KS":{"sector":"금융","color":"#14B8A6","name":"KODEX 금융"},"117460.KS":{"sector":"에너지화학","color":"#7C3AED","name":"KODEX 에너지화학"},"140710.KS":{"sector":"운송","color":"#D97706","name":"KODEX 운송"},"117680.KS":{"sector":"철강","color":"#57534E","name":"KODEX 철강"},"228800.KS":{"sector":"필수소비재","color":"#16A34A","name":"KODEX 필수소비재"},"114820.KS":{"sector":"채권(단기)","color":"#166534","name":"KODEX 국고채3년"},"471230.KS":{"sector":"채권(장기)","color":"#15803D","name":"KODEX 국고채10년액티브"},"132030.KS":{"sector":"귀금속","color":"#C0A060","name":"KODEX 골드선물(H)"},"138920.KS":{"sector":"원자재금속","color":"#92400E","name":"KODEX 구리선물(H)"},"261220.KS":{"sector":"에너지원자재","color":"#78350F","name":"KODEX WTI원유선물(H)"},"459580.KS":{"sector":"현금성","color":"#64748B","name":"KODEX CD금리액티브(합성)"},"453850.KS":{"sector":"해외채권","color":"#1D4ED8","name":"KODEX 미국채30년액티브(H)"},"138230.KS":{"sector":"달러·외환","color":"#047857","name":"KODEX 미국달러선물"}};
 const TICKERS = ["069500.KS","229200.KS","091160.KS","305720.KS","091180.KS","441680.KS","143460.KS","445290.KS","472870.KS","0098F0.KS","449170.KS","488290.KS","475080.KS","104530.KS","228810.KS","228820.KS","091170.KS","117460.KS","140710.KS","117680.KS","228800.KS","114820.KS","471230.KS","132030.KS","138920.KS","261220.KS","459580.KS","453850.KS","138230.KS"];
 const NOTE_MAP = {"132030.KS":"선물H","138920.KS":"선물H","261220.KS":"선물H","138230.KS":"선물","453850.KS":"해외H","459580.KS":"합성"};
 const ETF_HOLDINGS = {"069500.KS":[{"name":"삼성전자","weight":30.2},{"name":"SK하이닉스","weight":7.8},{"name":"LG에너지솔루션","weight":4.1},{"name":"삼성바이오로직스","weight":3.2},{"name":"현대차","weight":2.9}],"229200.KS":[{"name":"에코프로비엠","weight":5.4},{"name":"셀트리온헬스케어","weight":4.7},{"name":"HLB","weight":4.1},{"name":"에코프로","weight":3.9},{"name":"카카오게임즈","weight":2.8}],"091160.KS":[{"name":"삼성전자","weight":31.5},{"name":"SK하이닉스","weight":21.3},{"name":"삼성전기","weight":5.4},{"name":"DB하이텍","weight":3.2},{"name":"리노공업","weight":2.8}],"305720.KS":[{"name":"에코프로비엠","weight":14.2},{"name":"LG에너지솔루션","weight":12.8},{"name":"삼성SDI","weight":11.5},{"name":"포스코퓨처엠","weight":9.3},{"name":"SK이노베이션","weight":7.1}],"091180.KS":[{"name":"현대차","weight":28.3},{"name":"기아","weight":25.6},{"name":"현대모비스","weight":15.4},{"name":"한온시스템","weight":6.2},{"name":"현대위아","weight":4.8}],"441680.KS":[{"name":"씨에스윈드","weight":12.5},{"name":"한화솔루션","weight":11.3},{"name":"HD현대에너지솔루션","weight":9.8},{"name":"OCI홀딩스","weight":7.2},{"name":"에스에너지","weight":5.4}],"143460.KS":[{"name":"삼성바이오로직스","weight":21.3},{"name":"셀트리온","weight":18.5},{"name":"한미약품","weight":8.4},{"name":"유한양행","weight":7.2},{"name":"종근당","weight":5.1}],"445290.KS":[{"name":"두산로보틱스","weight":18.5},{"name":"레인보우로보틱스","weight":15.3},{"name":"현대로보틱스","weight":12.6},{"name":"로보티즈","weight":9.4},{"name":"에스피지","weight":7.2}],"472870.KS":[{"name":"한화에어로스페이스","weight":25.4},{"name":"LIG넥스원","weight":18.3},{"name":"현대로템","weight":15.2},{"name":"한국항공우주","weight":14.8},{"name":"현대위아","weight":8.6}],"0098F0.KS":[{"name":"두산에너빌리티","weight":22.5},{"name":"한국전력","weight":15.8},{"name":"한전기술","weight":13.4},{"name":"비에이치아이","weight":9.2},{"name":"우리기술","weight":7.6}],"449170.KS":[{"name":"현대차","weight":18.5},{"name":"기아","weight":14.3},{"name":"삼성전자","weight":12.8},{"name":"LG전자","weight":8.9},{"name":"현대모비스","weight":7.4}],"488290.KS":[{"name":"HD현대중공업","weight":28.3},{"name":"삼성중공업","weight":22.5},{"name":"한화오션","weight":19.8},{"name":"HD현대미포","weight":12.6},{"name":"현대삼호중공업","weight":8.4}],"475080.KS":[{"name":"HD현대일렉트릭","weight":18.9},{"name":"효성중공업","weight":15.4},{"name":"LS일렉트릭","weight":13.8},{"name":"현대일렉트릭","weight":11.2},{"name":"일진전기","weight":9.6}],"104530.KS":[{"name":"현대건설","weight":21.5},{"name":"GS건설","weight":18.3},{"name":"대우건설","weight":15.6},{"name":"HDC현대산업개발","weight":12.4},{"name":"DL이앤씨","weight":9.8}],"228810.KS":[{"name":"현대차","weight":12.4},{"name":"기아","weight":10.8},{"name":"삼성전기","weight":8.6},{"name":"LG전자","weight":7.9},{"name":"호텔신라","weight":6.3}],"228820.KS":[{"name":"두산에너빌리티","weight":14.3},{"name":"현대건설기계","weight":12.8},{"name":"HD현대인프라코어","weight":11.5},{"name":"한화","weight":9.2},{"name":"현대위아","weight":8.7}],"091170.KS":[{"name":"KB금융","weight":22.4},{"name":"신한지주","weight":19.8},{"name":"하나금융지주","weight":17.3},{"name":"우리금융지주","weight":13.5},{"name":"삼성생명","weight":8.9}],"117460.KS":[{"name":"LG화학","weight":24.5},{"name":"롯데케미칼","weight":15.8},{"name":"금호석유","weight":13.2},{"name":"S-Oil","weight":11.4},{"name":"한화솔루션","weight":9.6}],"140710.KS":[{"name":"HMM","weight":18.9},{"name":"CJ대한통운","weight":16.4},{"name":"한진칼","weight":14.8},{"name":"대한항공","weight":13.5},{"name":"현대글로비스","weight":11.2}],"117680.KS":[{"name":"POSCO홀딩스","weight":34.5},{"name":"현대제철","weight":22.3},{"name":"고려아연","weight":15.8},{"name":"동국제강","weight":9.4},{"name":"세아베스틸지주","weight":7.2}],"228800.KS":[{"name":"KT&G","weight":18.5},{"name":"CJ제일제당","weight":15.3},{"name":"오리온","weight":12.8},{"name":"농심","weight":11.4},{"name":"롯데웰푸드","weight":9.7}],"114820.KS":[{"name":"국고채 3년물","weight":100.0}],"471230.KS":[{"name":"국고채 10년물","weight":100.0}],"132030.KS":[{"name":"금 선물 (COMEX Gold)","weight":100.0}],"138920.KS":[{"name":"구리 선물 (COMEX Copper)","weight":100.0}],"261220.KS":[{"name":"WTI 원유 선물 (근월물)","weight":100.0}],"459580.KS":[{"name":"CD 91일물 (합성)","weight":100.0}],"453850.KS":[{"name":"미국채 30년물","weight":100.0}],"138230.KS":[{"name":"미국달러 선물 (CME)","weight":100.0}]};
 const PALETTE = ['#3B82F6','#EF4444','#22C55E','#F59E0B','#8B5CF6','#0EA5E9','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16','#A855F7','#CA8A04','#6B7280','#16A34A','#374151','#1D4ED8','#15803D','#166534','#14532D','#EA580C'];
-let curPeriod='3Y', chartView='optimal', lockedTicker=null;
-let activeTab = 'optimal';
+let curPeriod=INITIAL_PERIOD || '3Y', chartView='optimal', lockedTicker=INITIAL_LOCKED_TICKER || null;
+let activeTab = INITIAL_ACTIVE_TAB || 'optimal';
 const charts={};
+
+function notifyParentState(){
+  if(!window.parent || window.parent===window)return;
+  window.parent.postMessage({
+    type:'domestic-correlation-state',
+    state:{periodRange:curPeriod,lockedTicker:lockedTicker||null,innerViewTab:activeTab}
+  }, window.location.origin);
+}
 
 function fmtDate(d){const p=d.split('-');return p[0].slice(2)+'.'+p[1]+'.'+p[2];}
 function corrColor(v){return v>=0.7?'#ef4444':v>=0.4?'#f59e0b':v>=0?'#22c55e':'#3b82f6';}
@@ -202,6 +213,7 @@ function toggleLock(t){
   buildOptimal();
   buildWeight();
   if(activeTab==='chart'||charts.price) buildChart();
+  notifyParentState();
 }
 
 function setPeriod(p,btn){
@@ -215,6 +227,7 @@ function setPeriod(p,btn){
   if(activeTab==='chart') buildChart();
   if(activeTab==='weight') buildWeight();
   if(activeTab==='sectorlist') buildSectorList();
+  notifyParentState();
 }
 
 function buildOptimal(){
@@ -552,12 +565,25 @@ function showTab(name,btn){
   if(name==='chart')buildChart();
   if(name==='weight')buildWeight();
   if(name==='sectorlist')buildSectorList();
+  notifyParentState();
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
   const pd=PERIOD_DATA[curPeriod];
   document.getElementById('period-info').textContent= pd.start + " ~ " + pd.end + " (" + pd.n_days + "거래일)";
-  buildOptimal();
+  const periodButton = Array.from(document.querySelectorAll('.period-bar .period-btn')).find((btn)=>btn.getAttribute('onclick')?.includes("'" + curPeriod + "'"));
+  if(periodButton){
+    document.querySelectorAll('.period-bar .period-btn').forEach(b=>b.classList.remove('active'));
+    periodButton.classList.add('active');
+  }
+  if(activeTab !== 'optimal'){
+    const tabButton = Array.from(document.querySelectorAll('.tabs .tab-btn')).find((btn)=>btn.getAttribute('onclick')?.includes("'" + activeTab + "'"));
+    if(tabButton) showTab(activeTab, tabButton);
+    else buildOptimal();
+  } else {
+    buildOptimal();
+  }
+  notifyParentState();
 });
 </script>
 </body>

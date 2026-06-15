@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScatterChart, Globe, RefreshCcw } from "lucide-react";
 import CorrelationGlobalTab from "./CorrelationGlobalTab";
 import CorrelationDomesticTab from "./CorrelationDomesticTab";
@@ -34,12 +34,26 @@ export default function Tab3Page() {
     rebalancingSellAssets,
     rebalancingBuyAssets,
     setRebalancingBuyAssets,
+    confirmRebalancingBuy,
     setNewPortfolioAnalysisResult,
+    tab3AnalysisState,
+    updateTab3AnalysisState,
     saveTaxSummary,
   } = useCustomerContext();
 
+  useEffect(() => {
+    if (
+      tab3AnalysisState.activeInnerTab === "correlation-domestic" ||
+      tab3AnalysisState.activeInnerTab === "correlation-global" ||
+      tab3AnalysisState.activeInnerTab === "rebalancing"
+    ) {
+      setActiveInnerTab(tab3AnalysisState.activeInnerTab);
+    }
+  }, [tab3AnalysisState.activeInnerTab]);
+
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
+    updateTab3AnalysisState({ activeInnerTab: tab });
   };
 
   // 탭 2-1과 동일한 한계세율 추정 로직
@@ -63,6 +77,7 @@ export default function Tab3Page() {
         expectedDividendIncome: formData.rrttllu.expectedDividendIncome,
       });
       if (result) {
+        confirmRebalancingBuy();
         setNewPortfolioAnalysisResult(result);
 
         // 신규 포트폴리오 세금 요약 계산 후 Tab4 게이지에 반영
@@ -104,7 +119,7 @@ export default function Tab3Page() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [rebalancingBuyAssets, tMarginal, formData.rrttllu, setNewPortfolioAnalysisResult]);
+  }, [rebalancingBuyAssets, tMarginal, formData.rrttllu, confirmRebalancingBuy, setNewPortfolioAnalysisResult]);
 
   return (
     <>
@@ -129,11 +144,17 @@ export default function Tab3Page() {
 
       {/* 서브 탭 콘텐츠 */}
       {activeInnerTab === "correlation-domestic" && (
-        <CorrelationDomesticTab />
+        <CorrelationDomesticTab
+          savedState={tab3AnalysisState.domestic}
+          onStateChange={(domestic) => updateTab3AnalysisState({ domestic })}
+        />
       )}
 
       {activeInnerTab === "correlation-global" && (
-        <CorrelationGlobalTab />
+        <CorrelationGlobalTab
+          savedState={tab3AnalysisState.global}
+          onStateChange={(global) => updateTab3AnalysisState({ global })}
+        />
       )}
 
       {activeInnerTab === "rebalancing" && (
