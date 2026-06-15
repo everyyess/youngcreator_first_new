@@ -1147,6 +1147,9 @@ export default function CustomerAnalysisTab() {
             </div>
           </div>
         </div>
+        <p className="text-xs font-semibold leading-5 text-samsung">
+          *기존 투자자산은 대략 입력해주세요. 실제 운용 자산은 Tab2 보유 종목 기준으로 자동 계산됩니다.
+        </p>
         <div className="grid gap-3">
           <IncomeWithNoneField label="향후 예상되는 비정기 소득" value={formData.financial.irregularIncome} placeholder="예. 연 성과급 6~7억, 3년 내 스톡옵션 행사 20억, 부동산 매각 30억 예상" noneSelected={formData.financial.irregularIncomeNone} missing={financialMissing.irregularIncome} onChange={setIrregularIncome} onToggleNone={toggleNoIrregularIncome} />
         </div>

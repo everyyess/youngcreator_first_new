@@ -35,6 +35,7 @@ export default function Tab3Page() {
     rebalancingBuyAssets,
     setRebalancingBuyAssets,
     confirmRebalancingBuy,
+    resetRebalancingBuySummary,
     setNewPortfolioAnalysisResult,
     tab3AnalysisState,
     updateTab3AnalysisState,
@@ -163,6 +164,7 @@ export default function Tab3Page() {
           seedAssets={rebalancingSellAssets}
           onAssetsChange={setRebalancingBuyAssets}
           onConfirm={handleConfirmBuy}
+          onReset={resetRebalancingBuySummary}
           isConfirming={isAnalyzing}
           sectionTitle="자산 입력 및 생성 실행"
           sectionBadge="리밸런싱 편입 관리"
