@@ -15,6 +15,7 @@ import RebalancingPortfolioInput from "../RebalancingPortfolioInput";
 import { useCustomerContext } from "../CustomerContext";
 import {
   calcFinancialIncomeSummary,
+  FINANCIAL_INCOME_STORAGE_KEY,
   NEW_PORTFOLIO_INCOME_STORAGE_KEY,
   type AssetForIncomeCalc,
 } from "../tab1/FinancialIncomeGauge";
@@ -104,6 +105,39 @@ export default function Tab2Page() {
       } catch {}
       saveTaxSummary('new', summary);
     }
+
+    // A패널 업데이트: 잔여 포트폴리오만 반영 (매도된 종목 제거, 주식/ETF 양도소득세 제외)
+    const remainingForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
+      .map((a) => {
+        const isBond = a.productType === "국내채권" || a.productType === "해외채권";
+        const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
+        if (!resolvedName) return null;
+        const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
+        const enriched = enrichedMap.get(key);
+        const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
+        return {
+          name: resolvedName,
+          ticker: a.ticker ?? "",
+          asset_class: a.asset_class,
+          productType: a.productType,
+          country: a.country,
+          current_price: (enriched?.current_price as number | undefined) ?? a.current_price,
+          current_value: (enriched?.current_value as number | undefined) ?? a.current_value,
+          amount: a.amount,
+          amount_type: a.amount_type,
+          buy_price: isBond ? a.buy_price : undefined,
+          dividendYield: enriched?.dividendYield as number | undefined,
+          interestRate,
+        } as AssetForIncomeCalc;
+      })
+      .filter((x): x is AssetForIncomeCalc => x !== null);
+
+    const currentSummary = calcFinancialIncomeSummary(remainingForCalc, tMarginal);
+    try {
+      localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(currentSummary));
+      window.dispatchEvent(new CustomEvent("financial-income-updated"));
+    } catch {}
+    saveTaxSummary('current', currentSummary);
   };
 
   useEffect(() => {
