@@ -482,7 +482,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw } = useCustomerContext();
+  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets } = useCustomerContext();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
   const [bucketOffset, setBucketOffset] = useState<Partial<Record<BucketType,number>>>({});
@@ -506,6 +506,20 @@ export default function Tab5Page() {
     const monthlyIncome = annualIncome / 12;
     const monthlyCashflow = parseAmount(formData.financial.monthlyFixedExpense);
     const investableAssets = parseAmount(formData.financial.investableAssets);
+
+// TAB2·TAB3 리밸런싱 반영 추가투자자금 (헤더와 동일 로직)
+const baseOperatingAssets = portfolioAssets.reduce((s, a) => {
+  if (a.current_value && a.current_value > 0) return s + a.current_value;
+  if (a.amount_type === "value") return s + (a.amount ?? 0);
+  return s + (a.amount ?? 0) * (a.current_price ?? 0);
+}, 0);
+const { confirmedOperatingAssetsAfterSell, confirmedOperatingAssetsAfterBuy } = formData.headerAssetSummary;
+const additionalInvestmentAmount = (() => {
+  if (confirmedOperatingAssetsAfterSell == null) return investableAssets;
+  const additionalAfterSell = investableAssets + (baseOperatingAssets - confirmedOperatingAssetsAfterSell);
+  if (confirmedOperatingAssetsAfterBuy == null) return additionalAfterSell;
+  return additionalAfterSell - (confirmedOperatingAssetsAfterBuy - confirmedOperatingAssetsAfterSell);
+})();
     const lumpSumAmount = parseAmount(formData.rrttllu.lumpSumPlan);
     const lumpSumTimepoint = parseTimepoint(formData.rrttllu.lumpSumPlan);
     const emergencyAmount = parseAmount(formData.rrttllu.emergencyReservePlan);
@@ -518,7 +532,7 @@ export default function Tab5Page() {
       age: isNaN(age)?50:age,
       monthlyIncome, monthlyCashflow,
       lumpSumAmount, lumpSumTimepoint,
-      emergencyAmount, investableAssets,
+      emergencyAmount, investableAssets: additionalInvestmentAmount,
     };
   }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady]);
 
@@ -627,8 +641,8 @@ export default function Tab5Page() {
         <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4">
           <AlertCircle size={18} className="shrink-0 text-amber-600"/>
           <div>
-            <p className="text-sm font-bold text-amber-800">RRTTLLU 정보가 필요합니다</p>
-            <p className="mt-0.5 text-xs text-amber-700">TAB1에서 고객 성향 분석을 완료하면 맞춤 포트폴리오가 생성됩니다.</p>
+            <p className="text-sm font-bold text-amber-800">TAB1 성향 분석 후 이용 가능합니다</p>
+            <p className="mt-0.5 text-xs text-amber-700">고객 성향 분석을 완료하면 맞춤 상품 추천이 시작됩니다.</p>
           </div>
         </div>
       )}
@@ -691,7 +705,7 @@ export default function Tab5Page() {
         </div>
         {!rrttlluReady ? (
           <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50">
-            <p className="text-sm text-slate-400">RRTTLLU 입력 후 상품이 추천됩니다</p>
+            <p className="text-sm text-slate-400">성향 분석 완료 후 맞춤 상품이 표시됩니다</p>
           </div>
         ) : (
           <div className="space-y-4">
