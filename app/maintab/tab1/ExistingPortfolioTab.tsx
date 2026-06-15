@@ -238,8 +238,8 @@ export default function ExistingPortfolioTab() {
             current_value: enriched.current_value,
             amount: enriched.amount ?? orig?.amount,
             amount_type: (enriched.amount_type ?? orig?.amount_type ?? "quantity") as "quantity" | "value",
-            // 채권 원금 계산을 위해 원본 buy_price 사용
-            buy_price: orig?.buy_price ?? enriched.buy_price,
+            // 채권만 원금(이자) 계산을 위해 buy_price 유지; 주식/ETF는 보유 중이므로 양도소득세 제외
+            buy_price: isBondOrig ? (orig?.buy_price ?? enriched.buy_price) : undefined,
             dividendYield: ae.dividendYield,
             trailingAnnualDividendRate: ae.trailingAnnualDividendRate,
             interestRate,

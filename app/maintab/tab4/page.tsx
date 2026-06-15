@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, GitCompare, TrendingUp, WalletCards } from "lucide-react";
 import {
   DonutChart,
@@ -21,7 +21,7 @@ import {
   FINANCIAL_INCOME_STORAGE_KEY,
   NEW_PORTFOLIO_INCOME_STORAGE_KEY,
 } from "../tab1/FinancialIncomeGauge";
-import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
+import type { FinancialIncomeSummary, TLHData } from "../tab1/FinancialIncomeGauge";
 
 const SCENARIO_KEYS = ["scenario1", "scenario2", "scenario3", "scenario4"] as const;
 
@@ -75,6 +75,24 @@ export default function Tab4Page() {
   const rightAssets: PortfolioAsset[] = Array.isArray(rightData?.enrichedAssets)
     ? (rightData.enrichedAssets as PortfolioAsset[])
     : [];
+
+  // B패널 TLH용 데이터 — 신규 포트폴리오 자산 + 현재 세금 요약
+  const tlhData = useMemo<TLHData | undefined>(() => {
+    if (!rightAssets.length) return undefined;
+    return {
+      assets: rightAssets.map((a) => ({
+        name: a.name ?? "",
+        ticker: a.ticker ?? "",
+        buy_price: a.buy_price,
+        current_price: a.current_price,
+        amount: a.amount,
+        amount_type: a.amount_type ?? "quantity",
+        productType: a.productType,
+      })),
+      netCapitalGains: newSummary?.netCapitalGains ?? 0,
+      capitalGainsTax: newSummary?.foreignCapitalGainsTax ?? 0,
+    };
+  }, [rightData, newSummary]); // eslint-disable-line react-hooks/exhaustive-deps
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leftStressResult = (leftData as any)?.stressResult;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -300,7 +318,7 @@ export default function Tab4Page() {
                 <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
               </div>
               {newSummary ? (
-                <FinancialIncomeGauge summary={newSummary} />
+                <FinancialIncomeGauge summary={newSummary} tlhData={tlhData} />
               ) : (
                 <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
                   <p className="text-xs font-semibold text-slate-400">

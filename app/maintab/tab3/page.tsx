@@ -40,6 +40,8 @@ export default function Tab3Page() {
     tab3AnalysisState,
     updateTab3AnalysisState,
     saveTaxSummary,
+    portfolioAssets,
+    analysisResult,
   } = useCustomerContext();
 
   useEffect(() => {
@@ -99,7 +101,8 @@ export default function Tab3Page() {
               current_value: a.current_value,
               amount: a.amount,
               amount_type: a.amount_type,
-              buy_price: a.buy_price,
+              // 매수한 신규 자산은 아직 매도하지 않았으므로 양도소득세 제외; 채권은 원금 계산 유지
+              buy_price: isBond ? a.buy_price : undefined,
               dividendYield: enriched.dividendYield as number | undefined,
               interestRate,
             } as AssetForIncomeCalc;
@@ -107,7 +110,41 @@ export default function Tab3Page() {
           .filter((x): x is AssetForIncomeCalc => x !== null);
 
         if (assetsForCalc.length > 0) {
-          const newTaxSummary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
+          // tab2-5에서 실제 매도된 자산의 양도소득세만 합산
+          const keepSet = new Set(rebalancingSellAssets.map(a => `${a.name ?? ""}::${a.ticker ?? ""}`));
+          const soldAssets = portfolioAssets.filter(a => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`));
+          const originalEnrichedMap = new Map(
+            (analysisResult?.enrichedAssets ?? []).map(e => [
+              `${e.name ?? ""}::${e.ticker ?? ""}`, e as Record<string, unknown>
+            ])
+          );
+          const soldAssetsForCalc: AssetForIncomeCalc[] = soldAssets
+            .map((a) => {
+              const isBond = a.productType === "국내채권" || a.productType === "해외채권";
+              const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
+              if (!resolvedName) return null;
+              const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
+              const enriched = originalEnrichedMap.get(key);
+              const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
+              return {
+                name: resolvedName,
+                ticker: a.ticker ?? "",
+                asset_class: a.asset_class,
+                productType: a.productType,
+                country: a.country,
+                current_price: (enriched?.current_price as number | undefined) ?? a.current_price,
+                current_value: (enriched?.current_value as number | undefined) ?? a.current_value,
+                amount: a.amount,
+                amount_type: a.amount_type,
+                buy_price: a.buy_price,
+                dividendYield: enriched?.dividendYield as number | undefined,
+                interestRate,
+              } as AssetForIncomeCalc;
+            })
+            .filter((x): x is AssetForIncomeCalc => x !== null);
+
+          const combinedAssetsForCalc = [...soldAssetsForCalc, ...assetsForCalc];
+          const newTaxSummary = calcFinancialIncomeSummary(combinedAssetsForCalc, tMarginal);
           try {
             localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newTaxSummary));
             window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
@@ -120,7 +157,7 @@ export default function Tab3Page() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [rebalancingBuyAssets, tMarginal, formData.rrttllu, confirmRebalancingBuy, setNewPortfolioAnalysisResult]);
+  }, [rebalancingBuyAssets, tMarginal, formData.rrttllu, confirmRebalancingBuy, setNewPortfolioAnalysisResult, rebalancingSellAssets, portfolioAssets, analysisResult]);
 
   return (
     <>

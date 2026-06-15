@@ -67,7 +67,11 @@ export default function Tab2Page() {
       ])
     );
 
-    const assetsForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
+    // 편출(매도)된 자산 = 기존 포트폴리오에서 리밸런싱 후 남은 자산을 제외한 것
+    const keepSet = new Set(rebalancingSellAssets.map(a => `${a.name ?? ""}::${a.ticker ?? ""}`));
+    const soldAssets = portfolioAssets.filter(a => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`));
+
+    const assetsForCalc: AssetForIncomeCalc[] = soldAssets
       .map((a) => {
         const isBond = a.productType === "국내채권" || a.productType === "해외채권";
         const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
