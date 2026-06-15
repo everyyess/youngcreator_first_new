@@ -48,20 +48,51 @@ export async function resolveTickerWithGemini(assetName) {
     '{"ticker":"티커","englishName":"영문명","assetClass":"자산군","productType":"상품유형","country":"국가"}\n\n' +
     '규칙:\n' +
     '- ticker: Yahoo Finance(yfinance) 호환 티커. 확실하지 않으면 "UNKNOWN"\n' +
+    '- [필수] 한국 주식(KOSPI) 티커는 반드시 숫자 코드 뒤에 ".KS" 접미사를 붙일 것.\n' +
+    '  한국 주식(KOSDAQ) 티커는 반드시 숫자 코드 뒤에 ".KQ" 접미사를 붙일 것.\n' +
+    '  KODEX·TIGER·KBSTAR 등 국내 상장 ETF도 동일하게 ".KS" 접미사 필수.\n' +
+    '  (예: 삼성전자 → 005930.KS, 삼성전기 → 009150.KS, SK하이닉스 → 000660.KS,\n' +
+    '       KODEX 200 → 069500.KS, KODEX 레버리지 → 122630.KS,\n' +
+    '       TIGER 미국나스닥100 → 133690.KS, 카카오 → 035720.KQ,\n' +
+    '       셀트리온헬스케어 → 091990.KQ)\n' +
+    '  이 규칙을 어기면 yfinance에서 종목 조회가 완전히 차단된다.\n' +
     '- englishName: Yahoo Finance 검색 API에 전달할 최적 영문 종목명.\n' +
     '  티커를 모르더라도 영문명은 반드시 추론할 것.\n' +
     '  (예: 테슬라 → "Tesla", 엔비디아 → "Nvidia", 삼전 → "Samsung Electronics",\n' +
-    '       애플 → "Apple", 아마존 → "Amazon", 구글 → "Alphabet")\n' +
+    '       애플 → "Apple", 아마존 → "Amazon", 구글 → "Alphabet",\n' +
+    '       인텔 → "Intel", 마이크로소프트 → "Microsoft", 넷플릭스 → "Netflix",\n' +
+    '       메타 → "Meta Platforms", 팔란티어 → "Palantir")\n' +
     '- assetClass: "국내주식","해외주식","국내채권","해외채권","금","리츠","현금","달러" 중 하나\n' +
     '- productType: "개별주식","ETF","채권","리츠","펀드","현금","외화","암호화폐" 중 하나\n' +
+    '  ★★★ [ETF vs 주식 구분 핵심 규칙] ★★★\n' +
+    '  거래소에 상장된 펀드(Fund of funds)는 무조건 productType="ETF"로 분류한다.\n' +
+    '  레버리지 ETF(TSLL, SOXL, TQQQ, FNGU 등), 인버스 ETF(SQQQ, SDOW 등),\n' +
+    '  섹터 ETF(XLK, SMH 등), 채권형 ETF(TLT, AGG, BND, IEF, SHY, LQD, HYG)도\n' +
+    '  모두 productType="ETF"이다. "ETF"가 이름에 없더라도 티커가 ETF이면 "ETF"를 반환한다.\n' +
+    '  개별 기업 주식(Apple, Tesla, Intel, Nvidia 등)은 productType="개별주식"이다.\n' +
+    '  절대로 ETF를 "개별주식"으로, 개별주식을 "ETF"로 혼동하면 안 된다.\n' +
+    '  국내 채권형 ETF(114260.KS KODEX국고채10년, 148070.KS KOSEF국고채 등)도 "ETF".\n' +
     '- country: "한국","미국","일본","중국","유럽","기타" 중 하나\n\n' +
-    '예시:\n' +
+    '예시 (ETF vs 개별주식 명확 구분):\n' +
     '삼성전자 → {"ticker":"005930.KS","englishName":"Samsung Electronics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
     '삼전 → {"ticker":"005930.KS","englishName":"Samsung Electronics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
+    '삼성전기 → {"ticker":"009150.KS","englishName":"Samsung Electro-Mechanics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
+    '인텔 → {"ticker":"INTC","englishName":"Intel","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
+    '마이크로소프트 → {"ticker":"MSFT","englishName":"Microsoft","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
+    '넷플릭스 → {"ticker":"NFLX","englishName":"Netflix","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
+    '아마존 → {"ticker":"AMZN","englishName":"Amazon","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
+    '메타 → {"ticker":"META","englishName":"Meta Platforms","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
+    'KODEX 200 → {"ticker":"069500.KS","englishName":"KODEX 200 ETF","assetClass":"국내주식","productType":"ETF","country":"한국"}\n' +
+    'KODEX 레버리지 → {"ticker":"122630.KS","englishName":"KODEX Leverage ETF","assetClass":"국내주식","productType":"ETF","country":"한국"}\n' +
+    'TIGER 미국나스닥100 → {"ticker":"133690.KS","englishName":"TIGER US Nasdaq 100","assetClass":"해외주식","productType":"ETF","country":"한국"}\n' +
+    '카카오 → {"ticker":"035720.KQ","englishName":"Kakao Corp","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
     '테슬라 → {"ticker":"TSLA","englishName":"Tesla","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
     '엔비디아 → {"ticker":"NVDA","englishName":"Nvidia","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
+    'TSLL → {"ticker":"TSLL","englishName":"Direxion Daily TSLA Bull 2X ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
+    'SOXL → {"ticker":"SOXL","englishName":"Direxion Daily Semiconductor Bull 3X ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
     'SPY → {"ticker":"SPY","englishName":"SPDR S&P 500 ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
-    'TIGER 미국나스닥100 → {"ticker":"133690.KS","englishName":"TIGER US Nasdaq 100","assetClass":"해외주식","productType":"ETF","country":"한국"}\n' +
+    'QQQ → {"ticker":"QQQ","englishName":"Invesco QQQ Nasdaq 100 ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
+    'TLT → {"ticker":"TLT","englishName":"iShares 20+ Year Treasury Bond ETF","assetClass":"해외채권","productType":"ETF","country":"미국"}\n' +
     '미국 국채 10년 → {"ticker":"^TNX","englishName":"10-Year Treasury Yield","assetClass":"해외채권","productType":"채권","country":"미국"}\n\n' +
     '마크다운·설명 없이 JSON 한 줄만 출력해줘.\n\n' +
     `입력: ${assetName}`;

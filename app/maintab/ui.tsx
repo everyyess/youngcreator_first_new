@@ -202,7 +202,6 @@ export function ExpectedReturnField({ value, unknownSelected, onChange, onToggle
     </div>
   );
 }
-
 export function ChoiceGroup({ label, description, options, value, onChange, tone, cardClassName, missing = false }: { label: string; description?: string; options: string[]; value: string; onChange: (value: string) => void; tone?: "blue" | "gray"; cardClassName?: string; missing?: boolean }) {
   return (
     <div className={`question-card ${tone ? `question-card-${tone}` : ""} ${cardClassName ?? ""} rounded-lg border border-slate-200 p-4`}>
@@ -279,4 +278,5 @@ export function Metric({ label, value, strong = false }: { label: string; value:
     </div>
   );
 }
+
 

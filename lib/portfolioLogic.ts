@@ -24,7 +24,7 @@ export interface PortfolioAssetInput {
   buy_price: number | null;
   amount: number;
   amount_type: "quantity" | "value";
-  is_hedged: boolean;
+  is_hedged: boolean;        // 항상 false — 환노출 고정
   needs_review: boolean;
   review_reason?: string | null;
   current_price?: number;
@@ -33,8 +33,12 @@ export interface PortfolioAssetInput {
   gain?: number;
   price_source?: string;
   _rawAmount?: string;
-  ticker?: string;       // Yahoo Finance 티커 — 설정 시 이름 해석(Gemini) 생략
-  productType?: string;  // 상품 유형 (ETF, 개별주식, 채권 등)
+  ticker?: string;           // Yahoo Finance 티커 — 설정 시 이름 해석(Gemini) 생략
+  productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
+  bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만
+  bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만
+  dividendYield?: number;              // Yahoo Finance 연간 배당수익률 (소수)
+  trailingAnnualDividendRate?: number; // Yahoo Finance 주당 연간 배당금
 }
 
 export interface RunAnalysisResult {
@@ -94,13 +98,10 @@ export const runAnalysis = async (
   // 이 방식은 FOREIGN_CLASSES 열거 없이도 금·암호화폐·해외ETF 등을 자동 처리한다.
   const enrichedAssets = await Promise.all(
     assets.map(async (a) => {
-      if (
-        a.amount_type !== "quantity" ||
-        !a.name ||
-        (a.current_price != null && a.current_price > 0)
-      ) {
-        return a;
-      }
+      if (a.amount_type !== "quantity" || !a.name) return a;
+      // 현재가와 배당수익률이 모두 있으면 API 재요청 생략
+      if (a.current_price != null && a.current_price > 0 && a.dividendYield != null) return a;
+
       try {
         const TICKER_RE = /^[\w.\-=^]+$/;
         const queryParam =
@@ -113,8 +114,23 @@ export const runAnalysis = async (
         const result = json?.chart?.result?.[0];
         const meta = result?.meta;
 
-        // regularMarketPrice 우선 사용 → 당일 실시간 가격 (adjclose 오파싱 방지)
-        // 없으면 월봉 quote.close 마지막 값으로 폴백 (adjclose 사용 안 함)
+        // 배당수익률 — proxy-finance 응답 최상단에 반환됨
+        const dy   = typeof json.dividendYield === "number" && json.dividendYield > 0
+          ? json.dividendYield : undefined;
+        const tadr = typeof json.trailingAnnualDividendRate === "number" && json.trailingAnnualDividendRate > 0
+          ? json.trailingAnnualDividendRate : undefined;
+
+        // 현재가가 이미 있으면 배당 데이터만 보완하고 리턴
+        if (a.current_price != null && a.current_price > 0) {
+          return {
+            ...a,
+            current_value: a.amount * a.current_price,
+            ...(dy   != null ? { dividendYield:              dy   } : {}),
+            ...(tadr != null ? { trailingAnnualDividendRate: tadr } : {}),
+          };
+        }
+
+        // regularMarketPrice 우선 사용 → 당일 실시간 가격
         let lastPrice: number | null = null;
         if (typeof meta?.regularMarketPrice === "number" && meta.regularMarketPrice > 0) {
           lastPrice = meta.regularMarketPrice;
@@ -124,11 +140,16 @@ export const runAnalysis = async (
         }
 
         if (typeof lastPrice === "number" && lastPrice > 0) {
-          // meta.currency 로 달러 자산 판단 → USD 이면 원화로 변환
           const isUsd = (meta?.currency ?? "USD") === "USD";
           const priceKrw = isUsd ? lastPrice * currentExchangeRate : lastPrice;
           const cvKrw = a.amount * priceKrw;
-          return { ...a, current_price: priceKrw, current_value: cvKrw };
+          return {
+            ...a,
+            current_price: priceKrw,
+            current_value: cvKrw,
+            ...(dy   != null ? { dividendYield:              dy   } : {}),
+            ...(tadr != null ? { trailingAnnualDividendRate: tadr } : {}),
+          };
         }
       } catch {
         /* 조회 실패 시 기존 값 유지 */
@@ -137,8 +158,42 @@ export const runAnalysis = async (
     })
   );
 
+  // ── Step 0-c: 실물 채권 cost-basis 폴백 ──
+  // Yahoo Finance 조회가 불가한 실물 채권은 매수단가(buy_price) × 수량으로 평가금액을 직접 산출한다.
+  const enrichedWithBonds = enrichedAssets.map((a) => {
+    if (
+      (a.productType === '국내채권' || a.productType === '해외채권') &&
+      a.amount_type === 'quantity' &&
+      (a.current_price == null || a.current_price === 0) &&
+      a.buy_price != null && a.buy_price > 0
+    ) {
+      return { ...a, current_price: a.buy_price, current_value: a.amount * a.buy_price };
+    }
+    return a;
+  });
+
+  // ── Step 0-d: ETF cost-basis 폴백 ──
+  // 신규·레버리지 ETF(TSLL, SOXL 등)는 Yahoo Finance 시세 조회가 실패하거나
+  // 데이터가 부족할 수 있다. 이 경우 current_value가 0이 되어 weight=0 → 스트레스
+  // 테스트 기여도 0%로 뭉개지는 버그를 매수단가 × 수량으로 방어한다.
+  const enrichedFinal = enrichedWithBonds.map((a) => {
+    if (
+      (a.productType === '국내ETF' || a.productType === '해외ETF') &&
+      a.amount_type === 'quantity' &&
+      (a.current_price == null || a.current_price === 0) &&
+      a.buy_price != null && a.buy_price > 0
+    ) {
+      const isUsdAsset = a.asset_class === '해외주식' || a.asset_class === '해외채권';
+      const priceKrw   = isUsdAsset
+        ? a.buy_price * currentExchangeRate
+        : a.buy_price;
+      return { ...a, current_price: priceKrw, current_value: a.amount * priceKrw };
+    }
+    return a;
+  });
+
   // 자산 총액이 0원이면 분석 불가
-  const totalCheck = enrichedAssets.reduce((s, a) => {
+  const totalCheck = enrichedFinal.reduce((s, a) => {
     const v =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
@@ -156,7 +211,7 @@ export const runAnalysis = async (
   } = await import("../utils/quantEngine.js") as any;
 
   // ── Step 1: 총 자산 가치 계산 ──
-  const totalValue = enrichedAssets.reduce((s, a) => {
+  const totalValue = enrichedFinal.reduce((s, a) => {
     const v =
       a.current_value ??
       (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
@@ -164,10 +219,11 @@ export const runAnalysis = async (
   }, 0);
 
   // ── Step 2: 비중(w_i) 및 평가손익 계산 ──
-  const assetsWithWeights = enrichedAssets.map((a) => {
+  const assetsWithWeights = enrichedFinal.map((a) => {
     const value =
-      a.current_value ??
-      (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
+      (a.current_value != null && a.current_value > 0)
+        ? a.current_value
+        : (a.amount_type === "quantity" ? (a.current_price ?? 0) * a.amount : a.amount ?? 0);
     const weight = totalValue > 0 ? value / totalValue : 0;
 
     let gain = a.gain ?? 0;
@@ -186,6 +242,8 @@ export const runAnalysis = async (
   // ── Step 3: quantEngine 입력 형식 변환 ──
   const quantInput = assetsWithWeights.map((a) => ({
     name: a.name,
+    productType: a.productType ?? '',
+    asset_class: a.asset_class ?? '',
     weight: a.weight ?? 0,
     value: a.current_value ?? 0,
     gain: a.gain ?? 0,
@@ -201,6 +259,8 @@ export const runAnalysis = async (
       current_price: a.current_price,
       amount: a.amount,
       amount_type: a.amount_type,
+      bond_yield: a.bond_yield,
+      bond_maturity: a.bond_maturity,
     },
   }));
 

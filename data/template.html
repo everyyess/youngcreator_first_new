@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ETF 분산투자 최적화 — 테마 ETF 30종목</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;background:#f8fafc;color:#1e293b;font-size:14px}
+.header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:white;padding:20px 24px}
+.header h1{font-size:20px;font-weight:700;margin-bottom:4px}
+.header .sub{font-size:12px;opacity:.85}
+.period-bar{display:flex;gap:8px;padding:14px 20px;background:white;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;align-items:center}
+.period-bar .label{font-size:12px;color:#64748b;margin-right:4px}
+.period-btn{padding:5px 14px;min-width:68px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;background:white;cursor:pointer;font-size:12px;color:#475569;transition:all .15s}
+.period-btn.active{background:#3b82f6;color:white;border-color:#3b82f6;font-weight:600}
+.period-info{margin-left:auto;font-size:11px;color:#94a3b8}
+.tabs{display:flex;gap:0;padding:0 20px;background:white;border-bottom:1px solid #e2e8f0}
+.tab-btn{padding:12px 18px;border:none;background:none;cursor:pointer;font-size:13px;color:#64748b;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
+.tab-btn.active{color:#3b82f6;border-bottom-color:#3b82f6;font-weight:600}
+.tab-pane{display:none;padding:20px}
+.tab-pane.active{display:block}
+.summary-block{margin-bottom:8px}
+.summary-heading{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.summary-num{width:22px;height:22px;background:#3b82f6;color:white;border-radius:50%;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.summary-title{font-weight:600;font-size:14px}
+.summary-body{padding-left:30px;font-size:13px;color:#475569;line-height:1.8}
+.summary-divider{border:none;border-top:1px solid #e2e8f0;margin:16px 0}
+.opt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding-left:30px;margin-bottom:4px}
+.opt-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;transition:all .15s}
+.opt-card .ticker{font-size:20px;font-weight:700;margin-bottom:4px}
+.opt-card .etf-name{font-size:11px;color:#64748b;margin-bottom:6px;line-height:1.4}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;color:white;font-weight:500}
+.note-tag{font-size:11px;color:#94a3b8;font-weight:400}
+.score-big{font-size:22px;font-weight:700}
+.gauge-track{height:6px;background:#e2e8f0;border-radius:4px;margin-top:6px;margin-bottom:2px}
+.gauge-fill{height:100%;border-radius:4px;transition:width .4s}
+.lock-picker{padding-left:30px;margin-bottom:14px}
+.lock-picker-label{font-size:12px;color:#64748b;margin-bottom:8px;font-weight:500}
+.lock-grid{display:flex;flex-wrap:wrap;gap:6px}
+.lock-chip{padding:4px 10px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:white;color:#475569;transition:all .15s;user-select:none}
+.lock-chip:hover{border-color:#94a3b8;background:#f1f5f9}
+.lock-chip.locked{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8}
+.lock-chip.in-result{border-color:#22c55e;background:#f0fdf4;color:#15803d}
+.lock-chip.locked.in-result{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8}
+.pin-chart-wrap{padding-left:30px;margin-bottom:4px}
+.pin-row{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.pin-label{width:130px;font-size:12px;font-weight:600;color:#374151;flex-shrink:0;text-align:right}
+.pin-bar-outer{flex:1;position:relative;height:24px;background:linear-gradient(to right,#bfdbfe 0%,#dbeafe 49%,#dbeafe 51%,#fecaca 100%);border-radius:4px}
+.pin-bar-track{position:absolute;top:50%;transform:translateY(-50%);left:0;right:0;height:2px;background:rgba(0,0,0,0.1);border-radius:1px}
+.pin-center-line{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(0,0,0,0.2)}
+.corr-val{font-size:12px;font-weight:700;width:46px;flex-shrink:0}
+.hm-wrap{overflow-x:auto}
+.hm{border-collapse:collapse;font-size:10px;white-space:nowrap}
+.hm th{padding:4px 7px;background:#f1f5f9;color:#64748b;font-weight:600;border:1px solid #e2e8f0;font-size:10px}
+.hm td{padding:4px 7px;text-align:center;border:1px solid #e2e8f0;font-size:10px}
+.hm .row-header{font-size:10px;font-weight:600;text-align:right;max-width:90px}
+.chart-container{position:relative;height:380px;margin-bottom:12px}
+.view-btns{display:flex;gap:6px;margin-bottom:12px}
+.preset{padding:5px 12px;border:1px solid #cbd5e1;border-radius:6px;background:white;cursor:pointer;font-size:12px;color:#475569}
+.preset.active{background:#3b82f6;color:white;border-color:#3b82f6}
+.etf-list-table{width:100%;border-collapse:collapse;font-size:13px}
+.etf-list-table thead th{background:#f1f5f9;padding:10px 14px;text-align:left;font-weight:600;color:#374151;border-bottom:2px solid #e2e8f0;font-size:12px}
+.etf-list-table tbody tr{border-bottom:1px solid #f1f5f9;transition:background .1s}
+.etf-list-table tbody tr:hover{background:#f8fafc}
+.etf-list-table td{padding:10px 14px;vertical-align:middle}
+.etf-ticker-cell{font-weight:700;font-size:15px}
+.etf-name-cell{font-size:12px;color:#475569;line-height:1.4}
+.sector-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;color:white;font-weight:500;white-space:nowrap}
+.holdings-list{margin:0;padding:0;list-style:none}
+.holdings-list li{font-size:11px;color:#64748b;padding:2px 0;display:flex;align-items:center;gap:6px}
+.holdings-list li .h-name{flex:1}
+.holdings-list li .h-weight{font-weight:600;color:#374151;font-size:11px;white-space:nowrap}
+.holdings-list li .h-bar{height:4px;background:#e2e8f0;border-radius:2px;width:60px;overflow:hidden;flex-shrink:0}
+.holdings-list li .h-bar-fill{height:100%;border-radius:2px}
+.disclaimer{font-size:11px;color:#94a3b8;margin-top:20px;padding:10px 14px;border-top:1px solid #e2e8f0}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>📊 ETF 분산투자 최적화 스크리너 <span style="font-size:14px;background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:4px;margin-left:10px;font-weight:600">##STRATEGY_TXT##</span></h1>
+  <div class="sub">테마 ETF 30종목 · 30×30 상관행렬 · 섹터 다양성 제약 고정 · 자산 비중 최대 40% 제한 제약</div>
+</div>
+<div class="period-bar">
+  <span class="label">기간 범위 선택:</span>
+  <button class="period-btn" onclick="setPeriod('1W',this)">1주</button>
+  <button class="period-btn" onclick="setPeriod('1M',this)">1개월</button>
+  <button class="period-btn" onclick="setPeriod('3M',this)">3개월</button>
+  <button class="period-btn" onclick="setPeriod('6M',this)">6개월</button>
+  <button class="period-btn" onclick="setPeriod('1Y',this)">1년</button>
+  <button class="period-btn active" onclick="setPeriod('3Y',this)">3년 (전체)</button>
+  <span class="period-info" id="period-info"></span>
+</div>
+<div id="warn-banner" style="display:none;align-items:center;gap:8px;padding:8px 20px;background:#fef3c7;border-bottom:1px solid #fde68a;font-size:12px;color:#92400e;font-weight:500"></div>
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('optimal',this)">🎯 최적 조합</button>
+  <button class="tab-btn" onclick="showTab('heatmap',this)">🌡️ 상관 히트맵</button>
+  <button class="tab-btn" onclick="showTab('chart',this)">📈 수익률 차트</button>
+  <button class="tab-btn" onclick="showTab('weight',this)">📉 변동성 지표</button>
+  <button class="tab-btn" onclick="showTab('sectorlist',this)">📋 섹터별 ETF 리스트</button>
+</div>
+<div class="tab-pane active" id="tab-optimal"><div id="optimal-content"></div></div>
+<div class="tab-pane" id="tab-heatmap">
+  <div class="hm-wrap"><div id="heatmap-container"></div></div>
+  <div style="font-size:11px;color:#94a3b8;margin-top:8px">🟥 0.7↑ 강한 동조화 &nbsp;🟧 0.4~0.7 중간 &nbsp;🟩 0~0.4 분산 효과 &nbsp;🟦 음의 상관 헤지</div>
+</div>
+<div class="tab-pane" id="tab-chart">
+  <div class="view-btns">
+    <button class="preset active" onclick="setView(this,'optimal')">최적 조합만</button>
+    <button class="preset" onclick="setView(this,'all')">전체 30종목</button>
+  </div>
+  <div class="chart-container"><canvas id="priceChart"></canvas></div>
+</div>
+<div class="tab-pane" id="tab-weight"><div id="weight-content"></div></div>
+<div class="tab-pane" id="tab-sectorlist"><div id="sectorlist-content"></div></div>
+<div class="disclaimer">⚠️ 이 분석은 투자 조언이 아닙니다. 과거 데이터 기반이며 미래 수익을 보장하지 않습니다.<br>
+개별 종목 투자 한도는 최대 40%로 제한됩니다. FINX→IPAY, BND→AGG로 대체 (데이터 가용성). VTI·VOO는 시장 기준선, IBIT는 예외 포함.</div>
+
+<script>
+const PERIOD_DATA = ##PERIOD_DATA_JS##;
+const K_VAL = ##K_VAL_JS##;
+const STRATEGY_TYPE = "##STRATEGY_TYPE##";
+
+const SECTORS = {"SOXX":{"sector":"반도체","color":"#3B82F6","name":"iShares Semiconductor ETF"},"URA":{"sector":"원전·우라늄","color":"#F59E0B","name":"Global X Uranium & Nuclear ETF"},"AIQ":{"sector":"AI·빅데이터","color":"#8B5CF6","name":"Global X AI & Technology ETF"},"CIBR":{"sector":"사이버보안","color":"#0EA5E9","name":"First Trust NASDAQ Cybersecurity ETF"},"BOTZ":{"sector":"로보틱스","color":"#6366F1","name":"Global X Robotics & AI ETF"},"ICLN":{"sector":"청정에너지","color":"#22C55E","name":"iShares Global Clean Energy ETF"},"XAR":{"sector":"방산·우주항공","color":"#EF4444","name":"SPDR Aerospace & Defense ETF"},"ARKG":{"sector":"바이오테크","color":"#EC4899","name":"ARK Genomic Revolution ETF"},"IPAY":{"sector":"핀테크","color":"#14B8A6","name":"ETFMG Prime Mobile Payments ETF"},"QTUM":{"sector":"양자컴퓨팅","color":"#A855F7","name":"Defiance Quantum Computing ETF"},"PAVE":{"sector":"인프라","color":"#F97316","name":"Global X US Infrastructure Dev ETF"},"LIT":{"sector":"2차전지·리튬","color":"#84CC16","name":"Global X Lithium & Battery Tech ETF"},"REMX":{"sector":"희토류·전략소재","color":"#6B7280","name":"VanEck Rare Earth & Strategic Metals ETF"},"DTCR":{"sector":"데이터센터","color":"#1D4ED8","name":"Global X Data Center & Digital Infra ETF"},"VGLT":{"sector":"채권(장기)","color":"#16A34A","name":"Vanguard Long-Term Treasury ETF"},"VGIT":{"sector":"채권(중기)","color":"#15803D","name":"Vanguard Intermediate-Term Treasury ETF"},"VGSH":{"sector":"채권(단기)","color":"#166534","name":"Vanguard Short-Term Treasury ETF"},"AGG":{"sector":"채권(종합)","color":"#14532D","name":"iShares Core US Aggregate Bond ETF"},"VTI":{"sector":"시장전체","color":"#374151","name":"Vanguard Total Stock Market ETF"},"VOO":{"sector":"시장전체","color":"#374151","name":"Vanguard S&P 500 ETF"},"IBIT":{"sector":"암호화폐","color":"#CA8A04","name":"iShares Bitcoin Trust ETF"},"SLV":{"sector":"귀금속·원자재","color":"#C0A060","name":"iShares Silver Trust"},"GLD":{"sector":"귀금속·원자재","color":"#C0A060","name":"SPDR Gold Shares"},"USO":{"sector":"에너지원자재","color":"#7C3AED","name":"United States Oil Fund"},"UNG":{"sector":"에너지원자재","color":"#7C3AED","name":"United States Natural Gas Fund"},"WEAT":{"sector":"농산물원자재","color":"#86EFAC","name":"Teucrium Wheat Fund"},"CORN":{"sector":"농산물원자재","color":"#86EFAC","name":"Teucrium Corn Fund"},"QQQ":{"sector":"시장전체","color":"#374151","name":"Invesco QQQ Trust (Nasdaq-100)"},"069500.KS":{"sector":"한국시장","color":"#DC2626","name":"KODEX 200 (코스피200)"},"229200.KS":{"sector":"한국시장","color":"#DC2626","name":"KODEX 코스닥150"}};
+const TICKERS = ["SOXX","URA","AIQ","CIBR","BOTZ","ICLN","XAR","ARKG","IPAY","QTUM","PAVE","LIT","REMX","DTCR","VGLT","VGIT","VGSH","AGG","VTI","VOO","IBIT","SLV","GLD","USO","UNG","WEAT","CORN","QQQ","069500.KS","229200.KS"];
+const NOTE_MAP = {"VTI":"시장기준선","VOO":"시장기준선","QQQ":"시장기준선","IBIT":"예외포함","SLV":"실물자산","GLD":"실물자산","USO":"선물ETF","UNG":"선물ETF","WEAT":"선물ETF","CORN":"선물ETF","069500.KS":"한국시장","229200.KS":"한국시장"};
+const ETF_HOLDINGS = {"SOXX":[{"name":"Nvidia (NVDA)","weight":8.4},{"name":"Broadcom (AVGO)","weight":8.2},{"name":"Intel (INTC)","weight":4.8},{"name":"Texas Instruments (TXN)","weight":4.7},{"name":"Qualcomm (QCOM)","weight":4.5}],"URA":[{"name":"Cameco Corp (CCJ)","weight":22.1},{"name":"NexGen Energy (NXE)","weight":8.3},{"name":"Kazatomprom (KAP)","weight":7.9},{"name":"Denison Mines (DNN)","weight":4.2},{"name":"Uranium Energy (UEC)","weight":3.8}],"AIQ":[{"name":"Microsoft (MSFT)","weight":7.8},{"name":"Apple (AAPL)","weight":7.4},{"name":"Nvidia (NVDA)","weight":6.9},{"name":"Alphabet (GOOGL)","weight":5.8},{"name":"Meta Platforms (META)","weight":5.1}],"CIBR":[{"name":"Palo Alto Networks (PANW)","weight":8.7},{"name":"CrowdStrike (CRWD)","weight":7.9},{"name":"Zscaler (ZS)","weight":5.3},{"name":"Fortinet (FTNT)","weight":5.1},{"name":"Broadcom (AVGO)","weight":4.8}],"BOTZ":[{"name":"Nvidia (NVDA)","weight":9.2},{"name":"Intuitive Surgical (ISRG)","weight":8.7},{"name":"ABB Ltd (ABB)","weight":7.4},{"name":"Fanuc (6954)","weight":6.1},{"name":"Keyence (6861)","weight":5.8}],"ICLN":[{"name":"Enphase Energy (ENPH)","weight":9.1},{"name":"First Solar (FSLR)","weight":8.3},{"name":"Vestas Wind (VWS)","weight":6.7},{"name":"Plug Power (PLUG)","weight":4.2},{"name":"Sunrun (RUN)","weight":3.9}],"XAR":[{"name":"TransDigm Group (TDG)","weight":5.8},{"name":"Heico Corp (HEI)","weight":5.5},{"name":"General Dynamics (GD)","weight":5.2},{"name":"L3Harris (LHX)","weight":4.9},{"name":"Howmet Aerospace (HWM)","weight":4.7}],"ARKG":[{"name":"Pacific Biosciences (PACB)","weight":9.3},{"name":"Twist Bioscience (TWST)","weight":7.8},{"name":"Intellia Therapeutics (NTLA)","weight":7.2},{"name":"CRISPR Therapeutics (CRSP)","weight":6.9},{"name":"Fate Therapeutics (FATE)","weight":5.4}],"IPAY":[{"name":"Visa (V)","weight":9.4},{"name":"Mastercard (MA)","weight":8.9},{"name":"PayPal (PYPL)","weight":6.3},{"name":"Block (SQ)","weight":5.7},{"name":"Fiserv (FI)","weight":5.2}],"QTUM":[{"name":"IonQ (IONQ)","weight":12.4},{"name":"D-Wave Quantum (QBTS)","weight":9.1},{"name":"Rigetti Computing (RGTI)","weight":7.8},{"name":"Quantum Computing (QUBT)","weight":6.3},{"name":"Arqit Quantum (ARQQ)","weight":4.9}],"PAVE":[{"name":"Caterpillar (CAT)","weight":6.2},{"name":"Deere & Company (DE)","weight":5.8},{"name":"Eaton Corp (ETN)","weight":5.4},{"name":"Vulcan Materials (VMC)","weight":4.9},{"name":"Martin Marietta (MLM)","weight":4.6}],"LIT":[{"name":"Albemarle Corp (ALB)","weight":13.7},{"name":"SQM (SQM)","weight":9.4},{"name":"BYD Co (1211)","weight":7.8},{"name":"Tesla (TSLA)","weight":6.3},{"name":"Livent Corp (LTHM)","weight":5.1}],"REMX":[{"name":"MP Materials (MP)","weight":11.2},{"name":"Lynas Rare Earths (LYC)","weight":9.8},{"name":"Energy Fuels (UUUU)","weight":7.3},{"name":"Vital Metals (VML)","weight":4.6},{"name":"Neo Performance (NEO)","weight":4.1}],"DTCR":[{"name":"Equinix (EQIX)","weight":14.3},{"name":"Digital Realty (DLR)","weight":11.7},{"name":"Iron Mountain (IRM)","weight":8.9},{"name":"GDS Holdings (GDS)","weight":5.4},{"name":"Switch Inc (SWCH)","weight":4.8}],"VGLT":[{"name":"US Treasury 30Y","weight":38.2},{"name":"US Treasury 25Y","weight":21.4},{"name":"US Treasury 20Y","weight":18.9},{"name":"US Treasury 12.3","weight":12.3},{"name":"US Treasury 22Y","weight":9.2}],"VGIT":[{"name":"US Treasury 10Y","weight":29.4},{"name":"US Treasury 7Y","weight":22.1},{"name":"US Treasury 5Y","weight":19.8},{"name":"US Treasury 3Y","weight":16.4},{"name":"US Treasury 2Y","weight":12.3}],"VGSH":[{"name":"US Treasury 2Y","weight":31.7},{"name":"US Treasury 18M","weight":24.3},{"name":"US Treasury 1Y","weight":21.8},{"name":"US Treasury 3Y","weight":13.4},{"name":"US Treasury 6M","weight":8.8}],"AGG":[{"name":"US Treasury Short","weight":28.3},{"name":"US Treasury Intermediate","weight":24.7},{"name":"US Treasury Long","weight":18.4},{"name":"Agency Bonds","weight":15.2},{"name":"Investment Grade Corp","weight":13.4}],"VTI":[{"name":"Apple (AAPL)","weight":6.8},{"name":"Microsoft (MSFT)","weight":6.3},{"name":"Nvidia (NVDA)","weight":5.9},{"name":"Amazon (AMZN)","weight":3.4},{"name":"Alphabet (GOOGL)","weight":2.8}],"VOO":[{"name":"Apple (AAPL)","weight":7.2},{"name":"Microsoft (MSFT)","weight":6.7},{"name":"Nvidia (NVDA)","weight":6.1},{"name":"Amazon (AMZN)","weight":3.6}],"IBIT":[{"name":"Bitcoin (BTC)","weight":100.0}],"SLV":[{"name":"Silver (물리적 은)","weight":100.0}],"GLD":[{"name":"Gold (물리적 금)","weight":100.0}],"USO":[{"name":"WTI 원유 선물 (근월물)","weight":100.0}],"UNG":[{"name":"천연가스 선물 (Henry Hub)","weight":100.0}],"WEAT":[{"name":"밀 선물 (CBOT Wheat)","weight":100.0}],"CORN":[{"name":"옥수수 선물 (CBOT Corn)","weight":100.0}],"QQQ":[{"name":"Apple (AAPL)","weight":9.1},{"name":"Microsoft (MSFT)","weight":8.6},{"name":"Nvidia (NVDA)","weight":8.3},{"name":"Amazon (AMZN)","weight":5.0},{"name":"Meta (META)","weight":4.8}],"069500.KS":[{"name":"삼성전자","weight":30.2},{"name":"SK하이닉스","weight":7.8},{"name":"LG에너지솔루션","weight":4.1},{"name":"삼성바이오로직스","weight":3.2},{"name":"현대차","weight":2.9}],"229200.KS":[{"name":"에코프로비엠","weight":5.4},{"name":"셀트리온헬스케어","weight":4.7},{"name":"HLB","weight":4.1},{"name":"에코프로","weight":3.9},{"name":"카카오게임즈","weight":2.8}]};
+const PALETTE = ['#3B82F6','#EF4444','#22C55E','#F59E0B','#8B5CF6','#0EA5E9','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16','#A855F7','#CA8A04','#6B7280','#16A34A','#374151','#1D4ED8','#15803D','#166534','#14532D','#EA580C'];
+let curPeriod='3Y', chartView='optimal', lockedTicker=null;
+let activeTab = 'optimal';
+const charts={};
+
+function fmtDate(d){const p=d.split('-');return p[0].slice(2)+'.'+p[1]+'.'+p[2];}
+function corrColor(v){return v>=0.7?'#ef4444':v>=0.4?'#f59e0b':v>=0?'#22c55e':'#3b82f6';}
+function corrBg(v){
+  const abs=Math.abs(v);
+  if(v>=0.7)return"rgba(239,68,68," + (abs*0.5+0.1) + ")";
+  if(v>=0.4)return"rgba(245,158,11," + (abs*0.5+0.1) + ")";
+  if(v>=0)return"rgba(34,197,94," + (abs*0.4+0.05) + ")";
+  return"rgba(59,130,246," + (abs*0.5+0.1) + ")";
+}
+function interpCorr(v){return v>=0.7?'강한 동조화':v>=0.4?'중간 수준 상관':v>=0?'약한 상관 — 분산 양호':'음의 상관 — 헤지 효과';}
+function getPeriodSlice(){const pd=PERIOD_DATA[curPeriod];return{dates:pd.dates,prices:pd.prices};}
+
+function greedyOptimal(corr,tickers,k,locked){
+  const sectors=Object.fromEntries(tickers.map(t=>[t,SECTORS[t].sector]));
+  const pd = PERIOD_DATA[curPeriod];
+
+  // conservative: median 기준 정규화 (UNG 같은 극단 outlier가 maxVol을 잡아
+  // VOO/VTI까지 채권과 동일한 0.25로 떨어지는 문제 방지)
+  const sortedByVol=[...tickers].sort((a,b)=>pd.scores[a]-pd.scores[b]);
+  const medianVol=pd.scores[sortedByVol[Math.floor(sortedByVol.length/2)]];
+  const normVol=t=>Math.min(Math.max(pd.scores[t]/medianVol,0.25),2.0);
+
+  const calcScore=(a,b)=>{
+    const c=corr[a][b];
+    if(STRATEGY_TYPE==="aggressive"||STRATEGY_TYPE==="balanced")
+      return c/((pd.scores[a]+pd.scores[b])||0.001);
+    return (c+1.01)*(normVol(a)+normVol(b));
+  };
+
+  let selected=locked?[locked]:[];
+  let usedSectors=new Set(selected.map(t=>sectors[t]));
+  let remaining=tickers.filter(t=>!selected.includes(t));
+
+  if(!locked){
+    let bestPair=null,bestScore=999999;
+    for(let i=0;i<remaining.length;i++){
+      for(let j=i+1;j<remaining.length;j++){
+        const a=remaining[i],b=remaining[j];
+        if(sectors[a]===sectors[b])continue;
+        const score=calcScore(a,b);
+        if(score<bestScore){bestScore=score;bestPair=[a,b];}
+      }
+    }
+    if(bestPair){for(const t of bestPair){selected.push(t);remaining=remaining.filter(x=>x!==t);usedSectors.add(sectors[t]);}}
+  }
+
+  while(selected.length<k&&remaining.length>0){
+    let cands=remaining.filter(t=>!usedSectors.has(sectors[t]));
+    if(!cands.length)cands=[...remaining];
+    let best=null,bestAvg=999999;
+    for(const t of cands){
+      const avg=selected.reduce((s,s2)=>s+calcScore(t,s2),0)/selected.length;
+      if(avg<bestAvg){bestAvg=avg;best=t;}
+    }
+    if(!best)break;
+    selected.push(best);remaining=remaining.filter(t=>t!==best);usedSectors.add(sectors[best]);
+  }
+  return selected;
+}
+
+function avgCorr(combo,corr){
+  let sum=0,cnt=0;
+  for(let i=0;i<combo.length;i++)for(let j=i+1;j<combo.length;j++){sum+=corr[combo[i]][combo[j]];cnt++;}
+  return cnt?sum/cnt:0;
+}
+
+function toggleLock(t){
+  lockedTicker=(lockedTicker===t)?null:t;
+  buildOptimal();
+  buildWeight();
+  if(activeTab==='chart'||charts.price) buildChart();
+}
+
+function setPeriod(p,btn){
+  document.querySelectorAll('.period-bar .period-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');curPeriod=p;
+  const pd=PERIOD_DATA[p];
+  document.getElementById('period-info').textContent= pd.start + " ~ " + pd.end + " (" + pd.n_days + "거래일)";
+  
+  if(activeTab==='optimal') buildOptimal();
+  if(activeTab==='heatmap') buildHeatmap();
+  if(activeTab==='chart') buildChart();
+  if(activeTab==='weight') buildWeight();
+  if(activeTab==='sectorlist') buildSectorList();
+}
+
+function buildOptimal(){
+  const pd=PERIOD_DATA[curPeriod];
+  const CORR=pd.corr_matrix;
+  const OPTIMAL=greedyOptimal(CORR,TICKERS,K_VAL,lockedTicker);
+  
+  const optAvgCorr=avgCorr(OPTIMAL,CORR);
+  const optScore=Math.max(0,Math.min(100,Math.round((1-optAvgCorr)*100)));
+  const allPairs=[];
+  for(let i=0;i<TICKERS.length;i++)for(let j=i+1;j<TICKERS.length;j++)allPairs.push([TICKERS[i],TICKERS[j]]);
+  const globalAvg=allPairs.reduce((s,[a,b])=>s+CORR[a][b],0)/allPairs.length;
+  const sc=optScore>=70?'#22c55e':optScore>=40?'#f59e0b':'#ef4444';
+  const grade=optScore>=70?'우수':optScore>=40?'보통':'집중 위험';
+  const lockedNote=lockedTicker?"<span style='font-size:12px;color:#3b82f6;font-weight:500;margin-left:8px'>📌 " + lockedTicker + " 고정 파라미터 작동중</span>":"";
+
+  let html="<div class='summary-block'>" +
+    "<div class='summary-heading'>" +
+      "<span class='summary-num'>1</span>" +
+      "<span class='summary-title'>실시간 연산 최적 조합 <span style='font-size:12px;color:#9ca3af;font-weight:400'>— " + curPeriod + " 기준 (" + pd.start + "~" + pd.end + ")</span>" + lockedNote + "</span>" +
+    "</div>" +
+    "<div class='lock-picker' style='background:#f1f5f9; padding:10px; border-radius:8px; margin-bottom:15px; font-size:12px; color:#475569'>" +
+      "💡 <strong>알고리즘 연산 기준:</strong> " + (STRATEGY_TYPE === "aggressive" ? "🔥 <strong>공격형 (상관계수 + 누적 순수익률 모델)</strong> - 출렁임과 무관하게 장기 성과가 가장 강력하게 우상향한 주도 테마 격리 결합" : (STRATEGY_TYPE === "balanced" ? "⚖️ <strong>밸런스형 (상관계수 + 샤프지수 모델)</strong> - 위험 대비 성과 밸런스 위주" : "🛡️ <strong>안정형 (상관계수 + 변동성 디펜스 모델)</strong> - 극소 리스크 자산 위주")) +
+    "</div>" +
+    "<div class='lock-picker'>" +
+      "<div class='lock-picker-label'>📌 특정 ETF 고정 포함 탐색 <span style='font-weight:400;color:#94a3b8;font-size:11px'>— 원하는 종목을 마우스로 클릭하면 무조건 포함하여 실시간 결합 재연산을 수행합니다.</span></div>" +
+      "<div class='lock-grid'>";
+
+  TICKERS.forEach(t=>{
+    const isLocked=lockedTicker===t;
+    const inResult=OPTIMAL.includes(t)&&!isLocked;
+    let cls='lock-chip';
+    if(isLocked)cls+=' locked';
+    else if(inResult)cls+=' in-result';
+    html+="<div class='" + cls + "' onclick=\"toggleLock('" + t + "')\" title=\"" + SECTORS[t].name + " (" + SECTORS[t].sector + ")\">" + t + "</div>";
+  });
+
+  html+="</div>" +
+      "<div style='margin-top:8px;font-size:11px;color:#94a3b8;display:flex;gap:14px;flex-wrap:wrap'>" +
+        "<span><span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:#eff6ff;border:1.5px solid #3b82f6;vertical-align:middle;margin-right:3px'></span>고정 선택 종목</span>" +
+        "<span><span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:#f0fdf4;border:1.5px solid #22c55e;vertical-align:middle;margin-right:3px'></span>조건별 편입 종목</span>" +
+        "<span><span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:white;border:1.5px solid #e2e8f0;vertical-align:middle;margin-right:3px'></span>미편입</span>" +
+      "</div>" +
+    "</div>" +
+    "<div class='summary-body' style='margin-bottom:12px'>" +
+      "조합 평균 상관계수: <strong>" + optAvgCorr.toFixed(3) + "</strong> &nbsp;|&nbsp;" +
+      "다각화 스코어: <span class='score-big' style='color:" + sc + "'>" + optScore + "</span><span style='color:#9ca3af'> / 100점</span>" +
+      "<span style='color:#666;font-size:14px;margin-left:6px'>(" + grade + ")</span>" +
+      "<div class='gauge-track'><div class='gauge-fill' style='width:" + optScore + "%;background:" + sc + "'></div></div>" +
+      "<div style='font-size:11px;color:#9ca3af;margin-top:4px'>전체 30종목 평균 상관 " + globalAvg.toFixed(3) + " → 최적 조합으로 " + (globalAvg-optAvgCorr).toFixed(3) + " 다각화 효율 개선</div>" +
+    "</div>" +
+    "<div class='opt-grid'>";
+
+  OPTIMAL.forEach((t,i)=>{
+    const sec=SECTORS[t];
+    const note=NOTE_MAP[t]?" <span class='note-tag'>(" + NOTE_MAP[t] + ")</span>":"";
+    const isLocked=lockedTicker===t;
+    html+="<div class='opt-card' style=\"border-color:" + (isLocked?'#3b82f6':'#cbd5e1') + ";background:" + (isLocked?'#eff6ff':'white') + "\">" +
+      "<div class='ticker' style='color:" + PALETTE[i%PALETTE.length] + "'>" + t + note + (isLocked ? " 📌" : "") + "</div>" +
+      "<div class='etf-name'>" + sec.name + "</div>" +
+      "<span class='badge' style='background:" + sec.color + "'>" + sec.sector + "</span>" +
+    "</div>";
+  });
+  html+="</div></div><hr class='summary-divider'>";
+
+  html+="<div class='summary-block'>" +
+    "<div class='summary-heading'><span class='summary-num'>2</span><span class='summary-title'>선택 조합 내 자산간 분포 리스크</span></div>" +
+    "<div class='pin-chart-wrap'>" +
+      "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'>" +
+        "<div style='width:130px;flex-shrink:0'></div>" +
+        "<div style='flex:1;display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;padding:0 2px'>" +
+          "<span>-1.0</span><span>-0.5</span><span>0</span><span>+0.5</span><span>+1.0</span>" +
+        "</div>" +
+        "<div style='width:46px;flex-shrink:0'></div>" +
+      "</div>";
+
+  const pairs=[];
+  for(let i=0;i<OPTIMAL.length;i++)
+    for(let j=i+1;j<OPTIMAL.length;j++)pairs.push([OPTIMAL[i],OPTIMAL[j]]);
+
+  pairs.forEach(([ti,tj])=>{
+    const v=CORR[ti][tj];
+    const pct=((v+1)/2*100).toFixed(2);
+    const pinColor=corrColor(v);
+    html+="<div class='pin-row'>" +
+      "<div class='pin-label'>" + ti + " × " + tj + "</div>" +
+      "<div class='pin-bar-outer'>" +
+        "<div class='pin-bar-track'></div>" +
+        "<div class='pin-center-line'></div>" +
+        "<div title='" + v.toFixed(3) + " — " + interpCorr(v) + "' style='position:absolute;left:calc(" + pct + "% - 8px);top:50%;transform:translateY(-72%);font-size:18px;line-height:1;cursor:default;filter:drop-shadow(0 1px 2px rgba(0,0,0,.2));z-index:2'>📍</div>" +
+      "</div>" +
+      "<div class='corr-val' style='color:" + pinColor + "'>" + (v>=0?'+':'') + v.toFixed(3) + "</div>" +
+    "</div>";
+  });
+
+  html+="</div>" +
+    "<div style='padding-left:30px;margin-top:4px;font-size:11px;color:#94a3b8;display:flex;gap:16px;flex-wrap:wrap'>" +
+      "<span>🟦 음의 상관 (헤지)</span><span>🟩 약한 상관 (분산)</span><span>🟧 중간 상관</span><span>🟥 강한 동조화</span>" +
+    "</div>" +
+  "</div>";
+
+  document.getElementById('optimal-content').innerHTML=html;
+}
+
+function buildHeatmap(){
+  const CORR=PERIOD_DATA[curPeriod].corr_matrix;
+  let html='<table class="hm"><tr><th></th>';
+  TICKERS.forEach(t=>{
+    const sec=SECTORS[t].sector;
+    html+="<th title=\"" + SECTORS[t].name + " / " + sec + "\" style='min-width:52px'><div style='font-weight:700'>" + t + "</div><div style='font-size:9px;color:#94a3b8;font-weight:400'>" + sec + "</div></th>";
+  });
+  html+='</tr>';
+  TICKERS.forEach(ti=>{
+    const rowSec=SECTORS[ti].sector;
+    html+="<tr><th class='row-header'><div style='font-weight:700'>" + ti + "</div><div style='font-size:9px;color:#94a3b8;font-weight:400;white-space:normal;line-height:1.2'>" + rowSec + "</div></th>";
+    TICKERS.forEach(tj=>{
+      const v=CORR[ti][tj],isD=ti===tj;
+      html+="<td style='background:" + (isD?'#f3f4f6':corrBg(v)) + ";font-weight:" + (isD?'normal':'600') + ";color:" + (isD?'#9ca3af':corrColor(v)) + "'>" + (isD?'—':v.toFixed(2)) + "</td>";
+    });
+    html+='</tr>';
+  });
+  document.getElementById('heatmap-container').innerHTML=html+'</table>';
+}
+
+function buildChart(){
+  if(charts.price){charts.price.destroy();delete charts.price;}
+  const sliceData=getPeriodSlice();
+  const dates=sliceData.dates;
+  const prices=sliceData.prices;
+  const CORR=PERIOD_DATA[curPeriod].corr_matrix;
+  
+  const OPTIMAL=greedyOptimal(CORR,TICKERS,K_VAL,lockedTicker);
+  const pool=chartView==='optimal'?OPTIMAL:TICKERS;
+  const datasets=pool.map((t,i)=>{
+    const b=prices[t][0] || 1;
+    return{label:t,data:prices[t].map(v=>parseFloat((v/b*100).toFixed(2))),borderColor:PALETTE[i%PALETTE.length],borderWidth:2,pointRadius:0,tension:0.1};
+  });
+  charts.price=new Chart(document.getElementById('priceChart'),{
+    type:'line',data:{labels:dates.map(fmtDate),datasets},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,labels:{font:{size:10},color:'#888',boxWidth:10}},tooltip:{mode:'index',intersect:false}},
+      scales:{x:{ticks:{maxTicksLimit:8,color:'#888',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},y:{ticks:{color:'#888',font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}}}}
+  });
+}
+function setView(btn,v){document.querySelectorAll('#tab-chart .preset').forEach(b=>b.classList.remove('active'));btn.classList.add('active');chartView=v;buildChart();}
+
+function buildWeight(){
+  const pd = PERIOD_DATA[curPeriod]; 
+  const CORR = pd.corr_matrix;
+  const OPTIMAL = greedyOptimal(CORR, TICKERS, K_VAL, lockedTicker);
+  const prices = pd.prices;
+
+  const vols = {};
+  OPTIMAL.forEach(t => {
+    const p = prices[t];
+    const rets = [];
+    for(let i=1; i<p.length; i++) rets.push(p[i]/p[i-1] - 1);
+    const mean = rets.reduce((a,b)=>a+b,0)/(rets.length || 1);
+    const variance = rets.reduce((a,b)=>a+Math.pow(b-mean,2),0)/(rets.length || 1);
+    vols[t] = Math.sqrt(variance) || 0.0001;
+  });
+
+  const invVolSum = OPTIMAL.reduce((s,t)=>s+1/vols[t],0);
+  let weights = {};
+  OPTIMAL.forEach(t => weights[t] = (1/vols[t])/invVolSum);
+
+  for (let iter = 0; iter < 10; iter++) {
+    let overCapped = OPTIMAL.filter(t => weights[t] > 0.4);
+    if (!overCapped.length) break;
+    let totalOver = 0.4 * overCapped.length;
+    let underCapped = OPTIMAL.filter(t => weights[t] <= 0.4);
+    overCapped.forEach(t => weights[t] = 0.4);
+    let underSum = underCapped.reduce((s, t) => s + weights[t], 0);
+    if (underSum > 0) {
+      let rem = 1.0 - totalOver;
+      underCapped.forEach(t => weights[t] = (weights[t] / underSum) * rem);
+    }
+  }
+
+  const sorted = [...OPTIMAL].sort((a,b)=>weights[b]-weights[a]);
+  const maxW = Math.max(...Object.values(weights));
+
+  const mostStable = sorted[0];
+  const mostVol = sorted[sorted.length-1];
+  const stableW = (weights[mostStable]*100).toFixed(1);
+  const volW = (weights[mostVol]*100).toFixed(1);
+  const stableSig = (vols[mostStable]*100).toFixed(2);
+  const volSig = (vols[mostVol]*100).toFixed(2);
+  const avgSig = (OPTIMAL.reduce((s,t)=>s+vols[t],0)/OPTIMAL.length*100).toFixed(2);
+
+  let interpText = "선택하신 자산 탐색 기간(" + curPeriod + ") 내 일간 자산 변동폭 표준편차 분석 결과, ";
+  interpText += "<strong>" + mostStable + "(σ=" + stableSig + "%/일)</strong>가 리스크 통제력이 가장 탁월하여 포트폴리오 내 " + stableW + "%로 전면 배치되었습니다. ";
+  
+  if(parseFloat(stableW) >= 39.9) {
+    interpText += "해당 종목은 알고리즘 자산 예산 한도를 초과할 수 있어 <strong>[개별 자산 투자한도 40% 제한 제약 조건]</strong>에 의거하여 최고 비중 40.0% 컷오프가 엄격히 작동했습니다. ";
+  }
+  interpText += "반면 리스크 변동 구간이 넓은 <strong>" + mostVol + "(σ=" + volSig + "%/일)</strong>는 자산 보호를 위해 " + volW + "%로 보수적 비중 조절되었습니다.";
+
+  let html = "<div class='summary-block'>" +
+    "<div class='summary-heading'>" +
+      "<span class='summary-num' style='background:#8b5cf6;font-size:14px'>⚖️</span>" +
+      "<span class='summary-title'>ETF별 가변 리스크 분산 예산 비중 " +
+        "<span style='font-size:12px;color:#9ca3af;font-weight:400'>— 선택 기간 (" + curPeriod + ") 실시간 연동 및 40% 상한 제한 적용</span>" +
+      "</span>" +
+    "</div>" +
+    "<div style='margin:0 0 20px 0;padding:14px 18px;background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border-radius:10px;border-left:4px solid #3b82f6;font-size:13px;color:#1e3a5f;line-height:1.8'>" +
+      "<div style='font-size:12px;font-weight:700;color:#3b82f6;margin-bottom:6px'>📌 선택 기간 자산 변동폭 가변 해석</div>" +
+      interpText +
+      "<div style='margin-top:8px;font-size:11px;color:#64748b'>" +
+        "조합 평균 변동폭(σ): <strong>" + avgSig + "%</strong>&nbsp;|&nbsp;" +
+        "비중 최적화 기법: 1/σ 위험 역가중 정규화법" +
+      "</div>" +
+    "</div>";
+
+  html += "<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:28px'>";
+  sorted.forEach(t => {
+    const w = (weights[t]*100).toFixed(1);
+    const sig = (vols[t]*100).toFixed(2);
+    const barWPercent = (weights[t]/maxW*100).toFixed(1);
+    const col = SECTORS[t].color;
+    const isCapped = parseFloat(w) >= 39.9;
+    html += "<div style='background:#f8fafc;border:1px solid " + (isCapped ? "#3b82f6" : "#e2e8f0") + ";border-radius:10px;padding:12px 14px'>" +
+      "<div style='display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px'>" +
+        "<span style='font-size:18px;font-weight:700;color:" + col + "'>" + t + (isCapped ? " <span style='font-size:11px;color:#3b82f6'>[MAX]</span>" : "") + "</span>" +
+        "<span style='font-size:22px;font-weight:700;color:#1e293b'>" + w + "%</span>" +
+      "</div>" +
+      "<div style='height:6px;background:#e2e8f0;border-radius:3px;margin-bottom:7px'>" +
+        "<div style='height:100%;width:" + barWPercent + "%;background:" + col + ";border-radius:3px'></div>" +
+      "</div>" +
+      "<div style='display:flex;justify-content:space-between;font-size:11px;color:#94a3b8'>" +
+        "<span>σ = " + sig + "%/일</span>" +
+        "<span>" + SECTORS[t].sector + "</span>" +
+      "</div>" +
+    "</div>";
+  });
+  html += "</div>";
+
+  const pieId = 'wPie_' + Date.now();
+  html += "<div style='display:flex;flex-direction:column;align-items:center;gap:24px;margin-bottom:20px'>" +
+    "<canvas id='" + pieId + "' width='220' height='220'></canvas>" +
+    "<div style='width:100%;max-width:420px'>" +
+      "<div style='font-size:13px;font-weight:700;color:#374151;margin-bottom:12px;text-align:center'>선택 자산 비중 포트폴리오</div>" +
+      "<div style='display:flex;flex-direction:column;gap:10px'>";
+  sorted.forEach(t => {
+    html += "<div style='display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0'>" +
+      "<div style='width:13px;height:13px;border-radius:50%;background:" + SECTORS[t].color + ";flex-shrink:0'></div>" +
+      "<span style='font-weight:700;color:" + SECTORS[t].color + ";min-width:90px;font-size:13px'>" + t + "</span>" +
+      "<div style='flex:1;height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden'>" +
+        "<div style='height:100%;width:" + (weights[t]*100).toFixed(1) + "%;background:" + SECTORS[t].color + ";border-radius:3px'></div>" +
+      "</div>" +
+      "<span style='color:#1e293b;font-weight:700;font-size:14px;min-width:46px;text-align:right'>" + (weights[t]*100).toFixed(1) + "%</span>" +
+      "<span style='color:#94a3b8;font-size:11px;min-width:70px'>σ=" + (vols[t]*100).toFixed(2) + "%</span>" +
+    "</div>";
+  });
+  html += "</div></div></div>";
+
+  document.getElementById('weight-content').innerHTML = html;
+
+  const canvas = document.getElementById(pieId);
+  if(canvas) {
+    const ctx = canvas.getContext('2d');
+    const cx=110, cy=110, r=93;
+    let angle = -Math.PI/2;
+    sorted.forEach(t => {
+      const slice = weights[t]*2*Math.PI;
+      ctx.beginPath(); ctx.moveTo(cx,cy);
+      ctx.arc(cx,cy,r,angle,angle+slice);
+      ctx.closePath();
+      ctx.fillStyle = SECTORS[t].color;
+      ctx.fill();
+      ctx.strokeStyle='white'; ctx.lineWidth=2; ctx.stroke();
+      if(weights[t]>=0.03){
+        const mid=angle+slice/2;
+        ctx.fillStyle='white'; ctx.font='bold 11px sans-serif';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText((weights[t]*100).toFixed(0)+'%', cx+r*0.65*Math.cos(mid), cy+r*0.65*Math.sin(mid));
+      }
+      angle += slice;
+    });
+    ctx.beginPath(); ctx.arc(cx,cy,r*0.42,0,2*Math.PI);
+    ctx.fillStyle='white'; ctx.fill();
+    ctx.fillStyle='#374151'; ctx.font='bold 14px sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(curPeriod, cx, cy-7);
+    ctx.font='10px sans-serif'; ctx.fillStyle='#94a3b8';
+    ctx.fillText('실시간 연동', cx, cy+10);
+  }
+}
+
+function buildSectorList(){
+  const SECTOR_ORDER=['반도체','원전·우라늄','AI·빅데이터','사이버보안','로보틱스','청정에너지','방산·우주항공','바이오테크','핀테크','양자컴퓨팅','인프라','2차전지·리튬','희토류·전략소재','데이터센터','채권(장기)','채권(중기)','채권(단기)','채권(종합)','시장전체','암호화폐','귀금속·원자재','에너지원자재','농산물원자재','한국시장'];
+  const groups={};
+  TICKERS.forEach(t=>{const sec=SECTORS[t].sector;if(!groups[sec])groups[sec]=[];groups[sec].push(t);});
+  let html="<table class='etf-list-table'><thead><tr>" +
+    "<th style='width:75px'>티커</th><th>ETF명</th><th style='width:125px'>섹터</th><th>포트폴리오 상위 5종목</th>" +
+  "</tr></thead><tbody>";
+  const sectorGroup=sec=>sec.startsWith('채권')?'채권':(sec==='시장전체'||sec==='암호화폐'||sec==='귀금속·원자재'||sec==='에너지원자재'||sec==='농산물원자재'||sec==='한국시장')?'기타':'테마ETF';
+  const groupLabel={'테마ETF':'📌 테마 ETF (14종)','채권':'📌 채권 ETF (4종)','기타':'📌 기타 (12종)'};
+  let lastGroup=null;
+  SECTOR_ORDER.forEach(sec=>{
+    if(!groups[sec])return;
+    const grp=sectorGroup(sec);
+    if(grp!==lastGroup){
+      html+="<tr><td colspan='4' style='background:#1e40af;color:white;font-weight:700;font-size:12px;padding:8px 14px;letter-spacing:.5px'>" + groupLabel[grp] + "</td></tr>";
+      lastGroup=grp;
+    }
+    groups[sec].forEach(t=>{
+      const so=SECTORS[t];
+      const holdings=ETF_HOLDINGS[t]||[];
+      const maxW=Math.max(...holdings.map(h=>h.weight||0),1);
+      const holdingsHtml=holdings.filter(h=>h.name).map(h=>
+        "<li><span class='h-name'>" + h.name + "</span><div class='h-bar'><div class='h-bar-fill' style='width:" + Math.round(h.weight/maxW*100) + "%;background:" + so.color + "'></div></div><span class='h-weight'>" + h.weight + "%</span></li>"
+      ).join('');
+      html+="<tr>" +
+        "<td class='etf-ticker-cell' style='color:" + so.color + "'>" + t + "</td>" +
+        "<td class='etf-name-cell'>" + so.name + "</td>" +
+        "<td><span class='sector-badge' style='background:" + so.color + "'>" + sec + "</span></td>" +
+        "<td><ul class='holdings-list'>" + holdingsHtml + "</ul></td>" +
+      "</tr>";
+    });
+  });
+  html+="</tbody></table>";
+  document.getElementById('sectorlist-content').innerHTML=html;
+}
+
+function showTab(name,btn){
+  document.querySelectorAll('.tabs .tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.tab-pane').forEach(p=>{p.style.display='none';p.classList.remove('active');});
+  const pane=document.getElementById('tab-'+name);
+  pane.style.display='block';pane.classList.add('active');
+  activeTab = name;
+  if(name==='optimal')buildOptimal();
+  if(name==='heatmap')buildHeatmap();
+  if(name==='chart')buildChart();
+  if(name==='weight')buildWeight();
+  if(name==='sectorlist')buildSectorList();
+}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  const pd=PERIOD_DATA[curPeriod];
+  document.getElementById('period-info').textContent= pd.start + " ~ " + pd.end + " (" + pd.n_days + "거래일)";
+  buildOptimal();
+});
+</script>
+</body>
+</html>

@@ -20,6 +20,11 @@ export type FinancialInfo = {
   monthlyFixedExpense: string;
 };
 
+export type HeaderAssetSummaryState = {
+  confirmedOperatingAssetsAfterSell: number | null;
+  confirmedBuyAmount: number | null;
+};
+
 export type RrttlluInfo = {
   returnObjective: string;
   expectedReturn: string;
@@ -126,7 +131,7 @@ export type ChangeEntry = { label: string; before: string; after: string; change
 
 export type CustomerUpdatedMap = Record<CustomerId, number>;
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string> };
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; headerAssetSummary: HeaderAssetSummaryState };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -169,9 +174,9 @@ export type StorageResult = { ok: boolean; message: string };
 export const workspaceTabs = [
   { id: "profile"   as const, label: "고객 성향 분석",       description: "기본 정보와 RRTTLLU 입력" },
   { id: "existing"  as const, label: "기존 포트폴리오 분석", description: "보유 자산, 위험 및 건강 분석" },
-  { id: "create"    as const, label: "신규 포트폴리오 분석", description: "RRTTLLU 기반 신규 배분" },
-  { id: "recommend" as const, label: "상품 추천",             description: "버킷별 상품 추천" },
+  { id: "create"    as const, label: "신규 포트폴리오 생성", description: "RRTTLLU 기반 신규 배분" },
   { id: "compare"   as const, label: "포트폴리오 비교",       description: "기존과 신규 비교" },
+  { id: "recommend" as const, label: "상품 추천",             description: "버킷별 상품 추천" },
 ];
 
 // ── Portfolio Analysis Types ───────────────────────────────────────────────
@@ -183,7 +188,7 @@ export type PortfolioAsset = {
   buy_price: number | null;
   amount: number;
   amount_type: "quantity" | "value";
-  is_hedged: boolean;
+  is_hedged: boolean;        // 항상 false — 환노출 고정
   needs_review: boolean;
   review_reason?: string | null;
   current_price?: number;
@@ -192,8 +197,12 @@ export type PortfolioAsset = {
   gain?: number;
   price_source?: string;
   _rawAmount?: string;
-  ticker?: string;       // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
-  productType?: string;  // 상품 유형 (ETF, 개별주식, 채권 등)
+  ticker?: string;           // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
+  productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
+  bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만 사용
+  bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만 사용
+  // 데이터 소유권 낙인 — 로드 시 해당 고객 ID로 강제 찍힘, null이면 미확정 상태
+  owner_customer_id?: string | null;
 };
 
 export type PortfolioAnalysisResult = {
@@ -207,6 +216,40 @@ export type PortfolioAnalysisResult = {
   healthResult?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tlhResult?: any;
+};
+
+export type Tab3InnerTab = "correlation-domestic" | "correlation-global" | "rebalancing";
+export type CorrelationPeriodRange = "1W" | "1M" | "3M" | "6M" | "1Y" | "3Y";
+export type CorrelationInnerViewTab = "optimal" | "heatmap" | "chart" | "weight" | "sectorlist";
+export type CorrelationAnalysisState = {
+  strategy?: "conservative" | "balanced" | "aggressive";
+  k?: number;
+  periodRange?: CorrelationPeriodRange;
+  lockedTicker?: string | null;
+  innerViewTab?: CorrelationInnerViewTab;
+};
+export type Tab3AnalysisState = {
+  activeInnerTab?: Tab3InnerTab;
+  domestic?: CorrelationAnalysisState;
+  global?: CorrelationAnalysisState;
+};
+
+// 빈 자산 행 템플릿 — MainTabShell과 ExistingPortfolioTab에서 공용으로 사용
+export const EMPTY_PORTFOLIO_ASSET: PortfolioAsset = {
+  name: "",
+  asset_class: "해외주식",
+  theme: "기타",
+  country: "미국",
+  buy_price: null,
+  amount: 0,
+  amount_type: "quantity",
+  is_hedged: false,
+  needs_review: false,
+  ticker: "",
+  productType: "해외주식",
+  bond_yield: null,
+  bond_maturity: null,
+  owner_customer_id: null,  // 소유권 미확정 — addPortfolioRow 시 selectedCustomer로 덮어씌워짐
 };
 
 export const defaultCustomerProfiles: CustomerProfile[] = [
@@ -280,7 +323,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {} };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedBuyAmount: null } };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -310,6 +353,12 @@ export function normalizeAppState(value: unknown): AppState {
     uniqueOtherManual: typeof state.uniqueOtherManual === "string" ? state.uniqueOtherManual : "",
     smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
     aiGuidePbNotes: state.aiGuidePbNotes && typeof state.aiGuidePbNotes === "object" && !Array.isArray(state.aiGuidePbNotes) ? state.aiGuidePbNotes as Record<string, string> : {},
+    headerAssetSummary: state.headerAssetSummary && typeof state.headerAssetSummary === "object" && !Array.isArray(state.headerAssetSummary)
+      ? {
+          confirmedOperatingAssetsAfterSell: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell ?? null : null,
+          confirmedBuyAmount: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount ?? null : null,
+        }
+      : defaults.headerAssetSummary,
     financial: { ...defaults.financial, ...financial, irregularIncomeNone: Boolean((financial as Partial<FinancialInfo>).irregularIncomeNone) },
     rrttllu: {
       ...defaults.rrttllu, ...rrttllu,
@@ -364,6 +413,62 @@ function getSupabaseClient(): SupabaseClient | null {
 export const supabase = getSupabaseClient();
 export let latestStorageErrorMessage = "";
 const embeddedAppStateKey = "__app_state";
+type CustomerScopedTableName = "rebalancing_state" | "new_analysis_results" | "tax_summaries" | "product_selections";
+
+const scopedPayloadColumns: Record<CustomerScopedTableName, string[]> = {
+  rebalancing_state: ["state", "data"],
+  new_analysis_results: ["result", "data"],
+  tax_summaries: ["summary", "data"],
+  product_selections: ["selections", "data"],
+};
+
+function readScopedPayload(row: Record<string, unknown> | null, table: CustomerScopedTableName): unknown | null {
+  if (!row) return null;
+  for (const column of scopedPayloadColumns[table]) {
+    if (row[column] !== undefined && row[column] !== null) return row[column];
+  }
+  return row;
+}
+
+async function loadScopedPayload(table: CustomerScopedTableName, customerId: CustomerId): Promise<unknown | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return readScopedPayload(data as Record<string, unknown>, table);
+  } catch (error) {
+    console.error(`Supabase ${table} load failed`, error);
+    return null;
+  }
+}
+
+async function upsertScopedPayload(
+  table: CustomerScopedTableName,
+  customerId: CustomerId,
+  payload: unknown,
+  extraCandidates: Record<string, unknown>[] = [],
+): Promise<void> {
+  if (!supabase) return;
+  const updatedAt = new Date().toISOString();
+  const preferredColumn = scopedPayloadColumns[table][0];
+  const candidates: Record<string, unknown>[] = [
+    { customer_id: customerId, [preferredColumn]: payload, updated_at: updatedAt },
+    { customer_id: customerId, data: payload, updated_at: updatedAt },
+    ...extraCandidates.map((candidate) => ({ customer_id: customerId, ...candidate, updated_at: updatedAt })),
+  ];
+  let lastError = "";
+  for (const candidate of candidates) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from(table) as any).upsert(candidate, { onConflict: "customer_id" });
+    if (!error) return;
+    lastError = error.message;
+  }
+  console.error(`Supabase ${table} upsert failed`, lastError, { customerId, payload });
+}
 
 function rowToCustomerProfile(row: CustomerRow): CustomerProfile {
   const bundledData = row.customer_data ?? row.data ?? row.app_data ?? row.state;
@@ -512,6 +617,18 @@ export const customerStorage = {
       if (!r.ok) final = r;
     }
     return final;
+  },
+  async saveSortOrders(profiles: CustomerProfile[]): Promise<StorageResult> {
+    if (!supabase) return { ok: false, message: "Supabase not configured." };
+    const updatedAt = new Date().toISOString();
+    const results = await Promise.all(
+      profiles.map((profile, index) =>
+        supabase.from("customers").update({ sort_order: index, updated_at: updatedAt }).eq("id", profile.id),
+      ),
+    );
+    const error = results.find((result) => result.error)?.error;
+    if (error) return { ok: false, message: `Sort order save failed: ${error.message}` };
+    return { ok: true, message: "Customer sort order saved." };
   },
   async remove(customerId: CustomerId): Promise<StorageResult> {
     if (!supabase) return { ok: false, message: "Supabase not configured." };
@@ -792,6 +909,159 @@ export function expectedReturnDisplay(rrttllu: RrttlluInfo) {
   return rrttllu.expectedReturn || "입력 대기";
 }
 
+// ── Portfolio & Analysis Supabase Helpers ─────────────────────────────────
+
+export async function loadPortfolioAssets(customerId: CustomerId): Promise<PortfolioAsset[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("portfolio_assets")
+      .select("assets")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return [];
+    const raw: PortfolioAsset[] = Array.isArray((data as { assets?: unknown }).assets)
+      ? ((data as { assets: PortfolioAsset[] }).assets)
+      : [];
+    // 로드 완료 즉시 전 행에 소유권 낙인 — 이 배열이 메모리에 올라가는 순간부터
+    // owner_customer_id가 customerId와 일치해야만 저장이 허용된다
+    return raw.map(a => ({ ...a, owner_customer_id: customerId }));
+  } catch {
+    return [];
+  }
+}
+
+export async function savePortfolioAssets(customerId: CustomerId, assets: PortfolioAsset[]): Promise<void> {
+  if (!supabase) return;
+  // ── 데이터 소유권 낙인 검증 (절대 가드) ────────────────────────────────────
+  // 저장 배열 내 모든 행의 owner_customer_id가 customerId와 완전 일치해야만 통과.
+  // 단 한 행이라도 소유권이 불일치(다른 고객 ID, null, undefined)하면 즉시 차단.
+  // 이 가드는 비동기 타이머·유령 Effect·레이스 컨디션 어떤 경로로 호출되어도
+  // 데이터 객체 자체의 낙인이 틀리면 DB를 절대 터치하지 못한다.
+  const isOwnershipValid = assets.length > 0 &&
+    assets.every(a => a.owner_customer_id === customerId);
+  if (!isOwnershipValid) return;
+  // ── 콘텐츠 가드: 모든 행이 빈 껍데기이면 저장 차단 ──────────────────────
+  const hasContent = assets.some(a => (a.name ?? "").trim() || (a.ticker ?? "").trim());
+  if (!hasContent) return;
+  await supabase
+    .from("portfolio_assets")
+    .upsert({ customer_id: customerId, assets, updated_at: new Date().toISOString() }, { onConflict: "customer_id" });
+}
+
+export async function loadAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("analysis_results")
+      .select("result")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as { result?: unknown }).result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAnalysisResult(customerId: CustomerId, result: unknown): Promise<void> {
+  if (!supabase) return;
+  await supabase
+    .from("analysis_results")
+    .upsert({ customer_id: customerId, result, updated_at: new Date().toISOString() }, { onConflict: "customer_id" });
+}
+
+// ── Rebalancing State Helpers ─────────────────────────────────────────────
+export async function loadRebalancingState(customerId: CustomerId): Promise<{ sellAssets: PortfolioAsset[]; buyAssets: PortfolioAsset[] }> {
+  const payload = await loadScopedPayload("rebalancing_state", customerId);
+  const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  return {
+    sellAssets: Array.isArray(data.sellRebalancing) ? data.sellRebalancing as PortfolioAsset[] : Array.isArray(data.sellAssets) ? data.sellAssets as PortfolioAsset[] : Array.isArray(data.sell_assets) ? data.sell_assets as PortfolioAsset[] : [],
+    buyAssets: Array.isArray(data.buyRebalancing) ? data.buyRebalancing as PortfolioAsset[] : Array.isArray(data.buyAssets) ? data.buyAssets as PortfolioAsset[] : Array.isArray(data.buy_assets) ? data.buy_assets as PortfolioAsset[] : [],
+  };
+}
+
+export async function saveRebalancingState(customerId: CustomerId, sellAssets: PortfolioAsset[], buyAssets: PortfolioAsset[]): Promise<void> {
+  await upsertScopedPayload(
+    "rebalancing_state",
+    customerId,
+    { sellRebalancing: sellAssets, buyRebalancing: buyAssets },
+  );
+}
+
+// ── New Portfolio Analysis Result Helpers ─────────────────────────────────
+export async function loadNewAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
+  const payload = await loadScopedPayload("new_analysis_results", customerId);
+  if (payload && typeof payload === "object" && "analysisResult" in payload) {
+    return (payload as { analysisResult?: unknown }).analysisResult ?? null;
+  }
+  return payload;
+}
+
+export async function saveNewAnalysisResult(customerId: CustomerId, result: unknown): Promise<void> {
+  const current = await loadScopedPayload("new_analysis_results", customerId);
+  const payload = current && typeof current === "object" && ("analysisResult" in current || "tab3State" in current)
+    ? { ...(current as Record<string, unknown>), analysisResult: result }
+    : { analysisResult: result, tab3State: {} };
+  await upsertScopedPayload("new_analysis_results", customerId, payload);
+}
+
+export async function loadTab3AnalysisState(customerId: CustomerId): Promise<Tab3AnalysisState> {
+  const payload = await loadScopedPayload("new_analysis_results", customerId);
+  if (!payload || typeof payload !== "object") return {};
+  const state = (payload as { tab3State?: unknown }).tab3State;
+  return state && typeof state === "object" ? state as Tab3AnalysisState : {};
+}
+
+export async function saveTab3AnalysisState(customerId: CustomerId, state: Tab3AnalysisState): Promise<void> {
+  const current = await loadScopedPayload("new_analysis_results", customerId);
+  const payload = current && typeof current === "object" && ("analysisResult" in current || "tab3State" in current)
+    ? { ...(current as Record<string, unknown>), tab3State: state }
+    : { analysisResult: current ?? null, tab3State: state };
+  await upsertScopedPayload("new_analysis_results", customerId, payload);
+}
+
+// ── Tax Summary Helpers ───────────────────────────────────────────────────
+export async function loadTaxSummaries(customerId: CustomerId): Promise<{ currentSummary: unknown | null; newSummary: unknown | null }> {
+  const payload = await loadScopedPayload("tax_summaries", customerId);
+  const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  return {
+    currentSummary: data.currentSummary ?? data.current_summary ?? null,
+    newSummary: data.newSummary ?? data.new_summary ?? null,
+  };
+}
+
+export async function saveTaxSummaryToDb(customerId: CustomerId, type: 'current' | 'new', summary: unknown): Promise<void> {
+  const current = await loadTaxSummaries(customerId);
+  const payload = {
+    currentSummary: type === "current" ? summary : current.currentSummary,
+    newSummary: type === "new" ? summary : current.newSummary,
+  };
+  await upsertScopedPayload(
+    "tax_summaries",
+    customerId,
+    payload,
+    [{ current_summary: payload.currentSummary, new_summary: payload.newSummary }],
+  );
+}
+
+// ── Product Selection Helpers ─────────────────────────────────────────────
+export async function loadProductSelections(customerId: CustomerId): Promise<string[]> {
+  const payload = await loadScopedPayload("product_selections", customerId);
+  if (Array.isArray(payload)) return payload as string[];
+  const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  return Array.isArray(data.selectedIds) ? data.selectedIds as string[] : Array.isArray(data.selected_ids) ? data.selected_ids as string[] : [];
+}
+
+export async function saveProductSelections(customerId: CustomerId, selectedIds: string[]): Promise<void> {
+  await upsertScopedPayload(
+    "product_selections",
+    customerId,
+    { selectedIds },
+    [{ selected_ids: selectedIds }],
+  );
+}
+
 // ── Context ────────────────────────────────────────────────────────────────
 export type CustomerContextValue = {
   formData: AppState;
@@ -823,6 +1093,32 @@ export type CustomerContextValue = {
   applySmartExtraction: (payload: SmartExtractionPayload) => void;
   updateCustomerProfile: (key: keyof Omit<CustomerProfile, "id">, value: string) => void;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
+  // ── 포트폴리오 전역 상태 (탭 이동 시에도 메모리에서 유지됨) ──────────────
+  portfolioAssets: PortfolioAsset[];
+  isPortfolioLoaded: boolean;
+  analysisResult: PortfolioAnalysisResult | null;
+  addPortfolioRow: () => void;
+  removePortfolioRow: (index: number) => void;
+  updatePortfolioRow: (index: number, patch: Partial<PortfolioAsset>) => void;
+  setAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
+  setPortfolioDirty: (dirty: boolean) => void;
+  // ── 리밸런싱 파이프라인 (탭2보유현황 → 탭2리밸런싱 → 탭3매수 → 탭5비교) ──
+  rebalancingSellAssets: PortfolioAsset[];
+  rebalancingBuyAssets: PortfolioAsset[];
+  newPortfolioAnalysisResult: PortfolioAnalysisResult | null;
+  tab3AnalysisState: Tab3AnalysisState;
+  pushToRebalancingSell: () => void;
+  setRebalancingSellAssets: (assets: PortfolioAsset[]) => void;
+  confirmRebalancingSell: () => void;
+  confirmRebalancingBuy: () => void;
+  setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
+  setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
+  updateTab3AnalysisState: (patch: Partial<Tab3AnalysisState>) => void;
+  // ── Tab 5 상품 선택 (고객별 격리, Supabase 영속) ──────────────────────────
+  productSelectedIds: string[];
+  setProductSelectedIds: (ids: string[]) => void;
+  // ── 세금 요약 Supabase 저장 (Tab 2/3에서 호출) ────────────────────────────
+  saveTaxSummary: (type: 'current' | 'new', summary: unknown) => void;
 };
 
 export const CustomerContext = createContext<CustomerContextValue | null>(null);

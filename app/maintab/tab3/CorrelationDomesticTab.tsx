@@ -1,0 +1,206 @@
+"use client";
+
+import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  useCustomerContext,
+  type CorrelationAnalysisState,
+  type CorrelationInnerViewTab,
+  type CorrelationPeriodRange,
+} from "../CustomerContext";
+
+type Strategy = "conservative" | "balanced" | "aggressive";
+
+const STRATEGIES: { id: Strategy; emoji: string; label: string; desc: string }[] = [
+  { id: "conservative", emoji: "🛡️", label: "안전형",   desc: "변동성 최소화" },
+  { id: "balanced",     emoji: "⚖️", label: "밸런스형", desc: "리스크/수익 균형" },
+  { id: "aggressive",   emoji: "🔥", label: "공격형",   desc: "수익률 극대화" },
+];
+
+function scoreToStrategy(score: number): Strategy {
+  if (score >= 70) return "aggressive";
+  if (score >= 40) return "balanced";
+  return "conservative";
+}
+
+function buildSrc(strategy: Strategy, k: number, state?: CorrelationAnalysisState): string {
+  const params = new URLSearchParams({
+    strategy,
+    k: String(k),
+    _t: String(Date.now()),
+  });
+  if (state?.periodRange) params.set("period", state.periodRange);
+  if (state?.lockedTicker) params.set("lockedTicker", state.lockedTicker);
+  if (state?.innerViewTab) params.set("activeTab", state.innerViewTab);
+  return `/api/etf-correlation-domestic-html?${params.toString()}`;
+}
+
+export default function CorrelationDomesticTab({
+  savedState,
+  onStateChange,
+}: {
+  savedState?: CorrelationAnalysisState;
+  onStateChange?: (state: CorrelationAnalysisState) => void;
+}) {
+  const { riskResult } = useCustomerContext();
+  const initStrategy = scoreToStrategy(riskResult.score);
+
+  const [isMounted, setIsMounted] = useState(false);
+  const [strategy, setStrategy] = useState<Strategy>(savedState?.strategy ?? initStrategy);
+  const [k, setK] = useState(savedState?.k ?? 3);
+  // SSR에서 Date.now() 호출 방지: 초기값 빈 문자열, 클라이언트 마운트 후 실 src 주입
+  const [activeSrc, setActiveSrc] = useState("");
+  const [loading, setLoading] = useState(true);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const kRef = useRef(k);
+  useEffect(() => { kRef.current = k; }, [k]);
+
+  // 클라이언트 마운트 확인 후 최초 src 생성 (SSR 타임스탬프 불일치 방지)
+  useEffect(() => {
+    setIsMounted(true);
+    setActiveSrc(buildSrc(savedState?.strategy ?? initStrategy, savedState?.k ?? k, savedState));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const message = event.data as { type?: string; state?: Partial<CorrelationAnalysisState> } | null;
+      if (message?.type !== "domestic-correlation-state" || !message.state) return;
+      onStateChange?.({
+        strategy,
+        k,
+        periodRange: message.state.periodRange as CorrelationPeriodRange | undefined,
+        lockedTicker: message.state.lockedTicker ?? null,
+        innerViewTab: message.state.innerViewTab as CorrelationInnerViewTab | undefined,
+      });
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [strategy, k, onStateChange]);
+
+  useEffect(() => {
+    if (!isMounted) return;
+    const nextStrategy = savedState?.strategy;
+    const nextK = savedState?.k;
+    if (nextStrategy && nextStrategy !== strategy) setStrategy(nextStrategy);
+    if (typeof nextK === "number" && nextK !== k) setK(nextK);
+    if (nextStrategy || typeof nextK === "number") {
+      setLoading(true);
+      setActiveSrc(buildSrc(nextStrategy ?? strategy, nextK ?? k, savedState));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedState?.strategy, savedState?.k, savedState?.periodRange, savedState?.lockedTicker, savedState?.innerViewTab, isMounted]);
+
+  // riskResult.score 변경 시 전략 동기화 — 마운트 전 스킵
+  useEffect(() => {
+    if (!isMounted) return;
+    const next = scoreToStrategy(riskResult.score);
+    setStrategy(next);
+    setLoading(true);
+    setActiveSrc(buildSrc(next, kRef.current, savedState));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [riskResult.score]);
+
+  const handleApply = useCallback(() => {
+    setLoading(true);
+    const nextState = { ...savedState, strategy, k };
+    setActiveSrc(buildSrc(strategy, k, nextState));
+    onStateChange?.(nextState);
+  }, [strategy, k, savedState, onStateChange]);
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white shadow-soft overflow-hidden">
+      {/* ── 컨트롤 바 ─────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50">
+        {/* 전략 선택 */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">투자 성향</span>
+          <div className="flex rounded-md overflow-hidden border border-slate-200">
+            {STRATEGIES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => {
+                  setStrategy(s.id);
+                  onStateChange?.({ ...savedState, strategy: s.id, k });
+                }}
+                title={s.desc}
+                className={`px-3 py-1.5 text-xs font-bold transition ${
+                  strategy === s.id
+                    ? "bg-[#2f2f9d] text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {s.emoji} {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* K 값 선택 */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">추천 ETF 수 (K)</span>
+          <div className="flex rounded-md overflow-hidden border border-slate-200">
+            {[3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => {
+                  setK(n);
+                  onStateChange?.({ ...savedState, strategy, k: n });
+                }}
+                className={`w-8 py-1.5 text-xs font-bold transition ${
+                  k === n
+                    ? "bg-[#2f2f9d] text-white"
+                    : "bg-white text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleApply}
+          className="ml-auto flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-blue-600 text-white rounded-md hover:bg-blue-700 active:scale-95 transition"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          분석 실행
+        </button>
+
+        <span className="text-xs text-slate-400">
+          국내 KODEX ETF 30종목 · 30×30 상관행렬 · 섹터 다양성 제약
+        </span>
+      </div>
+
+      {/* ── iframe 영역 ───────────────────────────────────────────────── */}
+      <div className="relative" style={{ height: "1150px" }}>
+        {/* 로딩 오버레이 */}
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-white z-10 gap-3">
+            <div className="w-10 h-10 rounded-full border-[3px] border-blue-200 border-t-blue-600 animate-spin" />
+            <p className="text-sm font-semibold text-slate-600">ETF 상관관계 분석 중…</p>
+            <p className="text-xs text-slate-400">30종목 × 6개 기간 Pearson 상관행렬 연산</p>
+          </div>
+        )}
+        {/* 마운트 후 조건부 렌더링: SSR 단계에서 src 속성 불일치 원천 차단 */}
+        {isMounted && (
+          <iframe
+            ref={iframeRef}
+            key={activeSrc}
+            src={activeSrc}
+            className="w-full border-0"
+            style={{ height: "1150px" }}
+            onLoad={() => setLoading(false)}
+            title="ETF 분산투자 최적화 (국내)"
+            sandbox="allow-scripts"
+          />
+        )}
+      </div>
+    </div>
+  );
+}

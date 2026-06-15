@@ -1,37 +1,110 @@
 "use client";
 
-import { type DragEvent, useEffect, useMemo, useState } from "react";
+import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
-  type CustomerUpdatedMap, type FinancialInfo, type RiskResult, type RrttlluInfo,
+  type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
+  type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredCustomerState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
-  customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState,
-  createNewCustomerProfile, deriveCalculatedAppState, expectedReturnDisplay, fieldGroups, formatChangeDate,
-  formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
-  noLegalConstraint, noneExperience, nullableText, riskExperienceOptions,
+  customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
+  createNewCustomerProfile, EMPTY_PORTFOLIO_ASSET, expectedReturnDisplay, fieldGroups,
+  formatChangeDate, formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
+  loadAnalysisResult, loadPortfolioAssets, savePortfolioAssets,
+  loadRebalancingState, saveRebalancingState,
+  loadNewAnalysisResult, saveNewAnalysisResult,
+  loadTaxSummaries, saveTaxSummaryToDb,
+  loadProductSelections, saveProductSelections,
+  loadTab3AnalysisState, saveTab3AnalysisState,
+  noLegalConstraint, noneExperience, nullableText, parseKrwAmount, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
 } from "./CustomerContext";
+import { FINANCIAL_INCOME_STORAGE_KEY, NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
 
 const tabPaths: Record<string, string> = {
   profile:   "/maintab/tab1",
   existing:  "/maintab/tab2",
   create:    "/maintab/tab3",
-  recommend: "/maintab/tab4",
-  compare:   "/maintab/tab5",
+  compare:   "/maintab/tab4",
+  recommend: "/maintab/tab5",
 };
+
+function toFiniteNumber(value: unknown) {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function portfolioCurrentValue(asset: PortfolioAsset) {
+  const currentValue = toFiniteNumber(asset.current_value);
+  if (currentValue > 0) return currentValue;
+  const amount = toFiniteNumber(asset.amount);
+  if (asset.amount_type === "value") return amount;
+  return amount * toFiniteNumber(asset.current_price);
+}
+
+function portfolioBuyCost(asset: PortfolioAsset) {
+  const amount = toFiniteNumber(asset.amount);
+  if (asset.amount_type === "value") return amount;
+  return amount * toFiniteNumber(asset.buy_price);
+}
+
+function sumPortfolioCurrentValue(assets: PortfolioAsset[]) {
+  return assets.reduce((sum, asset) => sum + portfolioCurrentValue(asset), 0);
+}
+
+function sumPortfolioBuyCost(assets: PortfolioAsset[]) {
+  return assets.reduce((sum, asset) => sum + portfolioBuyCost(asset), 0);
+}
+
+function formatHeaderKrw(value: number) {
+  if (!Number.isFinite(value)) return "0억";
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  if (abs >= 100000000) {
+    const eok = abs / 100000000;
+    return `${sign}${Number.isInteger(eok) ? eok.toFixed(0) : eok.toFixed(1)}억`;
+  }
+  if (abs >= 10000) {
+    const man = abs / 10000;
+    return `${sign}${Number.isInteger(man) ? man.toFixed(0) : man.toFixed(0)}만`;
+  }
+  return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
+}
+
+function buildHeaderAssetSummaryText(financial: FinancialInfo, summary: HeaderAssetSummaryState) {
+  const baseOperatingAssets = parseKrwAmount(financial.existingInvestmentAssets || financial.financialAssets) ?? 0;
+  const baseAdditionalAssets = parseKrwAmount(financial.investableAssets) ?? 0;
+  const operatingAfterSell = summary.confirmedOperatingAssetsAfterSell ?? baseOperatingAssets;
+  const additionalAfterSell = baseAdditionalAssets + (baseOperatingAssets - operatingAfterSell);
+  const confirmedBuyAmount = summary.confirmedBuyAmount ?? 0;
+  const operatingAssets = operatingAfterSell + confirmedBuyAmount;
+  const additionalAssets = additionalAfterSell - confirmedBuyAmount;
+  return `운용 자산 ${formatHeaderKrw(operatingAssets)} | 추가 투자 의향 ${formatHeaderKrw(additionalAssets)}`;
+}
 
 
 export default function MainTabShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
+  // 메인 탭 전환 시 서브 탭 기본값 보장: localStorage 잔류값 선제 제거
+  const currentSegment = useSelectedLayoutSegment();
+  useEffect(() => {
+    if (currentSegment === "tab2") window.localStorage.removeItem("samsung-vvip-tab2-inner-tab");
+    if (currentSegment === "tab3") window.localStorage.removeItem("samsung-vvip-tab3-inner-tab");
+  }, [currentSegment]);
+
   const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>(defaultCustomerProfiles);
   const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>(() => createInitialCustomerData(defaultCustomerProfiles));
+  // ── SSR 안전 초기값: 서버·클라이언트 모두 동일한 기본 고객 ID로 시작 ─────────
+  // 레이지 이니셜라이저 내부에서 localStorage를 참조하면 SSR HTML과 클라이언트
+  // 첫 렌더 값이 달라 Hydration failed 에러가 발생한다.
+  // 실제 복원은 마운트 후 useEffect(isMounted 플래그)에서 안전하게 처리한다.
+  const [isMounted, setIsMounted] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>(defaultCustomerProfiles[0].id);
   const [showCustomerTabs, setShowCustomerTabs] = useState(false);
   const [draggedCustomerId, setDraggedCustomerId] = useState<CustomerId | null>(null);
@@ -49,6 +122,55 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [changeHistory, setChangeHistory] = useState<ChangeEntry[]>([]);
   const [changeHistoryExpanded, setChangeHistoryExpanded] = useState(false);
   const formData = deriveCalculatedAppState(customerData[selectedCustomer] ?? createInitialState());
+
+  // ── 포트폴리오 전역 상태 — Tab 1의 customerData Map 패턴과 동일 구조 ──────
+  // Map keyed by customerId: 고객 전환 시 절대 삭제하지 않음 (읽는 key만 변경)
+  const [portfolioAssetsMap, setPortfolioAssetsMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [portfolioLoadedMap, setPortfolioLoadedMap] = useState<Record<CustomerId, boolean>>({});
+  const [dirtyPortfolioMap, setDirtyPortfolioMap] = useState<Record<CustomerId, boolean>>({});
+  const [analysisResultMap, setAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
+  const portfolioLoadedRef = useRef(new Set<CustomerId>()); // 중복 로드 방지 (렌더 독립적)
+
+  // ── 리밸런싱 파이프라인 상태 Maps (고객별 격리) ────────────────────────────
+  const [rebalancingSellMap, setRebalancingSellMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [rebalancingBuyMap, setRebalancingBuyMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [newPortfolioAnalysisResultMap, setNewPortfolioAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
+  const [rebalancingLoadedMap, setRebalancingLoadedMap] = useState<Record<CustomerId, boolean>>({});
+  const [rebalancingDirtyMap, setRebalancingDirtyMap] = useState<Record<CustomerId, boolean>>({});
+  const [tab3AnalysisStateMap, setTab3AnalysisStateMap] = useState<Record<CustomerId, Tab3AnalysisState>>({});
+
+  // ── Tab 5 상품 선택 Maps (고객별 격리) ───────────────────────────────────
+  const [productSelectionsMap, setProductSelectionsMap] = useState<Record<CustomerId, string[]>>({});
+  const [productSelectionsLoadedMap, setProductSelectionsLoadedMap] = useState<Record<CustomerId, boolean>>({});
+  const [productSelectionsDirtyMap, setProductSelectionsDirtyMap] = useState<Record<CustomerId, boolean>>({});
+
+  // ── 원자적 읽기용 Ref — async 콜백 / 비동기 파이프라인에서 stale closure 없이 최신 상태 참조
+  // React 상태 업데이트는 배치 처리되어 다음 렌더까지 pending 상태이므로,
+  // 매 렌더에서 .current를 동기 갱신하면 항상 최신 커밋 값을 보장한다.
+  const portfolioAssetsMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
+  const rebalancingSellMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
+  const rebalancingBuyMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
+  const tab3AnalysisStateMapRef = useRef<Record<CustomerId, Tab3AnalysisState>>({});
+  const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
+
+  // 파생값 — 공개 인터페이스는 Tab 1의 formData/riskResult 패턴과 동일
+  const portfolioAssets = portfolioAssetsMap[selectedCustomer] ?? [];
+  const isPortfolioLoaded = portfolioLoadedMap[selectedCustomer] ?? false;
+  const analysisResult = analysisResultMap[selectedCustomer] ?? null;
+  const rebalancingSellAssets = rebalancingSellMap[selectedCustomer] ?? [];
+  const rebalancingBuyAssets = rebalancingBuyMap[selectedCustomer] ?? [];
+  const newPortfolioAnalysisResult = newPortfolioAnalysisResultMap[selectedCustomer] ?? null;
+  const tab3AnalysisState = tab3AnalysisStateMap[selectedCustomer] ?? {};
+  const productSelectedIds = productSelectionsMap[selectedCustomer] ?? [];
+
+  // Ref 동기화 — 렌더마다 최신 커밋 값 기록 (useEffect 없이 동기 할당)
+  // 이를 통해 async 콜백이 stale 클로저 없이 항상 최신 상태를 읽을 수 있다
+  portfolioAssetsMapRef.current = portfolioAssetsMap;
+  rebalancingSellMapRef.current = rebalancingSellMap;
+  rebalancingBuyMapRef.current = rebalancingBuyMap;
+  tab3AnalysisStateMapRef.current = tab3AnalysisStateMap;
+  selectedCustomerRef.current = selectedCustomer;
+
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
 
   useEffect(() => {
@@ -96,6 +218,224 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     return () => { cancelled = true; };
   }, []);
 
+  // ── [마운트 후 localStorage 복원] 하이드레이션 안전 파이프라인 ────────────────
+  // 선언 순서가 포트폴리오 로드 useEffect보다 앞에 있어야 한다:
+  //   이 effect → isMounted = true + selectedCustomer = storedId (setState 예약)
+  //   포트폴리오 로드 effect → isMounted = false 감지 → 즉시 return (스킵)
+  //   React 배치 후 리렌더 → isMounted = true, selectedCustomer = storedId 확정
+  //   포트폴리오 로드 effect 재실행 → 올바른 고객 ID로 DB 로드 시작
+  useEffect(() => {
+    setIsMounted(true);
+    const storedId = getStoredSelectedCustomerId();
+    if (storedId) setSelectedCustomer(storedId);
+  }, []); // mount only — deps 없음, localStorage는 이 안에서만 접근
+
+  // ── 고객 전환 시 포트폴리오 1회 레이지 로드 — Tab 1의 초기 load()와 동일 구조
+  // Map에 영구 보관하므로 고객 전환 시 데이터를 절대 삭제하지 않는다
+  useEffect(() => {
+    if (!isMounted) return; // 마운트 전 스킵 — localStorage 복원(setSelectedCustomer) 대기
+    const customerId = selectedCustomer;
+    if (portfolioLoadedRef.current.has(customerId)) return; // 이미 로드됨 — 스킵
+    portfolioLoadedRef.current.add(customerId); // 중복 로드 방지 선점
+    let cancelled = false;
+
+    Promise.all([
+      loadPortfolioAssets(customerId),
+      loadAnalysisResult(customerId),
+      loadRebalancingState(customerId),
+      loadNewAnalysisResult(customerId),
+      loadTab3AnalysisState(customerId),
+      loadTaxSummaries(customerId),
+      loadProductSelections(customerId),
+    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds]) => {
+      if (cancelled) {
+        portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
+        return;
+      }
+      setPortfolioAssetsMap(prev => ({ ...prev, [customerId]: assets }));
+      setAnalysisResultMap(prev => ({ ...prev, [customerId]: result as PortfolioAnalysisResult | null }));
+      setPortfolioLoadedMap(prev => ({ ...prev, [customerId]: true }));
+
+      setRebalancingSellMap(prev => ({ ...prev, [customerId]: rebalancing.sellAssets }));
+      setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
+      setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
+      setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
+      setRebalancingLoadedMap(prev => ({ ...prev, [customerId]: true }));
+
+      setProductSelectionsMap(prev => ({ ...prev, [customerId]: productIds }));
+      setProductSelectionsLoadedMap(prev => ({ ...prev, [customerId]: true }));
+
+      // 세금 요약 → localStorage 복원 + 이벤트 발행 (Tab 4 FinancialIncomeGauge 갱신)
+      const { currentSummary, newSummary } = taxSummaries;
+      if (typeof window !== 'undefined') {
+        if (currentSummary) {
+          try {
+            localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(currentSummary));
+            window.dispatchEvent(new CustomEvent("financial-income-updated"));
+          } catch {}
+        }
+        if (newSummary) {
+          try {
+            localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newSummary));
+            window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
+          } catch {}
+        }
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [selectedCustomer, isMounted]); // isMounted 포함: 마운트 후 올바른 고객 ID로 첫 로드 보장
+
+  // ── 리밸런싱 상태 변경 즉시 저장 (매도+매수 함께) ──────────────────────────
+  useEffect(() => {
+    if (!rebalancingLoadedMap[selectedCustomer]) return;
+    if (!rebalancingDirtyMap[selectedCustomer]) return;
+
+    const customerId = selectedCustomer;
+    const sell = rebalancingSellMap[customerId] ?? [];
+    const buy = rebalancingBuyMap[customerId] ?? [];
+    void saveRebalancingState(customerId, sell, buy).then(() => {
+      setRebalancingDirtyMap(prev => ({ ...prev, [customerId]: false }));
+    });
+  }, [rebalancingSellMap, rebalancingBuyMap, rebalancingLoadedMap, rebalancingDirtyMap, selectedCustomer]);
+
+  // ── Tab 5 상품 선택 변경 즉시 저장 ─────────────────────────────────────────
+  useEffect(() => {
+    if (!productSelectionsLoadedMap[selectedCustomer]) return;
+    if (!productSelectionsDirtyMap[selectedCustomer]) return;
+
+    const customerId = selectedCustomer;
+    const ids = productSelectionsMap[customerId] ?? [];
+    void saveProductSelections(customerId, ids).then(() => {
+      setProductSelectionsDirtyMap(prev => ({ ...prev, [customerId]: false }));
+    });
+  }, [productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
+
+  // ── 자산 변경 즉시 저장 — Tab 1의 saveCustomerDataJsonOnly 패턴과 완전히 동일
+  // debounce 없음: 변경 즉시 저장하여 고객 전환 전에 항상 DB 반영 완료
+  useEffect(() => {
+    if (!portfolioLoadedMap[selectedCustomer]) return;
+    if (!dirtyPortfolioMap[selectedCustomer]) return;
+
+    const customerId = selectedCustomer;
+    const assets = portfolioAssetsMap[customerId] ?? [];
+
+    void savePortfolioAssets(customerId, assets).then(() => {
+      setDirtyPortfolioMap(prev => ({ ...prev, [customerId]: false }));
+    });
+  }, [portfolioAssetsMap, portfolioLoadedMap, dirtyPortfolioMap, selectedCustomer]);
+
+  // ── 포트폴리오 행 조작 함수 — Tab 1의 setFinancial/setRrttllu 패턴과 동일 ──
+  const addPortfolioRow = () => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: [...(prev[selectedCustomer] ?? []), { ...EMPTY_PORTFOLIO_ASSET, owner_customer_id: selectedCustomer }],
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
+  const removePortfolioRow = (index: number) => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: (prev[selectedCustomer] ?? []).filter((_, i) => i !== index),
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
+  const updatePortfolioRow = (index: number, patch: Partial<PortfolioAsset>) => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: (prev[selectedCustomer] ?? []).map((a, i) => (i === index ? { ...a, ...patch } : a)),
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
+  const setPortfolioDirty = (dirty: boolean) => setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: dirty }));
+  const setAnalysisResult = (result: PortfolioAnalysisResult | null) => {
+    setAnalysisResultMap(prev => ({ ...prev, [selectedCustomer]: result }));
+  };
+
+  // ── 리밸런싱 파이프라인 액션 ─────────────────────────────────────────────
+  //
+  // [레이스 컨디션 해결 전략]
+  // 1. useCallback(fn, []) — stable identity: 매 렌더에서 새 함수가 생성되지 않으므로
+  //    하위 컴포넌트가 stale 클로저를 캡처하는 타이밍 버그 원천 차단.
+  // 2. Ref 읽기 — setterFn 내부에서 selectedCustomer / 자산 맵을 Ref로 읽으므로
+  //    "분석 실행 async 대기 중 사용자가 자산을 편집 → pushToRebalancingSell이 편집 전
+  //    스냅샷을 복사" 하는 stale closure 버그 제거.
+  // 3. 함수형 setter(prev => ...) — React가 최신 prev 상태를 보장하므로
+  //    연속 호출 시에도 덮어쓰기 없이 순서가 보장됨.
+  //
+  const updateHeaderAssetSummary = useCallback((cid: CustomerId, updater: (current: HeaderAssetSummaryState) => HeaderAssetSummaryState) => {
+    setCustomerUpdatedAt((prev) => ({ ...prev, [cid]: Date.now() }));
+    setDirtyCustomerData((prev) => ({ ...prev, [cid]: true }));
+    setCustomerData((prev) => {
+      const current = prev[cid] ?? createInitialState();
+      return {
+        ...prev,
+        [cid]: {
+          ...current,
+          headerAssetSummary: updater(current.headerAssetSummary ?? createInitialState().headerAssetSummary),
+        },
+      };
+    });
+  }, []);
+
+  const pushToRebalancingSell = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    const snap = (portfolioAssetsMapRef.current[cid] ?? []).map(a => ({ ...a }));
+    setRebalancingSellMap(prev => ({ ...prev, [cid]: snap }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+  }, []); // stable — Ref 기반, 의존성 없음
+
+  const setRebalancingSellAssets = useCallback((assets: PortfolioAsset[]) => {
+    const cid = selectedCustomerRef.current;
+    setRebalancingSellMap(prev => ({ ...prev, [cid]: assets }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+  }, []); // stable
+
+  const confirmRebalancingSell = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    // rebalancingSellMapRef.current: 마지막 렌더에서 커밋된 최신 값
+    // → 버튼 클릭 직전의 편집 내용이 이미 반영되어 있음이 보장됨
+    const snap = (rebalancingSellMapRef.current[cid] ?? []).map(a => ({ ...a }));
+    const confirmedOperatingAssetsAfterSell = sumPortfolioCurrentValue(snap);
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterSell }));
+  }, []); // stable — Ref 기반, 의존성 없음
+  const setRebalancingBuyAssets = useCallback((assets: PortfolioAsset[]) => {
+    const cid = selectedCustomerRef.current;
+    setRebalancingBuyMap(prev => ({ ...prev, [cid]: assets }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+  }, []); // stable
+
+  const confirmRebalancingBuy = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    const confirmedBuyAmount = sumPortfolioBuyCost(rebalancingBuyMapRef.current[cid] ?? []);
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedBuyAmount }));
+  }, [updateHeaderAssetSummary]);
+
+  const setNewPortfolioAnalysisResult = useCallback((result: PortfolioAnalysisResult | null) => {
+    const cid = selectedCustomerRef.current;
+    setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [cid]: result }));
+    void saveNewAnalysisResult(cid, result); // 분석 완료 즉시 저장 (더티 플래그 없음)
+  }, []); // stable
+
+  const updateTab3AnalysisState = useCallback((patch: Partial<Tab3AnalysisState>) => {
+    const cid = selectedCustomerRef.current;
+    const nextState = { ...(tab3AnalysisStateMapRef.current[cid] ?? {}), ...patch };
+    setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: nextState }));
+    void saveTab3AnalysisState(cid, nextState);
+  }, []); // stable
+
+  const setProductSelectedIds = useCallback((ids: string[]) => {
+    const cid = selectedCustomerRef.current;
+    setProductSelectionsMap(prev => ({ ...prev, [cid]: ids }));
+    setProductSelectionsDirtyMap(prev => ({ ...prev, [cid]: true }));
+  }, []); // stable
+
+  const saveTaxSummaryFn = useCallback((type: 'current' | 'new', summary: unknown) => {
+    const cid = selectedCustomerRef.current;
+    void saveTaxSummaryToDb(cid, type, summary);
+  }, []); // stable
+
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
   const financialCompletion = useMemo(() => completion([
@@ -114,6 +454,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const internalJsonPayload = useMemo(() => buildStructuredJsonPayload(formData, confirmedRiskResult ?? riskResult, selectedCustomerProfile), [confirmedRiskResult, formData, riskResult, selectedCustomerProfile]);
   const warnings = internalJsonPayload.rrttllu.warnings;
   const customerDataJsonPayload = useMemo(() => ({ appState: formData, analysis: { riskResult, internalJsonPayload, financialCompletion, rrttlluCompletion } }), [financialCompletion, formData, internalJsonPayload, riskResult, rrttlluCompletion]);
+  const headerAssetSummaryText = useMemo(
+    () => buildHeaderAssetSummaryText(formData.financial, formData.headerAssetSummary),
+    [formData.financial, formData.headerAssetSummary],
+  );
 
   useEffect(() => {
     if (!storageReady || isSeeding || !persistedCustomerIds.includes(selectedCustomer)) return;
@@ -136,6 +480,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   };
 
   const selectCustomer = (id: CustomerId) => {
+    // dirty 플래그는 per-customer Map으로 관리 — 전환 시 별도 소거 불필요
     setSelectedCustomer(id); storeSelectedCustomerId(id);
     setAnalysisRequested(false); setConfirmedRiskResult(null); setLastAnalysisSnapshot(null);
     setChangeHistory([]); setChangeHistoryExpanded(false);
@@ -180,14 +525,17 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
   const reorderCustomer = (dropIndex: number) => {
     if (!draggedCustomerId) return;
-    setCustomerProfiles((prev) => {
-      const srcIdx = prev.findIndex((p) => p.id === draggedCustomerId);
-      if (srcIdx < 0) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(srcIdx, 1);
-      const adjusted = srcIdx < dropIndex ? dropIndex - 1 : dropIndex;
-      next.splice(Math.max(0, Math.min(adjusted, next.length)), 0, moved);
-      return next;
+    const srcIdx = customerProfiles.findIndex((p) => p.id === draggedCustomerId);
+    if (srcIdx < 0) return;
+    const next = [...customerProfiles];
+    const [moved] = next.splice(srcIdx, 1);
+    const adjusted = srcIdx < dropIndex ? dropIndex - 1 : dropIndex;
+    next.splice(Math.max(0, Math.min(adjusted, next.length)), 0, moved);
+    const ordered = next.map((profile, index) => ({ ...profile, sort_order: index }));
+    setCustomerProfiles(ordered);
+    void customerStorage.saveSortOrders(ordered).then((r) => {
+      if (!r.ok) setStorageErrorMessage(r.message);
+      else setStorageErrorMessage("");
     });
     setDraggedCustomerId(null); setCustomerDropIndex(null);
   };
@@ -198,9 +546,29 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     const nextId = nextProfiles[0].id;
     setCustomerProfiles(nextProfiles);
     setCustomerData((prev) => { const next = { ...prev }; delete next[selectedCustomer]; if (!next[nextId]) next[nextId] = createInitialState(); return next; });
-    void customerStorage.remove(selectedCustomer).then((r) => {
+    const deletedId = selectedCustomer;
+    void customerStorage.remove(deletedId).then((r) => {
       if (!r.ok) setStorageErrorMessage(r.message);
-      else { setPersistedCustomerIds((prev) => prev.filter((id) => id !== selectedCustomer)); setCustomerUpdatedAt((prev) => { const next = { ...prev }; delete next[selectedCustomer]; return next; }); setStorageErrorMessage(""); }
+      else {
+        setPersistedCustomerIds((prev) => prev.filter((id) => id !== deletedId));
+        setCustomerUpdatedAt((prev) => { const next = { ...prev }; delete next[deletedId]; return next; });
+        // 삭제된 고객의 포트폴리오 Map 항목 정리
+        setPortfolioAssetsMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setPortfolioLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setDirtyPortfolioMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setAnalysisResultMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setRebalancingSellMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setRebalancingBuyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setNewPortfolioAnalysisResultMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setTab3AnalysisStateMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setRebalancingLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setRebalancingDirtyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setProductSelectionsMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setProductSelectionsLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setProductSelectionsDirtyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        portfolioLoadedRef.current.delete(deletedId);
+        setStorageErrorMessage("");
+      }
     });
     selectCustomer(nextId); setDeleteConfirmOpen(false);
   };
@@ -320,7 +688,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       } else if (hasExtractedText(rrttlluPatch.expectedReturn)) {
         rrttllu.expectedReturnUnknown = false;
       }
-      return { ...prev, [selectedCustomer]: { ...current, financial, rrttllu, smartExtractedUniqueOther: nextSmartUniqueOther } };
+      return { ...prev, [selectedCustomer]: deriveCalculatedAppState({ ...current, financial, rrttllu, smartExtractedUniqueOther: nextSmartUniqueOther }) };
     });
     if (storageReady && !isSeeding) {
       void saveCustomerProfileColumns(updatedProfile).then((r) => {
@@ -330,7 +698,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     }
   };
 
-  const setFinancial = (key: keyof FinancialInfo, value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, [key]: value } }));
+  const setFinancial = (key: keyof FinancialInfo, value: string) => setFormData((prev) => deriveCalculatedAppState({ ...prev, financial: { ...prev.financial, [key]: value } }));
   const setRrttllu = (key: keyof RrttlluInfo, value: string) => setFormData((prev) => (
     key === "uniqueOther"
       ? { ...prev, uniqueOtherManual: value, smartExtractedUniqueOther: "", rrttllu: { ...prev.rrttllu, uniqueOther: value } }
@@ -373,6 +741,17 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
     updateCustomerProfile, setChangeHistoryExpanded,
+    // 포트폴리오 전역 상태
+    portfolioAssets, isPortfolioLoaded, analysisResult,
+    addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
+    // 리밸런싱 파이프라인
+    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
+    pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell,
+    confirmRebalancingBuy, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
+    // Tab 5 상품 선택 (고객별 Supabase 영속)
+    productSelectedIds, setProductSelectedIds,
+    // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)
+    saveTaxSummary: saveTaxSummaryFn,
   };
 
   return (
@@ -387,6 +766,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
             onDragStartCustomer={setDraggedCustomerId} draggedCustomerId={draggedCustomerId}
             dropIndex={customerDropIndex} onSetDropIndex={setCustomerDropIndex}
             onDropCustomer={reorderCustomer} recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
+            assetSummaryText={headerAssetSummaryText}
             storageErrorMessage={storageErrorMessage}
           />
           <div className="flex flex-col gap-5 xl:flex-row">
@@ -414,8 +794,8 @@ const segmentToTab: Record<string, string> = {
   tab1: "profile",
   tab2: "existing",
   tab3: "create",
-  tab4: "recommend",
-  tab5: "compare",
+  tab4: "compare",
+  tab5: "recommend",
 };
 function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const segment = useSelectedLayoutSegment();
@@ -438,14 +818,14 @@ function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
 function CustomerSelector({
   customers, selectedCustomer, showCustomers, onToggleSearch, onSelectCustomer, onAddCustomer,
   onRequestDelete, onDragStartCustomer, draggedCustomerId, dropIndex, onSetDropIndex,
-  onDropCustomer, recentUpdatedAt, storageErrorMessage,
+  onDropCustomer, recentUpdatedAt, assetSummaryText, storageErrorMessage,
 }: {
   customers: CustomerProfile[]; selectedCustomer: CustomerId; showCustomers: boolean;
   onToggleSearch: () => void; onSelectCustomer: (id: CustomerId) => void; onAddCustomer: () => void;
   onRequestDelete: () => void; onDragStartCustomer: (id: CustomerId | null) => void;
   draggedCustomerId: CustomerId | null; dropIndex: number | null;
   onSetDropIndex: (i: number | null) => void; onDropCustomer: (i: number) => void;
-  recentUpdatedAt: number; storageErrorMessage: string;
+  recentUpdatedAt: number; assetSummaryText: string; storageErrorMessage: string;
 }) {
   const currentCustomer = customers.find((c) => c.id === selectedCustomer);
   const [isDraggingTab, setIsDraggingTab] = useState(false);
@@ -460,7 +840,8 @@ function CustomerSelector({
         <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-start items-center justify-end gap-x-2 gap-y-1 self-start text-right">
           <p className="text-sm font-bold text-slate-600">현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span></p>
           <button type="button" onClick={onRequestDelete} aria-label="현재 고객 삭제" className="flex h-10 w-10 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition hover:border-red-300 hover:bg-red-100"><Trash2 size={17} /></button>
-          <p className="basis-full text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
+          <p className="col-span-2 text-xs font-extrabold text-slate-600">{assetSummaryText}</p>
+          <p className="col-span-2 text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
         </div>
       </div>
       {storageErrorMessage ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{storageErrorMessage}</div> : null}

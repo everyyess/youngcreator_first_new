@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type React from "react";
 import {
   Activity,
   AlertTriangle,
@@ -10,26 +11,44 @@ import {
   TrendingUp,
   WalletCards,
 } from "lucide-react";
-import type { PortfolioAnalysisResult, PortfolioAsset } from "./CustomerContext";
+import { useCustomerContext, type PortfolioAnalysisResult, type PortfolioAsset } from "./CustomerContext";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const CLASS_COLORS: Record<string, string> = {
-  국내주식: "#3B82F6",
-  해외주식: "#10B981",
-  국내채권: "#F59E0B",
-  해외채권: "#EF4444",
-  금: "#F97316",
-  리츠: "#8B5CF6",
-  현금: "#64748B",
-  달러: "#06B6D4",
+  국내주식:    "#3B82F6",
+  해외주식:    "#10B981",
+  국내채권:    "#F59E0B",
+  해외채권:    "#EF4444",
+  금:          "#F97316",  // 대안자산 / 원자재
+  리츠:        "#8B5CF6",  // 부동산 / 대안자산
+  현금:        "#64748B",
+  달러:        "#06B6D4",  // 현금성자산 / 외환
+  암호화폐:    "#EC4899",  // 초고위험 대안자산
+};
+
+// 도넛 차트용 표시 레이블 (내부 asset_class → 사용자 표시명)
+export const CLASS_DISPLAY_LABELS: Record<string, string> = {
+  국내주식: "국내주식",
+  해외주식: "해외주식",
+  국내채권: "국내채권",
+  해외채권: "해외채권",
+  금:       "금·원자재",
+  리츠:     "리츠·부동산",
+  현금:     "현금성자산",
+  달러:     "외화·현금",
+  암호화폐: "암호화폐",
 };
 
 const ASSET_CLASS_ALIAS: Record<string, string> = {
+  // 기존 별칭
   원자재: "금", 골드: "금", gold: "금", 귀금속: "금",
   외화: "달러", usd: "달러", 달러화: "달러",
   부동산: "리츠", 리츠etf: "리츠", reits: "리츠",
   해외채권etf: "해외채권", 미국채: "해외채권", 달러채권: "해외채권",
+  // 신규 통합 상품유형 → 내부 asset_class 정규화
+  국내etf: "국내주식", 해외etf: "해외주식",
+  "예적금/현금": "현금", 예적금: "현금",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -71,25 +90,24 @@ export function normalizeAssetClass(cls: string): string {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function usePortfolioResult(): PortfolioAnalysisResult | null {
-  const [data, setData] = useState<PortfolioAnalysisResult | null>(null);
+  const { analysisResult } = useCustomerContext();
+  const [result, setResult] = useState<PortfolioAnalysisResult | null>(null);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("portfolio-result-v1");
-      if (stored) setData(JSON.parse(stored) as PortfolioAnalysisResult);
-    } catch {}
-
-    const handler = () => {
+    const load = () => {
       try {
         const stored = localStorage.getItem("portfolio-result-v1");
-        if (stored) setData(JSON.parse(stored) as PortfolioAnalysisResult);
-      } catch {}
+        setResult(stored ? JSON.parse(stored) : null);
+      } catch {
+        setResult(null);
+      }
     };
-    window.addEventListener("portfolio-result-updated", handler);
-    return () => window.removeEventListener("portfolio-result-updated", handler);
+    load();
+    window.addEventListener("portfolio-result-updated", load);
+    return () => window.removeEventListener("portfolio-result-updated", load);
   }, []);
 
-  return data;
+  return analysisResult ?? result;
 }
 
 // ─── Layout Primitives ───────────────────────────────────────────────────────
@@ -137,6 +155,16 @@ export function MetricWithNote({ label, value, note }: { label: string; value: s
   );
 }
 
+export function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-xl bg-slate-50 px-3 py-3">
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="text-lg font-black text-navy leading-none">{value}</span>
+      {sub && <span className="text-[10px] leading-snug text-slate-400">{sub}</span>}
+    </div>
+  );
+}
+
 export function PieChartIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -153,56 +181,67 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
   if (!rows.length) return null;
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full text-sm">
+      {/* table-fixed: 열 너비를 th 기준으로 고정 → 셀 내용 길이에 따른 열 가변 차단 */}
+      <table className="w-full table-fixed text-sm">
         <thead className="border-b border-slate-200 bg-slate-50">
           <tr>
-            {["종목명", "자산군", "현재가", "매수단가", "평가금액", "수익률", "평가손익"].map((h) => (
-              <th key={h} className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 whitespace-nowrap">{h}</th>
-            ))}
+            <th className="w-[22%] px-3    py-2.5 text-left   text-xs font-bold text-slate-500 whitespace-nowrap">종목명</th>
+            <th className="w-[12%] px-2    py-2.5 text-center text-xs font-bold text-slate-500 whitespace-nowrap">자산군</th>
+            <th className="w-[14%] pl-2 pr-4 py-2.5 text-right text-xs font-bold text-slate-500 whitespace-nowrap">현재가</th>
+            <th className="w-[14%] pl-2 pr-4 py-2.5 text-right text-xs font-bold text-slate-500 whitespace-nowrap">매수단가</th>
+            <th className="w-[15%] pl-2 pr-4 py-2.5 text-right text-xs font-bold text-slate-500 whitespace-nowrap">평가금액</th>
+            <th className="w-[10%] pl-2 pr-4 py-2.5 text-right text-xs font-bold text-slate-500 whitespace-nowrap">수익률</th>
+            <th className="w-[13%] pl-2 pr-4 py-2.5 text-right text-xs font-bold text-slate-500 whitespace-nowrap">평가손익</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {rows.map((a, i) => {
-            const cp: number | null = typeof a.current_price === "number" && a.current_price > 0 ? a.current_price : null;
-            const bp: number | null = typeof a.buy_price === "number" && a.buy_price > 0 ? a.buy_price : null;
+            // Number() 변환으로 JSON/Supabase에서 문자열로 역직렬화된 경우도 처리
+            const cpRaw = Number(a.current_price);
+            const cp: number | null = Number.isFinite(cpRaw) && cpRaw > 0 ? cpRaw : null;
+            const bpRaw = Number(a.buy_price);
+            const bp: number | null = Number.isFinite(bpRaw) && bpRaw > 0 ? bpRaw : null;
             const qty = a.amount;
             const totalCost: number | null = a.amount_type === "value" ? qty : bp !== null ? qty * bp : null;
             const totalCurrentValue: number | null = cp === null ? null : a.amount_type === "quantity" ? qty * cp : bp !== null ? (qty / bp) * cp : null;
+            // 현재가 없을 때 매수 원가(bp × qty)를 평가금액 폴백으로 사용 → 열이 빈 것처럼 보이는 문제 해소
+            const costBasis: number | null = a.amount_type === "quantity" && bp !== null && qty > 0 ? qty * bp : null;
             const displayValue: number | null = totalCurrentValue !== null
               ? totalCurrentValue
               : a.amount_type === "value"
                 ? (typeof a.current_value === "number" ? a.current_value : typeof a.amount === "number" ? a.amount : null)
-                : null;
+                : costBasis;
             const gainPct: number | null = cp !== null && bp !== null ? ((cp - bp) / bp) * 100 : null;
             const gainAmt: number | null = totalCurrentValue !== null && totalCost !== null ? totalCurrentValue - totalCost : null;
             const isPos = gainAmt !== null && gainAmt > 0;
             const isNeg = gainAmt !== null && gainAmt < 0;
             return (
               <tr key={i} className="bg-white hover:bg-slate-50">
-                <td className="px-3 py-2.5 font-semibold text-navy whitespace-nowrap">{a.name}</td>
-                <td className="px-3 py-2.5">
+                {/* 종목명: table-fixed 환경에서 넘침 방지 — truncate(overflow-hidden + ellipsis + nowrap) */}
+                <td className="px-3 py-2.5 text-left font-semibold text-navy max-w-0 truncate">{a.name}</td>
+                <td className="px-2 py-2.5 text-center">
                   <span className="rounded-full px-2 py-0.5 text-xs font-bold"
                     style={{ backgroundColor: (CLASS_COLORS[a.asset_class] ?? "#94a3b8") + "22", color: CLASS_COLORS[a.asset_class] ?? "#64748b" }}>
                     {a.asset_class}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-700">
+                <td className="pl-2 pr-4 py-2.5 text-right text-xs font-semibold text-slate-700">
                   {cp !== null ? fmtWon(cp) : <span className="text-slate-300">—</span>}
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs text-slate-500">
+                <td className="pl-2 pr-4 py-2.5 text-right text-xs text-slate-500">
                   {bp !== null ? fmtWon(bp) : <span className="text-slate-300">—</span>}
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs font-semibold text-navy">
+                <td className="pl-2 pr-4 py-2.5 text-right text-xs font-semibold text-navy">
                   {displayValue !== null ? fmtWon(displayValue) : <span className="text-slate-300">—</span>}
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs font-bold">
+                <td className="pl-2 pr-4 py-2.5 text-right text-xs font-bold">
                   {gainPct !== null ? (
                     <span className={isPos ? "text-emerald-600" : isNeg ? "text-red-600" : "text-slate-400"}>
                       {gainPct >= 0 ? "+" : ""}{gainPct.toFixed(2)}%
                     </span>
                   ) : <span className="text-slate-300">—</span>}
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs font-bold">
+                <td className="pl-2 pr-4 py-2.5 text-right text-xs font-bold">
                   {gainAmt !== null ? (
                     <span className={isPos ? "text-emerald-600" : isNeg ? "text-red-600" : "text-slate-400"}>
                       {gainAmt >= 0 ? "+" : ""}{fmtWon(gainAmt)}
@@ -222,12 +261,20 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
 
 export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
   const [hoveredCls, setHoveredCls] = useState<string | null>(null);
-  const totalValue = assets.reduce((s, a) => s + (a.current_value ?? a.amount ?? 0), 0);
+  const getAssetValue = (a: PortfolioAsset): number => {
+    if (a.current_value != null && a.current_value > 0) return a.current_value;
+    if (a.amount_type === 'quantity' && a.buy_price != null && a.buy_price > 0 && a.amount > 0)
+      return a.buy_price * a.amount;
+    return a.amount ?? 0;
+  };
+  const totalValue = assets.reduce((s, a) => s + getAssetValue(a), 0);
   const byClass: Record<string, number> = {};
   for (const a of assets) {
-    const value = a.current_value ?? a.amount ?? 0;
+    const value = getAssetValue(a);
+    if (!Number.isFinite(value) || value <= 0) continue;
     const pct = totalValue > 0 ? (value / totalValue) * 100 : (a.weight ?? 0) * 100;
-    const cls = normalizeAssetClass(a.asset_class);
+    if (!Number.isFinite(pct) || pct <= 0) continue;
+    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
     byClass[cls] = (byClass[cls] ?? 0) + pct;
   }
   const segments = Object.entries(byClass).filter(([, pct]) => pct > 0.5).sort(([, a], [, b]) => b - a);
@@ -236,7 +283,6 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
   const hovered = hoveredCls ? (segments.find(([cls]) => cls === hoveredCls) ?? null) : null;
   return (
     <div className="flex flex-col items-center gap-6">
-      {/* 도넛 SVG — h-36→h-56 (약 56% 확대) */}
       <div className="relative h-56 w-56">
         <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90" style={{ overflow: "visible" }} onMouseLeave={() => setHoveredCls(null)}>
           <circle cx="18" cy="18" r={r} fill="none" stroke="#f1f5f9" strokeWidth="3.5" />
@@ -258,19 +304,19 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           {hovered ? (
             <div className="text-center leading-tight">
-              <p className="text-sm font-bold text-navy">{hovered[0]}</p>
+              <p className="text-sm font-bold text-navy">{CLASS_DISPLAY_LABELS[hovered[0]] ?? hovered[0]}</p>
               <p className="text-base font-bold text-samsung">{hovered[1].toFixed(1)}%</p>
             </div>
           ) : <p className="text-sm text-slate-400">자산군별 비중</p>}
         </div>
       </div>
-      {/* 범례 — 차트 아래 가로 2열 */}
+      {/* 범례 */}
       <div className="grid w-full max-w-sm grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-semibold">
         {segments.map(([cls, pct]) => (
           <div key={cls} className={`flex items-center gap-1.5 cursor-default rounded px-1.5 py-1 transition-colors ${hoveredCls === cls ? "bg-slate-100" : ""}`}
             onMouseEnter={() => setHoveredCls(cls)} onMouseLeave={() => setHoveredCls(null)}>
             <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: CLASS_COLORS[cls] ?? "#94a3b8" }} />
-            <span className="truncate text-slate-600">{cls}</span>
+            <span className="truncate text-slate-600">{CLASS_DISPLAY_LABELS[cls] ?? cls}</span>
             <span className="ml-auto shrink-0 font-bold text-navy">{pct.toFixed(1)}%</span>
           </div>
         ))}
@@ -283,7 +329,16 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
 
 export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; labels: string[] }) {
   if (!matrix.length || !labels.length) return null;
-  const shortLabel = (l: string) => l.slice(0, 4);
+
+  const n = labels.length;
+  // 자산 수에 따라 폰트·패딩을 동적 축소 (잘림 없이 전체 레이블 표시)
+  const isCompact = n >= 6;
+  const isTiny    = n >= 9;
+  const labelFont  = isTiny ? "text-[9px]"  : isCompact ? "text-[10px]" : "text-xs";
+  const headerPad  = isTiny ? "p-0.5"       : isCompact ? "p-1"         : "p-2.5";
+  const cellPad    = isTiny ? "p-0.5"       : isCompact ? "p-1.5"       : "p-3";
+  const valueFont  = isTiny ? "text-[9px]"  : isCompact ? "text-[10px]" : "text-xs";
+
   function cellStyles(val: number): { bg: string; text: string } {
     if (val >= 0.7)  return { bg: "bg-red-500",     text: "text-white font-bold" };
     if (val >= 0.3)  return { bg: "bg-orange-400",  text: "text-slate-900 font-semibold" };
@@ -293,29 +348,45 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
   return (
     <div className="flex flex-col gap-3">
       <div className="overflow-x-auto w-full">
-        <table className="w-full text-xs border-separate" style={{ borderSpacing: "2px" }}>
+        <table className="border-separate" style={{ borderSpacing: "2px" }}>
           <thead>
             <tr>
-              <th className="bg-slate-200 p-3 w-14 rounded-sm text-center align-middle" />
-              {labels.map((l) => (
-                <th key={l} className="bg-slate-200 p-3 text-center align-middle text-slate-700 font-bold rounded-sm">{shortLabel(l)}</th>
+              {/* 좌상단 빈 셀 */}
+              <th className={`bg-slate-200 ${headerPad} rounded-sm`} />
+              {labels.map((l, i) => (
+                <th
+                  key={i}
+                  className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold rounded-sm ${labelFont} leading-tight break-words`}
+                  style={{ maxWidth: isCompact ? "4rem" : "6rem", wordBreak: "break-word" }}
+                >
+                  {l || '자산'}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {matrix.map((row, ri) => (
               <tr key={ri}>
-                <td className="bg-slate-200 p-3 text-center align-middle text-slate-700 font-bold whitespace-nowrap rounded-sm">{shortLabel(labels[ri])}</td>
+                <td
+                  className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold rounded-sm ${labelFont} leading-tight break-words`}
+                  style={{ maxWidth: isCompact ? "4rem" : "6rem", wordBreak: "break-word" }}
+                >
+                  {labels[ri] || '자산'}
+                </td>
                 {row.map((val, ci) => {
                   const { bg, text } = cellStyles(val);
-                  return <td key={ci} className={`p-4 text-center align-middle rounded-sm select-none ${bg} ${text}`}>{val.toFixed(2)}</td>;
+                  return (
+                    <td key={ci} className={`${cellPad} text-center align-middle rounded-sm select-none ${bg} ${text} ${valueFont}`}>
+                      {val.toFixed(2)}
+                    </td>
+                  );
                 })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap gap-4 text-xs font-semibold">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs font-semibold">
         {[
           { color: "bg-red-500",     label: "0.7 이상 · 고상관 (리스크 쏠림)" },
           { color: "bg-orange-400",  label: "0.3 ~ 0.7 · 중상관 (동조화 주의)" },
@@ -437,40 +508,56 @@ export function HealthSummaryBox({ healthResult }: { healthResult: any }) {
   const cautionItems = items.filter((it: any) => it.score === 1);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const penaltyItems = items.filter((it: any) => it.penalty);
+  const score: number = healthResult.totalScore ?? 0;
+  const badge: string = healthResult.badge ?? "Rebalance";
+
+  const arcLen = Math.PI * 75;
+  const filled = arcLen * (score / 14);
+  const gaugeColor =
+    badge === "Hold" ? "#10b981" :
+    badge === "Sell" ? "#ef4444" :
+                       "#f59e0b";
+
   const actionText = penaltyItems.length
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ? `${penaltyItems.map((i: any) => i.label).join(", ")} – 즉시 분산 조정 필요.`
     : problemItems.length ? "위 문제 항목에 대한 즉각적인 리밸런싱을 권고합니다."
     : cautionItems.length ? "위 주의 항목을 점검하고 점진적 조정을 검토하세요."
     : "현재 포트폴리오를 유지하며 정기 점검을 진행하세요.";
+
   return (
-    <div className="rounded-lg bg-blue-50 px-4 py-4 text-sm text-blue-900 space-y-3">
-      <div>
-        <p className="font-bold text-blue-800 mb-0.5">[종합 점수 및 권고]</p>
-        <p className="font-semibold">{healthResult.totalScore}/14점 → {healthResult.badgeKo}</p>
+    <div className="rounded-xl border border-slate-100 bg-white p-5">
+      <div className="flex flex-col items-center">
+        <svg width="190" height="108" viewBox="0 0 190 108" className="overflow-visible">
+          <path
+            d="M 20 100 A 75 75 0 0 1 170 100"
+            fill="none"
+            stroke="#e2e8f0"
+            strokeWidth="14"
+            strokeLinecap="round"
+          />
+          <path
+            d="M 20 100 A 75 75 0 0 1 170 100"
+            fill="none"
+            stroke={gaugeColor}
+            strokeWidth="14"
+            strokeLinecap="round"
+            strokeDasharray={`${filled} ${arcLen + 20}`}
+          />
+          <text x="95" y="85" textAnchor="middle" fontSize="28" fontWeight="900" fill={gaugeColor}>
+            {score}
+          </text>
+          <text x="95" y="103" textAnchor="middle" fontSize="11" fontWeight="700" fill="#94a3b8">
+            / 14점
+          </text>
+        </svg>
+        <p className="mt-1 text-sm font-bold" style={{ color: gaugeColor }}>
+          {(healthResult.badgeKo as string)?.split(" – ")[0] ?? badge}
+        </p>
       </div>
-      {problemItems.length > 0 && (
-        <div>
-          <p className="font-bold text-red-700 mb-0.5">[문제 항목]</p>
-          <ul className="list-disc list-inside space-y-0.5 ml-1">
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            {problemItems.map((it: any) => <li key={it.key} className="text-red-800 font-semibold">{it.label}</li>)}
-          </ul>
-        </div>
-      )}
-      {cautionItems.length > 0 && (
-        <div>
-          <p className="font-bold text-amber-700 mb-0.5">[주의 항목]</p>
-          <ul className="list-disc list-inside space-y-0.5 ml-1">
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            {cautionItems.map((it: any) => <li key={it.key} className="text-amber-800 font-semibold">{it.label}</li>)}
-          </ul>
-        </div>
-      )}
-      <div>
-        <p className="font-bold text-blue-800 mb-0.5">[행동 지침]</p>
-        <p className="font-semibold">{actionText}</p>
-      </div>
+      <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold leading-relaxed text-slate-600">
+        {actionText}
+      </p>
     </div>
   );
 }
@@ -711,42 +798,37 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
 
   return (
     <div className="space-y-5">
-      <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
-        <DonutChart assets={enrichedAssets} />
-      </ResultCard>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
+          <DonutChart assets={enrichedAssets} />
+        </ResultCard>
 
-      <ResultCard icon={<Activity size={18} />} title="자산 간 상관관계 히트맵" accent="slate">
-        {quantResult?.risk?.correlationHeatmap?.matrix?.length ? (
-          <CorrelationHeatmap matrix={quantResult.risk.correlationHeatmap.matrix} labels={quantResult.risk.correlationHeatmap.labels} />
-        ) : (
-          <p className="text-sm text-slate-400">자산이 2개 이상일 때 표시됩니다.</p>
-        )}
-      </ResultCard>
+        <ResultCard icon={<Activity size={18} />} title="자산 간 상관관계 히트맵" accent="slate">
+          {quantResult?.risk?.correlationHeatmap?.matrix?.length ? (
+            <CorrelationHeatmap matrix={quantResult.risk.correlationHeatmap.matrix} labels={quantResult.risk.correlationHeatmap.labels} />
+          ) : (
+            <p className="text-sm text-slate-400">자산이 2개 이상일 때 표시됩니다.</p>
+          )}
+        </ResultCard>
+      </div>
 
       {quantResult && (
         <div className="grid gap-5">
           <ResultCard icon={<TrendingUp size={18} />} title="성과 및 효율성" accent="green">
-            <div className="grid gap-2">
-              <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-                <span className="text-sm font-semibold text-slate-500">세후 기대수익률</span>
-                <span className="text-right text-sm font-bold text-navy">{fmtPct(quantResult.performance.afterTaxExpectedReturn)}</span>
-              </div>
-              <MetricWithNote label="샤프 비율" value={fmt(quantResult.performance.sharpeRatio)} note="위험 한 단위당 초과 수익 효율성 지표입니다." />
-              <MetricWithNote label="소르티노 비율" value={fmt(quantResult.performance.sortinoRatio)} note="하방 리스크 대비 변동성 방어력 지표입니다." />
-              <MetricWithNote label="젠센 알파" value={fmtPct(quantResult.performance.jensensAlpha)} note={`시장 평균 대비 순수 알파 수익: 연 ${fmtPct(quantResult.performance.jensensAlpha)}`} />
+            <div className="grid grid-cols-2 gap-3">
+              <MetricCard label="세후 기대수익률" value={fmtPct(quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
+              <MetricCard label="샤프 비율" value={fmt(quantResult.performance.sharpeRatio)} sub="위험 단위당 초과수익" />
+              <MetricCard label="소르티노 비율" value={fmt(quantResult.performance.sortinoRatio)} sub="하방 리스크 대비 방어력" />
+              <MetricCard label="젠센 알파" value={fmtPct(quantResult.performance.jensensAlpha)} sub="시장 초과 순수 알파" />
             </div>
           </ResultCard>
 
           <ResultCard icon={<Activity size={18} />} title="리스크 및 하방 손실" accent="orange">
-            <div className="grid gap-2">
-              <MetricWithNote label="연환산 변동성" value={fmtPct(quantResult.risk.volatility)}
-                note={`연간 가격 흔들림 폭 ${fmtPct(quantResult.risk.volatility)}.`} />
-              <MetricWithNote label="최대 낙폭(MDD)" value={fmtPct(Math.abs(quantResult.risk.mdd))}
-                note={`역사적 최고점 대비 최악 하락률 ${fmtPct(Math.abs(quantResult.risk.mdd))}.`} />
-              <MetricWithNote label="95% VaR" value={fmtWon(quantResult.risk.var95)}
-                note={`월간 최대 손실 가능금액(95% 신뢰): ${fmtWon(Math.abs(quantResult.risk.var95))}`} />
-              <MetricWithNote label="분산화 점수" value={fmt(quantResult.risk.diversificationScore)}
-                note="1에 가까울수록 자산 간 동조화가 강함을 의미합니다." />
+            <div className="grid grid-cols-2 gap-3">
+              <MetricCard label="연환산 변동성" value={fmtPct(quantResult.risk.volatility)} sub="연간 가격 흔들림 폭" />
+              <MetricCard label="최대 낙폭(MDD)" value={fmtPct(Math.abs(quantResult.risk.mdd))} sub="최고점 대비 최악 하락률" />
+              <MetricCard label="95% VaR" value={fmtWon(quantResult.risk.var95)} sub="월간 최대 손실 가능액" />
+              <MetricCard label="분산화 점수" value={fmt(quantResult.risk.diversificationScore)} sub="1에 가까울수록 분산효과 우수 (0에 가까울수록 동조화)" />
             </div>
             {quantResult.sensitivity.hhiWarning && (
               <p className="mt-3 rounded-lg bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-800">
@@ -756,19 +838,11 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
           </ResultCard>
 
           <ResultCard icon={<BarChart3 size={18} />} title="민감도 및 쏠림" accent="blue">
-            <div className="grid gap-2">
-              <MetricWithNote label="시장 베타" value={fmt(quantResult.sensitivity.beta)}
-                note={`시장 1% 변동 시 포트폴리오 ${fmt(quantResult.sensitivity.beta)}% 반응.`} />
-              <MetricWithNote label="HHI 집중도" value={fmt(quantResult.sensitivity.hhi, 4)}
-                note="종목별 비중 불균형 지표. 높을수록 특정 종목 집중 위험." />
-              <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-                <span className="text-sm font-semibold text-slate-500">해외주식 양도세</span>
-                <span className="text-right text-sm font-bold text-navy">{fmtWon(quantResult.tax.foreignStock?.tax ?? 0)}</span>
-              </div>
-              <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-                <span className="text-sm font-semibold text-slate-500">금융소득종합과세</span>
-                <span className="text-right text-sm font-bold text-navy">{quantResult.tax.financialIncome?.warning ? "해당" : "비해당"}</span>
-              </div>
+            <div className="grid grid-cols-2 gap-3">
+              <MetricCard label="시장 베타" value={fmt(quantResult.sensitivity.beta)} sub="시장 1% 변동 시 반응" />
+              <MetricCard label="HHI 집중도" value={fmt(quantResult.sensitivity.hhi, 4)} sub="높을수록 특정 종목 쏠림" />
+              <MetricCard label="해외주식 양도세" value={fmtWon(quantResult.tax.foreignStock?.tax ?? 0)} sub="예상 양도소득세" />
+              <MetricCard label="금융소득종합과세" value={quantResult.tax.financialIncome?.warning ? "해당" : "비해당"} sub="금융소득 종합과세 여부" />
             </div>
           </ResultCard>
         </div>
@@ -850,7 +924,7 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
 
 // ─── Comparison Left Column (Tab4 용) ─────────────────────────────────────────
 
-export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult | null }) {
+export function ComparisonLeftColumn({ data, afterAssets }: { data: PortfolioAnalysisResult | null; afterAssets?: React.ReactNode }) {
   if (!data) {
     return (
       <div className="flex min-h-[480px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-center px-6">
@@ -875,34 +949,23 @@ export function ComparisonLeftColumn({ data }: { data: PortfolioAnalysisResult |
         <PortfolioIssueBanner healthResult={healthResult} stressResult={stressResult} />
       )}
 
-      {/* 2. 보유 자산 현황 — 핵심 이슈 바로 아래 */}
-      <ResultCard icon={<WalletCards size={18} />} title="보유 자산 현황" accent="slate">
-        <HoldingPerformanceTable assets={enrichedAssets} />
-        {!enrichedAssets.filter((a) => a.name).length && (
-          <p className="text-sm text-slate-400">표시할 자산이 없습니다.</p>
-        )}
+      {/* 2. 자산군별 비중 분포 도넛 차트 */}
+      <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
+        <DonutChart assets={enrichedAssets} />
       </ResultCard>
 
-      {/* 3. 포트폴리오 건강 진단 */}
-      {healthResult && (
-        <ResultCard icon={<Activity size={18} />} title="포트폴리오 건강 진단" accent="blue">
-          <HealthBadge badge={healthResult.badge} badgeKo={healthResult.badgeKo} totalScore={healthResult.totalScore} />
-          {healthResult.summary && <div className="mt-4"><HealthSummaryBox healthResult={healthResult} /></div>}
-        </ResultCard>
-      )}
+      {afterAssets}
 
       {/* 4. 핵심 지표 요약 */}
       {quantResult && (
         <ResultCard icon={<TrendingUp size={18} />} title="핵심 지표 요약" accent="green">
-          <div className="grid gap-2">
-            <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
-              <span className="text-sm font-semibold text-slate-500">세후 기대수익률</span>
-              <span className="text-right text-sm font-bold text-navy">{fmtPct(quantResult.performance.afterTaxExpectedReturn)}</span>
-            </div>
-            <MetricWithNote label="샤프 비율" value={fmt(quantResult.performance.sharpeRatio)} note="위험 대비 초과 수익 효율성" />
-            <MetricWithNote label="소르티노 비율" value={fmt(quantResult.performance.sortinoRatio)} note="하방 리스크 대비 방어력" />
-            <MetricWithNote label="최대 낙폭(MDD)" value={fmtPct(Math.abs(quantResult.risk.mdd))} note="역사적 최고점 대비 최악 하락률" />
-            <MetricWithNote label="연환산 변동성" value={fmtPct(quantResult.risk.volatility)} note="연간 가격 흔들림 폭" />
+          <div className="grid grid-cols-2 gap-3">
+            <MetricCard label="세후 기대수익률" value={fmtPct(quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
+            <MetricCard label="샤프 비율" value={fmt(quantResult.performance.sharpeRatio)} sub="위험 대비 초과수익" />
+            <MetricCard label="소르티노 비율" value={fmt(quantResult.performance.sortinoRatio)} sub="하방 리스크 방어력" />
+            <MetricCard label="최대 낙폭(MDD)" value={fmtPct(Math.abs(quantResult.risk.mdd))} sub="최고점 대비 최악 하락" />
+            <MetricCard label="연환산 변동성" value={fmtPct(quantResult.risk.volatility)} sub="연간 가격 흔들림 폭" />
+            <MetricCard label="시장 베타" value={fmt(quantResult.sensitivity.beta)} sub="시장 민감도" />
           </div>
         </ResultCard>
       )}
