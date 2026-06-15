@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { useCustomerContext } from "../CustomerContext";
+import {
+  useCustomerContext,
+  type CorrelationAnalysisState,
+  type CorrelationInnerViewTab,
+  type CorrelationPeriodRange,
+} from "../CustomerContext";
 
 type Strategy = "conservative" | "balanced" | "aggressive";
 
@@ -17,17 +22,31 @@ function scoreToStrategy(score: number): Strategy {
   return "conservative";
 }
 
-function buildSrc(strategy: Strategy, k: number): string {
-  return `/api/etf-correlation-domestic-html?strategy=${strategy}&k=${k}&_t=${Date.now()}`;
+function buildSrc(strategy: Strategy, k: number, state?: CorrelationAnalysisState): string {
+  const params = new URLSearchParams({
+    strategy,
+    k: String(k),
+    _t: String(Date.now()),
+  });
+  if (state?.periodRange) params.set("period", state.periodRange);
+  if (state?.lockedTicker) params.set("lockedTicker", state.lockedTicker);
+  if (state?.innerViewTab) params.set("activeTab", state.innerViewTab);
+  return `/api/etf-correlation-domestic-html?${params.toString()}`;
 }
 
-export default function CorrelationDomesticTab() {
+export default function CorrelationDomesticTab({
+  savedState,
+  onStateChange,
+}: {
+  savedState?: CorrelationAnalysisState;
+  onStateChange?: (state: CorrelationAnalysisState) => void;
+}) {
   const { riskResult } = useCustomerContext();
   const initStrategy = scoreToStrategy(riskResult.score);
 
   const [isMounted, setIsMounted] = useState(false);
-  const [strategy, setStrategy] = useState<Strategy>(initStrategy);
-  const [k, setK] = useState(3);
+  const [strategy, setStrategy] = useState<Strategy>(savedState?.strategy ?? initStrategy);
+  const [k, setK] = useState(savedState?.k ?? 3);
   // SSR에서 Date.now() 호출 방지: 초기값 빈 문자열, 클라이언트 마운트 후 실 src 주입
   const [activeSrc, setActiveSrc] = useState("");
   const [loading, setLoading] = useState(true);
@@ -38,9 +57,39 @@ export default function CorrelationDomesticTab() {
   // 클라이언트 마운트 확인 후 최초 src 생성 (SSR 타임스탬프 불일치 방지)
   useEffect(() => {
     setIsMounted(true);
-    setActiveSrc(buildSrc(initStrategy, k));
+    setActiveSrc(buildSrc(savedState?.strategy ?? initStrategy, savedState?.k ?? k, savedState));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const message = event.data as { type?: string; state?: Partial<CorrelationAnalysisState> } | null;
+      if (message?.type !== "domestic-correlation-state" || !message.state) return;
+      onStateChange?.({
+        strategy,
+        k,
+        periodRange: message.state.periodRange as CorrelationPeriodRange | undefined,
+        lockedTicker: message.state.lockedTicker ?? null,
+        innerViewTab: message.state.innerViewTab as CorrelationInnerViewTab | undefined,
+      });
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [strategy, k, onStateChange]);
+
+  useEffect(() => {
+    if (!isMounted) return;
+    const nextStrategy = savedState?.strategy;
+    const nextK = savedState?.k;
+    if (nextStrategy && nextStrategy !== strategy) setStrategy(nextStrategy);
+    if (typeof nextK === "number" && nextK !== k) setK(nextK);
+    if (nextStrategy || typeof nextK === "number") {
+      setLoading(true);
+      setActiveSrc(buildSrc(nextStrategy ?? strategy, nextK ?? k, savedState));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedState?.strategy, savedState?.k, savedState?.periodRange, savedState?.lockedTicker, savedState?.innerViewTab, isMounted]);
 
   // riskResult.score 변경 시 전략 동기화 — 마운트 전 스킵
   useEffect(() => {
@@ -48,14 +97,16 @@ export default function CorrelationDomesticTab() {
     const next = scoreToStrategy(riskResult.score);
     setStrategy(next);
     setLoading(true);
-    setActiveSrc(buildSrc(next, kRef.current));
+    setActiveSrc(buildSrc(next, kRef.current, savedState));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riskResult.score]);
 
   const handleApply = useCallback(() => {
     setLoading(true);
-    setActiveSrc(buildSrc(strategy, k));
-  }, [strategy, k]);
+    const nextState = { ...savedState, strategy, k };
+    setActiveSrc(buildSrc(strategy, k, nextState));
+    onStateChange?.(nextState);
+  }, [strategy, k, savedState, onStateChange]);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-soft overflow-hidden">
@@ -69,7 +120,10 @@ export default function CorrelationDomesticTab() {
               <button
                 key={s.id}
                 type="button"
-                onClick={() => setStrategy(s.id)}
+                onClick={() => {
+                  setStrategy(s.id);
+                  onStateChange?.({ ...savedState, strategy: s.id, k });
+                }}
                 title={s.desc}
                 className={`px-3 py-1.5 text-xs font-bold transition ${
                   strategy === s.id
@@ -91,7 +145,10 @@ export default function CorrelationDomesticTab() {
               <button
                 key={n}
                 type="button"
-                onClick={() => setK(n)}
+                onClick={() => {
+                  setK(n);
+                  onStateChange?.({ ...savedState, strategy, k: n });
+                }}
                 className={`w-8 py-1.5 text-xs font-bold transition ${
                   k === n
                     ? "bg-[#2f2f9d] text-white"

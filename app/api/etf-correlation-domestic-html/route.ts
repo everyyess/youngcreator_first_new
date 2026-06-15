@@ -395,6 +395,15 @@ export async function GET(request: Request): Promise<Response> {
     ? url.searchParams.get('strategy')
     : 'balanced') as Strategy;
   const k = Math.min(8, Math.max(3, parseInt(url.searchParams.get('k') ?? '3', 10)));
+  const period = ['1W', '1M', '3M', '6M', '1Y', '3Y'].includes(url.searchParams.get('period') ?? '')
+    ? url.searchParams.get('period')
+    : '3Y';
+  const lockedTicker = TICKERS_ORDERED.includes(url.searchParams.get('lockedTicker') ?? '')
+    ? url.searchParams.get('lockedTicker')
+    : '';
+  const activeTab = ['optimal', 'heatmap', 'chart', 'weight', 'sectorlist'].includes(url.searchParams.get('activeTab') ?? '')
+    ? url.searchParams.get('activeTab')
+    : 'optimal';
 
   const cacheKey = `domestic-${strategy}-${k}`;
   const dataDir = path.join(process.cwd(), 'data');
@@ -423,6 +432,9 @@ export async function GET(request: Request): Promise<Response> {
       .replace('##PERIOD_DATA_JS##', JSON.stringify(periodData))
       .replace('##K_VAL_JS##', String(k))
       .replace('##STRATEGY_TYPE##', strategy)
+      .replace('##INITIAL_PERIOD##', period ?? '3Y')
+      .replace('##INITIAL_LOCKED_TICKER##', lockedTicker ?? '')
+      .replace('##INITIAL_ACTIVE_TAB##', activeTab ?? 'optimal')
       .replace('##STRATEGY_TXT##', strategyTexts[strategy]);
 
     return new Response(html, {
