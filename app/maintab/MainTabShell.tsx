@@ -15,7 +15,7 @@ import {
   createNewCustomerProfile, EMPTY_PORTFOLIO_ASSET, expectedReturnDisplay, fieldGroups,
   formatChangeDate, formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
   loadAnalysisResult, loadPortfolioAssets, savePortfolioAssets,
-  loadRebalancingState, saveRebalancingState,
+  loadRebalancingState, saveRebalancingState, saveRebalancingBuyAssets,
   loadNewAnalysisResult, saveNewAnalysisResult,
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
@@ -25,6 +25,8 @@ import {
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
 } from "./CustomerContext";
 import { FINANCIAL_INCOME_STORAGE_KEY, NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
+
+const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
 
 const tabPaths: Record<string, string> = {
   profile:   "/maintab/tab1",
@@ -44,7 +46,10 @@ function portfolioCurrentValue(asset: PortfolioAsset) {
   if (currentValue > 0) return currentValue;
   const amount = toFiniteNumber(asset.amount);
   if (asset.amount_type === "value") return amount;
-  return amount * toFiniteNumber(asset.current_price);
+  // 채권은 현재가가 없으므로 매수단가로 평가
+  const isBond = asset.productType === '국내채권' || asset.productType === '해외채권';
+  const price = isBond ? toFiniteNumber(asset.buy_price) : toFiniteNumber(asset.current_price);
+  return amount * price;
 }
 
 function portfolioBuyCost(asset: PortfolioAsset) {
@@ -303,7 +308,23 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     return () => { cancelled = true; };
   }, [selectedCustomer, isMounted]); // isMounted 포함: 마운트 후 올바른 고객 ID로 첫 로드 보장
 
-  // ── 리밸런싱 상태 변경 즉시 저장 (매도+매수 함께) ──────────────────────────
+  // ── 고객 전환 또는 분석 결과 변경 시 localStorage 동기화 ─────────────────────
+  // usePortfolioResult 훅이 localStorage에서 읽으므로, 선택 고객의 결과를 항상 반영해야 한다
+  useEffect(() => {
+    if (!isMounted) return;
+    const result = analysisResultMap[selectedCustomer] ?? null;
+    if (typeof window === "undefined") return;
+    try {
+      if (result) {
+        localStorage.setItem(PORTFOLIO_RESULT_STORAGE_KEY, JSON.stringify(result));
+      } else {
+        localStorage.removeItem(PORTFOLIO_RESULT_STORAGE_KEY);
+      }
+      window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
+    } catch {}
+  }, [selectedCustomer, analysisResultMap, isMounted]);
+
+  // ── 리밸런싱 상태 변경 즉시 저장 (매도→rebalancing_state, 매수→new_analysis_results 분리 저장)
   useEffect(() => {
     if (!rebalancingLoadedMap[selectedCustomer]) return;
     if (!rebalancingDirtyMap[selectedCustomer]) return;
@@ -311,7 +332,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     const customerId = selectedCustomer;
     const sell = rebalancingSellMap[customerId] ?? [];
     const buy = rebalancingBuyMap[customerId] ?? [];
-    void saveRebalancingState(customerId, sell, buy).then(() => {
+    void Promise.all([
+      saveRebalancingState(customerId, sell),      // TAB2 매도 → rebalancing_state
+      saveRebalancingBuyAssets(customerId, buy),   // TAB3 매수 → new_analysis_results
+    ]).then(() => {
       setRebalancingDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
   }, [rebalancingSellMap, rebalancingBuyMap, rebalancingLoadedMap, rebalancingDirtyMap, selectedCustomer]);
@@ -410,10 +434,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
   const confirmRebalancingSell = useCallback(() => {
     const cid = selectedCustomerRef.current;
-    // rebalancingSellMapRef.current: 마지막 렌더에서 커밋된 최신 값
-    // → 버튼 클릭 직전의 편집 내용이 이미 반영되어 있음이 보장됨
     const snap = (rebalancingSellMapRef.current[cid] ?? []).map(a => ({ ...a }));
     const confirmedOperatingAssetsAfterSell = sumPortfolioCurrentValue(snap);
+    // 매도 확정 시 매도 후 잔여 자산을 TAB3 매수 초기값으로 복사
+    setRebalancingBuyMap(prev => ({ ...prev, [cid]: snap.map(a => ({ ...a })) }));
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
     updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterSell, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null }));
   }, []); // stable — Ref 기반, 의존성 없음

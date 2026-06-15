@@ -14,7 +14,7 @@ import {
   StressScenarioBar,
   usePortfolioResult,
 } from "../PortfolioResultComponents";
-import { useCustomerContext } from "../CustomerContext";
+import { useCustomerContext, loadTaxSummaries } from "../CustomerContext";
 import type { PortfolioAsset } from "../CustomerContext";
 import {
   FinancialIncomeGauge,
@@ -27,7 +27,7 @@ const SCENARIO_KEYS = ["scenario1", "scenario2", "scenario3", "scenario4"] as co
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
-  const { newPortfolioAnalysisResult } = useCustomerContext();
+  const { newPortfolioAnalysisResult, selectedCustomer } = useCustomerContext();
   const [summary, setSummary] = useState<FinancialIncomeSummary | null>(null);
   const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
   // 좌우 동일 시나리오 인덱스 공유 — 같은 위기 시나리오를 나란히 비교
@@ -35,28 +35,35 @@ export default function Tab4Page() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
+  // 고객 전환 시 Supabase에서 직접 로드 (localStorage 타이밍 문제 방지)
   useEffect(() => {
-    const load = () => {
+    if (!selectedCustomer) return;
+    loadTaxSummaries(selectedCustomer).then(({ currentSummary, newSummary }) => {
+      if (currentSummary) setSummary(currentSummary as FinancialIncomeSummary);
+      if (newSummary) setNewSummary(newSummary as FinancialIncomeSummary);
+    });
+  }, [selectedCustomer]);
+
+  // 같은 고객 내에서 TAB2/TAB3 변경 시 이벤트로 실시간 반영
+  useEffect(() => {
+    const loadCurrent = () => {
       try {
         const stored = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY);
         if (stored) setSummary(JSON.parse(stored));
       } catch {}
     };
-    load();
-    window.addEventListener("financial-income-updated", load);
-    return () => window.removeEventListener("financial-income-updated", load);
-  }, []);
-
-  useEffect(() => {
-    const load = () => {
+    const loadNew = () => {
       try {
         const stored = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY);
         if (stored) setNewSummary(JSON.parse(stored));
       } catch {}
     };
-    load();
-    window.addEventListener("new-financial-income-updated", load);
-    return () => window.removeEventListener("new-financial-income-updated", load);
+    window.addEventListener("financial-income-updated", loadCurrent);
+    window.addEventListener("new-financial-income-updated", loadNew);
+    return () => {
+      window.removeEventListener("financial-income-updated", loadCurrent);
+      window.removeEventListener("new-financial-income-updated", loadNew);
+    };
   }, []);
 
   const leftData = data;
@@ -182,12 +189,12 @@ export default function Tab4Page() {
             ── 핵심 이슈 배너 행 ──
             두 셀 모두 항상 렌더링되므로 CSS Grid가 행 높이를 양쪽 중 최댓값으로 통일.
           */}
-          <div>
+          <div className="flex flex-col">
             {leftData?.portfolioIssueSummary && leftData.healthResult && (
               <PortfolioIssueBanner healthResult={leftData.healthResult} stressResult={leftStressResult} />
             )}
           </div>
-          <div>
+          <div className="flex flex-col">
             {rightData?.portfolioIssueSummary && rightData.healthResult && (
               <PortfolioIssueBanner healthResult={rightData.healthResult} stressResult={rightStressResult} />
             )}
@@ -216,7 +223,7 @@ export default function Tab4Page() {
             ── 핵심 지표 요약 행 ──
             quantResult 유무와 무관하게 래퍼 div가 항상 존재하여 그리드 셀 확보.
           */}
-          <div>
+          <div className="flex flex-col">
             {leftData?.quantResult && (
               <ResultCard icon={<TrendingUp size={18} />} title="핵심 지표 요약" accent="green">
                 <div className="grid grid-cols-2 gap-3">
@@ -230,7 +237,7 @@ export default function Tab4Page() {
               </ResultCard>
             )}
           </div>
-          <div>
+          <div className="flex flex-col">
             {rightData?.quantResult && (
               <ResultCard icon={<TrendingUp size={18} />} title="핵심 지표 요약" accent="green">
                 <div className="grid grid-cols-2 gap-3">
@@ -250,7 +257,7 @@ export default function Tab4Page() {
             좌우가 selectedScenario 상태를 공유하여 같은 위기를 나란히 비교.
             래퍼 div는 stressResult 유무와 무관하게 항상 존재하여 격자 행 정렬 유지.
           */}
-          <div>
+          <div className="flex flex-col">
             {leftStressResult && (
               <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
                 <StressTestCard
@@ -261,7 +268,7 @@ export default function Tab4Page() {
               </ResultCard>
             )}
           </div>
-          <div>
+          <div className="flex flex-col">
             {rightStressResult && (
               <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
                 <StressTestCard
@@ -277,14 +284,9 @@ export default function Tab4Page() {
 
         {/* ── 세금 점검 비교 ── */}
         <div className="space-y-3">
-          <div className="flex items-center gap-2 px-1">
-            <span className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
-              금융소득종합과세 및 해외양도세 점검
-            </span>
-          </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-samsung text-[10px] font-bold text-white">A</span>
                 <span className="text-xs font-bold text-navy">기존 포트폴리오 세금 점검</span>
@@ -292,7 +294,7 @@ export default function Tab4Page() {
               <FinancialIncomeGauge summary={summary} />
             </div>
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
                 <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${newSummary ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
                 <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
@@ -329,7 +331,7 @@ function StressTestCard({
   onSelectScenario: (idx: number) => void;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col flex-1 gap-4">
       {/* 시나리오 탭 버튼 */}
       <div className="flex flex-wrap gap-2">
         {SCENARIO_KEYS.map((key, idx) => {
@@ -363,9 +365,9 @@ function StressTestCard({
         );
       })()}
 
-      {/* 리스크 유형 태그 */}
+      {/* 리스크 유형 태그 — 항상 카드 하단 고정 */}
       {Array.isArray(stressResult.riskTypes) && stressResult.riskTypes.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 mt-auto">
           {stressResult.riskTypes.map((rt: string) => (
             <span
               key={rt}

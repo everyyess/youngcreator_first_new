@@ -129,7 +129,7 @@ export function ResultCard({
     slate: "text-slate-700 bg-slate-100",
   };
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft flex flex-col h-full">
       <div className="mb-4 flex items-center gap-3">
         {icon && (
           <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${accentMap[accent]}`}>
@@ -138,7 +138,9 @@ export function ResultCard({
         )}
         <h3 className="text-base font-bold text-navy">{title}</h3>
       </div>
-      {children}
+      <div className="flex-1 flex flex-col">
+        {children}
+      </div>
     </section>
   );
 }
@@ -315,7 +317,7 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
         {segments.map(([cls, pct]) => (
           <div key={cls} className={`flex items-center gap-1.5 cursor-default rounded px-1.5 py-1 transition-colors ${hoveredCls === cls ? "bg-slate-100" : ""}`}
             onMouseEnter={() => setHoveredCls(cls)} onMouseLeave={() => setHoveredCls(null)}>
-            <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: CLASS_COLORS[cls] ?? "#94a3b8" }} />
+            <span className="h-3 w-3 shrink-0 rounded-lg" style={{ backgroundColor: CLASS_COLORS[cls] ?? "#94a3b8" }} />
             <span className="truncate text-slate-600">{CLASS_DISPLAY_LABELS[cls] ?? cls}</span>
             <span className="ml-auto shrink-0 font-bold text-navy">{pct.toFixed(1)}%</span>
           </div>
@@ -346,18 +348,17 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
                      return { bg: "bg-emerald-500", text: "text-white font-bold" };
   }
   return (
-    <div className="flex flex-col gap-3">
-      <div className="overflow-x-auto w-full">
-        <table className="border-separate" style={{ borderSpacing: "2px" }}>
+    <div className="flex items-stretch h-full gap-4">
+      <div className="overflow-hidden rounded-xl flex-1">
+        <table className="border-collapse w-full table-fixed h-full">
           <thead>
             <tr>
               {/* 좌상단 빈 셀 */}
-              <th className={`bg-slate-200 ${headerPad} rounded-sm`} />
+              <th className={`bg-slate-200 ${headerPad} border border-slate-300`} style={{ width: isCompact ? "4rem" : "5rem" }} />
               {labels.map((l, i) => (
                 <th
                   key={i}
-                  className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold rounded-sm ${labelFont} leading-tight break-words`}
-                  style={{ maxWidth: isCompact ? "4rem" : "6rem", wordBreak: "break-word" }}
+                  className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
                 >
                   {l || '자산'}
                 </th>
@@ -368,15 +369,14 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
             {matrix.map((row, ri) => (
               <tr key={ri}>
                 <td
-                  className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold rounded-sm ${labelFont} leading-tight break-words`}
-                  style={{ maxWidth: isCompact ? "4rem" : "6rem", wordBreak: "break-word" }}
+                  className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
                 >
                   {labels[ri] || '자산'}
                 </td>
                 {row.map((val, ci) => {
                   const { bg, text } = cellStyles(val);
                   return (
-                    <td key={ci} className={`${cellPad} text-center align-middle rounded-sm select-none ${bg} ${text} ${valueFont}`}>
+                    <td key={ci} className={`${cellPad} text-center align-middle select-none border border-white/40 ${bg} ${text} ${valueFont}`}>
                       {val.toFixed(2)}
                     </td>
                   );
@@ -386,16 +386,17 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
           </tbody>
         </table>
       </div>
-      <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs font-semibold">
+      <div className="flex flex-col gap-2 text-xs font-semibold shrink-0 pt-1">
         {[
-          { color: "bg-red-500",     label: "0.7 이상 · 고상관 (리스크 쏠림)" },
-          { color: "bg-orange-400",  label: "0.3 ~ 0.7 · 중상관 (동조화 주의)" },
-          { color: "bg-slate-100 border border-slate-300", label: "|r| < 0.3 · 저상관" },
-          { color: "bg-emerald-500", label: "−0.3 미만 · 역상관 (최우수 헷지)" },
-        ].map(({ color, label }) => (
+          { color: "bg-red-500",     label: "0.7 이상", sub: "고상관 (리스크 쏠림)" },
+          { color: "bg-orange-400",  label: "0.3 ~ 0.7", sub: "중상관 (동조화 주의)" },
+          { color: "bg-slate-100 border border-slate-300", label: "-0.3 ~ 0.3", sub: "저상관 (일반적)" },
+          { color: "bg-emerald-500", label: "−0.3 미만", sub: "역상관 (최우수 헷지)" },
+        ].map(({ color, label, sub }) => (
           <span key={label} className="flex items-center gap-1.5">
-            <span className={`h-3.5 w-3.5 rounded-sm shrink-0 ${color}`} />
-            <span className="text-slate-600">{label}</span>
+            <span className={`h-3.5 w-3.5 rounded-lg shrink-0 ${color}`} />
+            <span className="text-slate-700 font-bold">{label}</span>
+            <span className="text-slate-500 font-normal">{sub}</span>
           </span>
         ))}
       </div>
@@ -412,7 +413,7 @@ export function StressScenarioBar({
 }) {
   const details = scenario.details.slice(0, 8);
   const maxContrib = Math.max(...details.map((d) => Math.abs(d.contribution)), 0.001);
-  const CHART_DOMAIN = Math.max(maxContrib, 0.50);
+  const CHART_DOMAIN = Math.max(maxContrib * 1.1, 0.01);
   const isGain = scenario.lossRate >= 0;
   const ratePct = Math.abs(scenario.lossRate * 100).toFixed(1);
 
@@ -420,17 +421,17 @@ export function StressScenarioBar({
   const BAR_TRANSITION = "width 0.35s ease";
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="flex items-baseline justify-between">
         <span className="text-sm font-bold text-slate-700">{scenario.label}</span>
         <span className={`text-sm font-bold ${isGain ? "text-emerald-600" : "text-red-600"}`}>
           {isGain ? "예상 이익" : "예상 손실"} {ratePct}% ({fmtStressAmount(scenario.lossAmount)})
         </span>
       </div>
-      <div className="grid grid-cols-[96px_1fr_2px_1fr_52px] items-center gap-x-1 text-[10px] font-bold text-slate-400 select-none">
+      <div className="grid grid-cols-[80px_1fr_2px_1fr_44px] items-center gap-x-1 text-[10px] font-bold text-slate-400 select-none">
         <span /><span className="text-right pr-1">← 손실</span><span /><span className="text-left pl-1">수익 →</span><span />
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {details.map((d) => {
           const barPct = Math.min((Math.abs(d.contribution) / CHART_DOMAIN) * 100, 100);
           const isNeg = d.contribution < 0;
@@ -439,13 +440,13 @@ export function StressScenarioBar({
           const sign = isPos ? "+" : "";
           return (
             // key = 자산명 고정: 시나리오 전환 시 순서가 바뀌어도 동일 DOM 노드를 재사용
-            <div key={d.name} className="grid grid-cols-[96px_1fr_2px_1fr_52px] items-center gap-x-1 text-xs">
+            <div key={d.name} className="grid grid-cols-[80px_1fr_2px_1fr_44px] items-center gap-x-1 text-xs">
               <span className="truncate font-semibold text-slate-700" title={d.name}>{d.name}</span>
 
               {/* 손실 바 — 항상 DOM에 존재, width=0으로 수렴하여 unmount 없이 트랜지션 유지 */}
-              <div className="flex h-5 items-center justify-end overflow-hidden">
+              <div className="flex h-4 items-center justify-end overflow-hidden">
                 <div
-                  className="h-3 rounded-l-sm"
+                  className="h-2 rounded-l-sm"
                   style={{
                     width: isNeg ? `${barPct}%` : "0%",
                     backgroundColor: "#ef4444",
@@ -454,12 +455,12 @@ export function StressScenarioBar({
                 />
               </div>
 
-              <div className="h-5 w-0.5 rounded-full bg-slate-300 mx-auto" />
+              <div className="h-4 w-0.5 rounded-full bg-slate-300 mx-auto" />
 
               {/* 수익 바 — 항상 DOM에 존재, width=0으로 수렴 */}
-              <div className="flex h-5 items-center justify-start overflow-hidden">
+              <div className="flex h-4 items-center justify-start overflow-hidden">
                 <div
-                  className="h-3 rounded-r-sm"
+                  className="h-2 rounded-r-sm"
                   style={{
                     width: isPos ? `${barPct}%` : "0%",
                     backgroundColor: "#22c55e",
@@ -642,7 +643,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
   const bs = BADGE[badge as string] ?? BADGE.Rebalance;
 
   return (
-    <div className={`overflow-hidden rounded-xl border bg-white shadow-soft ${bs.card}`}>
+    <div className={`overflow-hidden rounded-xl border bg-white shadow-soft flex flex-col h-full ${bs.card}`}>
 
       {/* ── 헤더: 타이틀 + 등급 뱃지 ── */}
       <div className={`flex items-center justify-between gap-3 border-b px-5 py-3 ${bs.header}`}>
@@ -657,7 +658,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
         </span>
       </div>
 
-      <div className="space-y-4 p-5">
+      <div className="flex flex-col flex-1 gap-4 p-5">
 
         {/* ── 1단: 스코어링 ── */}
         <div className="flex items-center gap-3 rounded-lg bg-slate-50 px-4 py-3">
@@ -719,7 +720,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
 
         {/* ── 3단: AI 리밸런싱 제언 ── */}
         {(aiCommentary || stressDiagnosis) && (
-          <div className="space-y-1.5 rounded-lg bg-slate-50 px-4 py-3">
+          <div className="mt-auto space-y-1.5 rounded-lg bg-slate-50 px-4 py-3">
             <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
               AI 리밸런싱 제언
             </p>

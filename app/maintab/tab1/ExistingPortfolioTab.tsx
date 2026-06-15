@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileUp, Loader2, Plus, RefreshCw, Sparkles, X } from "lucide-react";
+import { FileUp, Loader2, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import {
   useCustomerContext,
   parseKrwAmount,
@@ -85,10 +85,7 @@ function effectivePriceOf(a: PortfolioAsset): number {
   return Number.isFinite(bp) && bp > 0 ? bp : 0;
 }
 
-// 채권은 amount가 수량이 아닌 투자금액이므로 price 자체를 평가금액으로 취급한다.
-// 비채권은 수량 × 가격의 일반 산식을 유지한다.
 function effectiveValueOf(a: PortfolioAsset): number {
-  if (BOND_TYPES.has(a.productType ?? "")) return effectivePriceOf(a);
   return a.amount * effectivePriceOf(a);
 }
 
@@ -150,6 +147,17 @@ export default function ExistingPortfolioTab() {
     pushToRebalancingSell,
     saveTaxSummary,
   } = useCustomerContext();
+
+  const [clearConfirm, setClearConfirm] = useState(false);
+
+  const clearAllAssets = () => {
+    // 마지막 인덱스부터 역순 삭제 → React 18 배치로 한 번의 렌더/저장으로 처리됨
+    for (let i = portfolioAssets.length - 1; i >= 0; i--) {
+      removeRow(i);
+    }
+    setAnalysisResult(null);
+    setClearConfirm(false);
+  };
 
   const [portfolioIsRunning, setPortfolioIsRunning] = useState(false);
   const [portfolioStatusMsg, setPortfolioStatusMsg] = useState("");
@@ -385,6 +393,28 @@ export default function ExistingPortfolioTab() {
             <Plus size={16} />
             자산 추가
           </button>
+          {portfolioAssets.length > 0 && (
+            clearConfirm ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-red-700">전체 삭제하시겠습니까?</span>
+                <button type="button" onClick={clearAllAssets} className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2.5 text-sm font-bold text-white transition hover:bg-red-700">
+                  <Trash2 size={14} /> 삭제
+                </button>
+                <button type="button" onClick={() => setClearConfirm(false)} className="rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50">
+                  취소
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setClearConfirm(true)}
+                className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2.5 text-sm font-bold text-red-600 transition hover:bg-red-50"
+              >
+                <Trash2 size={16} />
+                전체 초기화
+              </button>
+            )
+          )}
         </div>
 
         {/* 상태 메시지 */}
@@ -604,17 +634,10 @@ function AssetRow({
         <input
           type="text"
           inputMode="numeric"
-          className={[
-            "h-9 w-24 rounded border px-2 text-xs",
-            isBond
-              ? "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400"
-              : "border-slate-200 text-navy",
-          ].join(" ")}
-          placeholder={isBond ? "—" : "수량"}
-          value={isBond ? "" : fmtNum(a.amount)}
-          disabled={isBond}
+          className="h-9 w-24 rounded border border-slate-200 px-2 text-xs text-navy"
+          placeholder="수량"
+          value={fmtNum(a.amount)}
           onChange={(e) => {
-            if (isBond) return;
             const raw = e.target.value.replace(/,/g, "");
             onUpdate(idx, { amount: raw ? Number(raw) : 0, amount_type: "quantity" });
           }}

@@ -169,7 +169,7 @@ export function FinancialIncomeGauge({
   const interestItems = (summary?.breakdown ?? []).filter(b => b.incomeType === "이자");
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white shadow-soft overflow-hidden">
+    <div className="rounded-xl border border-slate-200 bg-white shadow-soft overflow-hidden flex-1">
 
       {/* 헤더 */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">

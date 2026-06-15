@@ -912,21 +912,30 @@ export function expectedReturnDisplay(rrttllu: RrttlluInfo) {
 }
 
 // ── Portfolio & Analysis Supabase Helpers ─────────────────────────────────
+// 저장 위치 (전용 컬럼):
+//   rebalancing_state.portfolio_assets  → TAB2 보유현황 자산
+//   rebalancing_state.sell_assets       → TAB2 리밸런싱(매도)
+//   new_analysis_results.buy_assets     → TAB3 리밸런싱(매수)
+//   new_analysis_results.portfolio_analysis_result → TAB2 기존 포트폴리오 분석결과
+//   new_analysis_results.analysis_result           → TAB3 신규 포트폴리오 분석결과
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const rebSB = () => supabase!.from("rebalancing_state") as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const narSB = () => supabase!.from("new_analysis_results") as any;
 
 export async function loadPortfolioAssets(customerId: CustomerId): Promise<PortfolioAsset[]> {
   if (!supabase) return [];
   try {
     const { data, error } = await supabase
-      .from("portfolio_assets")
-      .select("assets")
+      .from("rebalancing_state")
+      .select("portfolio_assets")
       .eq("customer_id", customerId)
       .maybeSingle();
     if (error || !data) return [];
-    const raw: PortfolioAsset[] = Array.isArray((data as { assets?: unknown }).assets)
-      ? ((data as { assets: PortfolioAsset[] }).assets)
+    const raw = Array.isArray((data as Record<string, unknown>).portfolio_assets)
+      ? (data as Record<string, unknown>).portfolio_assets as PortfolioAsset[]
       : [];
-    // 로드 완료 즉시 전 행에 소유권 낙인 — 이 배열이 메모리에 올라가는 순간부터
-    // owner_customer_id가 customerId와 일치해야만 저장이 허용된다
     return raw.map(a => ({ ...a, owner_customer_id: customerId }));
   } catch {
     return [];
@@ -935,32 +944,28 @@ export async function loadPortfolioAssets(customerId: CustomerId): Promise<Portf
 
 export async function savePortfolioAssets(customerId: CustomerId, assets: PortfolioAsset[]): Promise<void> {
   if (!supabase) return;
-  // ── 데이터 소유권 낙인 검증 (절대 가드) ────────────────────────────────────
-  // 저장 배열 내 모든 행의 owner_customer_id가 customerId와 완전 일치해야만 통과.
-  // 단 한 행이라도 소유권이 불일치(다른 고객 ID, null, undefined)하면 즉시 차단.
-  // 이 가드는 비동기 타이머·유령 Effect·레이스 컨디션 어떤 경로로 호출되어도
-  // 데이터 객체 자체의 낙인이 틀리면 DB를 절대 터치하지 못한다.
-  const isOwnershipValid = assets.length > 0 &&
-    assets.every(a => a.owner_customer_id === customerId);
-  if (!isOwnershipValid) return;
-  // ── 콘텐츠 가드: 모든 행이 빈 껍데기이면 저장 차단 ──────────────────────
-  const hasContent = assets.some(a => (a.name ?? "").trim() || (a.ticker ?? "").trim());
-  if (!hasContent) return;
-  await supabase
-    .from("portfolio_assets")
-    .upsert({ customer_id: customerId, assets, updated_at: new Date().toISOString() }, { onConflict: "customer_id" });
+  if (assets.length > 0) {
+    const isOwnershipValid = assets.every(a => a.owner_customer_id === customerId);
+    if (!isOwnershipValid) return;
+    const hasContent = assets.some(a => (a.name ?? "").trim() || (a.ticker ?? "").trim());
+    if (!hasContent) return;
+  }
+  await rebSB().upsert(
+    { customer_id: customerId, portfolio_assets: assets, updated_at: new Date().toISOString() },
+    { onConflict: "customer_id" },
+  );
 }
 
 export async function loadAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
   if (!supabase) return null;
   try {
     const { data, error } = await supabase
-      .from("analysis_results")
-      .select("result")
+      .from("new_analysis_results")
+      .select("portfolio_analysis_result")
       .eq("customer_id", customerId)
       .maybeSingle();
     if (error || !data) return null;
-    return (data as { result?: unknown }).result ?? null;
+    return (data as Record<string, unknown>).portfolio_analysis_result ?? null;
   } catch {
     return null;
   }
@@ -968,44 +973,89 @@ export async function loadAnalysisResult(customerId: CustomerId): Promise<unknow
 
 export async function saveAnalysisResult(customerId: CustomerId, result: unknown): Promise<void> {
   if (!supabase) return;
-  await supabase
-    .from("analysis_results")
-    .upsert({ customer_id: customerId, result, updated_at: new Date().toISOString() }, { onConflict: "customer_id" });
+  await narSB().upsert(
+    { customer_id: customerId, portfolio_analysis_result: result, updated_at: new Date().toISOString() },
+    { onConflict: "customer_id" },
+  );
 }
 
 // ── Rebalancing State Helpers ─────────────────────────────────────────────
+
 export async function loadRebalancingState(customerId: CustomerId): Promise<{ sellAssets: PortfolioAsset[]; buyAssets: PortfolioAsset[] }> {
-  const payload = await loadScopedPayload("rebalancing_state", customerId);
-  const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-  return {
-    sellAssets: Array.isArray(data.sellRebalancing) ? data.sellRebalancing as PortfolioAsset[] : Array.isArray(data.sellAssets) ? data.sellAssets as PortfolioAsset[] : Array.isArray(data.sell_assets) ? data.sell_assets as PortfolioAsset[] : [],
-    buyAssets: Array.isArray(data.buyRebalancing) ? data.buyRebalancing as PortfolioAsset[] : Array.isArray(data.buyAssets) ? data.buyAssets as PortfolioAsset[] : Array.isArray(data.buy_assets) ? data.buy_assets as PortfolioAsset[] : [],
-  };
+  if (!supabase) return { sellAssets: [], buyAssets: [] };
+  try {
+    const [{ data: rebRow }, { data: narRow }] = await Promise.all([
+      supabase.from("rebalancing_state").select("sell_assets, state").eq("customer_id", customerId).maybeSingle(),
+      supabase.from("new_analysis_results").select("buy_assets").eq("customer_id", customerId).maybeSingle(),
+    ]);
+    const row = (rebRow ?? {}) as Record<string, unknown>;
+    const stateData = (row.state && typeof row.state === "object") ? row.state as Record<string, unknown> : {};
+    const nar = (narRow ?? {}) as Record<string, unknown>;
+
+    // sell: 전용 sell_assets 컬럼 우선 → state.sellAssets → state.sellRebalancing (구버전 호환)
+    let sellAssets: PortfolioAsset[] = [];
+    if (Array.isArray(row.sell_assets) && (row.sell_assets as unknown[]).length > 0) {
+      sellAssets = row.sell_assets as PortfolioAsset[];
+    } else {
+      sellAssets = Array.isArray(stateData.sellAssets) ? stateData.sellAssets as PortfolioAsset[] :
+        Array.isArray(stateData.sellRebalancing) ? stateData.sellRebalancing as PortfolioAsset[] : [];
+    }
+
+    // buy: 전용 new_analysis_results.buy_assets 컬럼 우선 → state.buyRebalancing (구버전 호환)
+    let buyAssets: PortfolioAsset[] = [];
+    if (Array.isArray(nar.buy_assets) && (nar.buy_assets as unknown[]).length > 0) {
+      buyAssets = nar.buy_assets as PortfolioAsset[];
+    } else {
+      buyAssets = Array.isArray(stateData.buyRebalancing) ? stateData.buyRebalancing as PortfolioAsset[] : [];
+    }
+
+    return { sellAssets, buyAssets };
+  } catch {
+    return { sellAssets: [], buyAssets: [] };
+  }
 }
 
-export async function saveRebalancingState(customerId: CustomerId, sellAssets: PortfolioAsset[], buyAssets: PortfolioAsset[]): Promise<void> {
-  await upsertScopedPayload(
-    "rebalancing_state",
-    customerId,
-    { sellRebalancing: sellAssets, buyRebalancing: buyAssets },
+// TAB2 매도 → rebalancing_state.sell_assets 전용 컬럼
+export async function saveRebalancingState(customerId: CustomerId, sellAssets: PortfolioAsset[]): Promise<void> {
+  if (!supabase) return;
+  await rebSB().upsert(
+    { customer_id: customerId, sell_assets: sellAssets, updated_at: new Date().toISOString() },
+    { onConflict: "customer_id" },
+  );
+}
+
+// TAB3 매수 → new_analysis_results.buy_assets 전용 컬럼
+export async function saveRebalancingBuyAssets(customerId: CustomerId, buyAssets: PortfolioAsset[]): Promise<void> {
+  if (!supabase) return;
+  await narSB().upsert(
+    { customer_id: customerId, buy_assets: buyAssets, updated_at: new Date().toISOString() },
+    { onConflict: "customer_id" },
   );
 }
 
 // ── New Portfolio Analysis Result Helpers ─────────────────────────────────
+
 export async function loadNewAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
-  const payload = await loadScopedPayload("new_analysis_results", customerId);
-  if (payload && typeof payload === "object" && "analysisResult" in payload) {
-    return (payload as { analysisResult?: unknown }).analysisResult ?? null;
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from("new_analysis_results")
+      .select("analysis_result")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return null;
+    return (data as Record<string, unknown>).analysis_result ?? null;
+  } catch {
+    return null;
   }
-  return payload;
 }
 
 export async function saveNewAnalysisResult(customerId: CustomerId, result: unknown): Promise<void> {
-  const current = await loadScopedPayload("new_analysis_results", customerId);
-  const payload = current && typeof current === "object" && ("analysisResult" in current || "tab3State" in current)
-    ? { ...(current as Record<string, unknown>), analysisResult: result }
-    : { analysisResult: result, tab3State: {} };
-  await upsertScopedPayload("new_analysis_results", customerId, payload);
+  if (!supabase) return;
+  await narSB().upsert(
+    { customer_id: customerId, analysis_result: result, updated_at: new Date().toISOString() },
+    { onConflict: "customer_id" },
+  );
 }
 
 export async function loadTab3AnalysisState(customerId: CustomerId): Promise<Tab3AnalysisState> {
@@ -1017,10 +1067,8 @@ export async function loadTab3AnalysisState(customerId: CustomerId): Promise<Tab
 
 export async function saveTab3AnalysisState(customerId: CustomerId, state: Tab3AnalysisState): Promise<void> {
   const current = await loadScopedPayload("new_analysis_results", customerId);
-  const payload = current && typeof current === "object" && ("analysisResult" in current || "tab3State" in current)
-    ? { ...(current as Record<string, unknown>), tab3State: state }
-    : { analysisResult: current ?? null, tab3State: state };
-  await upsertScopedPayload("new_analysis_results", customerId, payload);
+  const existing = (current && typeof current === "object") ? { ...(current as Record<string, unknown>) } : {};
+  await upsertScopedPayload("new_analysis_results", customerId, { ...existing, tab3State: state });
 }
 
 // ── Tax Summary Helpers ───────────────────────────────────────────────────

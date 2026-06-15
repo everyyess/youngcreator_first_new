@@ -52,10 +52,7 @@ function effectivePriceOf(a: PortfolioAsset): number {
   return Number.isFinite(bp) && bp > 0 ? bp : 0;
 }
 
-// 채권은 amount가 수량이 아닌 투자금액이므로 price 자체를 평가금액으로 취급한다.
-// 비채권은 수량 × 가격의 일반 산식을 유지한다.
 function effectiveValueOf(a: PortfolioAsset): number {
-  if (BOND_TYPES.has(a.productType ?? "")) return effectivePriceOf(a);
   return a.amount * effectivePriceOf(a);
 }
 
@@ -505,17 +502,10 @@ function AssetRow({
         <input
           type="text"
           inputMode="numeric"
-          className={[
-            "h-9 w-24 rounded border px-2 text-xs",
-            isBond
-              ? "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400"
-              : "border-slate-200 text-navy",
-          ].join(" ")}
-          placeholder={isBond ? "—" : "수량"}
-          value={isBond ? "" : fmtNum(a.amount)}
-          disabled={isBond}
+          className="h-9 w-24 rounded border border-slate-200 px-2 text-xs text-navy"
+          placeholder="수량"
+          value={fmtNum(a.amount)}
           onChange={(e) => {
-            if (isBond) return;
             const raw = e.target.value.replace(/,/g, "");
             onUpdate(idx, { amount: raw ? Number(raw) : 0, amount_type: "quantity" });
           }}

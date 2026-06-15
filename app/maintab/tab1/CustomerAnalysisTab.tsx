@@ -1081,7 +1081,7 @@ export default function CustomerAnalysisTab() {
 
   return (
     <div className="space-y-5">
-      <div className="mx-auto flex w-fit max-w-full gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
+      <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
         {[
           { id: "input" as const, label: "고객 정보 입력", icon: <ClipboardList size={15} /> },
           { id: "analysis" as const, label: "성향 및 니즈 분석", icon: <BarChart3 size={15} /> },
@@ -1091,16 +1091,14 @@ export default function CustomerAnalysisTab() {
             key={tab.id}
             type="button"
             onClick={() => selectSubTab(tab.id)}
-            className={`min-w-[220px] shrink-0 rounded-md px-6 py-2.5 text-sm font-bold transition ${
+            className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${
               activeSubTab === tab.id
-                ? "bg-samsung text-white shadow-sm"
-                : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+                ? "bg-samsung text-white shadow-soft"
+                : "text-slate-600 hover:bg-slate-100 hover:text-navy"
             }`}
           >
-            <span className="inline-flex items-center justify-center gap-2">
-              {tab.icon}
-              {tab.label}
-            </span>
+            {tab.icon}
+            {tab.label}
           </button>
         ))}
       </div>

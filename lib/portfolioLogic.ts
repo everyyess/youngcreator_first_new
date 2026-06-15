@@ -99,6 +99,8 @@ export const runAnalysis = async (
   const enrichedAssets = await Promise.all(
     assets.map(async (a) => {
       if (a.amount_type !== "quantity" || !a.name) return a;
+      // 채권은 Yahoo Finance 조회 불가 — enrichedWithBonds 단계에서 buy_price × amount로 처리
+      if (a.productType === '국내채권' || a.productType === '해외채권') return a;
       // 현재가와 배당수익률이 모두 있으면 API 재요청 생략
       if (a.current_price != null && a.current_price > 0 && a.dividendYield != null) return a;
 
@@ -159,15 +161,15 @@ export const runAnalysis = async (
   );
 
   // ── Step 0-c: 실물 채권 cost-basis 폴백 ──
-  // Yahoo Finance 조회가 불가한 실물 채권은 매수단가(buy_price) × 수량으로 평가금액을 직접 산출한다.
+  // 채권(국내/해외)은 수량 × 매수단가로 평가금액을 산출한다.
+  // amount_type·current_price 조건을 제거하여 Supabase 로드 데이터에서도 안전하게 처리한다.
   const enrichedWithBonds = enrichedAssets.map((a) => {
-    if (
-      (a.productType === '국내채권' || a.productType === '해외채권') &&
-      a.amount_type === 'quantity' &&
-      (a.current_price == null || a.current_price === 0) &&
-      a.buy_price != null && a.buy_price > 0
-    ) {
-      return { ...a, current_price: a.buy_price, current_value: a.amount * a.buy_price };
+    const isBond = a.productType === '국내채권' || a.productType === '해외채권';
+    if (!isBond) return a;
+    const bp  = Number(a.buy_price);
+    const amt = Number(a.amount);
+    if (bp > 0 && amt > 0) {
+      return { ...a, current_price: bp, current_value: amt * bp };
     }
     return a;
   });
