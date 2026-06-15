@@ -190,7 +190,7 @@ function EditableField({
     <label className={`block ${widthClassName}`}>
       <span className="mb-1 block text-xs font-bold text-samsung">[{label}]</span>
       <input
-        className="h-11 min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-navy transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        className="h-10 min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-sm font-bold text-navy transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
         value={value}
         placeholder={placeholder ?? "입력 대기"}
         onChange={(e) => onChange(e.target.value)}
@@ -203,22 +203,22 @@ function CustomerInfoCard() {
   const { selectedCustomerProfile, updateCustomerProfile } = useCustomerContext();
   const profile = selectedCustomerProfile;
   return (
-    <section className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-soft">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-        <div className="flex min-w-32 items-center gap-2 pb-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sky-100 text-samsung">
+    <section className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-soft sm:px-4">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
+        <div className="flex min-w-28 items-center gap-2 pb-1">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-samsung">
             <UserRound size={18} />
           </div>
           <p className="text-base font-bold text-navy">고객 프로필</p>
         </div>
-        <div className="ml-0 flex flex-wrap items-end gap-3 lg:ml-6">
-          <EditableField label="성명" value={profile.name} onChange={(v) => updateCustomerProfile("name", v)} />
-          <EditableField label="성별" value={profile.gender} onChange={(v) => updateCustomerProfile("gender", v)} />
-          <div className="flex flex-wrap gap-2">
-            <EditableField label="출생연도" value={profile.birth_year ?? profile.birthYear} placeholder="입력 대기" onChange={(v) => updateCustomerProfile("birthYear", v)} />
-            <EditableField label="만 나이" value={profile.age} placeholder="입력 대기" onChange={(v) => updateCustomerProfile("age", v)} />
+        <div className="ml-0 flex flex-wrap items-end gap-2 lg:ml-4 lg:flex-nowrap">
+          <EditableField label="성명" value={profile.name} widthClassName="w-24 sm:w-28" onChange={(v) => updateCustomerProfile("name", v)} />
+          <EditableField label="성별" value={profile.gender} widthClassName="w-20 sm:w-24" onChange={(v) => updateCustomerProfile("gender", v)} />
+          <div className="flex flex-wrap gap-2 lg:flex-nowrap">
+            <EditableField label="출생연도" value={profile.birth_year ?? profile.birthYear} widthClassName="w-24 sm:w-28" placeholder="입력 대기" onChange={(v) => updateCustomerProfile("birthYear", v)} />
+            <EditableField label="만 나이" value={profile.age} widthClassName="w-20 sm:w-24" placeholder="입력 대기" onChange={(v) => updateCustomerProfile("age", v)} />
           </div>
-          <EditableField label="직업" value={profile.job} widthClassName="w-80 max-w-full" onChange={(v) => updateCustomerProfile("job", v)} />
+          <EditableField label="직업" value={profile.job} widthClassName="w-52 max-w-full xl:w-60" onChange={(v) => updateCustomerProfile("job", v)} />
         </div>
       </div>
     </section>
@@ -566,7 +566,7 @@ function InlineMissingMark() {
 function InlineQuestionTitle({ label, missing = false, className = "" }: { label: string; missing?: boolean; className?: string }) {
   return (
     <span className={`flex min-w-0 items-center gap-1.5 ${className}`}>
-      <span className="min-w-0 truncate">{questionLabel(label)}</span>
+      <span className="min-w-0 whitespace-nowrap">{questionLabel(label)}</span>
       {missing ? <InlineMissingMark /> : null}
     </span>
   );
@@ -574,10 +574,10 @@ function InlineQuestionTitle({ label, missing = false, className = "" }: { label
 
 function AssetValueInput({ label, value, placeholder, onChange, missing = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; missing?: boolean }) {
   return (
-    <label className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px] sm:items-center">
+    <label className="grid gap-2 sm:grid-cols-[max-content_108px] sm:items-center sm:justify-between">
       <InlineQuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
       <input
-        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-right text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-right text-sm text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
@@ -611,10 +611,10 @@ function AssetCard({
   inputColumnClass?: string;
 }) {
   return (
-    <label className={`question-card grid gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:items-center ${inputColumnClass}`}>
+    <label className={`question-card grid gap-2 rounded-lg border border-slate-200 px-3 py-2.5 sm:items-center ${inputColumnClass}`}>
       <InlineQuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
       <input
-        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-right text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-right text-sm text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
@@ -639,13 +639,13 @@ function GuidedAssetField({
   missing?: boolean;
 }) {
   return (
-    <label className="question-card grid gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center">
+    <label className="question-card grid gap-2 rounded-lg border border-slate-200 px-3 py-2.5 sm:grid-cols-[max-content_132px] sm:items-center sm:justify-between">
       <div>
         <InlineQuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
-        {guide ? <span className="mt-1 block text-xs font-semibold leading-5 text-slate-400">{guide}</span> : null}
+        {guide ? <span className="mt-1 block whitespace-nowrap text-xs font-semibold leading-5 text-slate-400">{guide}</span> : null}
       </div>
       <input
-        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-right text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-right text-sm text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
@@ -1112,22 +1112,22 @@ export default function CustomerAnalysisTab() {
 
       {/* 기본 재무 정보 */}
       <Panel icon={<WalletCards size={18} />} eyebrow="기본 재무 정보" title="고객 재무 현황" note="※ 금액은 원화(KRW) 기준으로 입력해주세요.">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
-          <div className="asset-summary-card rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
+          <div className="asset-summary-card rounded-lg border border-slate-200 bg-white p-3 shadow-soft">
             <QuestionTitle label="현재 자산 현황을 알려주세요." missing={financialMissing.assetSummary} className="text-sm font-bold text-slate-800" />
-            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(250px,0.8fr)]">
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(230px,0.8fr)]">
               <div>
-                <div className="question-card rounded-lg border border-slate-200 p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="question-card rounded-lg border border-slate-200 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
                     <InlineQuestionTitle label="금융자산" missing={financialMissing.existingInvestmentAssets || financialMissing.cashAssets} className="text-[15px] font-bold leading-6 text-slate-800" />
                     <span className="text-[15px] font-bold text-slate-700">{formData.financial.financialAssets || "계산 대기"}</span>
                   </div>
-                  <div className="grid gap-3">
+                  <div className="grid gap-2.5">
                     <AssetValueInput label="기존 투자자산*" value={formData.financial.existingInvestmentAssets} placeholder="예. 20억" missing={financialMissing.existingInvestmentAssets} onChange={(v) => setFinancial("existingInvestmentAssets", v)} />
                     <AssetValueInput label="현금성 자산**" value={formData.financial.cashAssets} placeholder="예. 8억" missing={financialMissing.cashAssets} onChange={(v) => setFinancial("cashAssets", v)} />
                   </div>
                 </div>
-                <p className="mt-3 text-xs font-semibold leading-5 text-slate-400">
+                <p className="mt-2 whitespace-nowrap text-xs font-semibold leading-5 text-slate-400">
                   *투자자산: 주식, ETF, 펀드, 채권, 리츠(REITs), ELS 등<br />
                   **현금성 자산: 예·적금, CMA, MMF, RP 등
                 </p>
@@ -1139,11 +1139,11 @@ export default function CustomerAnalysisTab() {
               </div>
             </div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
-            <div className="grid gap-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-soft">
+            <div className="grid gap-2.5">
               <GuidedAssetField label="추가 투자 의향 자산" value={formData.financial.investableAssets} placeholder="예. 6억" guide="현금성 자산 범위 내에서 입력해주세요." missing={financialMissing.investableAssets} onChange={(v) => setFinancial("investableAssets", v)} />
-              <AssetCard label="(가구 기준) 연 고정소득" value={formData.financial.annualFixedIncome} placeholder="예. 3억~5억" missing={financialMissing.annualFixedIncome} inputColumnClass="sm:grid-cols-[minmax(0,1fr)_180px]" onChange={(v) => setFinancial("annualFixedIncome", v)} />
-              <AssetCard label="(가구 기준) 월 고정지출" value={formData.financial.monthlyFixedExpense} placeholder="예. 500만~1000만" missing={financialMissing.monthlyFixedExpense} inputColumnClass="sm:grid-cols-[minmax(0,1fr)_180px]" onChange={(v) => setFinancial("monthlyFixedExpense", v)} />
+              <AssetCard label="(가구 기준) 연 고정소득" value={formData.financial.annualFixedIncome} placeholder="예. 3억~5억" missing={financialMissing.annualFixedIncome} inputColumnClass="sm:grid-cols-[max-content_132px] sm:justify-between" onChange={(v) => setFinancial("annualFixedIncome", v)} />
+              <AssetCard label="(가구 기준) 월 고정지출" value={formData.financial.monthlyFixedExpense} placeholder="예. 500만~1000만" missing={financialMissing.monthlyFixedExpense} inputColumnClass="sm:grid-cols-[max-content_132px] sm:justify-between" onChange={(v) => setFinancial("monthlyFixedExpense", v)} />
             </div>
           </div>
         </div>
