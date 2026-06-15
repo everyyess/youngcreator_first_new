@@ -9,6 +9,8 @@ export type CustomerId = string;
 export type FinancialInfo = {
   totalAssets: string;
   financialAssets: string;
+  existingInvestmentAssets: string;
+  cashAssets: string;
   realEstate: string;
   debt: string;
   annualFixedIncome: string;
@@ -263,6 +265,7 @@ export const riskInterpretations: Record<RiskLevel, string> = {
 // ── Initial State ──────────────────────────────────────────────────────────
 const emptyFinancial: FinancialInfo = {
   totalAssets: "", financialAssets: "", realEstate: "", debt: "",
+  existingInvestmentAssets: "", cashAssets: "",
   annualFixedIncome: "", irregularIncome: "", irregularIncomeNone: false, investableAssets: "", monthlyFixedExpense: "",
 };
 
@@ -302,7 +305,7 @@ export function normalizeAppState(value: unknown): AppState {
   const state = value && typeof value === "object" ? (value as Partial<AppState>) : {};
   const financial = state.financial && typeof state.financial === "object" ? state.financial : {};
   const rrttllu = state.rrttllu && typeof state.rrttllu === "object" ? state.rrttllu : {};
-  return {
+  return deriveCalculatedAppState({
     smartInputNote: typeof state.smartInputNote === "string" ? state.smartInputNote : "",
     uniqueOtherManual: typeof state.uniqueOtherManual === "string" ? state.uniqueOtherManual : "",
     smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
@@ -314,7 +317,7 @@ export function normalizeAppState(value: unknown): AppState {
       investmentExperience: Array.isArray((rrttllu as Partial<RrttlluInfo>).investmentExperience) ? ((rrttllu as Partial<RrttlluInfo>).investmentExperience as string[]) : [],
       legalConstraints: Array.isArray((rrttllu as Partial<RrttlluInfo>).legalConstraints) ? ((rrttllu as Partial<RrttlluInfo>).legalConstraints as string[]) : [],
     },
-  };
+  });
 }
 
 function normalizeProfileText(text: unknown) {
@@ -634,6 +637,74 @@ export function parseKrwAmount(value: string | null): number | null {
   return parseSingleKrwAmount(normalized);
 }
 
+function formatCompactKrw(amount: number | null) {
+  if (amount === null || !Number.isFinite(amount)) return "";
+  const eok = Math.floor(amount / 100_000_000);
+  const man = Math.floor((amount % 100_000_000) / 10_000);
+  if (eok && man) return `${eok}억 ${man.toLocaleString("ko-KR")}만`;
+  if (eok) return `${eok}억`;
+  if (man) return `${man.toLocaleString("ko-KR")}만`;
+  return `${Math.round(amount).toLocaleString("ko-KR")}원`;
+}
+
+function sumKnownAmounts(values: Array<string | null>) {
+  const amounts = values.map((value) => parseKrwAmount(nullableText(value ?? ""))).filter((value): value is number => value !== null);
+  return amounts.length ? amounts.reduce((sum, value) => sum + value, 0) : null;
+}
+
+function ratioOption(value: number | null, ranges: Array<{ limit: number; label: string }>, fallback: string) {
+  if (value === null || !Number.isFinite(value) || value < 0) return "";
+  const matched = ranges.find((range) => value < range.limit);
+  return matched ? matched.label : fallback;
+}
+
+export function deriveFinancialFields(financial: FinancialInfo): FinancialInfo {
+  const financialAssetsAmount = sumKnownAmounts([financial.existingInvestmentAssets, financial.cashAssets]);
+  const realEstateAmount = parseKrwAmount(nullableText(financial.realEstate)) ?? 0;
+  const debtAmount = parseKrwAmount(nullableText(financial.debt)) ?? 0;
+  const hasNetAssetInput = financialAssetsAmount !== null || nullableText(financial.realEstate) !== null || nullableText(financial.debt) !== null;
+  const netAssetsAmount = hasNetAssetInput ? (financialAssetsAmount ?? 0) + realEstateAmount - debtAmount : null;
+
+  return {
+    ...financial,
+    financialAssets: formatCompactKrw(financialAssetsAmount),
+    totalAssets: formatCompactKrw(netAssetsAmount),
+  };
+}
+
+export function deriveRiskRatioFields(financial: FinancialInfo, rrttllu: RrttlluInfo): RrttlluInfo {
+  const financialAssetsAmount = parseKrwAmount(nullableText(financial.financialAssets));
+  const netAssetsAmount = parseKrwAmount(nullableText(financial.totalAssets));
+  const existingInvestmentAssetsAmount = parseKrwAmount(nullableText(financial.existingInvestmentAssets));
+  const financialAssetRatio = financialAssetsAmount !== null && netAssetsAmount !== null && netAssetsAmount > 0
+    ? (financialAssetsAmount / netAssetsAmount) * 100
+    : null;
+  const investmentAssetRatio = existingInvestmentAssetsAmount !== null && financialAssetsAmount !== null && financialAssetsAmount > 0
+    ? (existingInvestmentAssetsAmount / financialAssetsAmount) * 100
+    : null;
+
+  return {
+    ...rrttllu,
+    financialAssetRatio: ratioOption(financialAssetRatio, [
+      { limit: 10, label: "10% 미만" },
+      { limit: 25, label: "10~25% 미만" },
+      { limit: 50, label: "25~50% 미만" },
+      { limit: 75, label: "50~75% 미만" },
+    ], "75% 이상"),
+    investmentAssetRatio: ratioOption(investmentAssetRatio, [
+      { limit: 10, label: "10% 미만" },
+      { limit: 20, label: "10~20% 미만" },
+      { limit: 30, label: "20~30% 미만" },
+      { limit: 40, label: "30~40% 미만" },
+    ], "40% 이상"),
+  };
+}
+
+export function deriveCalculatedAppState(state: AppState): AppState {
+  const financial = deriveFinancialFields(state.financial);
+  return { ...state, financial, rrttllu: deriveRiskRatioFields(financial, state.rrttllu) };
+}
+
 export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskResult, customerProfile?: CustomerProfile): StructuredJsonPayload {
   const { financial, rrttllu } = formData;
   const warnings: string[] = [];
@@ -641,7 +712,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   const financialAssets = nullableText(financial.financialAssets);
   const realEstate = nullableText(financial.realEstate);
   const debt = nullableText(financial.debt);
-  const assetParts = [totalAssets ? `총 자산 ${totalAssets}` : null, financialAssets ? `금융자산 ${financialAssets}` : null, realEstate ? `부동산 ${realEstate}` : null, debt ? `부채 ${debt}` : null].filter(Boolean);
+  const assetParts = [totalAssets ? `순자산 ${totalAssets}` : null, financialAssets ? `금융자산 ${financialAssets}` : null, realEstate ? `부동산 ${realEstate}` : null, debt ? `부채 ${debt}` : null].filter(Boolean);
   const assetSummary = assetParts.length ? assetParts.join(", ") : null;
   const annualFixedIncome = nullableText(financial.annualFixedIncome);
   const irregularIncome = financial.irregularIncomeNone ? "없음" : nullableText(financial.irregularIncome);

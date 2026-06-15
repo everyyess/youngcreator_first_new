@@ -5,7 +5,7 @@ import { BarChart3, ClipboardList, Info, LockKeyhole, PieChart, ShieldCheck, Spa
 import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
 import type { SmartExtractionPayload } from "../CustomerContext";
-import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal } from "../ui";
+import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal, MissingNotice, QuestionTitle, questionLabel } from "../ui";
 
 const grayQuestionCardStyle = {
   "--question-card-bg": "#f8fafc",
@@ -532,10 +532,15 @@ function summaryRiskGrade(score: number) {
   };
 }
 
-function SummaryRow({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+function SummaryRow({ label, children, missing = false }: { label: React.ReactNode; children: React.ReactNode; missing?: boolean }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid sm:grid-cols-[170px_minmax(0,1fr)]">
-      <div className="flex items-center bg-sky-100 px-4 py-3 text-sm font-bold text-samsung">{label}</div>
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid sm:grid-cols-[210px_minmax(0,1fr)]">
+      <div className="flex items-center bg-sky-100 px-4 py-3 text-sm font-bold text-samsung">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="contents">{label}</span>
+          {missing ? <MissingNotice /> : null}
+        </div>
+      </div>
       <div className="px-4 py-3 text-sm font-semibold leading-6 text-navy">{children}</div>
     </div>
   );
@@ -554,18 +559,118 @@ function SummaryChips({ rows }: { rows: [string, string][] }) {
   );
 }
 
-function FinancialSummaryChips({ rows, investableValue }: { rows: [string, string][]; investableValue: string }) {
+function InlineMissingMark() {
+  return <span className="text-xs font-extrabold text-red-600" aria-label="누락 주의">🚨</span>;
+}
+
+function InlineQuestionTitle({ label, missing = false, className = "" }: { label: string; missing?: boolean; className?: string }) {
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-2">
-      {rows.map(([label, value]) => (
-        <div key={label} className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
-          <span className="rounded-md bg-sky-100 px-2.5 py-1 text-xs font-extrabold text-samsung">{label}</span>
-          <span>{value}</span>
-        </div>
-      ))}
-      <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
-        <span className="rounded-md bg-red-100 px-2.5 py-1 text-xs font-extrabold text-red-700">★ 투자 가능 자산</span>
-        <span className="font-extrabold text-red-700">{investableValue}</span>
+    <span className={`flex min-w-0 items-center gap-1.5 ${className}`}>
+      <span className="min-w-0 truncate">{questionLabel(label)}</span>
+      {missing ? <InlineMissingMark /> : null}
+    </span>
+  );
+}
+
+function AssetValueInput({ label, value, placeholder, onChange, missing = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; missing?: boolean }) {
+  return (
+    <label className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_120px] sm:items-center">
+      <InlineQuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
+      <input
+        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-right text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}
+
+function CalculatedAssetValue({ label, value, icon }: { label: string; value: string; icon?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-1 py-2">
+      <span className="flex items-center gap-2 text-[15px] font-bold leading-6 text-slate-800">{icon}{label}</span>
+      <span className="text-right text-[15px] text-ink">{value || "계산 대기"}</span>
+    </div>
+  );
+}
+
+function AssetCard({
+  label,
+  value,
+  placeholder,
+  onChange,
+  missing = false,
+  inputColumnClass = "sm:grid-cols-[minmax(0,1fr)_104px]",
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+  missing?: boolean;
+  inputColumnClass?: string;
+}) {
+  return (
+    <label className={`question-card grid gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:items-center ${inputColumnClass}`}>
+      <InlineQuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
+      <input
+        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-right text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}
+
+function GuidedAssetField({
+  label,
+  value,
+  placeholder,
+  guide,
+  onChange,
+  missing = false,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  guide?: string;
+  onChange: (value: string) => void;
+  missing?: boolean;
+}) {
+  return (
+    <label className="question-card grid gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center">
+      <div>
+        <InlineQuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
+        {guide ? <span className="mt-1 block text-xs font-semibold leading-5 text-slate-400">{guide}</span> : null}
+      </div>
+      <input
+        className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-right text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}
+
+function AutoChoiceGroup({ label, description, options, value }: { label: string; description?: string; options: string[]; value: string }) {
+  return (
+    <div className="question-card rounded-lg border border-slate-200 p-4">
+      <QuestionTitle label={label} missing={!value} className="text-[15px] font-bold leading-6 text-slate-800" />
+      <p className="mt-2 text-xs font-extrabold text-samsung">위 자산 입력값 기준 자동 산출됩니다.</p>
+      <div className={`mt-3 grid max-w-5xl gap-2.5 ${options.length >= 5 ? "sm:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2"}`}>
+        {options.map((option) => {
+          const selected = value === option;
+          return (
+            <div
+              key={option}
+              className={`flex min-h-12 cursor-default items-center rounded-lg border px-4 py-3 text-left text-[15px] font-semibold leading-6 ${selected ? "border-samsung bg-blue-100 text-blue-800" : "border-slate-200 bg-slate-100 text-slate-400"}`}
+            >
+              {option}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -590,12 +695,13 @@ function SummaryAnalysisCard({
     ["기대수익률", rrttllu.expectedReturnUnknown ? "구체적인 수치는 모름" : summaryValue(rrttllu.expectedReturn)],
   ];
   const financialSummary: [string, string][] = [
-    ["총 자산", summaryValue(financial.totalAssets)],
+    ["순자산", summaryValue(financial.totalAssets)],
     ["금융자산", summaryValue(financial.financialAssets)],
     ["부동산", summaryValue(financial.realEstate)],
     ["부채", summaryValue(financial.debt)],
     ["연 고정소득", summaryValue(financial.annualFixedIncome)],
     ["월 고정지출", summaryValue(financial.monthlyFixedExpense)],
+    ["추가 투자 의향 자산", summaryValue(financial.investableAssets)],
     ["향후 예상되는 비정기 소득", financial.irregularIncomeNone ? "없음" : summaryValue(financial.irregularIncome)],
   ];
   const taxSummary: [string, string][] = [
@@ -615,6 +721,33 @@ function SummaryAnalysisCard({
     ["목돈 사용 계획", summaryValue(rrttllu.lumpSumPlan)],
     ["비상예비자금 계획", summaryValue(rrttllu.emergencyReservePlan)],
   ];
+  const blank = (value: string | string[]) => Array.isArray(value) ? value.length === 0 : !value.trim();
+  const summaryMissing = {
+    financial: [
+      financial.existingInvestmentAssets,
+      financial.cashAssets,
+      financial.realEstate,
+      financial.debt,
+      financial.annualFixedIncome,
+      financial.monthlyFixedExpense,
+      financial.investableAssets,
+      financial.irregularIncomeNone ? "없음" : financial.irregularIncome,
+    ].some((value) => !value.trim()),
+    return: !rrttllu.returnObjective.trim() || (!rrttllu.expectedReturnUnknown && !rrttllu.expectedReturn.trim()),
+    risk: [
+      rrttllu.investmentExperience,
+      rrttllu.knowledgeLevel,
+      rrttllu.derivativesExperience,
+      rrttllu.financialAssetRatio,
+      rrttllu.investmentAssetRatio,
+      rrttllu.riskAttitude,
+      rrttllu.lossResponse,
+    ].some((value) => blank(value)),
+    timeHorizon: !rrttllu.timeHorizon.trim(),
+    tax: [rrttllu.giftingPlan, rrttllu.globalTaxImportance, rrttllu.recentGlobalTaxSubject, rrttllu.foreignStockTaxImportance].some((value) => !value.trim()),
+    liquidity: [rrttllu.regularCashflowNeed, rrttllu.lumpSumPlan, rrttllu.emergencyReservePlan].some((value) => !value.trim()),
+    legal: !rrttllu.legalConstraints.length || (rrttllu.legalConstraints.includes("기타") && !rrttllu.legalConstraintOther.trim()),
+  };
   return (
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-3">
@@ -627,11 +760,10 @@ function SummaryAnalysisCard({
           </div>
         </div>
         <div className="grid gap-2">
-          <SummaryRow label="고객 재무 현황">
-            <FinancialSummaryChips rows={financialSummary} investableValue={summaryValue(financial.investableAssets)} />
-          </SummaryRow>
-          <SummaryRow label="Return"><SummaryChips rows={returnRows} /></SummaryRow>
+          <SummaryRow label="고객 재무 현황" missing={summaryMissing.financial}><SummaryChips rows={financialSummary} /></SummaryRow>
+          <SummaryRow label="Return" missing={summaryMissing.return}><SummaryChips rows={returnRows} /></SummaryRow>
           <SummaryRow
+            missing={summaryMissing.risk}
             label={
               <div className="flex items-center gap-2">
                 <span>Risk</span>
@@ -653,10 +785,10 @@ function SummaryAnalysisCard({
               <p className="mt-2 font-semibold text-slate-700">{riskGrade.description}</p>
             </div>
           </SummaryRow>
-          <SummaryRow label="Time Horizon"><SummaryChips rows={[["투자 기간", summaryValue(rrttllu.timeHorizon)]]} /></SummaryRow>
-          <SummaryRow label="Tax"><SummaryChips rows={taxSummary} /></SummaryRow>
-          <SummaryRow label="Liquidity"><SummaryChips rows={liquidityRows} /></SummaryRow>
-          <SummaryRow label="Legal"><SummaryChips rows={legalRows} /></SummaryRow>
+          <SummaryRow label="Time Horizon" missing={summaryMissing.timeHorizon}><SummaryChips rows={[["투자 기간", summaryValue(rrttllu.timeHorizon)]]} /></SummaryRow>
+          <SummaryRow label="Tax" missing={summaryMissing.tax}><SummaryChips rows={taxSummary} /></SummaryRow>
+          <SummaryRow label="Liquidity" missing={summaryMissing.liquidity}><SummaryChips rows={liquidityRows} /></SummaryRow>
+          <SummaryRow label="Legal" missing={summaryMissing.legal}><SummaryChips rows={legalRows} /></SummaryRow>
         </div>
         {riskGuideOpen ? (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/45 px-4 py-6">
@@ -861,6 +993,36 @@ export default function CustomerAnalysisTab() {
   }), [formData.aiGuidePbNotes, formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
 
   const advisoryGuideSignature = useMemo(() => JSON.stringify(advisoryGuidePayload), [advisoryGuidePayload]);
+  const isBlank = (value: string | string[]) => Array.isArray(value) ? value.length === 0 : !value.trim();
+  const financialMissing = {
+    assetSummary: [formData.financial.existingInvestmentAssets, formData.financial.cashAssets, formData.financial.realEstate, formData.financial.debt].some((value) => !value.trim()),
+    existingInvestmentAssets: !formData.financial.existingInvestmentAssets.trim(),
+    cashAssets: !formData.financial.cashAssets.trim(),
+    realEstate: !formData.financial.realEstate.trim(),
+    debt: !formData.financial.debt.trim(),
+    annualFixedIncome: !formData.financial.annualFixedIncome.trim(),
+    monthlyFixedExpense: !formData.financial.monthlyFixedExpense.trim(),
+    investableAssets: !formData.financial.investableAssets.trim(),
+    irregularIncome: !formData.financial.irregularIncomeNone && !formData.financial.irregularIncome.trim(),
+  };
+  const rr = formData.rrttllu;
+  const sectionMissing = {
+    financial: Object.values(financialMissing).some(Boolean),
+    return: !rr.returnObjective.trim() || (!rr.expectedReturnUnknown && !rr.expectedReturn.trim()),
+    risk: [
+      rr.investmentExperience,
+      rr.knowledgeLevel,
+      rr.derivativesExperience,
+      rr.financialAssetRatio,
+      rr.investmentAssetRatio,
+      rr.riskAttitude,
+      rr.lossResponse,
+    ].some((value) => isBlank(value)),
+    timeHorizon: !rr.timeHorizon.trim(),
+    tax: [rr.giftingPlan, rr.globalTaxImportance, rr.recentGlobalTaxSubject, rr.foreignStockTaxImportance].some((value) => !value.trim()),
+    liquidity: [rr.regularCashflowNeed, rr.lumpSumPlan, rr.emergencyReservePlan].some((value) => !value.trim()),
+    legal: !rr.legalConstraints.length || (rr.legalConstraints.includes("기타") && !rr.legalConstraintOther.trim()),
+  };
 
   useEffect(() => {
     const stored = window.localStorage.getItem(tab1SubTabStorageKey);
@@ -950,76 +1112,99 @@ export default function CustomerAnalysisTab() {
 
       {/* 기본 재무 정보 */}
       <Panel icon={<WalletCards size={18} />} eyebrow="기본 재무 정보" title="고객 재무 현황" note="※ 금액은 원화(KRW) 기준으로 입력해주세요.">
-        <div className="question-card asset-summary-card rounded-lg border border-slate-200 p-4" style={grayQuestionCardStyle}>
-          <p className="text-sm font-bold text-slate-800">Q. 현재 자산 현황을 알려주세요.</p>
-          <CheckerboardGrid className="asset-detail-grid mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-[0.72fr_0.72fr_0.72fr_0.72fr_1.45fr_1.45fr]">
-            <TextField compact label="총 자산" value={formData.financial.totalAssets} placeholder="예. 20억 원" onChange={(v) => setFinancial("totalAssets", v)} />
-            <TextField compact label="금융자산" value={formData.financial.financialAssets} placeholder="예. 8억 원" onChange={(v) => setFinancial("financialAssets", v)} />
-            <TextField compact label="부동산" value={formData.financial.realEstate} placeholder="예. 15억 원" onChange={(v) => setFinancial("realEstate", v)} />
-            <TextField compact label="부채" value={formData.financial.debt} placeholder="예. 3억 원" onChange={(v) => setFinancial("debt", v)} />
-            <TextField compact label="(가구 기준) 연 고정소득" value={formData.financial.annualFixedIncome} placeholder="예. 3억 원~5억 원" onChange={(v) => setFinancial("annualFixedIncome", v)} />
-            <TextField compact label="(가구 기준) 월 고정지출" value={formData.financial.monthlyFixedExpense} placeholder="예. 500만 원~1,000만 원" onChange={(v) => setFinancial("monthlyFixedExpense", v)} />
-          </CheckerboardGrid>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+          <div className="asset-summary-card rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+            <QuestionTitle label="현재 자산 현황을 알려주세요." missing={financialMissing.assetSummary} className="text-sm font-bold text-slate-800" />
+            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(250px,0.8fr)]">
+              <div>
+                <div className="question-card rounded-lg border border-slate-200 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <InlineQuestionTitle label="금융자산" missing={financialMissing.existingInvestmentAssets || financialMissing.cashAssets} className="text-[15px] font-bold leading-6 text-slate-800" />
+                    <span className="text-[15px] font-bold text-slate-700">{formData.financial.financialAssets || "계산 대기"}</span>
+                  </div>
+                  <div className="grid gap-3">
+                    <AssetValueInput label="기존 투자자산*" value={formData.financial.existingInvestmentAssets} placeholder="예. 20억" missing={financialMissing.existingInvestmentAssets} onChange={(v) => setFinancial("existingInvestmentAssets", v)} />
+                    <AssetValueInput label="현금성 자산**" value={formData.financial.cashAssets} placeholder="예. 8억" missing={financialMissing.cashAssets} onChange={(v) => setFinancial("cashAssets", v)} />
+                  </div>
+                </div>
+                <p className="mt-3 text-xs font-semibold leading-5 text-slate-400">
+                  *투자자산: 주식, ETF, 펀드, 채권, 리츠(REITs), ELS 등<br />
+                  **현금성 자산: 예·적금, CMA, MMF, RP 등
+                </p>
+              </div>
+              <div className="grid content-start gap-3">
+                <AssetCard label="부동산" value={formData.financial.realEstate} placeholder="예. 15억" missing={financialMissing.realEstate} onChange={(v) => setFinancial("realEstate", v)} />
+                <AssetCard label="부채" value={formData.financial.debt} placeholder="예. 3억" missing={financialMissing.debt} onChange={(v) => setFinancial("debt", v)} />
+                <CalculatedAssetValue label="순자산" value={formData.financial.totalAssets} icon={<span aria-hidden="true">💎</span>} />
+              </div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+            <div className="grid gap-3">
+              <GuidedAssetField label="추가 투자 의향 자산" value={formData.financial.investableAssets} placeholder="예. 6억" guide="현금성 자산 범위 내에서 입력해주세요." missing={financialMissing.investableAssets} onChange={(v) => setFinancial("investableAssets", v)} />
+              <AssetCard label="(가구 기준) 연 고정소득" value={formData.financial.annualFixedIncome} placeholder="예. 3억~5억" missing={financialMissing.annualFixedIncome} inputColumnClass="sm:grid-cols-[minmax(0,1fr)_180px]" onChange={(v) => setFinancial("annualFixedIncome", v)} />
+              <AssetCard label="(가구 기준) 월 고정지출" value={formData.financial.monthlyFixedExpense} placeholder="예. 500만~1000만" missing={financialMissing.monthlyFixedExpense} inputColumnClass="sm:grid-cols-[minmax(0,1fr)_180px]" onChange={(v) => setFinancial("monthlyFixedExpense", v)} />
+            </div>
+          </div>
         </div>
-        <CheckerboardGrid className="grid gap-3 lg:grid-cols-2">
-          <IncomeWithNoneField label="향후 예상되는 비정기 소득" value={formData.financial.irregularIncome} placeholder="예. 연 성과급 6~7억 원, 3년 내 스톡옵션 행사" noneSelected={formData.financial.irregularIncomeNone} onChange={setIrregularIncome} onToggleNone={toggleNoIrregularIncome} />
-          <TextField label="투자 가능 자산" value={formData.financial.investableAssets} placeholder="예. 10억" onChange={(v) => setFinancial("investableAssets", v)} />
-        </CheckerboardGrid>
+        <div className="grid gap-3">
+          <IncomeWithNoneField label="향후 예상되는 비정기 소득" value={formData.financial.irregularIncome} placeholder="예. 연 성과급 6~7억, 3년 내 스톡옵션 행사 20억, 부동산 매각 30억 예상" noneSelected={formData.financial.irregularIncomeNone} missing={financialMissing.irregularIncome} onChange={setIrregularIncome} onToggleNone={toggleNoIrregularIncome} />
+        </div>
       </Panel>
 
       {/* ① Return */}
       <Panel icon={<BarChart3 size={18} />} eyebrow="RRTTLLU" title="① Return 목표 수익률">
         <CheckerboardGrid className="grid gap-3 xl:grid-cols-[minmax(0,1.65fr)_minmax(320px,0.85fr)]">
-          <ChoiceGroup label="투자 목적은 무엇인가요?" options={returnOptions} value={formData.rrttllu.returnObjective} onChange={(v) => setRrttllu("returnObjective", v)} />
-          <ExpectedReturnField value={formData.rrttllu.expectedReturn} unknownSelected={formData.rrttllu.expectedReturnUnknown} onChange={setExpectedReturn} onToggleUnknown={toggleExpectedReturnUnknown} />
+          <ChoiceGroup label="투자 목적은 무엇인가요?" options={returnOptions} value={formData.rrttllu.returnObjective} missing={!formData.rrttllu.returnObjective.trim()} onChange={(v) => setRrttllu("returnObjective", v)} />
+          <ExpectedReturnField value={formData.rrttllu.expectedReturn} unknownSelected={formData.rrttllu.expectedReturnUnknown} missing={!formData.rrttllu.expectedReturnUnknown && !formData.rrttllu.expectedReturn.trim()} onChange={setExpectedReturn} onToggleUnknown={toggleExpectedReturnUnknown} />
         </CheckerboardGrid>
       </Panel>
 
       {/* ② Risk */}
       <Panel icon={<ShieldCheck size={18} />} eyebrow="RRTTLLU" title="② Risk 위험 허용도">
         <CheckerboardGrid className="grid gap-4 xl:grid-cols-2" invert itemClassName={(index) => (index === 0 ? "xl:col-span-2" : "")}>
-          <MultiChoiceGroup label="투자 경험이 있는 금융상품을 모두 선택해주세요." options={riskExperienceOptions} values={formData.rrttllu.investmentExperience} onToggle={toggleInvestmentExperience} />
-          <ChoiceGroup label="투자 지식 수준은 어느 정도인가요?" options={fieldGroups.knowledge} value={formData.rrttllu.knowledgeLevel} onChange={(v) => setRrttllu("knowledgeLevel", v)} />
-          <ChoiceGroup label="파생상품 투자 경험이 있으신가요?" description="파생상품: 파생상품, 원금비보장형 파생결합 증권, 파생상품펀드, 레버리지/인버스 ETF 등" options={fieldGroups.derivatives} value={formData.rrttllu.derivativesExperience} onChange={(v) => setRrttllu("derivativesExperience", v)} />
-          <ChoiceGroup label="총 자산 중 금융자산의 비중" description="금융자산: 예·적금, CMA, 투자자산(주식·채권·펀드·ETF 등) 등" options={fieldGroups.financialAssetRatio} value={formData.rrttllu.financialAssetRatio} onChange={(v) => setRrttllu("financialAssetRatio", v)} />
-          <ChoiceGroup label="금융자산 중 투자자산의 비중" description="투자자산: 주식, ETF, 펀드, 채권, 리츠(REITs), ELS 등" options={fieldGroups.investmentAssetRatio} value={formData.rrttllu.investmentAssetRatio} onChange={(v) => setRrttllu("investmentAssetRatio", v)} />
-          <ChoiceGroup label="기대이익 및 기대손실 등을 고려한 위험에 대한 태도" options={fieldGroups.riskAttitude} value={formData.rrttllu.riskAttitude} onChange={(v) => setRrttllu("riskAttitude", v)} />
-          <ChoiceGroup label="단기적으로 손실이 초과 발생할 때 대응" options={fieldGroups.lossResponse} value={formData.rrttllu.lossResponse} onChange={(v) => setRrttllu("lossResponse", v)} />
+          <MultiChoiceGroup label="투자 경험이 있는 금융상품을 모두 선택해주세요." options={riskExperienceOptions} values={formData.rrttllu.investmentExperience} missing={!formData.rrttllu.investmentExperience.length} onToggle={toggleInvestmentExperience} />
+          <ChoiceGroup label="투자 지식 수준은 어느 정도인가요?" options={fieldGroups.knowledge} value={formData.rrttllu.knowledgeLevel} missing={!formData.rrttllu.knowledgeLevel.trim()} onChange={(v) => setRrttllu("knowledgeLevel", v)} />
+          <ChoiceGroup label="파생상품 투자 경험이 있으신가요?" description="파생상품: 파생상품, 원금비보장형 파생결합 증권, 파생상품펀드, 레버리지/인버스 ETF 등" options={fieldGroups.derivatives} value={formData.rrttllu.derivativesExperience} missing={!formData.rrttllu.derivativesExperience.trim()} onChange={(v) => setRrttllu("derivativesExperience", v)} />
+          <AutoChoiceGroup label="순자산 중 금융자산의 비중" description="금융자산: 기존 투자자산 + 현금성 자산" options={fieldGroups.financialAssetRatio} value={formData.rrttllu.financialAssetRatio} />
+          <AutoChoiceGroup label="금융자산 중 투자자산의 비중" description="투자자산: 주식, ETF, 펀드, 채권, 리츠(REITs), ELS 등" options={fieldGroups.investmentAssetRatio} value={formData.rrttllu.investmentAssetRatio} />
+          <ChoiceGroup label="기대이익 및 기대손실 등을 고려한 위험에 대한 태도" options={fieldGroups.riskAttitude} value={formData.rrttllu.riskAttitude} missing={!formData.rrttllu.riskAttitude.trim()} onChange={(v) => setRrttllu("riskAttitude", v)} />
+          <ChoiceGroup label="단기적으로 손실이 초과 발생할 때 대응" options={fieldGroups.lossResponse} value={formData.rrttllu.lossResponse} missing={!formData.rrttllu.lossResponse.trim()} onChange={(v) => setRrttllu("lossResponse", v)} />
         </CheckerboardGrid>
       </Panel>
 
       {/* ③ Time Horizon */}
       <Panel icon={<ClipboardList size={18} />} eyebrow="RRTTLLU" title="③ Time Horizon 투자 기간">
-        <ChoiceGroup label="투자 가능한 기간을 선택해 주세요." options={fieldGroups.timeHorizon} value={formData.rrttllu.timeHorizon} onChange={(v) => setRrttllu("timeHorizon", v)} />
+        <ChoiceGroup label="투자 가능한 기간을 선택해 주세요." options={fieldGroups.timeHorizon} value={formData.rrttllu.timeHorizon} missing={!formData.rrttllu.timeHorizon.trim()} onChange={(v) => setRrttllu("timeHorizon", v)} />
       </Panel>
 
       {/* ④ Tax */}
       <Panel icon={<PieChart size={18} />} eyebrow="RRTTLLU" title="④ Tax 세금 요인">
         <CheckerboardGrid className="tax-grid grid gap-4 lg:grid-cols-2">
-          <ChoiceGroup label="자녀/가족 사전증여 계획" options={fieldGroups.giftingPlan} value={formData.rrttllu.giftingPlan} onChange={(v) => setRrttllu("giftingPlan", v)} />
-          <ChoiceGroup label="금융소득종합과세 절감 중요도" options={fieldGroups.taxImportance} value={formData.rrttllu.globalTaxImportance} onChange={(v) => setRrttllu("globalTaxImportance", v)} />
-          <ChoiceGroup label="최근 3년 내 금융소득종합과세 대상 여부" options={fieldGroups.recentTax} value={formData.rrttllu.recentGlobalTaxSubject} onChange={(v) => setRrttllu("recentGlobalTaxSubject", v)} />
-          <ChoiceGroup label="해외주식 양도소득세 절감 중요도" options={fieldGroups.taxImportance} value={formData.rrttllu.foreignStockTaxImportance} onChange={(v) => setRrttllu("foreignStockTaxImportance", v)} />
+          <ChoiceGroup label="자녀/가족 사전증여 계획" options={fieldGroups.giftingPlan} value={formData.rrttllu.giftingPlan} missing={!formData.rrttllu.giftingPlan.trim()} onChange={(v) => setRrttllu("giftingPlan", v)} />
+          <ChoiceGroup label="금융소득종합과세 절감 중요도" options={fieldGroups.taxImportance} value={formData.rrttllu.globalTaxImportance} missing={!formData.rrttllu.globalTaxImportance.trim()} onChange={(v) => setRrttllu("globalTaxImportance", v)} />
+          <ChoiceGroup label="최근 3년 내 금융소득종합과세 대상 여부" options={fieldGroups.recentTax} value={formData.rrttllu.recentGlobalTaxSubject} missing={!formData.rrttllu.recentGlobalTaxSubject.trim()} onChange={(v) => setRrttllu("recentGlobalTaxSubject", v)} />
+          <ChoiceGroup label="해외주식 양도소득세 절감 중요도" options={fieldGroups.taxImportance} value={formData.rrttllu.foreignStockTaxImportance} missing={!formData.rrttllu.foreignStockTaxImportance.trim()} onChange={(v) => setRrttllu("foreignStockTaxImportance", v)} />
         </CheckerboardGrid>
       </Panel>
 
       {/* ⑤ Liquidity */}
       <Panel icon={<WalletCards size={18} />} eyebrow="RRTTLLU" title="⑤ Liquidity 유동성 필요 시기">
         <CheckerboardGrid className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          <TextField label="향후 정기적인 현금흐름 필요" value={formData.rrttllu.regularCashflowNeed} placeholder="예. 20년간 월 생활비 500만 원" onChange={(v) => setRrttllu("regularCashflowNeed", v)} />
-          <TextField label="향후 목돈 사용 계획" value={formData.rrttllu.lumpSumPlan} placeholder="예. 5년 후 자녀 유학비 1억원" onChange={(v) => setRrttllu("lumpSumPlan", v)} />
-          <TextField label="향후 비상예비자금 확보 계획" value={formData.rrttllu.emergencyReservePlan} placeholder="예. 의료비 등 비상 상황 대비 1억 원" onChange={(v) => setRrttllu("emergencyReservePlan", v)} />
+          <TextField label="향후 정기적인 현금흐름 필요" value={formData.rrttllu.regularCashflowNeed} placeholder="예. 20년간 월 생활비 500만 원" missing={!formData.rrttllu.regularCashflowNeed.trim()} onChange={(v) => setRrttllu("regularCashflowNeed", v)} />
+          <TextField label="향후 목돈 사용 계획" value={formData.rrttllu.lumpSumPlan} placeholder="예. 5년 후 자녀 유학비 1억원" missing={!formData.rrttllu.lumpSumPlan.trim()} onChange={(v) => setRrttllu("lumpSumPlan", v)} />
+          <TextField label="향후 비상예비자금 확보 계획" value={formData.rrttllu.emergencyReservePlan} placeholder="예. 의료비 등 비상 상황 대비 1억 원" missing={!formData.rrttllu.emergencyReservePlan.trim()} onChange={(v) => setRrttllu("emergencyReservePlan", v)} />
         </CheckerboardGrid>
       </Panel>
 
       {/* ⑥ Legal */}
       <Panel icon={<LockKeyhole size={18} />} eyebrow="RRTTLLU" title="⑥ Legal 법적 규제">
         <CheckerboardGrid className="grid gap-3">
-          <MultiChoiceGroup label="투자 의사결정에 영향을 줄 수 있는 법적/제도적 제약" options={fieldGroups.legal} values={formData.rrttllu.legalConstraints} onToggle={toggleLegalConstraint} />
+          <MultiChoiceGroup label="투자 의사결정에 영향을 줄 수 있는 법적/제도적 제약" options={fieldGroups.legal} values={formData.rrttllu.legalConstraints} missing={!formData.rrttllu.legalConstraints.length} onToggle={toggleLegalConstraint} />
         </CheckerboardGrid>
         {formData.rrttllu.legalConstraints.includes("기타") ? (
           <CheckerboardGrid className="grid gap-3">
-            <TextField label="기타 제약 직접 입력" value={formData.rrttllu.legalConstraintOther} placeholder="예. 내부 투자심의 승인 필요" onChange={(v) => setRrttllu("legalConstraintOther", v)} />
+            <TextField label="기타 제약 직접 입력" value={formData.rrttllu.legalConstraintOther} placeholder="예. 내부 투자심의 승인 필요" missing={!formData.rrttllu.legalConstraintOther.trim()} onChange={(v) => setRrttllu("legalConstraintOther", v)} />
           </CheckerboardGrid>
         ) : null}
       </Panel>
@@ -1039,7 +1224,7 @@ export default function CustomerAnalysisTab() {
           <div>
             <div className="question-card block rounded-lg border border-slate-200 p-4">
               <div className="mb-2 flex flex-wrap items-center gap-3">
-                <span className="block text-[15px] font-bold leading-6 text-slate-800">Q. 추가 고려사항</span>
+                <QuestionTitle label="추가 고려사항" className="text-[15px] font-bold leading-6 text-slate-800" />
               </div>
               <textarea
                 className="min-h-28 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-[15px] leading-6 text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"

@@ -11,7 +11,7 @@ import {
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState,
-  createNewCustomerProfile, expectedReturnDisplay, fieldGroups, formatChangeDate,
+  createNewCustomerProfile, deriveCalculatedAppState, expectedReturnDisplay, fieldGroups, formatChangeDate,
   formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
   noLegalConstraint, noneExperience, nullableText, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
@@ -48,7 +48,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [lastAnalysisSnapshot, setLastAnalysisSnapshot] = useState<ReturnType<typeof buildStructuredJsonPayload> | null>(null);
   const [changeHistory, setChangeHistory] = useState<ChangeEntry[]>([]);
   const [changeHistoryExpanded, setChangeHistoryExpanded] = useState(false);
-  const formData = customerData[selectedCustomer] ?? createInitialState();
+  const formData = deriveCalculatedAppState(customerData[selectedCustomer] ?? createInitialState());
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
   const financialCompletion = useMemo(() => completion([
-    formData.financial.totalAssets, formData.financial.financialAssets, formData.financial.realEstate,
+    formData.financial.existingInvestmentAssets, formData.financial.cashAssets, formData.financial.realEstate,
     formData.financial.debt, formData.financial.annualFixedIncome,
     formData.financial.irregularIncomeNone ? "없음" : formData.financial.irregularIncome,
     formData.financial.investableAssets,
@@ -132,7 +132,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const setFormData = (updater: (current: AppState) => AppState) => {
     markUpdated(selectedCustomer);
     setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: true }));
-    setCustomerData((prev) => ({ ...prev, [selectedCustomer]: updater(prev[selectedCustomer] ?? createInitialState()) }));
+    setCustomerData((prev) => ({ ...prev, [selectedCustomer]: deriveCalculatedAppState(updater(prev[selectedCustomer] ?? createInitialState())) }));
   };
 
   const selectCustomer = (id: CustomerId) => {
@@ -288,7 +288,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       const financialPatch = payload.financial ?? {};
       const rrttlluPatch = payload.rrttllu ?? {};
       const financial = mergeExtractedText(current.financial, financialPatch, [
-        "totalAssets", "financialAssets", "realEstate", "debt", "annualFixedIncome", "irregularIncome", "investableAssets", "monthlyFixedExpense",
+        "existingInvestmentAssets", "cashAssets", "realEstate", "debt", "annualFixedIncome", "irregularIncome", "investableAssets", "monthlyFixedExpense",
       ]);
       if (financialPatch.irregularIncomeNone === true) {
         financial.irregularIncomeNone = true;

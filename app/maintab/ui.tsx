@@ -7,6 +7,23 @@ export function questionLabel(label: string) {
   return label.startsWith("Q. ") ? label : `Q. ${label}`;
 }
 
+export function cleanQuestionLabel(label: string) {
+  return label.replace(/^Q\.\s*/, "");
+}
+
+export function MissingNotice() {
+  return <span className="text-xs font-extrabold text-red-600">🚨 누락 주의</span>;
+}
+
+export function QuestionTitle({ label, missing = false, className = "" }: { label: string; missing?: boolean; className?: string }) {
+  return (
+    <span className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${className}`}>
+      <span>{questionLabel(label)}</span>
+      {missing ? <MissingNotice /> : null}
+    </span>
+  );
+}
+
 function optionGridClass(count: number) {
   if (count <= 3) return "sm:grid-cols-2 lg:grid-cols-3";
   if (count === 4) return "sm:grid-cols-2";
@@ -144,28 +161,28 @@ export function ConfirmModal({
   );
 }
 
-export function TextField({ label, value, placeholder, onChange, compact = false, tone }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean; tone?: "blue" | "gray" }) {
+export function TextField({ label, value, placeholder, onChange, compact = false, tone, missing = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean; tone?: "blue" | "gray"; missing?: boolean }) {
   return (
     <label className={`question-card ${tone ? `question-card-${tone}` : ""} block rounded-lg border border-slate-200 ${compact ? "p-3" : "p-4"}`}>
-      <span className={`mb-2 block font-bold leading-6 text-slate-800 ${compact ? "whitespace-nowrap text-sm" : "text-[15px]"}`}>{questionLabel(label)}</span>
+      <QuestionTitle label={label} missing={missing} className={`mb-2 font-bold leading-6 text-slate-800 ${compact ? "text-sm" : "text-[15px]"}`} />
       <input className={`${compact ? "h-11" : "h-12"} w-full rounded-lg border border-slate-200 bg-white px-3 text-[15px] text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung`} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }
 
-export function TextAreaField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
+export function TextAreaField({ label, value, placeholder, onChange, missing = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; missing?: boolean }) {
   return (
     <label className="question-card block rounded-lg border border-slate-200 p-4">
-      <span className="mb-2 block text-[15px] font-bold leading-6 text-slate-800">{questionLabel(label)}</span>
+      <QuestionTitle label={label} missing={missing} className="mb-2 text-[15px] font-bold leading-6 text-slate-800" />
       <textarea className="min-h-28 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-[15px] leading-6 text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }
 
-export function IncomeWithNoneField({ label, value, placeholder, noneSelected, onChange, onToggleNone }: { label: string; value: string; placeholder: string; noneSelected: boolean; onChange: (value: string) => void; onToggleNone: () => void }) {
+export function IncomeWithNoneField({ label, value, placeholder, noneSelected, onChange, onToggleNone, missing = false }: { label: string; value: string; placeholder: string; noneSelected: boolean; onChange: (value: string) => void; onToggleNone: () => void; missing?: boolean }) {
   return (
     <div className="question-card rounded-lg border border-slate-200 p-4">
-      <p className="text-sm font-bold text-slate-700">{questionLabel(label)}</p>
+      <QuestionTitle label={label} missing={missing} className="text-sm font-bold text-slate-700" />
       <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)]">
         <textarea className="min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung disabled:bg-slate-100 disabled:text-slate-400 sm:min-h-12" value={value} placeholder={placeholder} disabled={noneSelected} onChange={(e) => onChange(e.target.value)} />
         <button type="button" onClick={onToggleNone} className={`min-h-12 rounded-lg border px-4 py-2 text-sm font-bold transition ${noneSelected ? "border-samsung bg-blue-50 text-samsung" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>없음</button>
@@ -174,10 +191,10 @@ export function IncomeWithNoneField({ label, value, placeholder, noneSelected, o
   );
 }
 
-export function ExpectedReturnField({ value, unknownSelected, onChange, onToggleUnknown }: { value: string; unknownSelected: boolean; onChange: (value: string) => void; onToggleUnknown: () => void }) {
+export function ExpectedReturnField({ value, unknownSelected, onChange, onToggleUnknown, missing = false }: { value: string; unknownSelected: boolean; onChange: (value: string) => void; onToggleUnknown: () => void; missing?: boolean }) {
   return (
     <div className="question-card rounded-lg border border-slate-200 p-4">
-      <p className="text-sm font-bold text-slate-700">{questionLabel("기대수익률")}</p>
+      <QuestionTitle label="기대수익률" missing={missing} className="text-sm font-bold text-slate-700" />
       <div className="mt-3 grid gap-2">
         <input className="h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink shadow-sm transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung disabled:bg-slate-100 disabled:text-slate-400" value={value} placeholder="예. 15%" disabled={unknownSelected} onChange={(e) => onChange(e.target.value)} />
         <button type="button" onClick={onToggleUnknown} className={`min-h-12 rounded-lg border px-3 py-2 text-sm font-bold transition ${unknownSelected ? "border-samsung bg-blue-50 text-samsung" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>구체적인 수치는 모름</button>
@@ -186,10 +203,10 @@ export function ExpectedReturnField({ value, unknownSelected, onChange, onToggle
   );
 }
 
-export function ChoiceGroup({ label, description, options, value, onChange, tone, cardClassName }: { label: string; description?: string; options: string[]; value: string; onChange: (value: string) => void; tone?: "blue" | "gray"; cardClassName?: string }) {
+export function ChoiceGroup({ label, description, options, value, onChange, tone, cardClassName, missing = false }: { label: string; description?: string; options: string[]; value: string; onChange: (value: string) => void; tone?: "blue" | "gray"; cardClassName?: string; missing?: boolean }) {
   return (
     <div className={`question-card ${tone ? `question-card-${tone}` : ""} ${cardClassName ?? ""} rounded-lg border border-slate-200 p-4`}>
-      <p className="text-[15px] font-bold leading-6 text-slate-800">{questionLabel(label)}</p>
+      <QuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
       {description ? <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p> : null}
       <div className={`mt-3 grid max-w-5xl gap-2.5 ${optionGridClass(options.length)}`}>
         {options.map((option) => (
@@ -200,10 +217,10 @@ export function ChoiceGroup({ label, description, options, value, onChange, tone
   );
 }
 
-export function MultiChoiceGroup({ label, options, values, onToggle }: { label: string; options: string[]; values: string[]; onToggle: (value: string) => void }) {
+export function MultiChoiceGroup({ label, options, values, onToggle, missing = false }: { label: string; options: string[]; values: string[]; onToggle: (value: string) => void; missing?: boolean }) {
   return (
     <div className="question-card rounded-lg border border-slate-200 p-4">
-      <p className="text-[15px] font-bold leading-6 text-slate-800">{questionLabel(label)}</p>
+      <QuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
       <div className={`mt-3 grid max-w-5xl gap-2.5 ${optionGridClass(options.length)}`}>
         {options.map((option) => {
           const selected = values.includes(option);
