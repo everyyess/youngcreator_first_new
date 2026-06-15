@@ -222,6 +222,7 @@ export function FinancialIncomeGauge({
 
   const dividendItems = (summary?.breakdown ?? []).filter(b => b.incomeType.startsWith("배당"));
   const interestItems = (summary?.breakdown ?? []).filter(b => b.incomeType === "이자");
+  const visibleGainsItems = (summary?.capitalGainsBreakdown ?? []).filter(item => item.tax > 0);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-soft overflow-hidden flex-1">
@@ -471,9 +472,9 @@ export function FinancialIncomeGauge({
               {/* 양도소득세 기존 내용 — TLH 탭이 없거나 양도소득세 서브탭 선택 시 */}
               {(!tlhComputed?.hasAny || yangdoSubTab === "양도소득세") && (
                 <>
-                  {(summary?.capitalGainsBreakdown ?? []).length > 0 ? (
+                  {visibleGainsItems.length > 0 ? (
                     <>
-                      {(summary?.capitalGainsBreakdown ?? []).map((item, i) => (
+                      {visibleGainsItems.map((item, i) => (
                         <CapitalGainsRow key={i} item={item} />
                       ))}
                       <div className="border-t border-slate-100 mt-2 pt-2 space-y-1">
