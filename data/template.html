@@ -11,7 +11,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:white;padding:20px 24px}
 .header h1{font-size:20px;font-weight:700;margin-bottom:4px}
 .header .sub{font-size:12px;opacity:.85}
-.period-bar{display:flex;gap:8px;padding:14px 20px;background:white;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;align-items:center}
+.period-bar{display:flex;gap:8px;padding:16px 24px;background:white;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;align-items:center}
 .period-bar .label{font-size:12px;color:#64748b;margin-right:4px}
 .period-btn{padding:5px 14px;min-width:68px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;background:white;cursor:pointer;font-size:12px;color:#475569;transition:all .15s}
 .period-btn.active{background:#3b82f6;color:white;border-color:#3b82f6;font-weight:600}
@@ -19,16 +19,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .tabs{display:flex;gap:0;padding:0 20px;background:white;border-bottom:1px solid #e2e8f0}
 .tab-btn{padding:12px 18px;border:none;background:none;cursor:pointer;font-size:13px;color:#64748b;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
 .tab-btn.active{color:#3b82f6;border-bottom-color:#3b82f6;font-weight:600}
-.tab-pane{display:none;padding:20px}
+.tab-pane{display:none;padding:28px 24px}
 .tab-pane.active{display:block}
-.summary-block{margin-bottom:8px}
-.summary-heading{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.summary-block{margin-bottom:22px}
+.summary-heading{display:flex;align-items:center;gap:8px;margin-bottom:14px}
 .summary-num{width:22px;height:22px;background:#3b82f6;color:white;border-radius:50%;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .summary-title{font-weight:600;font-size:14px}
 .summary-body{padding-left:30px;font-size:13px;color:#475569;line-height:1.8}
-.summary-divider{border:none;border-top:1px solid #e2e8f0;margin:16px 0}
-.opt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding-left:30px;margin-bottom:4px}
-.opt-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;transition:all .15s}
+.summary-divider{border:none;border-top:1px solid #e2e8f0;margin:26px 0}
+.opt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;padding-left:30px;margin-bottom:8px}
+.opt-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;transition:all .15s}
 .opt-card .ticker{font-size:20px;font-weight:700;margin-bottom:4px}
 .opt-card .etf-name{font-size:11px;color:#64748b;margin-bottom:6px;line-height:1.4}
 .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;color:white;font-weight:500}
@@ -36,18 +36,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .score-big{font-size:22px;font-weight:700}
 .gauge-track{height:6px;background:#e2e8f0;border-radius:4px;margin-top:6px;margin-bottom:2px}
 .gauge-fill{height:100%;border-radius:4px;transition:width .4s}
-.lock-picker{padding-left:30px;margin-bottom:14px}
-.lock-picker-label{font-size:12px;color:#64748b;margin-bottom:8px;font-weight:500}
-.lock-grid{display:flex;flex-wrap:wrap;gap:6px}
-.lock-chip{padding:4px 10px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:white;color:#475569;transition:all .15s;user-select:none}
+.lock-picker{padding-left:30px;margin-bottom:22px}
+.lock-picker-label{font-size:12px;color:#64748b;margin-bottom:12px;font-weight:500}
+.lock-grid{display:flex;flex-wrap:wrap;gap:8px}
+.lock-chip{padding:6px 12px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:white;color:#475569;transition:all .15s;user-select:none}
 .lock-chip:hover{border-color:#94a3b8;background:#f1f5f9}
 .lock-chip.locked{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8}
 .lock-chip.in-result{border-color:#22c55e;background:#f0fdf4;color:#15803d}
 .lock-chip.locked.in-result{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8}
-.pin-chart-wrap{padding-left:30px;margin-bottom:4px}
-.pin-row{display:flex;align-items:center;gap:8px;margin-bottom:14px}
-.pin-label{width:130px;font-size:12px;font-weight:600;color:#374151;flex-shrink:0;text-align:right}
-.pin-bar-outer{flex:1;position:relative;height:24px;background:linear-gradient(to right,#bfdbfe 0%,#dbeafe 49%,#dbeafe 51%,#fecaca 100%);border-radius:4px}
+.pin-chart-wrap{padding-left:30px;margin-bottom:10px;display:grid;grid-template-columns:max-content 1fr auto;column-gap:12px;row-gap:20px;align-items:center}
+.pin-row{display:contents}
+.pin-label{font-size:12px;font-weight:600;color:#374151;flex-shrink:0;text-align:left;white-space:nowrap}
+.pin-bar-outer{flex:1;position:relative;height:40px;background:linear-gradient(to right,#bfdbfe 0%,#dbeafe 49%,#dbeafe 51%,#fecaca 100%);border-radius:6px}
 .pin-bar-track{position:absolute;top:50%;transform:translateY(-50%);left:0;right:0;height:2px;background:rgba(0,0,0,0.1);border-radius:1px}
 .pin-center-line{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(0,0,0,0.2)}
 .corr-val{font-size:12px;font-weight:700;width:46px;flex-shrink:0}
@@ -56,8 +56,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .hm th{padding:4px 7px;background:#f1f5f9;color:#64748b;font-weight:600;border:1px solid #e2e8f0;font-size:10px}
 .hm td{padding:4px 7px;text-align:center;border:1px solid #e2e8f0;font-size:10px}
 .hm .row-header{font-size:10px;font-weight:600;text-align:right;max-width:90px}
-.chart-container{position:relative;height:380px;margin-bottom:12px}
-.view-btns{display:flex;gap:6px;margin-bottom:12px}
+.chart-container{position:relative;height:380px;margin-bottom:20px}
+.view-btns{display:flex;gap:6px;margin-bottom:16px}
 .preset{padding:5px 12px;border:1px solid #cbd5e1;border-radius:6px;background:white;cursor:pointer;font-size:12px;color:#475569}
 .preset.active{background:#3b82f6;color:white;border-color:#3b82f6}
 .etf-list-table{width:100%;border-collapse:collapse;font-size:13px}
@@ -127,6 +127,7 @@ const TICKERS = ["SOXX","URA","AIQ","CIBR","BOTZ","ICLN","XAR","ARKG","IPAY","QT
 const NOTE_MAP = {"VTI":"시장기준선","VOO":"시장기준선","QQQ":"시장기준선","IBIT":"예외포함","SLV":"실물자산","GLD":"실물자산","USO":"선물ETF","UNG":"선물ETF","WEAT":"선물ETF","CORN":"선물ETF","069500.KS":"한국시장","229200.KS":"한국시장"};
 const ETF_HOLDINGS = {"SOXX":[{"name":"Nvidia (NVDA)","weight":8.4},{"name":"Broadcom (AVGO)","weight":8.2},{"name":"Intel (INTC)","weight":4.8},{"name":"Texas Instruments (TXN)","weight":4.7},{"name":"Qualcomm (QCOM)","weight":4.5}],"URA":[{"name":"Cameco Corp (CCJ)","weight":22.1},{"name":"NexGen Energy (NXE)","weight":8.3},{"name":"Kazatomprom (KAP)","weight":7.9},{"name":"Denison Mines (DNN)","weight":4.2},{"name":"Uranium Energy (UEC)","weight":3.8}],"AIQ":[{"name":"Microsoft (MSFT)","weight":7.8},{"name":"Apple (AAPL)","weight":7.4},{"name":"Nvidia (NVDA)","weight":6.9},{"name":"Alphabet (GOOGL)","weight":5.8},{"name":"Meta Platforms (META)","weight":5.1}],"CIBR":[{"name":"Palo Alto Networks (PANW)","weight":8.7},{"name":"CrowdStrike (CRWD)","weight":7.9},{"name":"Zscaler (ZS)","weight":5.3},{"name":"Fortinet (FTNT)","weight":5.1},{"name":"Broadcom (AVGO)","weight":4.8}],"BOTZ":[{"name":"Nvidia (NVDA)","weight":9.2},{"name":"Intuitive Surgical (ISRG)","weight":8.7},{"name":"ABB Ltd (ABB)","weight":7.4},{"name":"Fanuc (6954)","weight":6.1},{"name":"Keyence (6861)","weight":5.8}],"ICLN":[{"name":"Enphase Energy (ENPH)","weight":9.1},{"name":"First Solar (FSLR)","weight":8.3},{"name":"Vestas Wind (VWS)","weight":6.7},{"name":"Plug Power (PLUG)","weight":4.2},{"name":"Sunrun (RUN)","weight":3.9}],"XAR":[{"name":"TransDigm Group (TDG)","weight":5.8},{"name":"Heico Corp (HEI)","weight":5.5},{"name":"General Dynamics (GD)","weight":5.2},{"name":"L3Harris (LHX)","weight":4.9},{"name":"Howmet Aerospace (HWM)","weight":4.7}],"ARKG":[{"name":"Pacific Biosciences (PACB)","weight":9.3},{"name":"Twist Bioscience (TWST)","weight":7.8},{"name":"Intellia Therapeutics (NTLA)","weight":7.2},{"name":"CRISPR Therapeutics (CRSP)","weight":6.9},{"name":"Fate Therapeutics (FATE)","weight":5.4}],"IPAY":[{"name":"Visa (V)","weight":9.4},{"name":"Mastercard (MA)","weight":8.9},{"name":"PayPal (PYPL)","weight":6.3},{"name":"Block (SQ)","weight":5.7},{"name":"Fiserv (FI)","weight":5.2}],"QTUM":[{"name":"IonQ (IONQ)","weight":12.4},{"name":"D-Wave Quantum (QBTS)","weight":9.1},{"name":"Rigetti Computing (RGTI)","weight":7.8},{"name":"Quantum Computing (QUBT)","weight":6.3},{"name":"Arqit Quantum (ARQQ)","weight":4.9}],"PAVE":[{"name":"Caterpillar (CAT)","weight":6.2},{"name":"Deere & Company (DE)","weight":5.8},{"name":"Eaton Corp (ETN)","weight":5.4},{"name":"Vulcan Materials (VMC)","weight":4.9},{"name":"Martin Marietta (MLM)","weight":4.6}],"LIT":[{"name":"Albemarle Corp (ALB)","weight":13.7},{"name":"SQM (SQM)","weight":9.4},{"name":"BYD Co (1211)","weight":7.8},{"name":"Tesla (TSLA)","weight":6.3},{"name":"Livent Corp (LTHM)","weight":5.1}],"REMX":[{"name":"MP Materials (MP)","weight":11.2},{"name":"Lynas Rare Earths (LYC)","weight":9.8},{"name":"Energy Fuels (UUUU)","weight":7.3},{"name":"Vital Metals (VML)","weight":4.6},{"name":"Neo Performance (NEO)","weight":4.1}],"DTCR":[{"name":"Equinix (EQIX)","weight":14.3},{"name":"Digital Realty (DLR)","weight":11.7},{"name":"Iron Mountain (IRM)","weight":8.9},{"name":"GDS Holdings (GDS)","weight":5.4},{"name":"Switch Inc (SWCH)","weight":4.8}],"VGLT":[{"name":"US Treasury 30Y","weight":38.2},{"name":"US Treasury 25Y","weight":21.4},{"name":"US Treasury 20Y","weight":18.9},{"name":"US Treasury 12.3","weight":12.3},{"name":"US Treasury 22Y","weight":9.2}],"VGIT":[{"name":"US Treasury 10Y","weight":29.4},{"name":"US Treasury 7Y","weight":22.1},{"name":"US Treasury 5Y","weight":19.8},{"name":"US Treasury 3Y","weight":16.4},{"name":"US Treasury 2Y","weight":12.3}],"VGSH":[{"name":"US Treasury 2Y","weight":31.7},{"name":"US Treasury 18M","weight":24.3},{"name":"US Treasury 1Y","weight":21.8},{"name":"US Treasury 3Y","weight":13.4},{"name":"US Treasury 6M","weight":8.8}],"AGG":[{"name":"US Treasury Short","weight":28.3},{"name":"US Treasury Intermediate","weight":24.7},{"name":"US Treasury Long","weight":18.4},{"name":"Agency Bonds","weight":15.2},{"name":"Investment Grade Corp","weight":13.4}],"VTI":[{"name":"Apple (AAPL)","weight":6.8},{"name":"Microsoft (MSFT)","weight":6.3},{"name":"Nvidia (NVDA)","weight":5.9},{"name":"Amazon (AMZN)","weight":3.4},{"name":"Alphabet (GOOGL)","weight":2.8}],"VOO":[{"name":"Apple (AAPL)","weight":7.2},{"name":"Microsoft (MSFT)","weight":6.7},{"name":"Nvidia (NVDA)","weight":6.1},{"name":"Amazon (AMZN)","weight":3.6}],"IBIT":[{"name":"Bitcoin (BTC)","weight":100.0}],"SLV":[{"name":"Silver (물리적 은)","weight":100.0}],"GLD":[{"name":"Gold (물리적 금)","weight":100.0}],"USO":[{"name":"WTI 원유 선물 (근월물)","weight":100.0}],"UNG":[{"name":"천연가스 선물 (Henry Hub)","weight":100.0}],"WEAT":[{"name":"밀 선물 (CBOT Wheat)","weight":100.0}],"CORN":[{"name":"옥수수 선물 (CBOT Corn)","weight":100.0}],"QQQ":[{"name":"Apple (AAPL)","weight":9.1},{"name":"Microsoft (MSFT)","weight":8.6},{"name":"Nvidia (NVDA)","weight":8.3},{"name":"Amazon (AMZN)","weight":5.0},{"name":"Meta (META)","weight":4.8}],"069500.KS":[{"name":"삼성전자","weight":30.2},{"name":"SK하이닉스","weight":7.8},{"name":"LG에너지솔루션","weight":4.1},{"name":"삼성바이오로직스","weight":3.2},{"name":"현대차","weight":2.9}],"229200.KS":[{"name":"에코프로비엠","weight":5.4},{"name":"셀트리온헬스케어","weight":4.7},{"name":"HLB","weight":4.1},{"name":"에코프로","weight":3.9},{"name":"카카오게임즈","weight":2.8}]};
 const PALETTE = ['#3B82F6','#EF4444','#22C55E','#F59E0B','#8B5CF6','#0EA5E9','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16','#A855F7','#CA8A04','#6B7280','#16A34A','#374151','#1D4ED8','#15803D','#166534','#14532D','#EA580C'];
+const CHIP_LABELS = {"VTI":"전체 시장(VTI)","VOO":"S&P500(VOO)","QQQ":"나스닥(QQQ)","SLV":"귀금속(SLV)","GLD":"귀금속(GLD)","USO":"원유(USO)","UNG":"천연가스(UNG)","WEAT":"농산물(WEAT)","CORN":"농산물(CORN)","069500.KS":"한국시장(코스피)","229200.KS":"한국시장(코스닥)"};
 let curPeriod='3Y', chartView='optimal', lockedTicker=null;
 let activeTab = 'optimal';
 const charts={};
@@ -236,9 +237,6 @@ function buildOptimal(){
       "<span class='summary-num'>1</span>" +
       "<span class='summary-title'>실시간 연산 최적 조합 <span style='font-size:12px;color:#9ca3af;font-weight:400'>— " + curPeriod + " 기준 (" + pd.start + "~" + pd.end + ")</span>" + lockedNote + "</span>" +
     "</div>" +
-    "<div class='lock-picker' style='background:#f1f5f9; padding:10px; border-radius:8px; margin-bottom:15px; font-size:12px; color:#475569'>" +
-      "💡 <strong>알고리즘 연산 기준:</strong> " + (STRATEGY_TYPE === "aggressive" ? "🔥 <strong>공격형 (상관계수 + 누적 순수익률 모델)</strong> - 출렁임과 무관하게 장기 성과가 가장 강력하게 우상향한 주도 테마 격리 결합" : (STRATEGY_TYPE === "balanced" ? "⚖️ <strong>밸런스형 (상관계수 + 샤프지수 모델)</strong> - 위험 대비 성과 밸런스 위주" : "🛡️ <strong>안정형 (상관계수 + 변동성 디펜스 모델)</strong> - 극소 리스크 자산 위주")) +
-    "</div>" +
     "<div class='lock-picker'>" +
       "<div class='lock-picker-label'>📌 특정 ETF 고정 포함 탐색 <span style='font-weight:400;color:#94a3b8;font-size:11px'>— 원하는 종목을 마우스로 클릭하면 무조건 포함하여 실시간 결합 재연산을 수행합니다.</span></div>" +
       "<div class='lock-grid'>";
@@ -249,7 +247,9 @@ function buildOptimal(){
     let cls='lock-chip';
     if(isLocked)cls+=' locked';
     else if(inResult)cls+=' in-result';
-    html+="<div class='" + cls + "' onclick=\"toggleLock('" + t + "')\" title=\"" + SECTORS[t].name + " (" + SECTORS[t].sector + ")\">" + t + "</div>";
+    const sectorCount=TICKERS.filter(x=>SECTORS[x].sector===SECTORS[t].sector).length;
+    const chipLabel=CHIP_LABELS[t]||(sectorCount>1?SECTORS[t].sector+'('+t+')':SECTORS[t].sector);
+    html+="<div class='" + cls + "' onclick=\"toggleLock('" + t + "')\" title=\"" + SECTORS[t].name + " (" + t + ")\">" + chipLabel + "</div>";
   });
 
   html+="</div>" +
@@ -275,21 +275,14 @@ function buildOptimal(){
     html+="<div class='opt-card' style=\"border-color:" + (isLocked?'#3b82f6':'#cbd5e1') + ";background:" + (isLocked?'#eff6ff':'white') + "\">" +
       "<div class='ticker' style='color:" + PALETTE[i%PALETTE.length] + "'>" + t + note + (isLocked ? " 📌" : "") + "</div>" +
       "<div class='etf-name'>" + sec.name + "</div>" +
-      "<span class='badge' style='background:" + sec.color + "'>" + sec.sector + "</span>" +
+      "<span class='badge' style='background:" + sec.color + "'>" + (CHIP_LABELS[t]||sec.sector) + "</span>" +
     "</div>";
   });
   html+="</div></div><hr class='summary-divider'>";
 
   html+="<div class='summary-block'>" +
     "<div class='summary-heading'><span class='summary-num'>2</span><span class='summary-title'>선택 조합 내 자산간 분포 리스크</span></div>" +
-    "<div class='pin-chart-wrap'>" +
-      "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'>" +
-        "<div style='width:130px;flex-shrink:0'></div>" +
-        "<div style='flex:1;display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;padding:0 2px'>" +
-          "<span>-1.0</span><span>-0.5</span><span>0</span><span>+0.5</span><span>+1.0</span>" +
-        "</div>" +
-        "<div style='width:46px;flex-shrink:0'></div>" +
-      "</div>";
+    "<div class='pin-chart-wrap'>";
 
   const pairs=[];
   for(let i=0;i<OPTIMAL.length;i++)
@@ -300,7 +293,7 @@ function buildOptimal(){
     const pct=((v+1)/2*100).toFixed(2);
     const pinColor=corrColor(v);
     html+="<div class='pin-row'>" +
-      "<div class='pin-label'>" + ti + " × " + tj + "</div>" +
+      "<div class='pin-label'>" + (CHIP_LABELS[ti]||SECTORS[ti].sector) + " × " + (CHIP_LABELS[tj]||SECTORS[tj].sector) + "</div>" +
       "<div class='pin-bar-outer'>" +
         "<div class='pin-bar-track'></div>" +
         "<div class='pin-center-line'></div>" +
@@ -311,9 +304,6 @@ function buildOptimal(){
   });
 
   html+="</div>" +
-    "<div style='padding-left:30px;margin-top:4px;font-size:11px;color:#94a3b8;display:flex;gap:16px;flex-wrap:wrap'>" +
-      "<span>🟦 음의 상관 (헤지)</span><span>🟩 약한 상관 (분산)</span><span>🟧 중간 상관</span><span>🟥 강한 동조화</span>" +
-    "</div>" +
   "</div>";
 
   document.getElementById('optimal-content').innerHTML=html;
@@ -559,6 +549,12 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('period-info').textContent= pd.start + " ~ " + pd.end + " (" + pd.n_days + "거래일)";
   buildOptimal();
 });
+
+function notifyHeight(){
+  if(!window.parent||window.parent===window)return;
+  window.parent.postMessage({type:'iframe-height',height:document.documentElement.scrollHeight},'*');
+}
+new ResizeObserver(notifyHeight).observe(document.body);
 </script>
 </body>
 </html>

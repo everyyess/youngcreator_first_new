@@ -47,6 +47,7 @@ export default function CorrelationDomesticTab({
   const [isMounted, setIsMounted] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>(savedState?.strategy ?? initStrategy);
   const [k, setK] = useState(savedState?.k ?? 3);
+  const [iframeHeight, setIframeHeight] = useState(600);
   // SSR에서 Date.now() 호출 방지: 초기값 빈 문자열, 클라이언트 마운트 후 실 src 주입
   const [activeSrc, setActiveSrc] = useState("");
   const [loading, setLoading] = useState(true);
@@ -62,8 +63,20 @@ export default function CorrelationDomesticTab({
   }, []);
 
   useEffect(() => {
+    const handleHeightMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const msg = event.data as { type?: string; height?: number } | null;
+      if (msg?.type === "iframe-height" && typeof msg.height === "number") {
+        setIframeHeight(msg.height);
+      }
+    };
+    window.addEventListener("message", handleHeightMessage);
+    return () => window.removeEventListener("message", handleHeightMessage);
+  }, []);
+
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
+      if (event.source !== iframeRef.current?.contentWindow) return;
       const message = event.data as { type?: string; state?: Partial<CorrelationAnalysisState> } | null;
       if (message?.type !== "domestic-correlation-state" || !message.state) return;
       onStateChange?.({
@@ -178,7 +191,7 @@ export default function CorrelationDomesticTab({
       </div>
 
       {/* ── iframe 영역 ───────────────────────────────────────────────── */}
-      <div className="relative" style={{ height: "1150px" }}>
+      <div className="relative" style={{ height: loading ? "400px" : `${iframeHeight}px` }}>
         {/* 로딩 오버레이 */}
         {loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-white z-10 gap-3">
@@ -194,7 +207,8 @@ export default function CorrelationDomesticTab({
             key={activeSrc}
             src={activeSrc}
             className="w-full border-0"
-            style={{ height: "1150px" }}
+            style={{ height: `${iframeHeight}px` }}
+            scrolling="no"
             onLoad={() => setLoading(false)}
             title="ETF 분산투자 최적화 (국내)"
             sandbox="allow-scripts"

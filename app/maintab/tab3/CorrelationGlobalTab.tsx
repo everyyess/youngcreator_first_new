@@ -34,12 +34,25 @@ export default function CorrelationGlobalTab({
   const [isMounted, setIsMounted] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>(savedState?.strategy ?? initStrategy);
   const [k, setK] = useState(savedState?.k ?? 3);
+  const [iframeHeight, setIframeHeight] = useState(600);
   // SSR에서 Date.now() 호출 방지: 초기값 빈 문자열, 클라이언트 마운트 후 실 src 주입
   const [activeSrc, setActiveSrc] = useState("");
   const [loading, setLoading] = useState(true);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const kRef = useRef(k);
   useEffect(() => { kRef.current = k; }, [k]);
+
+  useEffect(() => {
+    const handleHeightMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const msg = event.data as { type?: string; height?: number } | null;
+      if (msg?.type === "iframe-height" && typeof msg.height === "number") {
+        setIframeHeight(msg.height);
+      }
+    };
+    window.addEventListener("message", handleHeightMessage);
+    return () => window.removeEventListener("message", handleHeightMessage);
+  }, []);
 
   // 클라이언트 마운트 확인 후 최초 src 생성 (SSR 타임스탬프 불일치 방지)
   useEffect(() => {
@@ -147,7 +160,7 @@ export default function CorrelationGlobalTab({
       </div>
 
       {/* ── iframe 영역 ───────────────────────────────────────────────── */}
-      <div className="relative" style={{ height: "1150px" }}>
+      <div className="relative" style={{ height: loading ? "400px" : `${iframeHeight}px` }}>
         {/* 로딩 오버레이 */}
         {loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-white z-10 gap-3">
@@ -163,7 +176,8 @@ export default function CorrelationGlobalTab({
             key={activeSrc}
             src={activeSrc}
             className="w-full border-0"
-            style={{ height: "1150px" }}
+            style={{ height: `${iframeHeight}px` }}
+            scrolling="no"
             onLoad={() => setLoading(false)}
             title="ETF 분산투자 최적화 (해외)"
             sandbox="allow-scripts"

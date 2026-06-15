@@ -11,7 +11,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:white;padding:20px 24px}
 .header h1{font-size:20px;font-weight:700;margin-bottom:4px}
 .header .sub{font-size:12px;opacity:.85}
-.period-bar{display:flex;gap:8px;padding:14px 20px;background:white;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;align-items:center}
+.period-bar{display:flex;gap:8px;padding:16px 24px;background:white;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;align-items:center}
 .period-bar .label{font-size:12px;color:#64748b;margin-right:4px}
 .period-btn{padding:5px 14px;min-width:68px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;background:white;cursor:pointer;font-size:12px;color:#475569;transition:all .15s}
 .period-btn.active{background:#3b82f6;color:white;border-color:#3b82f6;font-weight:600}
@@ -19,16 +19,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .tabs{display:flex;gap:0;padding:0 20px;background:white;border-bottom:1px solid #e2e8f0}
 .tab-btn{padding:12px 18px;border:none;background:none;cursor:pointer;font-size:13px;color:#64748b;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
 .tab-btn.active{color:#3b82f6;border-bottom-color:#3b82f6;font-weight:600}
-.tab-pane{display:none;padding:20px}
+.tab-pane{display:none;padding:28px 24px}
 .tab-pane.active{display:block}
-.summary-block{margin-bottom:8px}
-.summary-heading{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.summary-block{margin-bottom:22px}
+.summary-heading{display:flex;align-items:center;gap:8px;margin-bottom:14px}
 .summary-num{width:22px;height:22px;background:#3b82f6;color:white;border-radius:50%;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .summary-title{font-weight:600;font-size:14px}
 .summary-body{padding-left:30px;font-size:13px;color:#475569;line-height:1.8}
-.summary-divider{border:none;border-top:1px solid #e2e8f0;margin:16px 0}
-.opt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;padding-left:30px;margin-bottom:4px}
-.opt-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;transition:all .15s}
+.summary-divider{border:none;border-top:1px solid #e2e8f0;margin:26px 0}
+.opt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;padding-left:30px;margin-bottom:8px}
+.opt-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;transition:all .15s}
 .opt-card .ticker{font-size:20px;font-weight:700;margin-bottom:4px}
 .opt-card .etf-name{font-size:11px;color:#64748b;margin-bottom:6px;line-height:1.4}
 .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;color:white;font-weight:500}
@@ -36,18 +36,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .score-big{font-size:22px;font-weight:700}
 .gauge-track{height:6px;background:#e2e8f0;border-radius:4px;margin-top:6px;margin-bottom:2px}
 .gauge-fill{height:100%;border-radius:4px;transition:width .4s}
-.lock-picker{padding-left:30px;margin-bottom:14px}
-.lock-picker-label{font-size:12px;color:#64748b;margin-bottom:8px;font-weight:500}
-.lock-grid{display:flex;flex-wrap:wrap;gap:6px}
-.lock-chip{padding:4px 10px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:white;color:#475569;transition:all .15s;user-select:none}
+.lock-picker{padding-left:30px;margin-bottom:22px}
+.lock-picker-label{font-size:12px;color:#64748b;margin-bottom:12px;font-weight:500}
+.lock-grid{display:flex;flex-wrap:wrap;gap:8px}
+.lock-chip{padding:6px 12px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:white;color:#475569;transition:all .15s;user-select:none}
 .lock-chip:hover{border-color:#94a3b8;background:#f1f5f9}
 .lock-chip.locked{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8}
 .lock-chip.in-result{border-color:#22c55e;background:#f0fdf4;color:#15803d}
 .lock-chip.locked.in-result{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8}
-.pin-chart-wrap{padding-left:30px;margin-bottom:4px}
-.pin-row{display:flex;align-items:center;gap:8px;margin-bottom:14px}
-.pin-label{width:160px;font-size:12px;font-weight:600;color:#374151;flex-shrink:0;text-align:right}
-.pin-bar-outer{flex:1;position:relative;height:24px;background:linear-gradient(to right,#bfdbfe 0%,#dbeafe 49%,#dbeafe 51%,#fecaca 100%);border-radius:4px}
+.pin-chart-wrap{padding-left:30px;margin-bottom:10px;display:grid;grid-template-columns:max-content 1fr auto;column-gap:12px;row-gap:20px;align-items:center}
+.pin-row{display:contents}
+.pin-label{font-size:12px;font-weight:600;color:#374151;flex-shrink:0;text-align:left;white-space:nowrap}
+.pin-bar-outer{flex:1;position:relative;height:40px;background:linear-gradient(to right,#bfdbfe 0%,#dbeafe 49%,#dbeafe 51%,#fecaca 100%);border-radius:6px}
 .pin-bar-track{position:absolute;top:50%;transform:translateY(-50%);left:0;right:0;height:2px;background:rgba(0,0,0,0.1);border-radius:1px}
 .pin-center-line{position:absolute;top:0;bottom:0;left:50%;width:1px;background:rgba(0,0,0,0.2)}
 .corr-val{font-size:12px;font-weight:700;width:46px;flex-shrink:0}
@@ -56,8 +56,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .hm th{padding:4px 7px;background:#f1f5f9;color:#64748b;font-weight:600;border:1px solid #e2e8f0;font-size:10px}
 .hm td{padding:4px 7px;text-align:center;border:1px solid #e2e8f0;font-size:10px}
 .hm .row-header{font-size:10px;font-weight:600;text-align:right;max-width:90px}
-.chart-container{position:relative;height:380px;margin-bottom:12px}
-.view-btns{display:flex;gap:6px;margin-bottom:12px}
+.chart-container{position:relative;height:380px;margin-bottom:20px}
+.view-btns{display:flex;gap:6px;margin-bottom:16px}
 .preset{padding:5px 12px;border:1px solid #cbd5e1;border-radius:6px;background:white;cursor:pointer;font-size:12px;color:#475569}
 .preset.active{background:#3b82f6;color:white;border-color:#3b82f6}
 .etf-list-table{width:100%;border-collapse:collapse;font-size:13px}
@@ -125,7 +125,7 @@ const INITIAL_PERIOD = "##INITIAL_PERIOD##";
 const INITIAL_LOCKED_TICKER = "##INITIAL_LOCKED_TICKER##";
 const INITIAL_ACTIVE_TAB = "##INITIAL_ACTIVE_TAB##";
 
-const SECTORS = {"069500.KS":{"sector":"주식시장(코스피)","color":"#DC2626","name":"KODEX 200"},"229200.KS":{"sector":"주식시장(코스닥)","color":"#7F1D1D","name":"KODEX 코스닥150"},"091160.KS":{"sector":"반도체","color":"#3B82F6","name":"KODEX 반도체"},"305720.KS":{"sector":"2차전지","color":"#84CC16","name":"KODEX 2차전지산업"},"091180.KS":{"sector":"자동차","color":"#6B7280","name":"KODEX 자동차"},"441680.KS":{"sector":"신재생에너지","color":"#22C55E","name":"KODEX K-신재생에너지액티브"},"143460.KS":{"sector":"바이오","color":"#EC4899","name":"KODEX 바이오"},"445290.KS":{"sector":"로보틱스","color":"#6366F1","name":"KODEX 로봇액티브"},"472870.KS":{"sector":"방산","color":"#9F1239","name":"KODEX 방산TOP10"},"0098F0.KS":{"sector":"원자력","color":"#F59E0B","name":"KODEX 원자력SMR"},"449170.KS":{"sector":"자율주행","color":"#8B5CF6","name":"KODEX 자율주행액티브"},"488290.KS":{"sector":"조선","color":"#0EA5E9","name":"KODEX 조선TOP10"},"475080.KS":{"sector":"AI·전력","color":"#A855F7","name":"KODEX AI전력핵심설비"},"104530.KS":{"sector":"건설","color":"#F97316","name":"KODEX 건설"},"228810.KS":{"sector":"경기소비재","color":"#CA8A04","name":"KODEX 경기소비재"},"228820.KS":{"sector":"기계장비","color":"#78716C","name":"KODEX 기계장비"},"091170.KS":{"sector":"금융","color":"#14B8A6","name":"KODEX 금융"},"117460.KS":{"sector":"에너지화학","color":"#7C3AED","name":"KODEX 에너지화학"},"140710.KS":{"sector":"운송","color":"#D97706","name":"KODEX 운송"},"117680.KS":{"sector":"철강","color":"#57534E","name":"KODEX 철강"},"228800.KS":{"sector":"필수소비재","color":"#16A34A","name":"KODEX 필수소비재"},"114820.KS":{"sector":"채권(단기)","color":"#166534","name":"KODEX 국고채3년"},"471230.KS":{"sector":"채권(장기)","color":"#15803D","name":"KODEX 국고채10년액티브"},"132030.KS":{"sector":"귀금속","color":"#C0A060","name":"KODEX 골드선물(H)"},"138920.KS":{"sector":"원자재금속","color":"#92400E","name":"KODEX 구리선물(H)"},"261220.KS":{"sector":"에너지원자재","color":"#78350F","name":"KODEX WTI원유선물(H)"},"459580.KS":{"sector":"현금성","color":"#64748B","name":"KODEX CD금리액티브(합성)"},"453850.KS":{"sector":"해외채권","color":"#1D4ED8","name":"KODEX 미국채30년액티브(H)"},"138230.KS":{"sector":"달러·외환","color":"#047857","name":"KODEX 미국달러선물"}};
+const SECTORS = {"069500.KS":{"sector":"주식시장(코스피)","color":"#DC2626","name":"KODEX 200"},"229200.KS":{"sector":"주식시장(코스닥)","color":"#7F1D1D","name":"KODEX 코스닥150"},"091160.KS":{"sector":"반도체","color":"#3B82F6","name":"KODEX 반도체"},"305720.KS":{"sector":"2차전지","color":"#84CC16","name":"KODEX 2차전지산업"},"091180.KS":{"sector":"자동차","color":"#6B7280","name":"KODEX 자동차"},"441680.KS":{"sector":"신재생에너지","color":"#22C55E","name":"KODEX K-신재생에너지액티브"},"143460.KS":{"sector":"바이오","color":"#EC4899","name":"KODEX 바이오"},"445290.KS":{"sector":"로보틱스","color":"#6366F1","name":"KODEX 로봇액티브"},"472870.KS":{"sector":"방산","color":"#9F1239","name":"KODEX 방산TOP10"},"0098F0.KS":{"sector":"원자력","color":"#F59E0B","name":"KODEX 원자력SMR"},"449170.KS":{"sector":"자율주행","color":"#8B5CF6","name":"KODEX 자율주행액티브"},"488290.KS":{"sector":"조선","color":"#0EA5E9","name":"KODEX 조선TOP10"},"475080.KS":{"sector":"AI·전력","color":"#A855F7","name":"KODEX AI전력핵심설비"},"104530.KS":{"sector":"건설","color":"#F97316","name":"KODEX 건설"},"228810.KS":{"sector":"경기소비재","color":"#CA8A04","name":"KODEX 경기소비재"},"228820.KS":{"sector":"기계장비","color":"#78716C","name":"KODEX 기계장비"},"091170.KS":{"sector":"금융","color":"#14B8A6","name":"KODEX 금융"},"117460.KS":{"sector":"에너지화학","color":"#7C3AED","name":"KODEX 에너지화학"},"140710.KS":{"sector":"운송","color":"#D97706","name":"KODEX 운송"},"117680.KS":{"sector":"철강","color":"#57534E","name":"KODEX 철강"},"228800.KS":{"sector":"필수소비재","color":"#16A34A","name":"KODEX 필수소비재"},"114820.KS":{"sector":"채권(단기)","color":"#166534","name":"KODEX 국고채3년"},"471230.KS":{"sector":"채권(장기)","color":"#15803D","name":"KODEX 국고채10년액티브"},"132030.KS":{"sector":"귀금속","color":"#C0A060","name":"KODEX 골드선물(H)"},"138920.KS":{"sector":"구리","color":"#92400E","name":"KODEX 구리선물(H)"},"261220.KS":{"sector":"원유 선물","color":"#78350F","name":"KODEX WTI원유선물(H)"},"459580.KS":{"sector":"CD금리","color":"#64748B","name":"KODEX CD금리액티브(합성)"},"453850.KS":{"sector":"해외채권","color":"#1D4ED8","name":"KODEX 미국채30년액티브(H)"},"138230.KS":{"sector":"달러·외환","color":"#047857","name":"KODEX 미국달러선물"}};
 const TICKERS = ["069500.KS","229200.KS","091160.KS","305720.KS","091180.KS","441680.KS","143460.KS","445290.KS","472870.KS","0098F0.KS","449170.KS","488290.KS","475080.KS","104530.KS","228810.KS","228820.KS","091170.KS","117460.KS","140710.KS","117680.KS","228800.KS","114820.KS","471230.KS","132030.KS","138920.KS","261220.KS","459580.KS","453850.KS","138230.KS"];
 const NOTE_MAP = {"132030.KS":"선물H","138920.KS":"선물H","261220.KS":"선물H","138230.KS":"선물","453850.KS":"해외H","459580.KS":"합성"};
 const ETF_HOLDINGS = {"069500.KS":[{"name":"삼성전자","weight":30.2},{"name":"SK하이닉스","weight":7.8},{"name":"LG에너지솔루션","weight":4.1},{"name":"삼성바이오로직스","weight":3.2},{"name":"현대차","weight":2.9}],"229200.KS":[{"name":"에코프로비엠","weight":5.4},{"name":"셀트리온헬스케어","weight":4.7},{"name":"HLB","weight":4.1},{"name":"에코프로","weight":3.9},{"name":"카카오게임즈","weight":2.8}],"091160.KS":[{"name":"삼성전자","weight":31.5},{"name":"SK하이닉스","weight":21.3},{"name":"삼성전기","weight":5.4},{"name":"DB하이텍","weight":3.2},{"name":"리노공업","weight":2.8}],"305720.KS":[{"name":"에코프로비엠","weight":14.2},{"name":"LG에너지솔루션","weight":12.8},{"name":"삼성SDI","weight":11.5},{"name":"포스코퓨처엠","weight":9.3},{"name":"SK이노베이션","weight":7.1}],"091180.KS":[{"name":"현대차","weight":28.3},{"name":"기아","weight":25.6},{"name":"현대모비스","weight":15.4},{"name":"한온시스템","weight":6.2},{"name":"현대위아","weight":4.8}],"441680.KS":[{"name":"씨에스윈드","weight":12.5},{"name":"한화솔루션","weight":11.3},{"name":"HD현대에너지솔루션","weight":9.8},{"name":"OCI홀딩스","weight":7.2},{"name":"에스에너지","weight":5.4}],"143460.KS":[{"name":"삼성바이오로직스","weight":21.3},{"name":"셀트리온","weight":18.5},{"name":"한미약품","weight":8.4},{"name":"유한양행","weight":7.2},{"name":"종근당","weight":5.1}],"445290.KS":[{"name":"두산로보틱스","weight":18.5},{"name":"레인보우로보틱스","weight":15.3},{"name":"현대로보틱스","weight":12.6},{"name":"로보티즈","weight":9.4},{"name":"에스피지","weight":7.2}],"472870.KS":[{"name":"한화에어로스페이스","weight":25.4},{"name":"LIG넥스원","weight":18.3},{"name":"현대로템","weight":15.2},{"name":"한국항공우주","weight":14.8},{"name":"현대위아","weight":8.6}],"0098F0.KS":[{"name":"두산에너빌리티","weight":22.5},{"name":"한국전력","weight":15.8},{"name":"한전기술","weight":13.4},{"name":"비에이치아이","weight":9.2},{"name":"우리기술","weight":7.6}],"449170.KS":[{"name":"현대차","weight":18.5},{"name":"기아","weight":14.3},{"name":"삼성전자","weight":12.8},{"name":"LG전자","weight":8.9},{"name":"현대모비스","weight":7.4}],"488290.KS":[{"name":"HD현대중공업","weight":28.3},{"name":"삼성중공업","weight":22.5},{"name":"한화오션","weight":19.8},{"name":"HD현대미포","weight":12.6},{"name":"현대삼호중공업","weight":8.4}],"475080.KS":[{"name":"HD현대일렉트릭","weight":18.9},{"name":"효성중공업","weight":15.4},{"name":"LS일렉트릭","weight":13.8},{"name":"현대일렉트릭","weight":11.2},{"name":"일진전기","weight":9.6}],"104530.KS":[{"name":"현대건설","weight":21.5},{"name":"GS건설","weight":18.3},{"name":"대우건설","weight":15.6},{"name":"HDC현대산업개발","weight":12.4},{"name":"DL이앤씨","weight":9.8}],"228810.KS":[{"name":"현대차","weight":12.4},{"name":"기아","weight":10.8},{"name":"삼성전기","weight":8.6},{"name":"LG전자","weight":7.9},{"name":"호텔신라","weight":6.3}],"228820.KS":[{"name":"두산에너빌리티","weight":14.3},{"name":"현대건설기계","weight":12.8},{"name":"HD현대인프라코어","weight":11.5},{"name":"한화","weight":9.2},{"name":"현대위아","weight":8.7}],"091170.KS":[{"name":"KB금융","weight":22.4},{"name":"신한지주","weight":19.8},{"name":"하나금융지주","weight":17.3},{"name":"우리금융지주","weight":13.5},{"name":"삼성생명","weight":8.9}],"117460.KS":[{"name":"LG화학","weight":24.5},{"name":"롯데케미칼","weight":15.8},{"name":"금호석유","weight":13.2},{"name":"S-Oil","weight":11.4},{"name":"한화솔루션","weight":9.6}],"140710.KS":[{"name":"HMM","weight":18.9},{"name":"CJ대한통운","weight":16.4},{"name":"한진칼","weight":14.8},{"name":"대한항공","weight":13.5},{"name":"현대글로비스","weight":11.2}],"117680.KS":[{"name":"POSCO홀딩스","weight":34.5},{"name":"현대제철","weight":22.3},{"name":"고려아연","weight":15.8},{"name":"동국제강","weight":9.4},{"name":"세아베스틸지주","weight":7.2}],"228800.KS":[{"name":"KT&G","weight":18.5},{"name":"CJ제일제당","weight":15.3},{"name":"오리온","weight":12.8},{"name":"농심","weight":11.4},{"name":"롯데웰푸드","weight":9.7}],"114820.KS":[{"name":"국고채 3년물","weight":100.0}],"471230.KS":[{"name":"국고채 10년물","weight":100.0}],"132030.KS":[{"name":"금 선물 (COMEX Gold)","weight":100.0}],"138920.KS":[{"name":"구리 선물 (COMEX Copper)","weight":100.0}],"261220.KS":[{"name":"WTI 원유 선물 (근월물)","weight":100.0}],"459580.KS":[{"name":"CD 91일물 (합성)","weight":100.0}],"453850.KS":[{"name":"미국채 30년물","weight":100.0}],"138230.KS":[{"name":"미국달러 선물 (CME)","weight":100.0}]};
@@ -139,7 +139,7 @@ function notifyParentState(){
   window.parent.postMessage({
     type:'domestic-correlation-state',
     state:{periodRange:curPeriod,lockedTicker:lockedTicker||null,innerViewTab:activeTab}
-  }, window.location.origin);
+  }, '*');
 }
 
 function fmtDate(d){const p=d.split('-');return p[0].slice(2)+'.'+p[1]+'.'+p[2];}
@@ -249,9 +249,6 @@ function buildOptimal(){
       "<span class='summary-num'>1</span>" +
       "<span class='summary-title'>실시간 연산 최적 조합 <span style='font-size:12px;color:#9ca3af;font-weight:400'>— " + curPeriod + " 기준 (" + pd.start + "~" + pd.end + ")</span>" + lockedNote + "</span>" +
     "</div>" +
-    "<div class='lock-picker' style='background:#f1f5f9; padding:10px; border-radius:8px; margin-bottom:15px; font-size:12px; color:#475569'>" +
-      "💡 <strong>알고리즘 연산 기준:</strong> " + (STRATEGY_TYPE === "aggressive" ? "🔥 <strong>공격형 (상관계수 + 누적 순수익률 모델)</strong> - 출렁임과 무관하게 장기 성과가 가장 강력하게 우상향한 주도 테마 격리 결합" : (STRATEGY_TYPE === "balanced" ? "⚖️ <strong>밸런스형 (상관계수 + 샤프지수 모델)</strong> - 위험 대비 성과 밸런스 위주" : "🛡️ <strong>안정형 (상관계수 + 변동성 디펜스 모델)</strong> - 극소 리스크 자산 위주")) +
-    "</div>" +
     "<div class='lock-picker'>" +
       "<div class='lock-picker-label'>📌 특정 ETF 고정 포함 탐색 <span style='font-weight:400;color:#94a3b8;font-size:11px'>— 원하는 종목을 마우스로 클릭하면 무조건 포함하여 실시간 결합 재연산을 수행합니다.</span></div>" +
       "<div class='lock-grid'>";
@@ -262,7 +259,7 @@ function buildOptimal(){
     let cls='lock-chip';
     if(isLocked)cls+=' locked';
     else if(inResult)cls+=' in-result';
-    html+="<div class='" + cls + "' onclick=\"toggleLock('" + t + "')\" title=\"" + SECTORS[t].name + " (" + SECTORS[t].sector + ")\">" + t + "</div>";
+    html+="<div class='" + cls + "' onclick=\"toggleLock('" + t + "')\" title=\"" + SECTORS[t].name + " (" + t + ")\">" + SECTORS[t].sector + "</div>";
   });
 
   html+="</div>" +
@@ -295,14 +292,7 @@ function buildOptimal(){
 
   html+="<div class='summary-block'>" +
     "<div class='summary-heading'><span class='summary-num'>2</span><span class='summary-title'>선택 조합 내 자산간 분포 리스크</span></div>" +
-    "<div class='pin-chart-wrap'>" +
-      "<div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'>" +
-        "<div style='width:160px;flex-shrink:0'></div>" +
-        "<div style='flex:1;display:flex;justify-content:space-between;font-size:10px;color:#94a3b8;padding:0 2px'>" +
-          "<span>-1.0</span><span>-0.5</span><span>0</span><span>+0.5</span><span>+1.0</span>" +
-        "</div>" +
-        "<div style='width:46px;flex-shrink:0'></div>" +
-      "</div>";
+    "<div class='pin-chart-wrap'>";
 
   const pairs=[];
   for(let i=0;i<OPTIMAL.length;i++)
@@ -313,7 +303,7 @@ function buildOptimal(){
     const pct=((v+1)/2*100).toFixed(2);
     const pinColor=corrColor(v);
     html+="<div class='pin-row'>" +
-      "<div class='pin-label'>" + ti + " × " + tj + "</div>" +
+      "<div class='pin-label'>" + SECTORS[ti].sector + " × " + SECTORS[tj].sector + "</div>" +
       "<div class='pin-bar-outer'>" +
         "<div class='pin-bar-track'></div>" +
         "<div class='pin-center-line'></div>" +
@@ -324,9 +314,6 @@ function buildOptimal(){
   });
 
   html+="</div>" +
-    "<div style='padding-left:30px;margin-top:4px;font-size:11px;color:#94a3b8;display:flex;gap:16px;flex-wrap:wrap'>" +
-      "<span>🟦 음의 상관 (헤지)</span><span>🟩 약한 상관 (분산)</span><span>🟧 중간 상관</span><span>🟥 강한 동조화</span>" +
-    "</div>" +
   "</div>";
 
   document.getElementById('optimal-content').innerHTML=html;
@@ -585,6 +572,12 @@ document.addEventListener('DOMContentLoaded',()=>{
   }
   notifyParentState();
 });
+
+function notifyHeight(){
+  if(!window.parent||window.parent===window)return;
+  window.parent.postMessage({type:'iframe-height',height:document.documentElement.scrollHeight},'*');
+}
+new ResizeObserver(notifyHeight).observe(document.body);
 </script>
 </body>
 </html>
