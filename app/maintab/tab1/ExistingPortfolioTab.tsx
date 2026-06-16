@@ -12,6 +12,7 @@ import { getUSDKRWRate } from "@/utils/fxCache";
 import {
   calcFinancialIncomeSummary,
   FINANCIAL_INCOME_STORAGE_KEY,
+  FINANCIAL_INCOME_RESET_KEY,
   type AssetForIncomeCalc,
 } from "./FinancialIncomeGauge";
 
@@ -157,6 +158,12 @@ export default function ExistingPortfolioTab() {
     }
     setAnalysisResult(null);
     setClearConfirm(false);
+    try {
+      localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY);
+      sessionStorage.setItem(FINANCIAL_INCOME_RESET_KEY, '1');
+      window.dispatchEvent(new CustomEvent("financial-income-updated"));
+    } catch {}
+    saveTaxSummary('current', null as never);
   };
 
   const [portfolioIsRunning, setPortfolioIsRunning] = useState(false);
@@ -238,7 +245,6 @@ export default function ExistingPortfolioTab() {
             current_value: enriched.current_value,
             amount: enriched.amount ?? orig?.amount,
             amount_type: (enriched.amount_type ?? orig?.amount_type ?? "quantity") as "quantity" | "value",
-            // 채권만 원금(이자) 계산을 위해 buy_price 유지; 주식/ETF는 보유 중이므로 양도소득세 제외
             buy_price: isBondOrig ? (orig?.buy_price ?? enriched.buy_price) : undefined,
             dividendYield: ae.dividendYield,
             trailingAnnualDividendRate: ae.trailingAnnualDividendRate,
@@ -248,6 +254,7 @@ export default function ExistingPortfolioTab() {
         const summary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
         try {
           localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(summary));
+          sessionStorage.removeItem(FINANCIAL_INCOME_RESET_KEY);
           window.dispatchEvent(new CustomEvent("financial-income-updated"));
         } catch {}
         saveTaxSummary('current', summary);

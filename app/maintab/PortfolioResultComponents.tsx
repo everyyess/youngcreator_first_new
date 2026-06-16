@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import {
   Activity,
@@ -12,6 +12,8 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useCustomerContext, type PortfolioAnalysisResult, type PortfolioAsset } from "./CustomerContext";
+import { calcAfterTaxReturn, FINANCIAL_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
+import type { FinancialIncomeSummary } from "./tab1/FinancialIncomeGauge";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -797,6 +799,21 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
     : [];
   const { quantResult, stressResult, tlhResult } = data;
 
+  const readAfterTaxReturn = () => {
+    try {
+      const stored = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY);
+      if (!stored) return null;
+      return calcAfterTaxReturn(JSON.parse(stored) as FinancialIncomeSummary, enrichedAssets, false);
+    } catch { return null; }
+  };
+  const [afterTaxReturn, setAfterTaxReturn] = useState<number | null>(readAfterTaxReturn);
+
+  useEffect(() => {
+    const handler = () => setAfterTaxReturn(readAfterTaxReturn());
+    window.addEventListener("financial-income-updated", handler);
+    return () => window.removeEventListener("financial-income-updated", handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -817,7 +834,7 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
         <div className="grid gap-5">
           <ResultCard icon={<TrendingUp size={18} />} title="성과 및 효율성" accent="green">
             <div className="grid grid-cols-2 gap-3">
-              <MetricCard label="세후 기대수익률" value={fmtPct(quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
+              <MetricCard label="세후 수익률" value={fmtPct(afterTaxReturn ?? quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
               <MetricCard label="샤프 비율" value={fmt(quantResult.performance.sharpeRatio)} sub="위험 단위당 초과수익" />
               <MetricCard label="소르티노 비율" value={fmt(quantResult.performance.sortinoRatio)} sub="하방 리스크 대비 방어력" />
               <MetricCard label="젠센 알파" value={fmtPct(quantResult.performance.jensensAlpha)} sub="시장 초과 순수 알파" />
