@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGeminiApiKey } from "@/lib/geminiServerEnv";
 
 type SectionPayload = Record<string, string | string[] | boolean | null | undefined>;
 
@@ -684,7 +685,7 @@ function parseGeminiErrorDetails(details: unknown) {
 }
 
 async function callGemini(note: string, clientEstimatedUsageToday?: number): Promise<GeminiExtractionResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = getGeminiApiKey();
   if (!apiKey) {
     console.error("Smart Input extraction fallback: GEMINI_API_KEY is missing. Using mock parser only because API key is absent.", {
       fallbackReason: "api_key_missing",

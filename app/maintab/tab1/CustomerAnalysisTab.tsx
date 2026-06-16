@@ -267,9 +267,9 @@ function SmartInputCard() {
         method: "POST",
         body: form,
       });
-      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; error?: string; geminiUsed?: boolean } | null;
+      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; message?: string; error?: string; detail?: string; geminiUsed?: boolean } | null;
       if (!response.ok || !result?.success || !result.text?.trim()) {
-        throw new Error(result?.error ?? "Gemini 응답 실패");
+        throw new Error(result?.message ?? result?.error ?? "Gemini 응답 실패");
       }
       if (result.geminiUsed === true) setUsageToday(incrementGeminiUsageToday());
       setSmartInputNote(result.text.trim());
@@ -285,7 +285,7 @@ function SmartInputCard() {
   const handleAudioUpload = async (file: File | null) => {
     if (!file) return;
     if (!isSupportedAudioFile(file)) {
-      setVoiceStatus("지원하지 않는 파일 형식입니다.");
+      setVoiceStatus("지원하지 않는 음성 파일 형식입니다. mp3, wav, m4a, webm 파일을 업로드해주세요.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -1232,7 +1232,7 @@ export default function CustomerAnalysisTab() {
           body: JSON.stringify(advisoryGuidePayload),
         });
         const result = await response.json();
-        if (!response.ok || !result?.ok) throw new Error(result?.error ?? "AI 상담 가이드 생성 실패");
+        if (!response.ok || !result?.ok) throw new Error(result?.message ?? result?.error ?? "Gemini 응답 실패");
         if (cancelled) return;
         if (result.geminiUsed === true) incrementGeminiUsageToday();
         setAdvisoryGuide(result.data ?? emptyAdvisoryGuide);
