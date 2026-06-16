@@ -209,11 +209,13 @@ function avgCorr(combo,corr){
 }
 
 function toggleLock(t){
+  const scrollY=window.scrollY;
   lockedTicker=(lockedTicker===t)?null:t;
   buildOptimal();
   buildWeight();
   if(activeTab==='chart'||charts.price) buildChart();
   notifyParentState();
+  window.scrollTo(0,scrollY);
 }
 
 function setPeriod(p,btn){
@@ -233,15 +235,39 @@ function setPeriod(p,btn){
 function buildOptimal(){
   const pd=PERIOD_DATA[curPeriod];
   const CORR=pd.corr_matrix;
-  const OPTIMAL=greedyOptimal(CORR,TICKERS,K_VAL,lockedTicker);
 
+  // 자유 최적 조합 (항상 계산 — 고정 모드의 기준점)
+  let freeOptimal=greedyOptimal(CORR,TICKERS,K_VAL,null);
+  let freeCorr=avgCorr(freeOptimal,CORR);
+  for(const seed of TICKERS){
+    const cand=greedyOptimal(CORR,TICKERS,K_VAL,seed);
+    const c=avgCorr(cand,CORR);
+    if(c<freeCorr){freeCorr=c;freeOptimal=cand;}
+  }
+  const freeScore=Math.max(0,Math.min(100,Math.round((1.5-freeCorr)/2.5*100)));
+
+  const OPTIMAL=lockedTicker?greedyOptimal(CORR,TICKERS,K_VAL,lockedTicker):freeOptimal;
   const optAvgCorr=avgCorr(OPTIMAL,CORR);
-  const optScore=Math.max(0,Math.min(100,Math.round((1-optAvgCorr)*100)));
+  const optScore=Math.max(0,Math.min(100,Math.round((1.5-optAvgCorr)/2.5*100)));
   const allPairs=[];
   for(let i=0;i<TICKERS.length;i++)for(let j=i+1;j<TICKERS.length;j++)allPairs.push([TICKERS[i],TICKERS[j]]);
   const globalAvg=allPairs.reduce((s,[a,b])=>s+CORR[a][b],0)/allPairs.length;
-  const sc=optScore>=70?'#22c55e':optScore>=40?'#f59e0b':'#ef4444';
-  const grade=optScore>=70?'우수':optScore>=40?'보통':'집중 위험';
+
+  let sc,grade,scoreDisplay,gaugeWidth;
+  if(lockedTicker){
+    const diff=optScore-freeScore;
+    const diffAbs=Math.abs(diff);
+    const op=diff>=0?'+':'-';
+    sc=optScore>=70?'#22c55e':optScore>=40?'#f59e0b':'#ef4444';
+    grade=diff>=0?'자유 대비 유리':'자유 대비 불리';
+    scoreDisplay="<span class='score-big' style='color:"+sc+"'>"+optScore+"</span><span style='color:#9ca3af'>점 ("+freeScore+" "+op+" "+diffAbs+"점) / 100점</span>";
+    gaugeWidth=Math.max(0,Math.min(100,50+diff*2));
+  } else {
+    sc=optScore>=70?'#22c55e':optScore>=40?'#f59e0b':'#ef4444';
+    grade=optScore>=70?'우수':optScore>=40?'보통':'집중 위험';
+    scoreDisplay="<span class='score-big' style='color:"+sc+"'>"+optScore+"</span><span style='color:#9ca3af'> / 100점</span>";
+    gaugeWidth=optScore;
+  }
   const lockedNote=lockedTicker?"<span style='font-size:12px;color:#3b82f6;font-weight:500;margin-left:8px'>📌 " + lockedTicker + " 고정 파라미터 작동중</span>":"";
 
   let html="<div class='summary-block'>" +
@@ -271,10 +297,9 @@ function buildOptimal(){
     "</div>" +
     "<div class='summary-body' style='margin-bottom:12px'>" +
       "조합 평균 상관계수: <strong>" + optAvgCorr.toFixed(3) + "</strong> &nbsp;|&nbsp;" +
-      "다각화 스코어: <span class='score-big' style='color:" + sc + "'>" + optScore + "</span><span style='color:#9ca3af'> / 100점</span>" +
+      "최적 조합 스코어: " + scoreDisplay +
       "<span style='color:#666;font-size:14px;margin-left:6px'>(" + grade + ")</span>" +
-      "<div class='gauge-track'><div class='gauge-fill' style='width:" + optScore + "%;background:" + sc + "'></div></div>" +
-      "<div style='font-size:11px;color:#9ca3af;margin-top:4px'>전체 30종목 평균 상관 " + globalAvg.toFixed(3) + " → 최적 조합으로 " + (globalAvg-optAvgCorr).toFixed(3) + " 다각화 효율 개선</div>" +
+      "<div class='gauge-track'><div class='gauge-fill' style='width:" + gaugeWidth + "%;background:" + sc + "'></div></div>" +
     "</div>" +
     "<div class='opt-grid'>";
 

@@ -54,6 +54,7 @@ export default function CorrelationDomesticTab({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const kRef = useRef(k);
   useEffect(() => { kRef.current = k; }, [k]);
+  const prevMajorStateKey = useRef<string>("");
 
   // 클라이언트 마운트 확인 후 최초 src 생성 (SSR 타임스탬프 불일치 방지)
   useEffect(() => {
@@ -95,6 +96,10 @@ export default function CorrelationDomesticTab({
     if (!isMounted) return;
     const nextStrategy = savedState?.strategy;
     const nextK = savedState?.k;
+    const nextPeriod = savedState?.periodRange;
+    const majorKey = `${nextStrategy}|${nextK}|${nextPeriod}`;
+    if (majorKey === prevMajorStateKey.current) return;
+    prevMajorStateKey.current = majorKey;
     if (nextStrategy && nextStrategy !== strategy) setStrategy(nextStrategy);
     if (typeof nextK === "number" && nextK !== k) setK(nextK);
     if (nextStrategy || typeof nextK === "number") {
