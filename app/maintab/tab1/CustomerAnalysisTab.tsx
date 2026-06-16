@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { BarChart3, ClipboardList, Info, LockKeyhole, PieChart, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from "lucide-react";
 import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
@@ -234,17 +234,178 @@ function PbPrivateNotice() {
   );
 }
 
+function SmartInputStatusBadge({ message }: { message: string }) {
+  if (!message) return null;
+  const isError = /실패|거부|오류|지원하지|빈 오디오|권한/.test(message);
+  return (
+    <span className={`inline-flex w-fit items-center rounded-full border px-3 py-2 text-xs font-extrabold ${
+      isError
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-sky-200 bg-sky-50 text-samsung"
+    }`}>
+      {message}
+    </span>
+  );
+}
+
+const supportedAudioExtensions = new Set(["mp3", "wav", "m4a", "webm"]);
+
+function isSupportedAudioFile(file: File) {
+  const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  return supportedAudioExtensions.has(extension);
+}
+
 function SmartInputCard() {
   const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, selectedCustomerProfile, setSmartInputNote } = useCustomerContext();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [usageToday, setUsageToday] = useState(0);
   const [resetOpen, setResetOpen] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused" | "transcribing">("idle");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const note = formData.smartInputNote;
 
   useEffect(() => {
     setUsageToday(readGeminiUsageToday());
   }, []);
+
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const transcribeAudio = async (file: File, pendingMessage: string, doneMessage: string) => {
+    if (!file.size) {
+      setVoiceStatus("빈 오디오 파일입니다.");
+      return false;
+    }
+
+    const form = new FormData();
+    form.append("audio", file);
+    setVoiceStatus(pendingMessage);
+    try {
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: form,
+      });
+      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; error?: string } | null;
+      if (!response.ok || !result?.success || !result.text?.trim()) {
+        throw new Error(result?.error ?? "Gemini 응답 실패");
+      }
+      setSmartInputNote(result.text.trim());
+      setVoiceStatus(doneMessage);
+      return true;
+    } catch (error) {
+      console.error("Audio transcription failed", error);
+      setVoiceStatus(error instanceof Error && error.message ? error.message : "음성 변환 실패");
+      return false;
+    }
+  };
+
+  const handleAudioUpload = async (file: File | null) => {
+    if (!file) return;
+    if (!isSupportedAudioFile(file)) {
+      setVoiceStatus("지원하지 않는 파일 형식입니다.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setUploadBusy(true);
+    await transcribeAudio(file, "파일 음성 변환 중...", "파일 음성 변환 완료");
+    setUploadBusy(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const stopCurrentStream = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  };
+
+  const startOrResumeRecording = async () => {
+    if (recordingState === "paused" && recorderRef.current) {
+      try {
+        recorderRef.current.resume();
+        setRecordingState("recording");
+        setVoiceStatus("녹음 중...");
+      } catch (error) {
+        console.error("Recording resume failed", error);
+        setVoiceStatus("녹음 재개 실패");
+      }
+      return;
+    }
+
+    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceStatus("이 브라우저에서는 녹음을 지원하지 않습니다.");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      streamRef.current = stream;
+      recorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        chunksRef.current = [];
+        stopCurrentStream();
+        if (!blob.size) {
+          setVoiceStatus("빈 오디오 파일입니다.");
+          setRecordingState("idle");
+          return;
+        }
+        const file = new File([blob], `recording-${Date.now()}.webm`, { type: blob.type || "audio/webm" });
+        await transcribeAudio(file, "음성 변환 중...", "음성 변환 완료");
+        recorderRef.current = null;
+        setRecordingState("idle");
+      };
+
+      recorder.start();
+      setRecordingState("recording");
+      setVoiceStatus("녹음 중...");
+    } catch (error) {
+      console.error("Recording start failed", error);
+      stopCurrentStream();
+      setRecordingState("idle");
+      const name = error instanceof DOMException ? error.name : "";
+      setVoiceStatus(name === "NotAllowedError" ? "마이크 권한이 거부되었습니다." : "녹음 시작 실패");
+    }
+  };
+
+  const pauseRecording = () => {
+    try {
+      if (!recorderRef.current || recorderRef.current.state !== "recording") throw new Error("recorder is not recording");
+      recorderRef.current.pause();
+      setRecordingState("paused");
+      setVoiceStatus("녹음 일시중단");
+    } catch (error) {
+      console.error("Recording pause failed", error);
+      setVoiceStatus("녹음 일시중단 실패");
+    }
+  };
+
+  const stopRecording = () => {
+    try {
+      if (!recorderRef.current || recorderRef.current.state === "inactive") throw new Error("recorder is inactive");
+      setRecordingState("transcribing");
+      setVoiceStatus("음성 변환 중...");
+      recorderRef.current.stop();
+    } catch (error) {
+      console.error("Recording stop failed", error);
+      stopCurrentStream();
+      recorderRef.current = null;
+      setRecordingState("idle");
+      setVoiceStatus("녹음 종료 실패");
+    }
+  };
 
   const extract = async () => {
     const textareaValue = document.querySelector<HTMLTextAreaElement>("[data-smart-input-textarea='true']")?.value ?? "";
@@ -371,11 +532,12 @@ function SmartInputCard() {
 
   return (
     <section className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 shadow-soft sm:p-5">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_140px]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px]">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-3">
             <p className="text-sm font-extrabold text-yellow-900">Smart Input</p>
             <PbPrivateNotice />
+            <SmartInputStatusBadge message={voiceStatus} />
           </div>
           <textarea
             data-smart-input-textarea="true"
@@ -402,6 +564,55 @@ function SmartInputCard() {
           ) : null}
         </div>
         <div className="grid content-start gap-2 lg:pt-10">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".mp3,.wav,.m4a,.webm,audio/mpeg,audio/wav,audio/mp4,audio/webm"
+            className="hidden"
+            onChange={(event) => { void handleAudioUpload(event.target.files?.[0] ?? null); }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploadBusy || recordingState !== "idle"}
+            className="min-h-11 rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            녹음 파일 업로드
+          </button>
+          <div className="rounded-lg border border-sky-200 bg-white px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="whitespace-nowrap text-sm font-extrabold text-samsung">녹음하기</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  aria-label="녹음 시작 또는 재개"
+                  onClick={() => { void startOrResumeRecording(); }}
+                  disabled={uploadBusy || recordingState === "recording" || recordingState === "transcribing"}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-sky-200 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ▶
+                </button>
+                <button
+                  type="button"
+                  aria-label="녹음 일시중단"
+                  onClick={pauseRecording}
+                  disabled={uploadBusy || recordingState !== "recording"}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-sky-200 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ||
+                </button>
+                <button
+                  type="button"
+                  aria-label="녹음 종료"
+                  onClick={stopRecording}
+                  disabled={uploadBusy || (recordingState !== "recording" && recordingState !== "paused")}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-sky-200 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  ■
+                </button>
+              </div>
+            </div>
+          </div>
           <button
             type="button"
             onClick={extract}
