@@ -928,7 +928,7 @@ function fallbackGuide(payload: any): AdvisoryGuide {
     });
   }
   explanation.push({
-    text: `고객의 기대수익률은 ${rrttllu.expectedReturn || "미입력"}이고 위험등급은 ${risk.level || "미산출"}입니다. 상품 설명 시 기대수익률 숫자만 제시하기보다 손실 시나리오와 대응 기준을 함께 설명하는 편이 적절해 보입니다.`,
+    text: `고객의 기대수익률은 ${rrttllu.expectedReturn || "미입력"}이고 위험등급은 ${risk.level || "미산출"}입니다${risk.interpretation ? ` (${risk.interpretation})` : ""}. 상품 설명 시 기대수익률 숫자만 제시하기보다 손실 시나리오와 대응 기준을 함께 설명하는 편이 적절해 보입니다.`,
     highlights: ["손실 시나리오", "대응 기준"],
   });
   if (rrttllu.globalTaxImportance || rrttllu.giftingPlan) {

@@ -440,51 +440,44 @@ function summaryValue(value: string | null | undefined) {
 
 const riskGradeGuide = [
   {
-    range: "85~100점",
+    range: "81~100점",
     level: "초고위험",
     detail: "1등급 - 초고위험 - 매우 높은 위험",
     color: "text-red-600",
-    description: "시장 평균 수익률보다 훨씬 높은 투자수익을 추구하며, 손실 위험을 적극적으로 수용합니다.",
+    description: "시장평균 수익률을 훨씬 넘어서는 높은 수준의 투자수익을 추구하며, 자산가치의 변동에 따른 손실 위험을 적극적으로 수용합니다.",
   },
   {
-    range: "70~84점",
+    range: "61~80점",
     level: "고위험",
     detail: "2등급 - 고위험 - 높은 위험",
     color: "text-orange-600",
-    description: "높은 투자수익을 위해 상당 부분을 위험자산에 투자합니다.",
+    description: "투자원금의 보전보다는 투자수익을 추구하며, 투자자금의 상당 부분을 위험자산에 투자합니다.",
   },
   {
-    range: "55~69점",
+    range: "41~60점",
     level: "중위험",
-    detail: "3등급 - 중위험 - 다소 높은 위험",
-    color: "text-yellow-700",
-    description: "다소 높은 투자수익을 위해 상당 부분을 위험자산에 투자합니다.",
-  },
-  {
-    range: "40~54점",
-    level: "저위험 [1]",
-    detail: "4등급 - 저위험 [1] - 보통 위험",
+    detail: "3등급 - 중위험 - 보통 위험",
     color: "text-lime-600",
-    description: "예·적금보다 높은 수익을 기대할 수 있다면 일부 위험을 감수합니다.",
+    description: "주식형과 채권형 상품에 적절하게 배분하여 투자하는 것을 선호하며, 상당히 높은 수익을 기대할 수 있다면 손실 위험을 감수합니다.",
   },
   {
-    range: "25~39점",
-    level: "저위험 [2]",
-    detail: "5등급 - 저위험 [2] - 낮은 위험",
+    range: "21~40점",
+    level: "저위험",
+    detail: "4등급 - 저위험 - 낮은 위험",
     color: "text-green-600",
-    description: "손실 위험 최소화를 목표로 하지만, 수익을 위해 단기적인 위험을 수용합니다.",
+    description: "투자원금 손실 위험은 최소화하고, 이자·배당소득 중심의 안정적 투자를 목표로 하며, 높은 수익을 위해 단기적인 손실을 수용합니다.",
   },
   {
-    range: "0~24점",
+    range: "0~20점",
     level: "초저위험",
-    detail: "6등급 - 초저위험 - 매우 낮은 위험",
+    detail: "5등급 - 초저위험 - 매우 낮은 위험",
     color: "text-blue-600",
-    description: "예·적금 수준의 기대수익률을 추구하며, 원금 손실 발생을 원하지 않습니다.",
+    description: "예·적금 수준의 기대수익률을 가지고 있으며, 가급적이면 투자원금에 손실이 발생하는 것을 원하지 않습니다.",
   },
 ];
 
 function summaryRiskGrade(score: number) {
-  if (score >= 85) {
+  if (score >= 81) {
     return {
       level: "초고위험",
       detail: "1등급, 매우 높은 위험",
@@ -492,7 +485,7 @@ function summaryRiskGrade(score: number) {
       description: riskGradeGuide[0].description,
     };
   }
-  if (score >= 70) {
+  if (score >= 61) {
     return {
       level: "고위험",
       detail: "2등급, 높은 위험",
@@ -500,35 +493,27 @@ function summaryRiskGrade(score: number) {
       description: riskGradeGuide[1].description,
     };
   }
-  if (score >= 55) {
+  if (score >= 41) {
     return {
       level: "중위험",
-      detail: "3등급, 다소 높은 위험",
+      detail: "3등급, 보통 위험",
       color: riskGradeGuide[2].color,
       description: riskGradeGuide[2].description,
     };
   }
-  if (score >= 40) {
+  if (score >= 21) {
     return {
       level: "저위험",
-      detail: "4등급, 보통 위험",
+      detail: "4등급, 낮은 위험",
       color: riskGradeGuide[3].color,
       description: riskGradeGuide[3].description,
     };
   }
-  if (score >= 25) {
-    return {
-      level: "저위험",
-      detail: "5등급, 낮은 위험",
-      color: riskGradeGuide[4].color,
-      description: riskGradeGuide[4].description,
-    };
-  }
   return {
     level: "초저위험",
-    detail: "6등급, 매우 낮은 위험",
-    color: riskGradeGuide[5].color,
-    description: riskGradeGuide[5].description,
+    detail: "5등급, 매우 낮은 위험",
+    color: riskGradeGuide[4].color,
+    description: riskGradeGuide[4].description,
   };
 }
 
@@ -782,7 +767,7 @@ function SummaryAnalysisCard({
               <span>{riskResult.score}/100 </span>
               <span className={`font-extrabold ${riskGrade.color}`}>{riskGrade.level}</span>
               <span> ({riskGrade.detail})</span>
-              <p className="mt-2 font-semibold text-slate-700">{riskGrade.description}</p>
+              <p className="mt-2 font-semibold text-slate-950">{riskGrade.description}</p>
             </div>
           </SummaryRow>
           <SummaryRow label="Time Horizon" missing={summaryMissing.timeHorizon}><SummaryChips rows={[["투자 기간", summaryValue(rrttllu.timeHorizon)]]} /></SummaryRow>
@@ -802,11 +787,11 @@ function SummaryAnalysisCard({
               <div className="grid gap-2">
                 {riskGradeGuide.map((grade) => (
                   <div key={grade.range} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6">
-                    <span className="font-extrabold text-navy">{grade.range}</span>
+                    <span className="font-extrabold text-slate-950">{grade.range}</span>
                     <span className="px-2 text-slate-400">|</span>
                     <span className={`font-extrabold ${grade.color}`}>{grade.detail}</span>
                     <span className="px-2 text-slate-400">|</span>
-                    <span className="font-semibold text-slate-700">{grade.description}</span>
+                    <span className="font-semibold text-slate-950">{grade.description}</span>
                   </div>
                 ))}
               </div>
