@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGeminiApiKey } from "@/lib/geminiServerEnv";
 
 type GuideLine = { text: string; highlights?: string[]; memoItems?: string[] };
 type GuideCheckpoint = { id: string; title: string; prompt?: string };
@@ -1008,7 +1009,7 @@ function fallbackGuide(payload: any): AdvisoryGuide {
 
 async function callGemini(payload: unknown) {
   const ruleGuide = buildRuleInsights(payload);
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = getGeminiApiKey();
   if (!apiKey) return { source: "mock", geminiUsed: false, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
 
   try {
