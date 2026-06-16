@@ -20,6 +20,8 @@ import {
   FinancialIncomeGauge,
   FINANCIAL_INCOME_STORAGE_KEY,
   NEW_PORTFOLIO_INCOME_STORAGE_KEY,
+  FINANCIAL_INCOME_RESET_KEY,
+  calcAfterTaxReturn,
 } from "../tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary, TLHData } from "../tab1/FinancialIncomeGauge";
 
@@ -27,7 +29,7 @@ const SCENARIO_KEYS = ["scenario1", "scenario2", "scenario3", "scenario4"] as co
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
-  const { newPortfolioAnalysisResult, selectedCustomer } = useCustomerContext();
+  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets } = useCustomerContext();
   const [summary, setSummary] = useState<FinancialIncomeSummary | null>(null);
   const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
   // 좌우 동일 시나리오 인덱스 공유 — 같은 위기 시나리오를 나란히 비교
@@ -38,9 +40,38 @@ export default function Tab4Page() {
   // 고객 전환 시 Supabase에서 직접 로드 (localStorage 타이밍 문제 방지)
   useEffect(() => {
     if (!selectedCustomer) return;
+    const wasReset = sessionStorage.getItem(FINANCIAL_INCOME_RESET_KEY) === '1';
+    if (wasReset) {
+      setSummary(null);
+      loadTaxSummaries(selectedCustomer).then(({ newSummary }) => {
+        if (newSummary) {
+          setNewSummary(newSummary as FinancialIncomeSummary);
+        } else {
+          try {
+            const local = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY);
+            if (local) setNewSummary(JSON.parse(local));
+          } catch {}
+        }
+      });
+      return;
+    }
     loadTaxSummaries(selectedCustomer).then(({ currentSummary, newSummary }) => {
-      if (currentSummary) setSummary(currentSummary as FinancialIncomeSummary);
-      if (newSummary) setNewSummary(newSummary as FinancialIncomeSummary);
+      if (currentSummary) {
+        setSummary(currentSummary as FinancialIncomeSummary);
+      } else {
+        try {
+          const local = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY);
+          if (local) setSummary(JSON.parse(local));
+        } catch {}
+      }
+      if (newSummary) {
+        setNewSummary(newSummary as FinancialIncomeSummary);
+      } else {
+        try {
+          const local = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY);
+          if (local) setNewSummary(JSON.parse(local));
+        } catch {}
+      }
     });
   }, [selectedCustomer]);
 
@@ -97,6 +128,29 @@ export default function Tab4Page() {
   const leftStressResult = (leftData as any)?.stressResult;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rightStressResult = (rightData as any)?.stressResult;
+
+  const leftAfterTaxReturn = useMemo(
+    () => summary ? calcAfterTaxReturn(summary, leftAssets, false) : null,
+    [summary, leftAssets] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // 잔류 종목의 현재가를 기존 포트폴리오 enriched 데이터에서 보완
+  const enrichedRemainingAssets = useMemo(() => {
+    const map = new Map(leftAssets.map(a => [`${a.name ?? ""}::${a.ticker ?? ""}`, a]));
+    return rebalancingSellAssets.map(a => {
+      const enriched = map.get(`${a.name ?? ""}::${a.ticker ?? ""}`);
+      return {
+        ...a,
+        current_price: enriched?.current_price ?? a.current_price,
+        current_value: enriched?.current_value ?? a.current_value,
+      };
+    });
+  }, [rebalancingSellAssets, leftAssets]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rightAfterTaxReturn = useMemo(
+    () => newSummary ? calcAfterTaxReturn(newSummary, [...enrichedRemainingAssets, ...rightAssets]) : null,
+    [newSummary, enrichedRemainingAssets, rightAssets] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // ── PDF 다운로드 ───────────────────────────────────────────────────────────
   const handleDownloadPdf = async () => {
@@ -245,7 +299,7 @@ export default function Tab4Page() {
             {leftData?.quantResult && (
               <ResultCard icon={<TrendingUp size={18} />} title="핵심 지표 요약" accent="green">
                 <div className="grid grid-cols-2 gap-3">
-                  <MetricCard label="세후 기대수익률" value={fmtPct(leftData.quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
+                  <MetricCard label="세후 수익률" value={fmtPct(leftAfterTaxReturn ?? leftData.quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
                   <MetricCard label="샤프 비율" value={fmt(leftData.quantResult.performance.sharpeRatio)} sub="위험 대비 초과수익" />
                   <MetricCard label="소르티노 비율" value={fmt(leftData.quantResult.performance.sortinoRatio)} sub="하방 리스크 방어력" />
                   <MetricCard label="최대 낙폭(MDD)" value={fmtPct(Math.abs(leftData.quantResult.risk.mdd))} sub="최고점 대비 최악 하락" />
@@ -259,7 +313,7 @@ export default function Tab4Page() {
             {rightData?.quantResult && (
               <ResultCard icon={<TrendingUp size={18} />} title="핵심 지표 요약" accent="green">
                 <div className="grid grid-cols-2 gap-3">
-                  <MetricCard label="세후 기대수익률" value={fmtPct(rightData.quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
+                  <MetricCard label="세후 수익률" value={fmtPct(rightAfterTaxReturn ?? rightData.quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
                   <MetricCard label="샤프 비율" value={fmt(rightData.quantResult.performance.sharpeRatio)} sub="위험 대비 초과수익" />
                   <MetricCard label="소르티노 비율" value={fmt(rightData.quantResult.performance.sortinoRatio)} sub="하방 리스크 방어력" />
                   <MetricCard label="최대 낙폭(MDD)" value={fmtPct(Math.abs(rightData.quantResult.risk.mdd))} sub="최고점 대비 최악 하락" />
@@ -305,11 +359,15 @@ export default function Tab4Page() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
 
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-samsung text-[10px] font-bold text-white">A</span>
-                <span className="text-xs font-bold text-navy">기존 포트폴리오 세금 점검</span>
-              </div>
-              <FinancialIncomeGauge summary={summary} />
+              {summary && (
+                <>
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-samsung text-[10px] font-bold text-white">A</span>
+                    <span className="text-xs font-bold text-navy">기존 포트폴리오 세금 점검</span>
+                  </div>
+                  <FinancialIncomeGauge summary={summary} />
+                </>
+              )}
             </div>
 
             <div className="flex flex-col gap-2">

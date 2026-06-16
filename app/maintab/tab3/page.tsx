@@ -110,14 +110,14 @@ export default function Tab3Page() {
           .filter((x): x is AssetForIncomeCalc => x !== null);
 
         if (assetsForCalc.length > 0) {
-          // tab2-5에서 실제 매도된 자산의 양도소득세만 합산
-          const keepSet = new Set(rebalancingSellAssets.map(a => `${a.name ?? ""}::${a.ticker ?? ""}`));
-          const soldAssets = portfolioAssets.filter(a => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`));
           const originalEnrichedMap = new Map(
             (analysisResult?.enrichedAssets ?? []).map(e => [
               `${e.name ?? ""}::${e.ticker ?? ""}`, e as Record<string, unknown>
             ])
           );
+          const keepSet = new Set(rebalancingSellAssets.map(a => `${a.name ?? ""}::${a.ticker ?? ""}`));
+          const soldAssets = portfolioAssets.filter(a => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`));
+
           const soldAssetsForCalc: AssetForIncomeCalc[] = soldAssets
             .map((a) => {
               const isBond = a.productType === "국내채권" || a.productType === "해외채권";
