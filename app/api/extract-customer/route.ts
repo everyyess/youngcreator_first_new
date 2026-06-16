@@ -36,8 +36,6 @@ type GeminiExtractionResult = {
   };
 };
 
-const GEMINI_FREE_TIER_DAILY_LIMIT = 20;
-
 class GeminiExtractionError extends Error {
   reason: string;
   details?: unknown;
@@ -100,14 +98,7 @@ const stringArrayField = { type: "array", items: { type: "string" }, nullable: t
 const booleanField = { type: "boolean", nullable: true };
 const profileSchema = {
   type: "object",
-  properties: {
-    name: stringField,
-    gender: stringField,
-    birthYear: stringField,
-    birth_year: stringField,
-    age: stringField,
-    job: stringField,
-  },
+  properties: {},
 };
 const financialProfileSchema = {
   type: "object",
@@ -366,33 +357,6 @@ function mockExtract(note: string): ExtractionEnvelope {
   const text = note.replace(/\s+/g, " ").trim();
   result.notes = collectCandidateNotes(text);
 
-  const name = firstMatch(text, [/^([가-힣]{2,5})(?=,|\s|님|고객)/, /(?:성명|이름|고객명)\s*[:：]?\s*([가-힣]{2,5})/]);
-  if (name) {
-    result.extracted.profile.name = name;
-    addConfidence(result, "profile.name", 0.86);
-  }
-
-  const age = firstMatch(text, [/(\d{2,3})\s*세/]);
-  if (age) {
-    result.extracted.profile.age = `만 ${age}세`;
-    addConfidence(result, "profile.age", 0.9);
-  }
-
-  const gender = firstMatch(text, [/(?:^|[,(\s])(남|여)(?:[,)\s]|$)/, /(남성|여성)/]);
-  if (gender) {
-    result.extracted.profile.gender = gender.startsWith("남") ? "남" : "여";
-    addConfidence(result, "profile.gender", 0.84);
-  }
-
-  const job = firstMatch(text, [
-    /(?:남|여|\d{2,3}\s*세)\s*,?\s*([^,]+?(?:임직원|전문직|의사|대표|은퇴|교수|변호사|임원|사업가|소속))/,
-    /직업\s*[:：]?\s*([^,.;\n]+)/,
-  ]);
-  if (job) {
-    result.extracted.profile.job = job.replace(/^,\s*/, "").trim();
-    addConfidence(result, "profile.job", 0.72);
-  }
-
   const totalAssets = extractAmountNear(text, "총\\s*자산");
   const financialAssets = extractAmountNear(text, "금융\\s*자산");
   const existingInvestmentAssets = extractAmountNear(text, "기존\\s*투자자산|투자\\s*자산|운용\\s*자산");
@@ -538,7 +502,6 @@ function mockExtract(note: string): ExtractionEnvelope {
   });
   result.unmapped = result.notes.filter((note) => {
     const mappedValues = [
-      ...Object.values(result.extracted.profile),
       ...Object.values(result.extracted.financialProfile),
       ...Object.values(result.extracted.rrttllu),
       ...Object.values(result.inferred.rrttllu),
@@ -554,11 +517,12 @@ function buildPrompt(note: string) {
     "You are a high-recall JSON extraction engine for a Korean private banking RRTTLLU intake form.",
     "Return ONLY JSON matching the schema.",
     "Do not hardcode names or examples. Extract any customer memo using the same rules.",
+    "Do not extract or infer customer profile fields. Ignore name, gender, birth year, age, and job even if they are present in the memo.",
     "Work in two steps internally: (1) first identify every important candidate sentence, (2) then map candidates to the form fields.",
-    "Important candidates include any sentence or clause about money amounts, time periods, occupation, investment attitude, tax, liquidity, legal restrictions, preferred assets, avoided/caution assets, existing portfolio state, or family/succession needs.",
+    "Important candidates include any sentence or clause about money amounts, time periods, investment attitude, tax, liquidity, legal restrictions, preferred assets, avoided/caution assets, existing portfolio state, or family/succession needs.",
     "Always preserve money/time clauses as candidates, especially irregular income, future inflows, large cash needs, and recurring cashflow needs.",
     "Examples of candidate patterns, not hardcoded examples: future equity/share sale causing tens of billions of KRW inflow; bonus of 6~7억; study-abroad funding of 3억 in 2 years; monthly cashflow need of 1,000만 원; caution around leverage investments.",
-    "After candidate extraction, classify each candidate as profile, financialProfile, Return, Risk, Time Horizon, Tax, Liquidity, Legal, Unique, notes, or unmapped.",
+    "After candidate extraction, classify each candidate as financialProfile, Return, Risk, Time Horizon, Tax, Liquidity, Legal, Unique, notes, or unmapped. Never classify anything as profile.",
     "Use extracted for facts explicitly stated in the memo. Use inferred only for values reasonably implied by context.",
     "If a candidate is important but cannot be confidently mapped, do not discard it. Put it in notes and/or unmapped.",
     "Use null only when there is no evidence for that field. Do not silently drop meaningful ambiguous clauses.",
@@ -644,12 +608,12 @@ function normalizeExtractionEnvelope(value: unknown): ExtractionEnvelope {
   const inferred = source.inferred && typeof source.inferred === "object" ? source.inferred : {};
   const normalized: ExtractionEnvelope = {
     extracted: {
-      profile: { ...((extracted as ExtractionEnvelope["extracted"]).profile ?? {}) },
+      profile: {},
       financialProfile: { ...((extracted as ExtractionEnvelope["extracted"]).financialProfile ?? {}) },
       rrttllu: { ...((extracted as ExtractionEnvelope["extracted"]).rrttllu ?? {}) },
     },
     inferred: {
-      profile: { ...((inferred as ExtractionEnvelope["inferred"]).profile ?? {}) },
+      profile: {},
       financialProfile: { ...((inferred as ExtractionEnvelope["inferred"]).financialProfile ?? {}) },
       rrttllu: { ...((inferred as ExtractionEnvelope["inferred"]).rrttllu ?? {}) },
     },
@@ -711,19 +675,11 @@ function parseGeminiErrorDetails(details: unknown) {
     : undefined;
   return {
     retryDelay: retryDelayText ? Number(retryDelayText) : undefined,
-    quotaLimit: quotaValueText ? Number(quotaValueText) : GEMINI_FREE_TIER_DAILY_LIMIT,
+    quotaLimit: quotaValueText ? Number(quotaValueText) : undefined,
     status,
     message: typeof parsed === "object" && parsed && "error" in parsed
       ? (parsed as { error?: { message?: string } }).error?.message
       : undefined,
-  };
-}
-
-function quotaEstimate(clientEstimatedUsageToday: number | undefined, quotaLimit: number) {
-  const estimatedUsageToday = Math.min(Math.max(clientEstimatedUsageToday ?? quotaLimit, 0), quotaLimit);
-  return {
-    estimatedUsageToday,
-    estimatedRemainingToday: Math.max(quotaLimit - estimatedUsageToday, 0),
   };
 }
 
@@ -739,8 +695,6 @@ async function callGemini(note: string, clientEstimatedUsageToday?: number): Pro
       source: "mock",
       fallback: true,
       fallbackReason: "api_key_missing",
-      quotaLimit: GEMINI_FREE_TIER_DAILY_LIMIT,
-      ...quotaEstimate(clientEstimatedUsageToday, GEMINI_FREE_TIER_DAILY_LIMIT),
       data: mockExtract(note),
       debug: { usedFallbackReason: "api_key_missing" },
     };
@@ -839,14 +793,11 @@ async function callGemini(note: string, clientEstimatedUsageToday?: number): Pro
     });
     if (geminiError.reason === "rate_limit") {
       const quota = parseGeminiErrorDetails(geminiError.details);
-      const quotaLimit = quota.quotaLimit ?? GEMINI_FREE_TIER_DAILY_LIMIT;
-      const estimate = quotaEstimate(Math.max(clientEstimatedUsageToday ?? 0, quotaLimit), quotaLimit);
       console.error("Smart Input extraction fallback: Gemini free tier rate limit reached. Using mock parser.", {
         fallbackReason: "rate_limit",
         retryDelay: quota.retryDelay,
-        quotaLimit,
-        estimatedUsageToday: estimate.estimatedUsageToday,
-        estimatedRemainingToday: estimate.estimatedRemainingToday,
+        quotaLimit: quota.quotaLimit,
+        estimatedUsageToday: clientEstimatedUsageToday,
         quotaStatus: quota.status,
         quotaMessage: quota.message,
       });
@@ -855,8 +806,8 @@ async function callGemini(note: string, clientEstimatedUsageToday?: number): Pro
         fallback: true,
         fallbackReason: "rate_limit",
         retryDelay: quota.retryDelay,
-        quotaLimit,
-        ...estimate,
+        quotaLimit: quota.quotaLimit,
+        estimatedUsageToday: clientEstimatedUsageToday,
         data: mockExtract(note),
         debug: { usedFallbackReason: "rate_limit" },
       };
@@ -874,7 +825,7 @@ export async function POST(request: Request) {
     const estimatedUsageToday = typeof body?.estimatedUsageToday === "number" ? body.estimatedUsageToday : undefined;
     if (!note) return NextResponse.json({ error: "메모를 입력해주세요." }, { status: 400 });
     const result = await callGemini(note, estimatedUsageToday);
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, geminiUsed: result.source === "gemini", ...result });
   } catch (error) {
     const reason = error instanceof GeminiExtractionError ? error.reason : "unknown";
     console.error("customer extraction failed", {
@@ -885,6 +836,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: false,
       source: "gemini",
+      geminiUsed: false,
       error: "추출에 실패했습니다. 직접 입력하거나 다시 시도해주세요.",
       reason,
     }, { status: reason === "api_key_missing" ? 500 : 502 });
