@@ -6,6 +6,7 @@ import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
 import type { SmartExtractionPayload } from "../CustomerContext";
 import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal, MissingNotice, QuestionTitle, questionLabel } from "../ui";
+import { geminiUsageUpdatedEvent, incrementGeminiUsageToday, readGeminiUsageToday } from "@/lib/geminiUsage";
 
 const grayQuestionCardStyle = {
   "--question-card-bg": "#f8fafc",
@@ -46,34 +47,7 @@ const emptyAdvisoryGuide: AdvisoryGuide = {
   explanation: { lines: [] },
 };
 const tab1SubTabStorageKey = "samsung-vvip-tab1-inner-tab";
-const geminiDailyLimit = 20;
-const geminiUsageStorageKey = "samsung-vvip-gemini-usage";
 const smartInputCachePrefix = "samsung-vvip-smart-input-cache";
-
-function todayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function readGeminiUsageToday() {
-  if (typeof window === "undefined") return 0;
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(geminiUsageStorageKey) ?? "{}") as { date?: string; count?: number };
-    return parsed.date === todayKey() && typeof parsed.count === "number" ? parsed.count : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function writeGeminiUsageToday(count: number) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(geminiUsageStorageKey, JSON.stringify({ date: todayKey(), count }));
-}
-
-function incrementGeminiUsageToday() {
-  const next = readGeminiUsageToday() + 1;
-  writeGeminiUsageToday(next);
-  return next;
-}
 
 function smartInputCacheKey(customerId: string) {
   return `${smartInputCachePrefix}:${customerId}`;
@@ -161,7 +135,6 @@ function toSmartExtractionPayload(envelope: SmartExtractionEnvelope): SmartExtra
     ...pickSelectable(inferred.rrttllu),
   };
   const mappedValues = [
-    ...Object.values(compactSection(extracted.profile)),
     ...Object.values(financial),
     ...Object.values(rrttllu),
   ].flat().filter((value): value is string => typeof value === "string" && value.trim().length > 0);
@@ -174,7 +147,6 @@ function toSmartExtractionPayload(envelope: SmartExtractionEnvelope): SmartExtra
     rrttllu.uniqueOther = mergeUniqueNotes(rrttllu.uniqueOther, preservedNotes);
   }
   return {
-    profile: compactSection(extracted.profile) as SmartExtractionPayload["profile"],
     financial: financial as SmartExtractionPayload["financial"],
     rrttllu: rrttllu as SmartExtractionPayload["rrttllu"],
   };
@@ -272,6 +244,9 @@ function SmartInputCard() {
 
   useEffect(() => {
     setUsageToday(readGeminiUsageToday());
+    const updateUsage = () => setUsageToday(readGeminiUsageToday());
+    window.addEventListener(geminiUsageUpdatedEvent, updateUsage);
+    return () => window.removeEventListener(geminiUsageUpdatedEvent, updateUsage);
   }, []);
 
   useEffect(() => () => {
@@ -292,10 +267,11 @@ function SmartInputCard() {
         method: "POST",
         body: form,
       });
-      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; error?: string } | null;
+      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; error?: string; geminiUsed?: boolean } | null;
       if (!response.ok || !result?.success || !result.text?.trim()) {
         throw new Error(result?.error ?? "Gemini 응답 실패");
       }
+      if (result.geminiUsed === true) setUsageToday(incrementGeminiUsageToday());
       setSmartInputNote(result.text.trim());
       setVoiceStatus(doneMessage);
       return true;
@@ -485,14 +461,11 @@ function SmartInputCard() {
         console.warn("Smart Input preserved candidate notes", result.data.notes);
       }
       applySmartExtraction(toSmartExtractionPayload(result.data as SmartExtractionEnvelope));
-      if (result.source === "gemini") {
+      if (result.geminiUsed === true) {
         const nextUsage = incrementGeminiUsageToday();
         setUsageToday(nextUsage);
         setMessage("");
       } else if (result.fallbackReason === "rate_limit") {
-        const serverUsage = typeof result.estimatedUsageToday === "number" ? result.estimatedUsageToday : geminiDailyLimit;
-        setUsageToday(serverUsage);
-        writeGeminiUsageToday(serverUsage);
         setMessage("gemini_rate_limit");
       } else {
         setMessage("Mock Parser로 추출 가능한 항목을 반영했습니다.");
@@ -532,7 +505,7 @@ function SmartInputCard() {
 
   return (
     <section className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 shadow-soft sm:p-5">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_132px]">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-3">
             <p className="text-sm font-extrabold text-yellow-900">Smart Input</p>
@@ -550,7 +523,7 @@ function SmartInputCard() {
             <div className="mt-2 space-y-1">
               <p className="text-sm font-extrabold text-yellow-900">■ Gemini 무료 요청 한도를 초과했습니다. 내일 다시 시도해주세요.</p>
               <p className="text-xs font-bold text-yellow-800">
-                오늘 Gemini 추정 사용량: {usageToday}/{geminiDailyLimit}회 · 추정 잔여 횟수: {Math.max(geminiDailyLimit - usageToday, 0)}회
+                오늘 Gemini 추정 사용량: {usageToday}회 (프로젝트 내부 추정치)
               </p>
               <p className="text-sm font-extrabold text-yellow-900">■ Gemini 요청 한도 초과로 임시 추출 결과를 사용했습니다.</p>
             </div>
@@ -559,11 +532,11 @@ function SmartInputCard() {
           ) : null}
           {message !== "gemini_rate_limit" ? (
             <p className="mt-2 text-xs font-bold text-yellow-800">
-              오늘 Gemini 추정 사용량: {usageToday}/{geminiDailyLimit}회 · 추정 잔여 횟수: {Math.max(geminiDailyLimit - usageToday, 0)}회
+              오늘 Gemini 추정 사용량: {usageToday}회 (프로젝트 내부 추정치)
             </p>
           ) : null}
         </div>
-        <div className="grid content-start gap-2 lg:pt-10">
+        <div className="grid content-start gap-1.5 lg:pt-10">
           <input
             ref={fileInputRef}
             type="file"
@@ -575,20 +548,20 @@ function SmartInputCard() {
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadBusy || recordingState !== "idle"}
-            className="min-h-11 rounded-lg border border-sky-300 bg-white px-3 py-2 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="min-h-9 rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             녹음 파일 업로드
           </button>
-          <div className="rounded-lg border border-sky-200 bg-white px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="whitespace-nowrap text-sm font-extrabold text-samsung">녹음하기</span>
-              <div className="flex items-center gap-1">
+          <div className="rounded-lg border border-sky-200 bg-white px-2 py-1.5">
+            <div className="flex items-center justify-between gap-1.5">
+              <span className="whitespace-nowrap text-xs font-extrabold text-samsung">녹음</span>
+              <div className="flex items-center gap-0.5">
                 <button
                   type="button"
                   aria-label="녹음 시작 또는 재개"
                   onClick={() => { void startOrResumeRecording(); }}
                   disabled={uploadBusy || recordingState === "recording" || recordingState === "transcribing"}
-                  className="flex h-8 w-8 items-center justify-center rounded-md border border-sky-200 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-sky-200 text-xs font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   ▶
                 </button>
@@ -597,7 +570,7 @@ function SmartInputCard() {
                   aria-label="녹음 일시중단"
                   onClick={pauseRecording}
                   disabled={uploadBusy || recordingState !== "recording"}
-                  className="flex h-8 w-8 items-center justify-center rounded-md border border-sky-200 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-sky-200 text-xs font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   ||
                 </button>
@@ -606,28 +579,30 @@ function SmartInputCard() {
                   aria-label="녹음 종료"
                   onClick={stopRecording}
                   disabled={uploadBusy || (recordingState !== "recording" && recordingState !== "paused")}
-                  className="flex h-8 w-8 items-center justify-center rounded-md border border-sky-200 text-sm font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-sky-200 text-xs font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   ■
                 </button>
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={extract}
-            disabled={loading}
-            className="min-h-11 rounded-lg border border-yellow-300 bg-white px-4 py-2 text-sm font-extrabold text-yellow-900 transition hover:bg-yellow-100 disabled:cursor-wait disabled:opacity-60"
-          >
-            {loading ? "추출 중" : "추출하기"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setResetOpen(true)}
-            className="min-h-11 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-extrabold text-red-700 transition hover:bg-red-50"
-          >
-            초기화
-          </button>
+          <div className="grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={extract}
+              disabled={loading}
+              className="min-h-9 rounded-lg border border-yellow-300 bg-white px-2 py-1.5 text-xs font-extrabold text-yellow-900 transition hover:bg-yellow-100 disabled:cursor-wait disabled:opacity-60"
+            >
+              {loading ? "추출 중" : "추출"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setResetOpen(true)}
+              className="min-h-9 rounded-lg border border-red-300 bg-white px-2 py-1.5 text-xs font-extrabold text-red-700 transition hover:bg-red-50"
+            >
+              초기화
+            </button>
+          </div>
         </div>
       </div>
       {resetOpen ? (
@@ -1259,6 +1234,7 @@ export default function CustomerAnalysisTab() {
         const result = await response.json();
         if (!response.ok || !result?.ok) throw new Error(result?.error ?? "AI 상담 가이드 생성 실패");
         if (cancelled) return;
+        if (result.geminiUsed === true) incrementGeminiUsageToday();
         setAdvisoryGuide(result.data ?? emptyAdvisoryGuide);
         setLastGuideSignature(advisoryGuideSignature);
       } catch (error) {
@@ -1301,8 +1277,8 @@ export default function CustomerAnalysisTab() {
 
       {activeSubTab === "input" ? (
         <>
-      <SmartInputCard />
       <CustomerInfoCard />
+      <SmartInputCard />
 
       {/* 기본 재무 정보 */}
       <Panel icon={<WalletCards size={18} />} eyebrow="기본 재무 정보" title="고객 재무 현황" note="※ 금액은 원화(KRW) 기준으로 입력해주세요.">

@@ -1009,7 +1009,7 @@ function fallbackGuide(payload: any): AdvisoryGuide {
 async function callGemini(payload: unknown) {
   const ruleGuide = buildRuleInsights(payload);
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { source: "mock", data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+  if (!apiKey) return { source: "mock", geminiUsed: false, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
 
   try {
     const prompt = buildPrompt(payload, ruleGuide);
@@ -1044,10 +1044,10 @@ async function callGemini(payload: unknown) {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string") throw new Error("Gemini response did not include JSON text.");
-    return { source: "gemini", data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
+    return { source: "gemini", geminiUsed: true, data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
   } catch (error) {
     console.error("AI advisory guide generation failed. Falling back to mock.", { error });
-    return { source: "mock", fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+    return { source: "mock", geminiUsed: false, fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
   }
 }
 

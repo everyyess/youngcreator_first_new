@@ -40,13 +40,13 @@ export async function POST(request: Request) {
   try {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ success: false, error: "Gemini API 키가 설정되지 않았습니다." }, { status: 500 });
+      return NextResponse.json({ success: false, source: "mock", geminiUsed: false, error: "Gemini API 키가 설정되지 않았습니다." }, { status: 500 });
     }
 
     const formData = await request.formData();
     const audio = formData.get("audio");
     if (!(audio instanceof File)) {
-      return NextResponse.json({ success: false, error: "오디오 파일을 찾을 수 없습니다." }, { status: 400 });
+      return NextResponse.json({ success: false, source: "mock", geminiUsed: false, error: "오디오 파일을 찾을 수 없습니다." }, { status: 400 });
     }
 
     const extension = fileExtension(audio.name);
@@ -55,11 +55,11 @@ export async function POST(request: Request) {
       ? rawMimeType
       : mimeByExtension[extension] || "application/octet-stream";
     if (!allowedExtensions.has(extension) && !allowedMimeTypes.has(mimeType)) {
-      return NextResponse.json({ success: false, error: "지원하지 않는 오디오 형식입니다." }, { status: 400 });
+      return NextResponse.json({ success: false, source: "mock", geminiUsed: false, error: "지원하지 않는 오디오 형식입니다." }, { status: 400 });
     }
 
     if (audio.size <= 0) {
-      return NextResponse.json({ success: false, error: "빈 오디오 파일입니다." }, { status: 400 });
+      return NextResponse.json({ success: false, source: "mock", geminiUsed: false, error: "빈 오디오 파일입니다." }, { status: 400 });
     }
 
     const bytes = Buffer.from(await audio.arrayBuffer());
@@ -89,17 +89,17 @@ export async function POST(request: Request) {
     const result = await response.json().catch(() => null);
     if (!response.ok) {
       console.error("Gemini transcription failed", { status: response.status, result });
-      return NextResponse.json({ success: false, error: "Gemini 음성 변환에 실패했습니다." }, { status: 502 });
+      return NextResponse.json({ success: false, source: "gemini", geminiUsed: false, error: "Gemini 음성 변환에 실패했습니다." }, { status: 502 });
     }
 
     const text = textFromGeminiResponse(result);
     if (!text) {
-      return NextResponse.json({ success: false, error: "음성에서 텍스트를 추출하지 못했습니다." }, { status: 502 });
+      return NextResponse.json({ success: false, source: "gemini", geminiUsed: false, error: "음성에서 텍스트를 추출하지 못했습니다." }, { status: 502 });
     }
 
-    return NextResponse.json({ success: true, text });
+    return NextResponse.json({ success: true, source: "gemini", geminiUsed: true, text });
   } catch (error) {
     console.error("Transcription route failed", error);
-    return NextResponse.json({ success: false, error: "음성 변환 중 오류가 발생했습니다." }, { status: 500 });
+    return NextResponse.json({ success: false, source: "gemini", geminiUsed: false, error: "음성 변환 중 오류가 발생했습니다." }, { status: 500 });
   }
 }
