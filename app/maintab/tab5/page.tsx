@@ -161,7 +161,7 @@ const RISK_LABELS: Record<number,string> = {1:"초고위험",2:"고위험",3:"�
 const GRADE_LABELS: Record<number,string> = {1:"매우높은",2:"높은",3:"다소높은",4:"보통",5:"낮은",6:"매우낮은"};
 
 function isUnsuitable(p: Product, c: Client): boolean {
-  return RISK_LEVEL_MAP[p.riskGrade] < c.riskAppetite - 1;
+  return RISK_LEVEL_MAP[p.riskGrade] < c.riskAppetite;
 }
 
 function countGoodReasons(p: Product, c: Client, w: ReturnType<typeof calcWeights>): number {
@@ -315,7 +315,7 @@ function analyzeProductFit(p: Product, c: Client, w: ReturnType<typeof calcWeigh
   const riskGradeMap: Record<number,string> = {1:"매우높은위험",2:"높은위험",3:"다소높은위험",4:"보통위험",5:"낮은위험",6:"매우낮은위험"};
 
   if (unsuitable) {
-    reasons.push({ label:"위험성향 불일치", desc:`고객 성향은 ${clientLabel}(${c.riskAppetite}단계)이나, 해당 상품은 ${riskGradeMap[p.riskGrade]}(${p.riskGrade}등급)입니다. 고객 허용 위험 수준보다 ${c.riskAppetite - productRiskAppetite + 1}단계 이상 높아 RRTTLLU 기준 적합 범위를 벗어납니다.`, type:"bad" });
+    reasons.push({ label:"위험성향 불일치", desc:`${GRADE_LABELS[p.riskGrade]}위험 수준의 상품으로 고객의 투자성향(${clientLabel}) Risk 허용 범위를 벗어납니다.`, type:"bad" });
     if (!p.isInstantRedeem && c.investmentPeriod < 3) {
       reasons.push({ label:"환매 조건 주의", desc:`즉시환매가 불가한 상품입니다. 고객의 투자기간(${c.investmentPeriod}년) 내 자금이 필요할 경우 출금이 어려울 수 있습니다.`, type:"bad" });
     }
@@ -337,9 +337,9 @@ function analyzeProductFit(p: Product, c: Client, w: ReturnType<typeof calcWeigh
     }
   } else {
     if (productRiskAppetite <= c.riskAppetite) {
-      reasons.push({ label:"위험성향 적합", desc:`고객 성향(${clientLabel}) 대비 ${productGradeLabel} 위험 상품으로 RRTTLLU 허용 범위 내에 있습니다.`, type:"good" });
+      reasons.push({ label:"위험성향 적합", desc:`${productGradeLabel} 위험 상품으로 고객의 투자성향(${clientLabel}) Risk 허용 범위 내에 있습니다.`, type:"good" });
     } else {
-      reasons.push({ label:"위험성향 주의", desc:`고객 성향보다 위험도가 한 단계 높은 상품입니다. 편입 전 고객의 동의와 충분한 설명이 필요합니다.`, type:"caution" });
+      reasons.push({ label:"위험성향 주의", desc:`고객 투자성향(${clientLabel})보다 위험도가 한 단계 높은 상품입니다. 편입 전 충분한 설명과 고객 동의가 필요합니다.`, type:"caution" });
     }
     if (p.bucket === w.topBucket) {
       reasons.push({ label:"핵심 버킷 충족", desc:`고객의 최우선 배분 버킷(${w.topBucket})과 일치합니다. 포트폴리오 핵심 자산으로 편입이 적합합니다.`, type:"good" });
@@ -618,7 +618,7 @@ const additionalInvestmentAmount = (() => {
               <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3">
                 <p className="text-sm font-bold text-red-800 mb-1">위험성향 불일치</p>
                 <p className="text-xs leading-5 text-red-700">
-                  고객 성향은 <strong>{RISK_LABELS[client.riskAppetite]}</strong>이나, 해당 상품은 <strong>{RISK_GRADE_LABEL[unsuitableWarning.riskGrade]}</strong> 등급입니다. 고객 성향보다 위험도가 2단계 이상 높은 상품입니다.
+                {GRADE_LABELS[unsuitableWarning.riskGrade]}위험 수준의 상품으로 고객의 투자성향({RISK_LABELS[client.riskAppetite]}) Risk 허용 범위를 벗어납니다.
                 </p>
               </div>
               <p className="text-sm font-semibold text-slate-600 leading-6">고객에게 충분한 설명과 동의를 받은 후 진행하시겠습니까?</p>
