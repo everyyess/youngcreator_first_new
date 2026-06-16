@@ -288,20 +288,48 @@ export default function ExistingPortfolioTab() {
       setInferringIdx(idx);
       showToast(`'${name}' 분석 중...`);
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
       try {
-        const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
-        const data = await res.json();
+        let res: Response;
+        try {
+          res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`, {
+            signal: controller.signal,
+          });
+        } catch (fetchErr) {
+          if ((fetchErr as Error).name === "AbortError") {
+            showToast(`'${name}' 조회 시간이 초과됐습니다. 티커를 직접 입력해주세요.`);
+          } else {
+            showToast("네트워크 오류가 발생했습니다. 수동으로 입력해주세요.");
+          }
+          return;
+        }
+
+        let data: Record<string, unknown>;
+        try {
+          data = await res.json();
+        } catch {
+          showToast("서버 응답 파싱 오류. 수동으로 입력해주세요.");
+          return;
+        }
 
         if (!res.ok) {
-          showToast(data?.error ?? `오류 (${res.status})`);
+          showToast((data?.error as string) ?? `오류 (${res.status}) — 티커를 직접 입력해주세요.`);
           return;
         }
 
         const ticker = typeof data.ticker === "string" && data.ticker ? data.ticker : "";
         if (!ticker) {
-          showToast(`'${name}'의 티커를 찾을 수 없습니다. 수동으로 입력해주세요.`);
+          showToast(`'${name}'의 티커를 찾을 수 없습니다. 종목명 더블클릭 후 수동 입력해주세요.`);
           return;
         }
+
+        // 공식 사명 — Yahoo meta.shortName/longName → Gemini englishName 순 폴백
+        // 약어·오타 입력값(name)을 정규화된 공식 사명으로 강제 보정합니다.
+        const officialName = typeof data.officialName === "string" && data.officialName.trim()
+          ? data.officialName.trim()
+          : null;
 
         const geminiAssetClass  = typeof data.assetClass  === "string" ? data.assetClass  : "";
         const geminiProductType = typeof data.productType === "string" ? data.productType : "";
@@ -310,15 +338,22 @@ export default function ExistingPortfolioTab() {
           : undefined;
 
         const rawPrice: number | null =
-          data?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null;
+          (data?.chart as Record<string, unknown>)?.result
+            ? ((data.chart as { result?: Array<{ meta?: { regularMarketPrice?: number } }> })
+                ?.result?.[0]?.meta?.regularMarketPrice ?? null)
+            : null;
         const isBondAsset = BOND_TYPES.has(unifiedType ?? "");
 
         let currentPriceKRW: number | null = null;
         if (typeof rawPrice === "number" && rawPrice > 0 && !isBondAsset) {
           const isForeign = !ticker.endsWith(".KS") && !ticker.endsWith(".KQ");
           if (isForeign) {
-            const rate = await getUSDKRWRate();
-            if (rate) currentPriceKRW = Math.round(rawPrice * rate);
+            try {
+              const rate = await getUSDKRWRate();
+              if (rate) currentPriceKRW = Math.round(rawPrice * rate);
+            } catch {
+              // 환율 조회 실패 시 현재가 생략, 나머지는 정상 반영
+            }
           } else {
             currentPriceKRW = Math.round(rawPrice);
           }
@@ -333,6 +368,8 @@ export default function ExistingPortfolioTab() {
 
         updateRow(idx, {
           ticker,
+          // officialName이 있으면 유저 입력값을 공식 사명으로 강제 보정
+          ...(officialName ? { name: officialName } : {}),
           ...(unifiedType ? {
             productType: unifiedType,
             asset_class: deriveAssetClass(unifiedType),
@@ -345,17 +382,19 @@ export default function ExistingPortfolioTab() {
           ...(trailingAnnualDividendRate != null ? { trailingAnnualDividendRate } : {}),
         } as Partial<PortfolioAsset>);
 
+        const displayName = officialName ?? name;
         const priceStr = currentPriceKRW !== null
           ? ` / 현재가 ${currentPriceKRW.toLocaleString("ko-KR")}원`
           : "";
         const yieldMsg = dividendYield != null
           ? ` · 배당수익률 ${(dividendYield * 100).toFixed(2)}%`
           : "";
-        showToast(`'${name}' → ${ticker} 자동 완성${priceStr}${yieldMsg}`);
+        showToast(`'${name}' → ${ticker} (${displayName}) 자동 완성${priceStr}${yieldMsg}`);
       } catch (err) {
-        console.warn("[SmartInference] API 오류:", err);
-        showToast("네트워크 오류가 발생했습니다. 수동으로 입력해주세요.");
+        console.warn("[SmartInference] 예외:", err);
+        showToast("오류가 발생했습니다. 티커 셀을 더블클릭하여 직접 입력해주세요.");
       } finally {
+        clearTimeout(timeoutId);
         setInferringIdx(null);
       }
     },

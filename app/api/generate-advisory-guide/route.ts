@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGeminiApiKey } from "@/lib/geminiServerEnv";
 
 type GuideLine = { text: string; highlights?: string[]; memoItems?: string[] };
 type GuideCheckpoint = { id: string; title: string; prompt?: string };
@@ -928,7 +929,7 @@ function fallbackGuide(payload: any): AdvisoryGuide {
     });
   }
   explanation.push({
-    text: `고객의 기대수익률은 ${rrttllu.expectedReturn || "미입력"}이고 위험등급은 ${risk.level || "미산출"}입니다. 상품 설명 시 기대수익률 숫자만 제시하기보다 손실 시나리오와 대응 기준을 함께 설명하는 편이 적절해 보입니다.`,
+    text: `고객의 기대수익률은 ${rrttllu.expectedReturn || "미입력"}이고 위험등급은 ${risk.level || "미산출"}입니다${risk.interpretation ? ` (${risk.interpretation})` : ""}. 상품 설명 시 기대수익률 숫자만 제시하기보다 손실 시나리오와 대응 기준을 함께 설명하는 편이 적절해 보입니다.`,
     highlights: ["손실 시나리오", "대응 기준"],
   });
   if (rrttllu.globalTaxImportance || rrttllu.giftingPlan) {
@@ -1008,8 +1009,8 @@ function fallbackGuide(payload: any): AdvisoryGuide {
 
 async function callGemini(payload: unknown) {
   const ruleGuide = buildRuleInsights(payload);
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { source: "mock", data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return { source: "mock", geminiUsed: false, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
 
   try {
     const prompt = buildPrompt(payload, ruleGuide);
@@ -1044,10 +1045,10 @@ async function callGemini(payload: unknown) {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string") throw new Error("Gemini response did not include JSON text.");
-    return { source: "gemini", data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
+    return { source: "gemini", geminiUsed: true, data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
   } catch (error) {
     console.error("AI advisory guide generation failed. Falling back to mock.", { error });
-    return { source: "mock", fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+    return { source: "mock", geminiUsed: false, fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
   }
 }
 
