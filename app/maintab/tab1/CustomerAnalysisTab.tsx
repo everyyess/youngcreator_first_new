@@ -6,7 +6,7 @@ import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
 import type { SmartExtractionPayload, StoredAdvisoryGuide } from "../CustomerContext";
 import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal, MissingNotice, QuestionTitle, questionLabel } from "../ui";
-import { geminiUsageUpdatedEvent, incrementGeminiUsageToday, readGeminiUsageToday } from "@/lib/geminiUsage";
+import { geminiDailyUsageLimit, geminiUsageUpdatedEvent, incrementGeminiUsageToday, readGeminiUsageToday, writeGeminiUsageToday } from "@/lib/geminiUsage";
 
 const grayQuestionCardStyle = {
   "--question-card-bg": "#f8fafc",
@@ -127,12 +127,20 @@ function normalizeUniqueMeaning(value: string) {
   return compact.replace(/[^\p{Script=Hangul}a-zA-Z0-9]/gu, "").slice(0, 32);
 }
 
+function isPbOpeningMentForUniqueOther(value: string) {
+  const compact = value.replace(/\s+/g, "");
+  return compact.includes("고객님의투자성향")
+    && compact.includes("니즈를파악")
+    && compact.includes("몇가지여쭤");
+}
+
 function mergeUniqueNotes(existing: unknown, notes: string[]) {
   const values = [
     ...(typeof existing === "string" ? existing.split(/\n/) : []),
     ...notes,
   ]
     .map((value) => value.trim())
+    .filter((value) => !isPbOpeningMentForUniqueOther(value))
     .filter(Boolean);
   const byMeaning = new Map<string, string>();
   values.forEach((value) => {
@@ -249,6 +257,15 @@ function isSupportedAudioFile(file: File) {
   return supportedAudioExtensions.has(extension);
 }
 
+function isGeminiResourceExhausted(value: unknown) {
+  const body = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  return /RESOURCE_EXHAUSTED|rate_limit|quota|429/i.test(body);
+}
+
+function geminiUsageLabel(count: number) {
+  return `오늘 Gemini 추정 사용량: ${Math.min(geminiDailyUsageLimit, count)}/${geminiDailyUsageLimit}회 (추정치)`;
+}
+
 function SmartInputCard() {
   const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, selectedCustomerProfile, setSmartInputNote } = useCustomerContext();
   const [loading, setLoading] = useState(false);
@@ -269,6 +286,11 @@ function SmartInputCard() {
   const setCurrentCustomerVoiceStatus = (message: string) => {
     setVoiceStatusCustomer(selectedCustomer);
     setVoiceStatus(message);
+  };
+
+  const markGeminiLimitReached = () => {
+    writeGeminiUsageToday(geminiDailyUsageLimit);
+    setUsageToday(geminiDailyUsageLimit);
   };
 
   useEffect(() => {
@@ -307,6 +329,9 @@ function SmartInputCard() {
       return true;
     } catch (error) {
       console.error("Audio transcription failed", error);
+      if (isGeminiResourceExhausted(error instanceof Error ? error.message : error)) {
+        markGeminiLimitReached();
+      }
       setCurrentCustomerVoiceStatus(error instanceof Error && error.message ? error.message : "음성 변환 실패");
       return false;
     }
@@ -496,6 +521,7 @@ function SmartInputCard() {
         setUsageToday(nextUsage);
         setMessage("");
       } else if (result.fallbackReason === "rate_limit") {
+        markGeminiLimitReached();
         setMessage("gemini_rate_limit");
       } else {
         setMessage("Mock Parser로 추출 가능한 항목을 반영했습니다.");
@@ -521,6 +547,11 @@ function SmartInputCard() {
         failedSmartInputLength: note.length,
         failedTrimmedLength: note.trim().length,
       });
+      if (isGeminiResourceExhausted(error instanceof Error ? error.message : error)) {
+        markGeminiLimitReached();
+        setMessage("gemini_rate_limit");
+        return;
+      }
       setMessage("추출에 실패했습니다. 직접 입력하거나 다시 시도해주세요.");
     } finally {
       setLoading(false);
@@ -551,18 +582,17 @@ function SmartInputCard() {
           />
           {message === "gemini_rate_limit" ? (
             <div className="mt-2 space-y-1">
-              <p className="text-sm font-extrabold text-yellow-900">■ Gemini 무료 요청 한도를 초과했습니다. 내일 다시 시도해주세요.</p>
+              <p className="text-sm font-extrabold text-yellow-900">■ Gemini 무료 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.</p>
               <p className="text-xs font-bold text-yellow-800">
-                오늘 Gemini 추정 사용량: {usageToday}회 (프로젝트 내부 추정치)
+                {geminiUsageLabel(usageToday)}
               </p>
-              <p className="text-sm font-extrabold text-yellow-900">■ Gemini 요청 한도 초과로 임시 추출 결과를 사용했습니다.</p>
             </div>
           ) : message ? (
             <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-yellow-900"}`}>{message}</p>
           ) : null}
           {message !== "gemini_rate_limit" ? (
             <p className="mt-2 text-xs font-bold text-yellow-800">
-              오늘 Gemini 추정 사용량: {usageToday}회 (프로젝트 내부 추정치)
+              {geminiUsageLabel(usageToday)}
             </p>
           ) : null}
         </div>
@@ -1261,6 +1291,9 @@ export default function CustomerAnalysisTab() {
       });
       const result = await response.json();
       if (!response.ok || !result?.ok) throw new Error(result?.message ?? result?.error ?? "Gemini response failed");
+      if (result.fallbackReason === "rate_limit" || isGeminiResourceExhausted(result)) {
+        writeGeminiUsageToday(geminiDailyUsageLimit);
+      }
       if (result.geminiUsed === true) incrementGeminiUsageToday();
       setAiAdvisoryGuide(
         normalizeAdvisoryGuide(result.data ?? emptyAdvisoryGuide) as StoredAdvisoryGuide,
@@ -1270,6 +1303,9 @@ export default function CustomerAnalysisTab() {
       setAdvisoryGuideNotice("");
     } catch (error) {
       console.error("AI advisory guide request failed", { error, advisoryGuidePayload });
+      if (isGeminiResourceExhausted(error instanceof Error ? error.message : error)) {
+        writeGeminiUsageToday(geminiDailyUsageLimit);
+      }
       setAdvisoryGuideError("AI 상담 가이드 생성에 실패했습니다. 입력 정보를 확인하거나 다시 시도해주세요.");
     } finally {
       setAdvisoryGuideLoading(false);

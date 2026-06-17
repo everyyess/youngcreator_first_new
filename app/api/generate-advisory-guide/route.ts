@@ -1090,7 +1090,9 @@ async function callGemini(payload: unknown) {
     return { source: "gemini", geminiUsed: true, data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
   } catch (error) {
     console.error("AI advisory guide generation failed. Falling back to mock.", { error });
-    return { source: "mock", geminiUsed: false, fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+    const errorText = error instanceof Error ? error.message : JSON.stringify(error);
+    const fallbackReason = /RESOURCE_EXHAUSTED|429|quota|rate_limit/i.test(errorText) ? "rate_limit" : "api_request_failed";
+    return { source: "mock", geminiUsed: false, fallback: true, fallbackReason, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
   }
 }
 
