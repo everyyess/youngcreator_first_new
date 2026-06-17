@@ -7,6 +7,7 @@ import { AlertTriangle } from "lucide-react";
 export const THRESHOLD = 20_000_000; // 금융소득 종합과세 기준
 export const FINANCIAL_INCOME_STORAGE_KEY = "financial-income-summary-v1";
 export const NEW_PORTFOLIO_INCOME_STORAGE_KEY = "new-portfolio-income-summary-v1";
+export const FINANCIAL_INCOME_RESET_KEY = "financial-income-reset-v1";
 
 const INTEREST_WITHHOLDING  = 0.154; // 이자소득 원천징수 14% + 지방세 1.4%
 const DOMESTIC_DIV_WITHHOLDING = 0.154;
@@ -224,6 +225,20 @@ export function FinancialIncomeGauge({
   const interestItems = (summary?.breakdown ?? []).filter(b => b.incomeType === "이자");
   const visibleGainsItems = (summary?.capitalGainsBreakdown ?? []).filter(item => item.gain !== 0);
 
+  const cgTax = summary?.capitalGainsTax ?? 0;
+  const netCG = summary?.netCapitalGains ?? 0;
+  const CG_DEDUCTION = 2_500_000;
+  // 세액이 없으면 250만원 공제한도 기준, 있으면 세액의 2배를 100만원 단위로 올림해 최대값 설정
+  const cgGaugeMax = cgTax <= 0 ? CG_DEDUCTION : Math.ceil((cgTax * 2) / 1_000_000) * 1_000_000;
+  const cgGaugeValue = Math.max(cgTax, 0);
+  const cgGaugePct = Math.min((cgGaugeValue / cgGaugeMax) * 100, 100);
+  const cgGaugeColor = cgTax <= 0
+    ? (netCG > CG_DEDUCTION * 0.8 ? "#f59e0b" : "#10b981")
+    : cgTax <= 500_000 ? "#10b981"
+    : cgTax <= 1_000_000 ? "#f59e0b"
+    : "#dc2626";
+  const cgGaugeMaxLabel = cgTax <= 0 ? "250만원 (공제한도)" : fmtWon(cgGaugeMax);
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-soft overflow-hidden flex-1">
 
@@ -315,6 +330,63 @@ export function FinancialIncomeGauge({
             </div>
           </div>
         )}
+      </div>
+
+      {/* 양도소득세 게이지 */}
+      <div className="px-4 pt-3 pb-3 border-t border-slate-100">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400">
+            해외 양도소득세
+          </span>
+          <span
+            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+            style={{
+              backgroundColor: cgTax > 0 ? "#fff7ed" : "#f0fdf4",
+              color: cgTax > 0 ? "#ea580c" : "#16a34a",
+            }}
+          >
+            {cgTax > 0 ? "과세 대상" : "비과세"}
+          </span>
+        </div>
+        <div className="flex items-end gap-1.5 mb-1">
+          <span className="text-2xl font-black tracking-tight text-slate-800">
+            {fmtWon(cgTax)}
+          </span>
+          <span className="text-xs font-bold text-slate-400 pb-0.5">세액</span>
+        </div>
+        <div className="text-[11px] text-slate-500 mb-2">
+          순차익 {fmtWon(netCG)} · 기본공제 250만원
+        </div>
+
+        <div className="relative h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${cgGaugePct}%`, backgroundColor: cgGaugeColor }}
+          />
+        </div>
+        <div className="flex justify-between mt-1">
+          <span className="text-[10px] text-slate-400">0</span>
+          <span className="text-[10px] text-slate-500 font-bold">{cgGaugeMaxLabel}</span>
+        </div>
+
+        <div className="mt-2">
+          {cgTax > 0 ? (
+            <div className="flex items-start gap-2 rounded-lg bg-orange-50 border border-orange-200 px-3 py-2">
+              <AlertTriangle size={13} className="shrink-0 text-orange-500 mt-0.5" />
+              <p className="text-xs font-semibold text-orange-700 leading-snug">
+                순차익 <strong>{fmtWon(netCG)}</strong> · 250만원 초과분에 22% 과세
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg bg-emerald-50 px-3 py-2">
+              <span className="text-xs font-semibold text-emerald-700">
+                {netCG <= 0
+                  ? "양도차익 없음 · 비과세"
+                  : `기본공제 이내 · 비과세 (여유 ${fmtWon(CG_DEDUCTION - netCG)})`}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 소득 탭: 배당 / 이자 / 양도 */}
@@ -899,12 +971,73 @@ export function calcFinancialIncomeSummary(
     additionalTax: Math.round(additionalTax),
     tMarginal,
     isOverThreshold: totalFinancialIncome > THRESHOLD,
-    breakdown: breakdown.sort((a, b) => b.annualIncome - a.annualIncome),
+    breakdown: (() => {
+      const map = new Map<string, IncomeBreakdownItem>();
+      for (const item of breakdown) {
+        const key = `${item.name}::${item.ticker}::${item.incomeType}`;
+        const existing = map.get(key);
+        if (existing) {
+          map.set(key, {
+            ...existing,
+            annualIncome: existing.annualIncome + item.annualIncome,
+            netIncome: existing.netIncome + item.netIncome,
+            value: (existing.value ?? 0) + (item.value ?? 0),
+          });
+        } else {
+          map.set(key, { ...item });
+        }
+      }
+      return Array.from(map.values()).sort((a, b) => b.annualIncome - a.annualIncome);
+    })(),
     capitalGainsBreakdown,
     majorShareholderWarning: majorShareholderItems.length > 0,
     majorShareholderItems,
     updatedAt: Date.now(),
   };
+}
+
+/** 새 공식 기반 세후 수익률 계산
+ * = (① 양도 세후 수익 + ② 배당·이자 세후 수익) ÷ 투자 원금
+ */
+export function calcAfterTaxReturn(
+  summary: FinancialIncomeSummary,
+  assets: Array<{ buy_price?: number | null; current_price?: number; current_value?: number; amount: number; amount_type?: string }>,
+  includeCapitalGainsTax?: boolean
+): number {
+  // 총 투자원금: 매수단가 × 수량 합계
+  const principal = assets.reduce((sum, a) => {
+    if ((a.amount_type ?? "quantity") === "value") return sum + a.amount;
+    if (a.buy_price != null && a.buy_price > 0) return sum + a.buy_price * a.amount;
+    if (a.current_value != null && a.current_value > 0) return sum + a.current_value;
+    if (a.current_price != null && a.current_price > 0) return sum + a.current_price * a.amount;
+    return sum;
+  }, 0);
+
+  if (principal <= 0) return 0;
+
+  // 현재 평가금액 합계 (모든 종목 포함)
+  const currentTotal = assets.reduce((sum, a) => {
+    if ((a.amount_type ?? "quantity") === "value") return sum + (a.current_value ?? a.amount);
+    if (a.current_value != null && a.current_value > 0) return sum + a.current_value;
+    if (a.current_price != null && a.current_price > 0) return sum + a.current_price * a.amount;
+    if (a.buy_price != null && a.buy_price > 0) return sum + a.buy_price * a.amount;
+    return sum;
+  }, 0);
+
+  // 전체 평가손익 (국내 + 해외 모든 종목)
+  const priceReturn = currentTotal - principal;
+
+  // 금융소득세: 금융소득 × 15.4% (2,000만원 초과 시 종합과세 기준)
+  const totalFI = summary.totalFinancialIncome;
+  const financialIncomeTax = summary.isOverThreshold
+    ? (summary.finalTax - summary.dividendTaxCredit)
+    : totalFI * 0.154;
+
+  // 양도소득세 (기존 포트폴리오는 실제 매도 없으므로 제외)
+  const capitalGainsTax = (includeCapitalGainsTax ?? true) ? summary.capitalGainsTax : 0;
+
+  // 세후수익률 = (전체 평가손익 − 금융소득세 − 양도소득세) / 총 투자원금
+  return (priceReturn - financialIncomeTax - capitalGainsTax) / principal;
 }
 
 /** proxy-finance API 응답에서 배당 데이터 추출 */

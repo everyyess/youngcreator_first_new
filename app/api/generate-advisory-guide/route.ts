@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getGeminiApiKey } from "@/lib/geminiServerEnv";
 
 type GuideLine = { text: string; highlights?: string[]; memoItems?: string[] };
 type GuideCheckpoint = { id: string; title: string; prompt?: string };
@@ -162,6 +163,47 @@ function uniqueLines(lines: GuideLine[]) {
 
 function mergeGuideLines(base: GuideLine[], extra: GuideLine[]) {
   return uniqueLines([...base, ...extra]);
+}
+
+function requiredFinancialIncomeTaxLine(payload?: any): GuideLine | null {
+  const rrttllu = payload?.formData?.rrttllu && typeof payload.formData.rrttllu === "object" ? payload.formData.rrttllu : {};
+  const globalTaxImportance = text(rrttllu.globalTaxImportance);
+  const recentGlobalTaxSubject = text(rrttllu.recentGlobalTaxSubject);
+  const isVeryImportant = globalTaxImportance === "매우 중요";
+  const wasRecentSubject = recentGlobalTaxSubject === "예";
+  if (!isVeryImportant && !wasRecentSubject) return null;
+
+  if (isVeryImportant && wasRecentSubject) {
+    return {
+      text: "금융소득종합과세 절감이 매우 중요하다고 응답했으며 최근 3년 내 금융소득종합과세 대상에도 해당되므로 금융소득 절세 측면을 중시해야 합니다.",
+      highlights: ["금융소득종합과세 절감", "최근 3년 내 금융소득종합과세 대상", "금융소득 절세"],
+    };
+  }
+
+  if (isVeryImportant) {
+    return {
+      text: "금융소득종합과세 절감이 매우 중요한 고객이므로 금융소득 절세 측면으로 접근해야 합니다.",
+      highlights: ["금융소득종합과세 절감", "금융소득 절세"],
+    };
+  }
+
+  return {
+    text: "최근 3년 내 금융소득종합과세 대상에 해당되는 고객이므로 금융소득 절세 측면으로 접근해야 합니다.",
+    highlights: ["최근 3년 내 금융소득종합과세 대상", "금융소득 절세"],
+  };
+}
+
+function ensureFinancialIncomeTaxExplanation(guide: AdvisoryGuide, payload?: any): AdvisoryGuide {
+  const taxLine = requiredFinancialIncomeTaxLine(payload);
+  if (!taxLine) return guide;
+  const nonTaxExplanation = guide.explanation.lines.filter((line) => {
+    const body = line.text;
+    return lineTopic(body) !== "tax-strategy" && !/금융소득종합과세|금융소득\s*절세|종합과세|세후수익률|절세/.test(body);
+  });
+  return {
+    ...guide,
+    explanation: { lines: uniqueLines([taxLine, ...nonTaxExplanation]) },
+  };
 }
 
 function lineTopic(value: string) {
@@ -731,7 +773,7 @@ function mergeGuides(ruleGuide: AdvisoryGuide, aiGuide: AdvisoryGuide, payload?:
   const sectionedLines = mergeSectionedLines(ruleGuide, aiGuide);
   const realConflictLines = sectionedLines.conflicts.filter((line) => line.text.trim() !== noConflictLine);
   const conflictLines = realConflictLines.length ? realConflictLines : [{ text: noConflictLine }];
-  return sanitizeGuideMemoItems({
+  const guide = sanitizeGuideMemoItems({
     conflicts: { lines: conflictLines },
     followUps: {
       lines: sectionedLines.followUps,
@@ -739,6 +781,7 @@ function mergeGuides(ruleGuide: AdvisoryGuide, aiGuide: AdvisoryGuide, payload?:
     },
     explanation: { lines: sectionedLines.explanation },
   }, payload);
+  return ensureFinancialIncomeTaxExplanation(guide, payload);
 }
 
 function normalizeGuide(value: unknown): AdvisoryGuide {
@@ -1008,8 +1051,8 @@ function fallbackGuide(payload: any): AdvisoryGuide {
 
 async function callGemini(payload: unknown) {
   const ruleGuide = buildRuleInsights(payload);
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return { source: "mock", data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) return { source: "mock", geminiUsed: false, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
 
   try {
     const prompt = buildPrompt(payload, ruleGuide);
@@ -1044,10 +1087,10 @@ async function callGemini(payload: unknown) {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string") throw new Error("Gemini response did not include JSON text.");
-    return { source: "gemini", data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
+    return { source: "gemini", geminiUsed: true, data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
   } catch (error) {
     console.error("AI advisory guide generation failed. Falling back to mock.", { error });
-    return { source: "mock", fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+    return { source: "mock", geminiUsed: false, fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
   }
 }
 

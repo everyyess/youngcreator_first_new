@@ -97,6 +97,7 @@ function greedyOptimal(
   strategy: Strategy,
   vols: Record<string, number>,
   scores: Record<string, number>,
+  seed?: string,
 ): string[] {
   const sectors: Record<string, string> = {};
   for (const t of tickers) sectors[t] = SECTOR_MAP[t] ?? 'other';
@@ -121,21 +122,27 @@ function greedyOptimal(
   const usedSectors = new Set<string>();
   let remaining = [...tickers];
 
-  let bestPair: [string, string] | null = null;
-  let bestScore = 999999;
-  for (let i = 0; i < remaining.length; i++) {
-    for (let j = i + 1; j < remaining.length; j++) {
-      const a = remaining[i], b = remaining[j];
-      if (sectors[a] === sectors[b]) continue;
-      const score = calcScore(a, b);
-      if (score < bestScore) { bestScore = score; bestPair = [a, b]; }
+  if (seed && tickers.includes(seed)) {
+    selected.push(seed);
+    remaining = remaining.filter((x) => x !== seed);
+    usedSectors.add(sectors[seed]);
+  } else {
+    let bestPair: [string, string] | null = null;
+    let bestScore = 999999;
+    for (let i = 0; i < remaining.length; i++) {
+      for (let j = i + 1; j < remaining.length; j++) {
+        const a = remaining[i], b = remaining[j];
+        if (sectors[a] === sectors[b]) continue;
+        const score = calcScore(a, b);
+        if (score < bestScore) { bestScore = score; bestPair = [a, b]; }
+      }
     }
-  }
-  if (bestPair) {
-    for (const t of bestPair) {
-      selected.push(t);
-      remaining = remaining.filter((x) => x !== t);
-      usedSectors.add(sectors[t]);
+    if (bestPair) {
+      for (const t of bestPair) {
+        selected.push(t);
+        remaining = remaining.filter((x) => x !== t);
+        usedSectors.add(sectors[t]);
+      }
     }
   }
 
@@ -186,7 +193,7 @@ function monteCarloWeights(
 
   // 등비중 초기값 (제약 미충족 시 폴백)
   let bestW: number[] = Array(k).fill(1 / k);
-  let bestScore = strategy === 'conservative' ? Infinity : -Infinity;
+  let bestScore = -Infinity;
 
   for (let iter = 0; iter < iterations; iter++) {
     const raw = Array.from({ length: k }, () => Math.random());
@@ -204,12 +211,9 @@ function monteCarloWeights(
     }
     const pVol = Math.sqrt(Math.max(pVar, 0));
 
-    const score =
-      strategy === 'conservative'
-        ? pVol
-        : (pRet - RF_RATE) / (pVol || 0.0001);
+    const score = (pRet - RF_RATE) / (pVol || 0.0001);
 
-    if (strategy === 'conservative' ? score < bestScore : score > bestScore) {
+    if (score > bestScore) {
       bestScore = score;
       bestW = [...w];
     }
@@ -332,8 +336,20 @@ function computePeriodData(
     }
     const globalAvg = pairSum / pairCnt;
 
-    // ── 그리디 종목 선정 (slice-specific scores) ───────────────────────────
-    const optimal = greedyOptimal(cm, tickers, k, strategy, sliceVols, strategyScores);
+    // ── 그리디 종목 선정: 모든 시드 시도 후 최저 평균 상관계수 조합 선택 ──
+    const avgCorrOf = (combo: string[]) => {
+      let s = 0, n = 0;
+      for (let i = 0; i < combo.length; i++)
+        for (let j = i + 1; j < combo.length; j++) { s += cm[combo[i]][combo[j]]; n++; }
+      return n ? s / n : 0;
+    };
+    let optimal = greedyOptimal(cm, tickers, k, strategy, sliceVols, strategyScores);
+    let optBestCorr = avgCorrOf(optimal);
+    for (const seedTicker of tickers) {
+      const candidate = greedyOptimal(cm, tickers, k, strategy, sliceVols, strategyScores, seedTicker);
+      const c = avgCorrOf(candidate);
+      if (c < optBestCorr) { optBestCorr = c; optimal = candidate; }
+    }
 
     let optPairSum = 0, optPairCnt = 0;
     for (let i = 0; i < optimal.length; i++) {
@@ -342,7 +358,7 @@ function computePeriodData(
       }
     }
     const optAvgCorr = optPairCnt ? optPairSum / optPairCnt : 0;
-    const optScore = Math.max(0, Math.min(100, Math.round((1 - optAvgCorr) * 100)));
+    const optScore = Math.max(0, Math.min(100, Math.round((1 - optAvgCorr) / 2 * 100)));
 
     // ── 몬테카를로 비중 최적화 ─────────────────────────────────────────────
     const cappedWeights = monteCarloWeights(

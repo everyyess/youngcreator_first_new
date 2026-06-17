@@ -8,7 +8,7 @@ import {
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
-  type SmartExtractionPayload, type StoredCustomerState,
+  type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
@@ -684,23 +684,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   };
 
   const applySmartExtraction = (payload: SmartExtractionPayload) => {
-    const profilePatch = payload.profile ?? {};
-    const currentProfile = customerProfiles.find((p) => p.id === selectedCustomer);
-    if (!currentProfile) return;
-
-    const updatedProfile: CustomerProfile = {
-      ...currentProfile,
-      name: hasExtractedText(profilePatch.name) ? profilePatch.name : currentProfile.name,
-      gender: hasExtractedText(profilePatch.gender) ? profilePatch.gender : currentProfile.gender,
-      birthYear: hasExtractedText(profilePatch.birth_year ?? profilePatch.birthYear) ? (profilePatch.birth_year ?? profilePatch.birthYear ?? "") : currentProfile.birthYear,
-      birth_year: hasExtractedText(profilePatch.birth_year ?? profilePatch.birthYear) ? (profilePatch.birth_year ?? profilePatch.birthYear ?? "") : currentProfile.birth_year,
-      age: hasExtractedText(profilePatch.age) ? profilePatch.age : currentProfile.age,
-      job: hasExtractedText(profilePatch.job) ? profilePatch.job : currentProfile.job,
-      sort_order: customerProfiles.findIndex((p) => p.id === selectedCustomer),
-    };
-
     markUpdated(selectedCustomer);
-    setCustomerProfiles((prev) => prev.map((p) => (p.id === selectedCustomer ? updatedProfile : p)));
     setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: true }));
     setCustomerData((prev) => {
       const current = prev[selectedCustomer] ?? createInitialState();
@@ -741,12 +725,6 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       }
       return { ...prev, [selectedCustomer]: deriveCalculatedAppState({ ...current, financial, rrttllu, smartExtractedUniqueOther: nextSmartUniqueOther }) };
     });
-    if (storageReady && !isSeeding) {
-      void saveCustomerProfileColumns(updatedProfile).then((r) => {
-        if (!r.ok) setStorageErrorMessage(r.message);
-        else setStorageErrorMessage("");
-      });
-    }
   };
 
   const setFinancial = (key: keyof FinancialInfo, value: string) => setFormData((prev) => deriveCalculatedAppState({ ...prev, financial: { ...prev.financial, [key]: value } }));
@@ -759,6 +737,12 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const setAiGuidePbNote = (checkpointId: string, value: string) => setFormData((prev) => ({
     ...prev,
     aiGuidePbNotes: { ...(prev.aiGuidePbNotes ?? {}), [checkpointId]: value },
+  }));
+  const setAiAdvisoryGuide = (guide: StoredAdvisoryGuide | null, payloadSignature = "", generatedAt = "") => setFormData((prev) => ({
+    ...prev,
+    aiAdvisoryGuide: guide,
+    aiGuidePayloadSignature: payloadSignature,
+    aiGuideGeneratedAt: generatedAt,
   }));
   const setIrregularIncome = (value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: value, irregularIncomeNone: false } }));
   const toggleNoIrregularIncome = () => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: "", irregularIncomeNone: !prev.financial.irregularIncomeNone } }));
@@ -789,7 +773,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     riskResult, financialCompletion, rrttlluCompletion, internalJsonPayload, warnings,
     analysisRequested, confirmedRiskResult, changeHistory, changeHistoryExpanded,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
-    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote,
+    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote, setAiAdvisoryGuide,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
     updateCustomerProfile, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태
