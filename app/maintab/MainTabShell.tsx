@@ -32,8 +32,9 @@ const tabPaths: Record<string, string> = {
   profile:   "/maintab/tab1",
   existing:  "/maintab/tab2",
   create:    "/maintab/tab3",
-  compare:   "/maintab/tab4",
-  recommend: "/maintab/tab5",
+  supply:    "/maintab/tab4",
+  compare:   "/maintab/tab5",
+  recommend: "/maintab/tab6",
 };
 
 function toFiniteNumber(value: unknown) {
@@ -823,8 +824,9 @@ const segmentToTab: Record<string, string> = {
   tab1: "profile",
   tab2: "existing",
   tab3: "create",
-  tab4: "compare",
-  tab5: "recommend",
+  tab4: "supply",
+  tab5: "compare",
+  tab6: "recommend",
 };
 function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const segment = useSelectedLayoutSegment();
