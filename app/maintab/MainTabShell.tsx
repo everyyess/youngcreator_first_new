@@ -670,11 +670,18 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     return compact.replace(/[^\p{Script=Hangul}a-zA-Z0-9]/gu, "").slice(0, 32);
   };
 
+  const isPbOpeningMentForUniqueOther = (value: string) => {
+    const compact = value.replace(/\s+/g, "");
+    return compact.includes("고객님의투자성향")
+      && compact.includes("니즈를파악")
+      && compact.includes("몇가지여쭤");
+  };
+
   const mergeUniqueOther = (existing: string, incoming: string) => {
     const values = [
       ...incoming.split(/\n/),
       ...existing.split(/\n/),
-    ].map((value) => value.trim()).filter(Boolean);
+    ].map((value) => value.trim()).filter((value) => !isPbOpeningMentForUniqueOther(value)).filter(Boolean);
     const byMeaning = new Map<string, string>();
     values.forEach((value) => {
       const key = uniqueOtherMeaningKey(value);

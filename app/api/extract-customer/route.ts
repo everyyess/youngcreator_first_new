@@ -250,6 +250,13 @@ function uniqueOtherMeaningKey(value: string) {
   return compact.replace(/[^\p{Script=Hangul}a-zA-Z0-9]/gu, "").slice(0, 36);
 }
 
+function isPbOpeningMentForUniqueOther(value: string) {
+  const compact = value.replace(/\s+/g, "");
+  return compact.includes("고객님의투자성향")
+    && compact.includes("니즈를파악")
+    && compact.includes("몇가지여쭤");
+}
+
 function hasNegatedTrait(compactClause: string, traitPatterns: RegExp[]) {
   const negativePattern = /않|아니|아님|없음|없는|없다|적음|적은|낮음|낮은|덜함|덜한|크지않|많지않|높지않|강하지않/;
   if (!negativePattern.test(compactClause)) return false;
@@ -284,6 +291,7 @@ function mergeUniqueOtherValues(...sources: unknown[]) {
   sources
     .flatMap((source) => typeof source === "string" ? source.split(/\n/) : [])
     .map((item) => item.trim())
+    .filter((item) => !isPbOpeningMentForUniqueOther(item))
     .filter(Boolean)
     .forEach((item) => {
       const key = uniqueOtherMeaningKey(item);
