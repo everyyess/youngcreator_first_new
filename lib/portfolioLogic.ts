@@ -176,13 +176,12 @@ export const runAnalysis = async (
     return a;
   });
 
-  // ── Step 0-d: ETF cost-basis 폴백 ──
-  // 신규·레버리지 ETF(TSLL, SOXL 등)는 Yahoo Finance 시세 조회가 실패하거나
-  // 데이터가 부족할 수 있다. 이 경우 current_value가 0이 되어 weight=0 → 스트레스
-  // 테스트 기여도 0%로 뭉개지는 버그를 매수단가 × 수량으로 방어한다.
+  // ── Step 0-d: buy_price cost-basis 폴백 (전체 quantity 자산) ──
+  // 최근 상장·거래정지·차트 데이터 공백으로 current_price가 0인 자산에 적용.
+  // 매수단가(buy_price)가 입력된 경우 이를 현재가 대용으로 사용하여
+  // totalCheck=0 → 분석 불가 상태를 방지한다.
   const enrichedFinal = enrichedWithBonds.map((a) => {
     if (
-      (a.productType === '국내ETF' || a.productType === '해외ETF') &&
       a.amount_type === 'quantity' &&
       (a.current_price == null || a.current_price === 0) &&
       a.buy_price != null && a.buy_price > 0
