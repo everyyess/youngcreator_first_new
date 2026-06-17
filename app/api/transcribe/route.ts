@@ -8,7 +8,7 @@ const mimeByExtension: Record<string, string> = {
   m4a: "audio/mp4",
   webm: "audio/webm",
 };
-const genericMimeTypes = new Set(["", "application/octet-stream", "binary/octet-stream"]);
+const genericMimeTypes = new Set(["", "application/octet-stream", "binary/octet-stream", "audio/x-m4a", "audio/m4a"]);
 
 function fileExtension(name: string) {
   return name.split(".").pop()?.toLowerCase() ?? "";
@@ -42,6 +42,52 @@ function textFromGeminiResponse(value: unknown) {
     ?.map((part) => (typeof part.text === "string" ? part.text : ""))
     .join("")
     .trim() ?? "";
+}
+
+function stringifyErrorDetail(value: unknown) {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function extractGeminiErrorMessage(value: unknown) {
+  const data = value as { error?: { message?: unknown; status?: unknown; details?: unknown } };
+  const message = typeof data?.error?.message === "string" ? data.error.message : "";
+  const status = typeof data?.error?.status === "string" ? data.error.status : "";
+  return [status, message].filter(Boolean).join(": ");
+}
+
+function m4aMimeCandidates(primaryMimeType: string, extension: string) {
+  if (extension !== "m4a") return [primaryMimeType];
+  return Array.from(new Set([primaryMimeType || "audio/mp4", "audio/mp4", "audio/aac"]));
+}
+
+async function requestGeminiTranscription(apiKey: string, bytes: Buffer, mimeType: string) {
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text: "다음 상담 음성을 가능한 한 정확하게 한국어 텍스트로 변환해주세요.\n요약하지 말고 원문에 가깝게 출력해주세요.",
+            },
+            {
+              inline_data: {
+                mime_type: mimeType,
+                data: bytes.toString("base64"),
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  });
 }
 
 export async function POST(request: Request) {
@@ -79,32 +125,46 @@ export async function POST(request: Request) {
     });
 
     const bytes = Buffer.from(await audio.arrayBuffer());
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: "다음 상담 음성을 가능한 한 정확하게 한국어 텍스트로 변환해주세요.\n요약하지 말고 원문에 가깝게 출력해주세요.",
-              },
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: bytes.toString("base64"),
-                },
-              },
-            ],
-          },
-        ],
-      }),
-    });
+    const triedMimeTypes: string[] = [];
+    let response: Response | null = null;
+    let result: unknown = null;
 
-    const result = await response.json().catch(() => null);
+    for (const candidateMimeType of m4aMimeCandidates(mimeType, extension)) {
+      triedMimeTypes.push(candidateMimeType);
+      response = await requestGeminiTranscription(apiKey, bytes, candidateMimeType);
+      const rawText = await response.text().catch(() => "");
+      try {
+        result = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        result = rawText;
+      }
+      if (response.ok) break;
+
+      const geminiMessage = extractGeminiErrorMessage(result);
+      console.error("Gemini transcription failed for MIME candidate", {
+        status: response.status,
+        statusText: response.statusText,
+        fileName: audio.name,
+        extension,
+        rawMimeType,
+        normalizedMimeType: mimeType,
+        candidateMimeType,
+        triedMimeTypes,
+        size: audio.size,
+        geminiMessage,
+        result,
+      });
+
+      if (extension !== "m4a" || !/mime|media|audio|unsupported|invalid/i.test(geminiMessage)) break;
+    }
+
+    if (!response) {
+      return jsonError("Gemini 음성 변환에 실패했습니다.", 502, "Gemini request was not created.", "gemini");
+    }
+
     if (!response.ok) {
-      const detail = JSON.stringify(result ?? { status: response.status, statusText: response.statusText });
+      const geminiMessage = extractGeminiErrorMessage(result);
+      const detail = geminiMessage || stringifyErrorDetail(result ?? { status: response.status, statusText: response.statusText });
       console.error("Gemini transcription failed", {
         status: response.status,
         statusText: response.statusText,
@@ -112,12 +172,13 @@ export async function POST(request: Request) {
         extension,
         rawMimeType,
         normalizedMimeType: mimeType,
+        triedMimeTypes,
         size: audio.size,
+        geminiMessage,
         result,
       });
-      return jsonError("Gemini 음성 변환에 실패했습니다.", 502, detail, "gemini");
+      return jsonError(`Gemini 음성 변환에 실패했습니다.${detail ? ` (${detail})` : ""}`, 502, detail, "gemini");
     }
-
     const text = textFromGeminiResponse(result);
     if (!text) {
       const detail = JSON.stringify(result ?? {});

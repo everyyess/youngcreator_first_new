@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BarChart3, ClipboardList, Info, LockKeyhole, PieChart, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from "lucide-react";
 import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
-import type { SmartExtractionPayload } from "../CustomerContext";
+import type { SmartExtractionPayload, StoredAdvisoryGuide } from "../CustomerContext";
 import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal, MissingNotice, QuestionTitle, questionLabel } from "../ui";
 import { geminiUsageUpdatedEvent, incrementGeminiUsageToday, readGeminiUsageToday } from "@/lib/geminiUsage";
 
@@ -32,7 +32,7 @@ type SmartExtractionEnvelope = {
   confidence?: Record<string, number>;
 };
 
-type AdvisoryGuideLine = { text: string; highlights?: string[] };
+type AdvisoryGuideLine = { text: string; highlights?: string[]; memoItems?: string[] };
 type AdvisoryGuideCheckpoint = { id: string; title: string; prompt?: string };
 type AdvisoryGuide = {
   conflicts: { lines: AdvisoryGuideLine[] };
@@ -46,6 +46,28 @@ const emptyAdvisoryGuide: AdvisoryGuide = {
   followUps: { lines: [], checkpoints: [] },
   explanation: { lines: [] },
 };
+
+function normalizeAdvisoryGuide(value: unknown): AdvisoryGuide {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return emptyAdvisoryGuide;
+  const guide = value as Partial<AdvisoryGuide>;
+  return {
+    conflicts: { lines: Array.isArray(guide.conflicts?.lines) ? guide.conflicts.lines : [] },
+    followUps: {
+      lines: Array.isArray(guide.followUps?.lines) ? guide.followUps.lines : [],
+      checkpoints: Array.isArray(guide.followUps?.checkpoints) ? guide.followUps.checkpoints : [],
+    },
+    explanation: { lines: Array.isArray(guide.explanation?.lines) ? guide.explanation.lines : [] },
+  };
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
 const tab1SubTabStorageKey = "samsung-vvip-tab1-inner-tab";
 const smartInputCachePrefix = "samsung-vvip-smart-input-cache";
 
@@ -234,6 +256,7 @@ function SmartInputCard() {
   const [usageToday, setUsageToday] = useState(0);
   const [resetOpen, setResetOpen] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
+  const [voiceStatusCustomer, setVoiceStatusCustomer] = useState<string | null>(null);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "paused" | "transcribing">("idle");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -241,6 +264,12 @@ function SmartInputCard() {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const note = formData.smartInputNote;
+  const visibleVoiceStatus = voiceStatusCustomer === selectedCustomer ? voiceStatus : "";
+
+  const setCurrentCustomerVoiceStatus = (message: string) => {
+    setVoiceStatusCustomer(selectedCustomer);
+    setVoiceStatus(message);
+  };
 
   useEffect(() => {
     setUsageToday(readGeminiUsageToday());
@@ -255,13 +284,13 @@ function SmartInputCard() {
 
   const transcribeAudio = async (file: File, pendingMessage: string, doneMessage: string) => {
     if (!file.size) {
-      setVoiceStatus("빈 오디오 파일입니다.");
+      setCurrentCustomerVoiceStatus("빈 오디오 파일입니다.");
       return false;
     }
 
     const form = new FormData();
     form.append("audio", file);
-    setVoiceStatus(pendingMessage);
+    setCurrentCustomerVoiceStatus(pendingMessage);
     try {
       const response = await fetch("/api/transcribe", {
         method: "POST",
@@ -269,15 +298,16 @@ function SmartInputCard() {
       });
       const result = await response.json().catch(() => null) as { success?: boolean; text?: string; message?: string; error?: string; detail?: string; geminiUsed?: boolean } | null;
       if (!response.ok || !result?.success || !result.text?.trim()) {
-        throw new Error(result?.message ?? result?.error ?? "Gemini 응답 실패");
+        const message = result?.message ?? result?.error ?? "Gemini 응답 실패";
+        throw new Error(result?.detail && !message.includes(result.detail) ? `${message} / ${result.detail}` : message);
       }
       if (result.geminiUsed === true) setUsageToday(incrementGeminiUsageToday());
       setSmartInputNote(result.text.trim());
-      setVoiceStatus(doneMessage);
+      setCurrentCustomerVoiceStatus(doneMessage);
       return true;
     } catch (error) {
       console.error("Audio transcription failed", error);
-      setVoiceStatus(error instanceof Error && error.message ? error.message : "음성 변환 실패");
+      setCurrentCustomerVoiceStatus(error instanceof Error && error.message ? error.message : "음성 변환 실패");
       return false;
     }
   };
@@ -285,7 +315,7 @@ function SmartInputCard() {
   const handleAudioUpload = async (file: File | null) => {
     if (!file) return;
     if (!isSupportedAudioFile(file)) {
-      setVoiceStatus("지원하지 않는 음성 파일 형식입니다. mp3, wav, m4a, webm 파일을 업로드해주세요.");
+      setCurrentCustomerVoiceStatus("지원하지 않는 음성 파일 형식입니다. mp3, wav, m4a, webm 파일을 업로드해주세요.");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
@@ -306,16 +336,16 @@ function SmartInputCard() {
       try {
         recorderRef.current.resume();
         setRecordingState("recording");
-        setVoiceStatus("녹음 중...");
+        setCurrentCustomerVoiceStatus("녹음 중...");
       } catch (error) {
         console.error("Recording resume failed", error);
-        setVoiceStatus("녹음 재개 실패");
+        setCurrentCustomerVoiceStatus("녹음 재개 실패");
       }
       return;
     }
 
     if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setVoiceStatus("이 브라우저에서는 녹음을 지원하지 않습니다.");
+      setCurrentCustomerVoiceStatus("이 브라우저에서는 녹음을 지원하지 않습니다.");
       return;
     }
 
@@ -334,7 +364,7 @@ function SmartInputCard() {
         chunksRef.current = [];
         stopCurrentStream();
         if (!blob.size) {
-          setVoiceStatus("빈 오디오 파일입니다.");
+          setCurrentCustomerVoiceStatus("빈 오디오 파일입니다.");
           setRecordingState("idle");
           return;
         }
@@ -346,13 +376,13 @@ function SmartInputCard() {
 
       recorder.start();
       setRecordingState("recording");
-      setVoiceStatus("녹음 중...");
+      setCurrentCustomerVoiceStatus("녹음 중...");
     } catch (error) {
       console.error("Recording start failed", error);
       stopCurrentStream();
       setRecordingState("idle");
       const name = error instanceof DOMException ? error.name : "";
-      setVoiceStatus(name === "NotAllowedError" ? "마이크 권한이 거부되었습니다." : "녹음 시작 실패");
+      setCurrentCustomerVoiceStatus(name === "NotAllowedError" ? "마이크 권한이 거부되었습니다." : "녹음 시작 실패");
     }
   };
 
@@ -361,10 +391,10 @@ function SmartInputCard() {
       if (!recorderRef.current || recorderRef.current.state !== "recording") throw new Error("recorder is not recording");
       recorderRef.current.pause();
       setRecordingState("paused");
-      setVoiceStatus("녹음 일시중단");
+      setCurrentCustomerVoiceStatus("녹음 일시중단");
     } catch (error) {
       console.error("Recording pause failed", error);
-      setVoiceStatus("녹음 일시중단 실패");
+      setCurrentCustomerVoiceStatus("녹음 일시중단 실패");
     }
   };
 
@@ -372,14 +402,14 @@ function SmartInputCard() {
     try {
       if (!recorderRef.current || recorderRef.current.state === "inactive") throw new Error("recorder is inactive");
       setRecordingState("transcribing");
-      setVoiceStatus("음성 변환 중...");
+      setCurrentCustomerVoiceStatus("음성 변환 중...");
       recorderRef.current.stop();
     } catch (error) {
       console.error("Recording stop failed", error);
       stopCurrentStream();
       recorderRef.current = null;
       setRecordingState("idle");
-      setVoiceStatus("녹음 종료 실패");
+      setCurrentCustomerVoiceStatus("녹음 종료 실패");
     }
   };
 
@@ -510,7 +540,7 @@ function SmartInputCard() {
           <div className="mb-2 flex flex-wrap items-center gap-3">
             <p className="text-sm font-extrabold text-yellow-900">Smart Input</p>
             <PbPrivateNotice />
-            <SmartInputStatusBadge message={voiceStatus} />
+            <SmartInputStatusBadge message={visibleVoiceStatus} />
           </div>
           <textarea
             data-smart-input-textarea="true"
@@ -550,7 +580,7 @@ function SmartInputCard() {
             disabled={uploadBusy || recordingState !== "idle"}
             className="min-h-9 rounded-lg border border-sky-300 bg-white px-2.5 py-1.5 text-xs font-extrabold text-samsung transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            녹음 파일 업로드
+            음성 파일 업로드
           </button>
           <div className="rounded-lg border border-sky-200 bg-white px-2 py-1.5">
             <div className="flex items-center justify-between gap-1.5">
@@ -1066,10 +1096,12 @@ function AiConsultingGuideCard({
   guide,
   loading,
   error,
+  notice,
 }: {
   guide: AdvisoryGuide;
   loading: boolean;
   error: string;
+  notice: string;
 }) {
   const { formData, setAiGuidePbNote } = useCustomerContext();
   const checkpoints = guide.followUps.checkpoints.length
@@ -1096,6 +1128,7 @@ function AiConsultingGuideCard({
         <PbPrivateNotice />
       </div>
       {loading ? <p className="mt-4 rounded-lg border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-bold text-samsung">AI 상담 가이드를 생성하는 중입니다.</p> : null}
+      {notice ? <p className="mt-4 rounded-lg border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-bold text-samsung">{notice}</p> : null}
       {error ? <p className="mt-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</p> : null}
       <div className="mt-4 grid gap-3">
         <AdvisoryGuideSection title="[1] 상충 정보 탐지" lines={guide.conflicts.lines} />
@@ -1133,13 +1166,13 @@ export default function CustomerAnalysisTab() {
     selectedCustomerProfile, selectedCustomer, internalJsonPayload,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome,
     setExpectedReturn, toggleExpectedReturnUnknown, toggleInvestmentExperience,
-    toggleLegalConstraint,
+    toggleLegalConstraint, setAiAdvisoryGuide,
   } = useCustomerContext();
   const [activeSubTab, setActiveSubTab] = useState<Tab1SubTab>("input");
-  const [advisoryGuide, setAdvisoryGuide] = useState<AdvisoryGuide>(emptyAdvisoryGuide);
   const [advisoryGuideLoading, setAdvisoryGuideLoading] = useState(false);
   const [advisoryGuideError, setAdvisoryGuideError] = useState("");
-  const [lastGuideSignature, setLastGuideSignature] = useState("");
+  const [advisoryGuideNotice, setAdvisoryGuideNotice] = useState("");
+  const advisoryGuide = useMemo(() => normalizeAdvisoryGuide(formData.aiAdvisoryGuide), [formData.aiAdvisoryGuide]);
 
   const advisoryGuidePayload = useMemo(() => ({
     customerId: selectedCustomer,
@@ -1152,7 +1185,6 @@ export default function CustomerAnalysisTab() {
     riskResult,
     structuredJson: internalJsonPayload,
     uniqueOther: formData.rrttllu.uniqueOther,
-    pbNotes: formData.aiGuidePbNotes,
     smartInputContext: {
       raw: formData.smartInputNote,
       reflectedUniqueOther: formData.rrttllu.uniqueOther,
@@ -1161,9 +1193,10 @@ export default function CustomerAnalysisTab() {
       reflectedAvoidedAssets: formData.rrttllu.avoidedAssets,
       reflectedExistingAssetPlan: formData.rrttllu.holdingOrDisposalPlan,
     },
-  }), [formData.aiGuidePbNotes, formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
+  }), [formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
 
-  const advisoryGuideSignature = useMemo(() => JSON.stringify(advisoryGuidePayload), [advisoryGuidePayload]);
+  const advisoryGuidePayloadSignature = useMemo(() => stableStringify(advisoryGuidePayload), [advisoryGuidePayload]);
+
   const isBlank = (value: string | string[]) => Array.isArray(value) ? value.length === 0 : !value.trim();
   const financialMissing = {
     assetSummary: [formData.financial.existingInvestmentAssets, formData.financial.cashAssets, formData.financial.realEstate, formData.financial.debt].some((value) => !value.trim()),
@@ -1205,51 +1238,43 @@ export default function CustomerAnalysisTab() {
     window.localStorage.setItem(tab1SubTabStorageKey, tab);
   };
 
-  useEffect(() => {
-    if (activeSubTab !== "guide") return;
-    if (lastGuideSignature === advisoryGuideSignature) {
-      console.info("[Gemini Call Skip] advisory-guide cached signature", {
-        customerId: selectedCustomer,
-        signatureLength: advisoryGuideSignature.length,
-      });
+  const generateAdvisoryGuide = async () => {
+    if (advisoryGuideLoading) return;
+    if (formData.aiAdvisoryGuide && formData.aiGuidePayloadSignature === advisoryGuidePayloadSignature) {
+      setAdvisoryGuideError("");
+      setAdvisoryGuideNotice("입력값 변경이 없어 기존 AI 상담 가이드를 불러왔습니다.");
       return;
     }
-
-    let cancelled = false;
-    async function generateGuide() {
-      setAdvisoryGuideLoading(true);
-      setAdvisoryGuideError("");
-      try {
-        console.info("[Gemini Call Trigger] advisory-guide", {
-          customerId: selectedCustomer,
-          signatureLength: advisoryGuideSignature.length,
-          smartInputLength: formData.smartInputNote.length,
-          uniqueOtherLength: formData.rrttllu.uniqueOther.length,
-        });
-        const response = await fetch("/api/generate-advisory-guide", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(advisoryGuidePayload),
-        });
-        const result = await response.json();
-        if (!response.ok || !result?.ok) throw new Error(result?.message ?? result?.error ?? "Gemini 응답 실패");
-        if (cancelled) return;
-        if (result.geminiUsed === true) incrementGeminiUsageToday();
-        setAdvisoryGuide(result.data ?? emptyAdvisoryGuide);
-        setLastGuideSignature(advisoryGuideSignature);
-      } catch (error) {
-        console.error("AI advisory guide request failed", { error, advisoryGuidePayload });
-        if (cancelled) return;
-        setAdvisoryGuide(emptyAdvisoryGuide);
-        setAdvisoryGuideError("AI 상담 가이드 생성에 실패했습니다. 입력 정보를 확인하거나 다시 시도해주세요.");
-      } finally {
-        if (!cancelled) setAdvisoryGuideLoading(false);
-      }
+    setAdvisoryGuideLoading(true);
+    setAdvisoryGuideError("");
+    setAdvisoryGuideNotice("");
+    try {
+      console.info("[Gemini Call Trigger] advisory-guide", {
+        customerId: selectedCustomer,
+        smartInputLength: formData.smartInputNote.length,
+        uniqueOtherLength: formData.rrttllu.uniqueOther.length,
+      });
+      const response = await fetch("/api/generate-advisory-guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(advisoryGuidePayload),
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.ok) throw new Error(result?.message ?? result?.error ?? "Gemini response failed");
+      if (result.geminiUsed === true) incrementGeminiUsageToday();
+      setAiAdvisoryGuide(
+        normalizeAdvisoryGuide(result.data ?? emptyAdvisoryGuide) as StoredAdvisoryGuide,
+        advisoryGuidePayloadSignature,
+        new Date().toISOString(),
+      );
+      setAdvisoryGuideNotice("");
+    } catch (error) {
+      console.error("AI advisory guide request failed", { error, advisoryGuidePayload });
+      setAdvisoryGuideError("AI 상담 가이드 생성에 실패했습니다. 입력 정보를 확인하거나 다시 시도해주세요.");
+    } finally {
+      setAdvisoryGuideLoading(false);
     }
-
-    void generateGuide();
-    return () => { cancelled = true; };
-  }, [activeSubTab, advisoryGuidePayload, advisoryGuideSignature, lastGuideSignature]);
+  };
 
   return (
     <div className="space-y-5">
@@ -1390,9 +1415,20 @@ export default function CustomerAnalysisTab() {
           <span className="flex flex-wrap items-center gap-3">
             <span>⑦ Unique Circumstances 고객 고유 상황</span>
             <PbPrivateNotice />
+            <button
+              type="button"
+              onClick={generateAdvisoryGuide}
+              disabled={advisoryGuideLoading}
+              className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-extrabold text-samsung shadow-sm transition hover:border-sky-300 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {advisoryGuideLoading ? "AI 상담 가이드 생성 중..." : "AI 상담 가이드 생성"}
+            </button>
           </span>
         }
       >
+        {advisoryGuideNotice ? (
+          <p className="mb-3 rounded-lg border border-sky-100 bg-sky-50 px-4 py-3 text-sm font-bold text-samsung">{advisoryGuideNotice}</p>
+        ) : null}
         <CheckerboardGrid className="grid gap-3">
           <div>
             <div className="question-card block rounded-lg border border-slate-200 p-4">
@@ -1424,7 +1460,7 @@ export default function CustomerAnalysisTab() {
         </>
         ) : (
         <>
-          <AiConsultingGuideCard guide={advisoryGuide} loading={advisoryGuideLoading} error={advisoryGuideError} />
+          <AiConsultingGuideCard guide={advisoryGuide} loading={advisoryGuideLoading} error={advisoryGuideError} notice={advisoryGuideNotice} />
         </>
         )
       )}
