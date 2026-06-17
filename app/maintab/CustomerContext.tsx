@@ -238,16 +238,16 @@ export type Tab3AnalysisState = {
 // 빈 자산 행 템플릿 — MainTabShell과 ExistingPortfolioTab에서 공용으로 사용
 export const EMPTY_PORTFOLIO_ASSET: PortfolioAsset = {
   name: "",
-  asset_class: "해외주식",
+  asset_class: "국내주식",
   theme: "기타",
-  country: "미국",
+  country: "한국",
   buy_price: null,
   amount: 0,
   amount_type: "quantity",
   is_hedged: false,
   needs_review: false,
   ticker: "",
-  productType: "해외주식",
+  productType: "국내주식",
   bond_yield: null,
   bond_maturity: null,
   owner_customer_id: null,  // 소유권 미확정 — addPortfolioRow 시 selectedCustomer로 덮어씌워짐

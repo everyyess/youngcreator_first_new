@@ -110,7 +110,9 @@ export const runAnalysis = async (
           a.ticker?.trim() && TICKER_RE.test(a.ticker.trim())
             ? a.ticker.trim()
             : a.name;
-        const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(queryParam)}`);
+        const qp = new URLSearchParams({ assetName: queryParam });
+        if (a.productType) qp.set('productType', a.productType);
+        const res = await fetch(`/api/proxy-finance?${qp}`);
         if (!res.ok) return a;
         const json = await res.json();
         const result = json?.chart?.result?.[0];
@@ -268,7 +270,7 @@ export const runAnalysis = async (
 
   // ── Step 4: quantEngine 호출 ──
   const qr = await runQuantAnalysis(quantInput, tMarginal);
-  const sr = runStressTest(quantInput, totalValue);
+  const sr = await runStressTest(quantInput, totalValue);
 
   const userInterest = parseKoreanNumber(expectedInterestIncome);
   const userDividend = parseKoreanNumber(expectedDividendIncome);
