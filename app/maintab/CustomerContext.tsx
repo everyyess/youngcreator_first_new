@@ -132,7 +132,15 @@ export type ChangeEntry = { label: string; before: string; after: string; change
 
 export type CustomerUpdatedMap = Record<CustomerId, number>;
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; headerAssetSummary: HeaderAssetSummaryState };
+export type StoredAdvisoryGuideLine = { text: string; highlights?: string[]; memoItems?: string[] };
+export type StoredAdvisoryGuideCheckpoint = { id: string; title: string; prompt?: string };
+export type StoredAdvisoryGuide = {
+  conflicts: { lines: StoredAdvisoryGuideLine[] };
+  followUps: { lines: StoredAdvisoryGuideLine[]; checkpoints: StoredAdvisoryGuideCheckpoint[] };
+  explanation: { lines: StoredAdvisoryGuideLine[] };
+};
+
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; aiAdvisoryGuide: StoredAdvisoryGuide | null; aiGuidePayloadSignature: string; aiGuideGeneratedAt: string; headerAssetSummary: HeaderAssetSummaryState };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -324,7 +332,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, aiAdvisoryGuide: null, aiGuidePayloadSignature: "", aiGuideGeneratedAt: "", headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -354,6 +362,9 @@ export function normalizeAppState(value: unknown): AppState {
     uniqueOtherManual: typeof state.uniqueOtherManual === "string" ? state.uniqueOtherManual : "",
     smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
     aiGuidePbNotes: state.aiGuidePbNotes && typeof state.aiGuidePbNotes === "object" && !Array.isArray(state.aiGuidePbNotes) ? state.aiGuidePbNotes as Record<string, string> : {},
+    aiAdvisoryGuide: state.aiAdvisoryGuide && typeof state.aiAdvisoryGuide === "object" && !Array.isArray(state.aiAdvisoryGuide) ? state.aiAdvisoryGuide as StoredAdvisoryGuide : null,
+    aiGuidePayloadSignature: typeof state.aiGuidePayloadSignature === "string" ? state.aiGuidePayloadSignature : "",
+    aiGuideGeneratedAt: typeof state.aiGuideGeneratedAt === "string" ? state.aiGuideGeneratedAt : "",
     headerAssetSummary: state.headerAssetSummary && typeof state.headerAssetSummary === "object" && !Array.isArray(state.headerAssetSummary)
         ? {
             confirmedOperatingAssetsAfterSell: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell ?? null : null,
@@ -1137,6 +1148,7 @@ export type CustomerContextValue = {
   toggleLegalConstraint: (option: string) => void;
   setSmartInputNote: (value: string) => void;
   setAiGuidePbNote: (checkpointId: string, value: string) => void;
+  setAiAdvisoryGuide: (guide: StoredAdvisoryGuide | null, payloadSignature?: string, generatedAt?: string) => void;
   analyzeRrttllu: () => void;
   resetSelectedCustomer: () => void;
   resetSelectedCustomerInputs: () => void;
