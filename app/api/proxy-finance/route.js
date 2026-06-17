@@ -130,9 +130,14 @@ const KR_EXCH_SUFFIX = { KSC: '.KS', KOE: '.KQ' };
 // 엔드포인트: https://query1.finance.yahoo.com/v7/finance/autocomplete?query=...&lang=ko&region=KR
 // lang=ko&region=KR 파라미터로 한글 종목명 직접 검색 지원
 // 응답 예: { ResultSet: { Result: [{ symbol:"005930.KS", name:"삼성전자(주)", exch:"KSC" }] } }
-async function fetchTickerFromKRYahoo(assetName) {
+// Yahoo v7 AC type 코드 매핑: 'S'=주식(EQUITY), 'E'=ETF
+// productType 지정 시 해당 type 외 결과는 교차 오염 방지를 위해 제외한다.
+const KR_AC_TYPE_MAP = new Map([['국내주식', 'S'], ['국내ETF', 'E']]);
+
+async function fetchTickerFromKRYahoo(assetName, productType = null) {
   if (!assetName?.trim()) return null;
 
+  const requiredAcType = productType ? (KR_AC_TYPE_MAP.get(productType) ?? null) : null;
   const queries = buildKRQueries(assetName);
   let fallbackSymbol = null;
 
@@ -162,7 +167,9 @@ async function fetchTickerFromKRYahoo(assetName) {
     }
 
     const json = await safeJson(res);
-    const results = (json?.ResultSet?.Result ?? []).filter(x => KR_EXCH_SUFFIX[x.exch]);
+    // KRX 거래소 필터 후 productType 기반 type 필터 적용 (교차 오염 방지)
+    const allKR   = (json?.ResultSet?.Result ?? []).filter(x => KR_EXCH_SUFFIX[x.exch]);
+    const results = requiredAcType ? allKR.filter(x => x.type === requiredAcType) : allKR;
     if (!results.length) continue;
 
     // ── [1순위] 종목명 정규화 완전 일치 ────────────────────────────────────
@@ -187,12 +194,20 @@ async function fetchTickerFromKRYahoo(assetName) {
 }
 
 // ── Yahoo Finance Search API — 해외 마켓 동적 티커 조회 ──────────────────
-async function fetchTickerFromYahoo(query) {
+// productType → Yahoo quoteType 필터 매핑
+// 주식 경로에서 ETF가 오염되지 않도록, productType 지정 시 엄격한 단일 quoteType만 채택한다.
+const YAHOO_STOCK_TYPES = new Set(['국내주식', '해외주식']);
+const YAHOO_ETF_TYPES   = new Set(['국내ETF',  '해외ETF']);
+
+async function fetchTickerFromYahoo(query, productType = null) {
   if (!query?.trim()) return null;
+
+  // 영문+공백 혼합 검색어 정규화: "Space X" → "SpaceX"
+  const normalizedQuery = /[A-Za-z]/.test(query) ? query.replace(/\s+/g, '') : query;
 
   const searchUrl =
     `https://query1.finance.yahoo.com/v1/finance/search` +
-    `?q=${encodeURIComponent(query)}&lang=en-US&region=US&quotesCount=6&newsCount=0`;
+    `?q=${encodeURIComponent(normalizedQuery)}&lang=en-US&region=US&quotesCount=6&newsCount=0`;
 
   let res;
   try {
@@ -221,18 +236,49 @@ async function fetchTickerFromYahoo(query) {
   }
 
   const allQuotes = json?.quotes ?? [];
-  const VALID_QUOTE_TYPES = new Set([
-    'EQUITY', 'ETF', 'INDEX', 'CURRENCY', 'CRYPTOCURRENCY', 'FUTURE', 'MUTUALFUND',
-  ]);
-  const quotes = allQuotes.filter(q => VALID_QUOTE_TYPES.has(q.quoteType));
 
-  if (quotes.length === 0) {
-    console.warn(`[proxy-finance] Yahoo Search 결과 없음: '${query}'`);
-    return null;
+  // ── 2중 시맨틱 가드라인 (quoteType + 이름 텍스트 교차검증) ─────────────────
+  // Layer 1: Yahoo quoteType 메타데이터 필터
+  // Layer 2: shortname/longname에서 \bETF\b 단어 단독 출현 감지
+  //   주식 경로 — quoteType=EQUITY 이면서 이름에 ETF 없는 항목만 채택
+  //               (Yahoo 오분류: quoteType=EQUITY 이지만 실제 ETF인 케이스 차단)
+  //   ETF 경로  — quoteType=ETF 이거나 이름에 ETF 포함된 항목 우선 채택
+  //   미지정    — 기존 VALID_QUOTE_TYPES 범위 유지 (KRW=X 등 통화·지수 포함)
+  const ETF_NAME_RE = /\bETF\b/i;
+  const quoteName = (q) => String(q.shortname ?? q.longname ?? '');
+
+  let quotes;
+  if (productType && YAHOO_STOCK_TYPES.has(productType)) {
+    // [Layer 1] quoteType === 'EQUITY'  [Layer 2] 이름에 ETF 미포함
+    quotes = allQuotes.filter(q =>
+      q.quoteType === 'EQUITY' && !ETF_NAME_RE.test(quoteName(q))
+    );
+    if (quotes.length === 0) {
+      console.warn(`[proxy-finance] Yahoo Search 유효 EQUITY 없음 (${productType}): '${query}'`);
+      return null;
+    }
+  } else if (productType && YAHOO_ETF_TYPES.has(productType)) {
+    // [Layer 1] quoteType === 'ETF'  [Layer 2] 이름에 ETF 포함 항목도 포함
+    quotes = allQuotes.filter(q =>
+      q.quoteType === 'ETF' || ETF_NAME_RE.test(quoteName(q))
+    );
+    if (quotes.length === 0) {
+      console.warn(`[proxy-finance] Yahoo Search 유효 ETF 없음 (${productType}): '${query}'`);
+      return null;
+    }
+  } else {
+    const VALID_QUOTE_TYPES = new Set([
+      'EQUITY', 'ETF', 'INDEX', 'CURRENCY', 'CRYPTOCURRENCY', 'FUTURE', 'MUTUALFUND',
+    ]);
+    quotes = allQuotes.filter(q => VALID_QUOTE_TYPES.has(q.quoteType));
+    if (quotes.length === 0) {
+      console.warn(`[proxy-finance] Yahoo Search 결과 없음: '${query}'`);
+      return null;
+    }
   }
 
   const symbol = String(quotes[0].symbol).trim();
-  console.log(`[proxy-finance] Yahoo Search 확정: '${query}' → '${symbol}'`);
+  console.log(`[proxy-finance] Yahoo Search 확정 (${productType ?? '미지정'}): '${query}' → '${symbol}'`);
   return symbol;
 }
 
@@ -394,7 +440,7 @@ export async function GET(request) {
     // [2순위] Gemini 실패/불명 → Yahoo v7 Autocomplete 폴백
     if (!ticker) {
       try {
-        ticker = await fetchTickerFromKRYahoo(assetName);
+        ticker = await fetchTickerFromKRYahoo(assetName, userProductType);
       } catch (krErr) {
         if (krErr.isTimeout)
           return Response.json({ error: krErr.message, assetName }, { status: 504 });
@@ -451,7 +497,7 @@ export async function GET(request) {
     }
 
     try {
-      ticker = await fetchTickerFromYahoo(searchQuery);
+      ticker = await fetchTickerFromYahoo(searchQuery, userProductType);
     } catch (searchErr) {
       if (searchErr.isTimeout)
         return Response.json({ error: searchErr.message, assetName }, { status: 504 });
