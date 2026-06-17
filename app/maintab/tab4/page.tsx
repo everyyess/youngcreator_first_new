@@ -1,101 +1,86 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine, Cell,
 } from "recharts";
-import { RefreshCw, AlertCircle, TrendingUp, TrendingDown, Globe, Building2, Users, Loader2 } from "lucide-react";
+import { RefreshCw, AlertCircle, Globe, Building2, Users, Loader2, Search, Star, TrendingUp, TrendingDown } from "lucide-react";
+import { useCustomerContext } from "../CustomerContext";
+
+// ── Constants ─────────────────────────────────────────────────────────────
+
+// KOSPI 주요 종목 (티커, 이름, 시장코드)
+const MAJOR_STOCKS = [
+  { ticker: "005930", name: "삼성전자",          market: "J" },
+  { ticker: "000660", name: "SK하이닉스",         market: "J" },
+  { ticker: "005490", name: "POSCO홀딩스",        market: "J" },
+  { ticker: "005380", name: "현대차",             market: "J" },
+  { ticker: "035420", name: "NAVER",              market: "J" },
+  { ticker: "105560", name: "KB금융",             market: "J" },
+  { ticker: "051910", name: "LG화학",             market: "J" },
+  { ticker: "068270", name: "셀트리온",           market: "J" },
+];
+
+// 시장 프록시 ETF
+const MARKET_PROXIES = {
+  KOSPI:  { ticker: "069500", name: "KODEX 200",         market: "J" },
+  KOSDAQ: { ticker: "229200", name: "KODEX KOSDAQ150",   market: "J" },
+};
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-type Market = "KOSPI" | "KOSDAQ";
-type InvestorType = "foreign" | "institution" | "individual";
-type Direction = "buy" | "sell";
+type InvestorDayItem = {
+  stck_bsop_date: string;
+  stck_clpr: string;
+  prsn_ntby_tr_pbmn: string;
+  frgn_ntby_tr_pbmn: string;
+  orgn_ntby_tr_pbmn: string;
+  prsn_ntby_qty: string;
+  frgn_ntby_qty: string;
+  orgn_ntby_qty: string;
+};
 
-interface MarketTrendItem {
-  stck_bsop_date?: string;   // 날짜 YYYYMMDD
-  bsop_date?: string;
-  frgn_ntby_qty?: string;    // 외국인 순매수량
-  orgn_ntby_qty?: string;    // 기관 순매수량
-  ivtr_ntby_qty?: string;    // 개인 순매수량
-  frgn_ntby_tr_pbmn?: string; // 외국인 순매수 거래대금
-  orgn_ntby_tr_pbmn?: string;
-  ivtr_ntby_tr_pbmn?: string;
-  [key: string]: string | undefined;
-}
-
-interface RankingItem {
-  data_rank?: string;
-  mksc_shrn_iscd?: string;   // 종목코드
-  hts_kor_isnm?: string;     // 종목명
-  ntby_qty?: string;         // 순매수수량
-  ntby_tr_pbmn?: string;     // 순매수 거래대금
-  stck_prpr?: string;        // 현재가
-  prdy_vrss?: string;        // 전일대비
-  prdy_ctrt?: string;        // 등락률
-  prdy_vrss_sign?: string;   // 부호
-  [key: string]: string | undefined;
-}
-
-interface ApiResponse {
+type InvestorApiResponse = {
   rt_cd?: string;
   msg1?: string;
-  output?: MarketTrendItem[] | RankingItem[];
-  output1?: MarketTrendItem[] | RankingItem[];
-  output2?: unknown[];
+  output?: InvestorDayItem[];
   _cached?: boolean;
-}
+};
+
+type StockSummary = {
+  ticker: string;
+  name: string;
+  date: string;
+  frgn: number;
+  orgn: number;
+  prsn: number;
+  price: string;
+};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const INVESTOR_LABELS: Record<InvestorType, string> = {
-  foreign: "외국인",
-  institution: "기관",
-  individual: "개인",
-};
-
-const INVESTOR_ICONS: Record<InvestorType, React.ReactNode> = {
-  foreign: <Globe size={14} />,
-  institution: <Building2 size={14} />,
-  individual: <Users size={14} />,
-};
-
-const COLORS = {
-  foreign: "#3b82f6",
-  institution: "#f59e0b",
-  individual: "#22c55e",
-  negative: "#ef4444",
-};
-
 function fmtDate(d: string) {
-  if (d.length === 8) return `${d.slice(4, 6)}/${d.slice(6, 8)}`;
-  return d;
+  if (!d || d.length < 8) return d;
+  return `${d.slice(4, 6)}/${d.slice(6, 8)}`;
 }
 
-function fmtAmt(val: string | undefined): string {
-  if (!val) return "-";
-  const n = parseInt(val, 10);
-  if (isNaN(n)) return "-";
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "+";
-  if (abs >= 100000000) return `${sign}${(abs / 100000000).toFixed(1)}억`;
+function toNum(s: string | undefined): number {
+  if (!s) return 0;
+  const n = parseInt(s, 10);
+  return isNaN(n) ? 0 : n;
+}
+
+function fmtAmt(val: number): string {
+  const abs = Math.abs(val);
+  const sign = val < 0 ? "-" : "+";
   if (abs >= 10000) return `${sign}${Math.round(abs / 10000)}만`;
-  return `${sign}${n.toLocaleString()}`;
+  if (abs === 0) return "0";
+  return `${sign}${abs.toLocaleString()}`;
 }
 
-function fmtAmtBillion(val: string | undefined): number {
-  if (!val) return 0;
-  const n = parseInt(val, 10);
-  if (isNaN(n)) return 0;
-  return Math.round(n / 100000000);  // 억 단위
-}
-
-function fmtPrice(val: string | undefined): string {
-  if (!val) return "-";
-  const n = parseInt(val, 10);
-  if (isNaN(n)) return val;
-  return n.toLocaleString("ko-KR");
+function fmtBillion(val: number): number {
+  return val; // 이미 백만원 단위로 옴
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
@@ -118,11 +103,8 @@ function ErrorBox({ msg, onRetry }: { msg: string; onRetry?: () => void }) {
       </div>
       <p className="text-center text-xs font-semibold text-red-500 max-w-md break-all">{msg}</p>
       {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700"
-        >
+        <button type="button" onClick={onRetry}
+          className="flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700">
           <RefreshCw size={12} /> 다시 시도
         </button>
       )}
@@ -130,72 +112,507 @@ function ErrorBox({ msg, onRetry }: { msg: string; onRetry?: () => void }) {
   );
 }
 
-// Custom tooltip for the market trend chart
-function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: { dataKey: string; value: number; color: string }[]; label?: string }) {
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: { dataKey: string; value: number; color: string }[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
-      <p className="mb-2 text-xs font-bold text-slate-600">{label}</p>
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-lg min-w-[140px]">
+      <p className="mb-2 text-xs font-bold text-slate-500">{label}</p>
       {payload.map((p) => (
         <p key={p.dataKey} className="text-xs font-semibold" style={{ color: p.color }}>
-          {p.dataKey}: {p.value > 0 ? "+" : ""}{p.value.toLocaleString()}억
+          {p.dataKey}: {p.value > 0 ? "+" : ""}{p.value.toLocaleString()}백만
         </p>
       ))}
     </div>
   );
 }
 
-// ── Ranking Table ──────────────────────────────────────────────────────────
+// 투자자별 순매수 Bar (개인/외국인/기관 3색 수평 바)
+function InvestorBar({ frgn, orgn, prsn, maxAbs }: { frgn: number; orgn: number; prsn: number; maxAbs: number }) {
+  const scale = maxAbs > 0 ? 100 / maxAbs : 1;
+  return (
+    <div className="flex flex-col gap-0.5">
+      {([
+        { label: "외국인", val: frgn, pos: "#3b82f6", neg: "#93c5fd" },
+        { label: "기관",   val: orgn, pos: "#f59e0b", neg: "#fde68a" },
+        { label: "개인",   val: prsn, pos: "#22c55e", neg: "#86efac" },
+      ] as const).map(({ label, val, pos, neg }) => {
+        const pct = Math.min(Math.abs(val) * scale, 100);
+        return (
+          <div key={label} className="flex items-center gap-1.5">
+            <span className="w-8 text-right text-[10px] font-semibold text-slate-400">{label}</span>
+            <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: val >= 0 ? pos : neg }} />
+            </div>
+            <span className={`w-16 text-right text-[10px] font-bold ${val >= 0 ? "text-red-500" : "text-blue-500"}`}>
+              {fmtAmt(val)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-function RankingTable({
-  items,
-  direction,
-}: {
-  items: RankingItem[];
-  direction: Direction;
-}) {
-  if (!items.length) {
-    return <p className="py-8 text-center text-sm font-semibold text-slate-400">데이터 없음</p>;
-  }
+// ── Custom hook: fetch investor data ──────────────────────────────────────
+
+function useInvestorData(ticker: string, market = "J", enabled = true) {
+  const [data, setData] = useState<InvestorDayItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetch_ = useCallback(async (nocache = false) => {
+    if (!ticker || !enabled) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(
+        `/api/supply-demand?type=investor&ticker=${ticker}&market=${market}${nocache ? "&nocache=1" : ""}`
+      );
+      const json: InvestorApiResponse = await res.json();
+      if (json.rt_cd === "E") throw new Error(json.msg1 ?? "알 수 없는 오류");
+      if (json.rt_cd && json.rt_cd !== "0") throw new Error(`KIS 오류 (${json.rt_cd}): ${json.msg1 ?? ""}`);
+      setData((json.output ?? []).filter((d) => d.frgn_ntby_tr_pbmn !== ""));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [ticker, market, enabled]);
+
+  useEffect(() => { fetch_(); }, [fetch_]);
+
+  return { data, loading, error, refetch: (nocache?: boolean) => fetch_(nocache) };
+}
+
+// ── Market Trend Section ────────────────────────────────────────────────────
+
+function MarketTrendSection({ market }: { market: "KOSPI" | "KOSDAQ" }) {
+  const proxy = MARKET_PROXIES[market];
+  const { data, loading, error, refetch } = useInvestorData(proxy.ticker, proxy.market);
+
+  const chartData = data.slice(0, 20).reverse().map((d) => ({
+    date: fmtDate(d.stck_bsop_date),
+    외국인: fmtBillion(toNum(d.frgn_ntby_tr_pbmn)),
+    기관:   fmtBillion(toNum(d.orgn_ntby_tr_pbmn)),
+    개인:   fmtBillion(toNum(d.prsn_ntby_tr_pbmn)),
+  }));
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 bg-slate-50">
-            <th className="py-2 pl-3 pr-2 text-left text-xs font-bold text-slate-500 w-8">순위</th>
-            <th className="py-2 px-2 text-left text-xs font-bold text-slate-500">종목명</th>
-            <th className="py-2 px-2 text-center text-xs font-bold text-slate-500">코드</th>
-            <th className="py-2 px-2 text-right text-xs font-bold text-slate-500">
-              {direction === "buy" ? "순매수금액" : "순매도금액"}
-            </th>
-            <th className="py-2 px-2 text-right text-xs font-bold text-slate-500">현재가</th>
-            <th className="py-2 pl-2 pr-3 text-right text-xs font-bold text-slate-500">등락률</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.slice(0, 10).map((item, i) => {
-            const sign = item.prdy_vrss_sign;
-            const isUp = sign === "1" || sign === "2";
-            const isDown = sign === "4" || sign === "5";
-            const priceColor = isUp ? "text-red-500" : isDown ? "text-blue-500" : "text-slate-600";
-            const pct = item.prdy_ctrt ? `${parseFloat(item.prdy_ctrt) > 0 ? "+" : ""}${parseFloat(item.prdy_ctrt).toFixed(2)}%` : "-";
-            const amt = item.ntby_tr_pbmn ?? item.ntby_qty;
-            return (
-              <tr key={i} className="border-b border-slate-100 hover:bg-slate-50 transition">
-                <td className="py-2 pl-3 pr-2 text-xs font-bold text-slate-400">{item.data_rank ?? i + 1}</td>
-                <td className="py-2 px-2 text-sm font-bold text-slate-800">{item.hts_kor_isnm ?? "-"}</td>
-                <td className="py-2 px-2 text-center text-xs font-semibold text-slate-400">{item.mksc_shrn_iscd ?? "-"}</td>
-                <td className={`py-2 px-2 text-right text-xs font-bold ${direction === "buy" ? "text-red-500" : "text-blue-500"}`}>
-                  {fmtAmt(amt)}
-                </td>
-                <td className="py-2 px-2 text-right text-xs font-semibold text-slate-700">{fmtPrice(item.stck_prpr)}</td>
-                <td className={`py-2 pl-2 pr-3 text-right text-xs font-bold ${priceColor}`}>{pct}</td>
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-sm font-bold text-slate-700">
+          {market} 투자자별 순매수 동향
+        </h2>
+        <span className="text-xs font-semibold text-slate-400">({proxy.name} 기준, 백만원)</span>
+        <button type="button" onClick={() => refetch(true)}
+          className="ml-auto flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-600">
+          <RefreshCw size={11} />
+        </button>
+      </div>
+
+      {loading ? (
+        <LoadingSpinner label="시장 수급 데이터 불러오는 중…" />
+      ) : error ? (
+        <ErrorBox msg={error} onRetry={() => refetch(true)} />
+      ) : chartData.length === 0 ? (
+        <p className="py-8 text-center text-sm font-semibold text-slate-400">데이터 없음</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => v >= 10000 || v <= -10000 ? `${Math.round(v/10000)}만` : `${v}`} width={48} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11 }} />
+            <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
+            <Bar dataKey="외국인" fill="#3b82f6" radius={[2, 2, 0, 0]}>
+              {chartData.map((d, i) => <Cell key={i} fill={d.외국인 >= 0 ? "#3b82f6" : "#93c5fd"} />)}
+            </Bar>
+            <Bar dataKey="기관" fill="#f59e0b" radius={[2, 2, 0, 0]}>
+              {chartData.map((d, i) => <Cell key={i} fill={d.기관 >= 0 ? "#f59e0b" : "#fde68a"} />)}
+            </Bar>
+            <Bar dataKey="개인" fill="#22c55e" radius={[2, 2, 0, 0]}>
+              {chartData.map((d, i) => <Cell key={i} fill={d.개인 >= 0 ? "#22c55e" : "#86efac"} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+// ── Major Stocks Section ───────────────────────────────────────────────────
+
+function MajorStocksSection({ market }: { market: "KOSPI" | "KOSDAQ" }) {
+  const [summaries, setSummaries] = useState<StockSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [sortBy, setSortBy] = useState<"frgn" | "orgn" | "prsn">("frgn");
+  const fetchedRef = useRef(false);
+
+  const loadAll = useCallback(async (nocache = false) => {
+    setLoading(true);
+    setError("");
+    fetchedRef.current = true;
+    try {
+      const results = await Promise.all(
+        MAJOR_STOCKS.map(async (s) => {
+          const res = await fetch(
+            `/api/supply-demand?type=investor&ticker=${s.ticker}&market=${s.market}${nocache ? "&nocache=1" : ""}`
+          );
+          const json: InvestorApiResponse = await res.json();
+          const rows = (json.output ?? []).filter((d) => d.frgn_ntby_tr_pbmn !== "");
+          const latest = rows[0];
+          return {
+            ticker: s.ticker,
+            name: s.name,
+            date: latest?.stck_bsop_date ?? "-",
+            frgn: toNum(latest?.frgn_ntby_tr_pbmn),
+            orgn: toNum(latest?.orgn_ntby_tr_pbmn),
+            prsn: toNum(latest?.prsn_ntby_tr_pbmn),
+            price: latest?.stck_clpr ?? "-",
+          };
+        })
+      );
+      setSummaries(results);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!fetchedRef.current) loadAll();
+  }, [loadAll]);
+
+  const sorted = [...summaries].sort((a, b) => b[sortBy] - a[sortBy]);
+  const maxAbs = Math.max(...summaries.flatMap((s) => [Math.abs(s.frgn), Math.abs(s.orgn), Math.abs(s.prsn)]));
+
+  const SortBtn = ({ key_, label }: { key_: "frgn" | "orgn" | "prsn"; label: string }) => (
+    <button type="button" onClick={() => setSortBy(key_)}
+      className={`px-2 py-1 text-xs font-bold rounded transition ${sortBy === key_ ? "bg-[#2f2f9d] text-white" : "text-slate-500 hover:bg-slate-100"}`}>
+      {label}순
+    </button>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <h2 className="text-sm font-bold text-slate-700">주요 KOSPI 종목 투자자 현황</h2>
+        <span className="text-xs text-slate-400">최근 영업일 기준</span>
+        <div className="ml-auto flex items-center gap-1">
+          <SortBtn key_="frgn" label="외국인" />
+          <SortBtn key_="orgn" label="기관" />
+          <SortBtn key_="prsn" label="개인" />
+          <button type="button" onClick={() => loadAll(true)}
+            className="ml-2 flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-600">
+            <RefreshCw size={11} />
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <LoadingSpinner label="주요 종목 수급 분석 중…" />
+      ) : error ? (
+        <ErrorBox msg={error} onRetry={() => loadAll(true)} />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {sorted.map((s, i) => (
+            <div key={s.ticker} className="flex items-center gap-3">
+              <span className="w-4 text-xs font-bold text-slate-300">{i + 1}</span>
+              <div className="w-24 flex-shrink-0">
+                <p className="text-xs font-bold text-slate-700 truncate">{s.name}</p>
+                <p className="text-[10px] font-semibold text-slate-400">{s.ticker}</p>
+              </div>
+              <div className="flex-1">
+                <InvestorBar frgn={s.frgn} orgn={s.orgn} prsn={s.prsn} maxAbs={maxAbs} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Portfolio Stocks Section ───────────────────────────────────────────────
+
+function PortfolioSection() {
+  const { portfolioAssets } = useCustomerContext();
+  const [summaries, setSummaries] = useState<StockSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // 국내주식만 필터
+  const domesticStocks = portfolioAssets.filter(
+    (a) => (a.productType === "국내주식" || a.asset_class === "국내주식") && a.name
+  );
+
+  const loadPortfolio = useCallback(async () => {
+    if (!domesticStocks.length) return;
+    setLoading(true);
+    setError("");
+    try {
+      const results = await Promise.all(
+        domesticStocks.map(async (a) => {
+          const ticker = a.name?.match(/\d{6}/)?.[0] ?? "";
+          if (!ticker) return null;
+          const res = await fetch(`/api/supply-demand?type=investor&ticker=${ticker}&market=J`);
+          const json: InvestorApiResponse = await res.json();
+          const rows = (json.output ?? []).filter((d) => d.frgn_ntby_tr_pbmn !== "");
+          const latest = rows[0];
+          if (!latest) return null;
+          return {
+            ticker,
+            name: a.name ?? ticker,
+            date: latest.stck_bsop_date,
+            frgn: toNum(latest.frgn_ntby_tr_pbmn),
+            orgn: toNum(latest.orgn_ntby_tr_pbmn),
+            prsn: toNum(latest.prsn_ntby_tr_pbmn),
+            price: latest.stck_clpr,
+          } as StockSummary;
+        })
+      );
+      setSummaries(results.filter((r): r is StockSummary => r !== null));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [domesticStocks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!domesticStocks.length) {
+    return (
+      <p className="py-6 text-center text-sm font-semibold text-slate-400">
+        고객 포트폴리오에 국내주식이 없습니다.
+      </p>
+    );
+  }
+
+  const maxAbs = Math.max(...summaries.flatMap((s) => [Math.abs(s.frgn), Math.abs(s.orgn), Math.abs(s.prsn)]), 1);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <h2 className="text-sm font-bold text-slate-700">포트폴리오 종목 수급 현황</h2>
+        <span className="text-xs text-slate-400">— 티커(6자리 숫자) 포함된 종목만 조회</span>
+        {!summaries.length && !loading && (
+          <button type="button" onClick={loadPortfolio}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-[#2f2f9d] text-white rounded-md hover:bg-blue-700">
+            <TrendingUp size={12} /> 수급 조회
+          </button>
+        )}
+        {summaries.length > 0 && (
+          <button type="button" onClick={loadPortfolio}
+            className="ml-auto flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-600">
+            <RefreshCw size={11} />
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <LoadingSpinner label="포트폴리오 종목 수급 분석 중…" />
+      ) : error ? (
+        <ErrorBox msg={error} onRetry={loadPortfolio} />
+      ) : summaries.length === 0 ? (
+        <p className="py-4 text-center text-xs font-semibold text-slate-400">
+          조회 버튼을 눌러 수급 데이터를 불러오세요.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {summaries.sort((a, b) => b.frgn - a.frgn).map((s, i) => (
+            <div key={s.ticker} className="flex items-center gap-3">
+              <span className="w-4 text-xs font-bold text-slate-300">{i + 1}</span>
+              <div className="w-28 flex-shrink-0">
+                <p className="text-xs font-bold text-slate-700 truncate">{s.name}</p>
+                <p className="text-[10px] font-semibold text-slate-400">{s.ticker}</p>
+              </div>
+              <div className="flex-1">
+                <InvestorBar frgn={s.frgn} orgn={s.orgn} prsn={s.prsn} maxAbs={maxAbs} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Stock Search Section ───────────────────────────────────────────────────
+
+function StockSearchSection() {
+  const [query, setQuery] = useState("005930");
+  const [submitted, setSubmitted] = useState("005930");
+  const { data, loading, error, refetch } = useInvestorData(submitted);
+
+  const chartData = data.slice(0, 20).reverse().map((d) => ({
+    date: fmtDate(d.stck_bsop_date),
+    외국인: fmtBillion(toNum(d.frgn_ntby_tr_pbmn)),
+    기관:   fmtBillion(toNum(d.orgn_ntby_tr_pbmn)),
+    개인:   fmtBillion(toNum(d.prsn_ntby_tr_pbmn)),
+  }));
+
+  const latest = data[0];
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4">
+        <h2 className="text-sm font-bold text-slate-700">종목별 투자자 동향 조회</h2>
+      </div>
+
+      {/* 검색 입력 */}
+      <div className="flex gap-2 mb-4">
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") setSubmitted(query.trim()); }}
+            placeholder="종목코드 (예: 005930)"
+            className="w-full rounded-md border border-slate-200 py-2 pl-8 pr-3 text-sm font-semibold text-slate-700 outline-none focus:border-[#2f2f9d] focus:ring-1 focus:ring-[#2f2f9d]"
+          />
+        </div>
+        <button type="button" onClick={() => setSubmitted(query.trim())}
+          className="px-4 py-2 text-xs font-bold bg-[#2f2f9d] text-white rounded-md hover:bg-blue-700">
+          조회
+        </button>
+      </div>
+
+      {/* 최근 1일 요약 */}
+      {latest && (
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          {([
+            { label: "외국인", val: toNum(latest.frgn_ntby_tr_pbmn), icon: <Globe size={14} />, color: "text-blue-600" },
+            { label: "기관",   val: toNum(latest.orgn_ntby_tr_pbmn), icon: <Building2 size={14} />, color: "text-amber-600" },
+            { label: "개인",   val: toNum(latest.prsn_ntby_tr_pbmn), icon: <Users size={14} />, color: "text-green-600" },
+          ]).map(({ label, val, icon, color }) => (
+            <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className={`flex items-center gap-1.5 mb-1 ${color}`}>
+                {icon}
+                <span className="text-xs font-bold">{label}</span>
+              </div>
+              <p className={`text-base font-extrabold ${val >= 0 ? "text-red-500" : "text-blue-500"}`}>
+                {fmtAmt(val)}
+                <span className="text-xs font-semibold text-slate-400 ml-0.5">백만</span>
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">{fmtDate(latest.stck_bsop_date)} 기준</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {loading ? (
+        <LoadingSpinner />
+      ) : error ? (
+        <ErrorBox msg={error} onRetry={() => refetch(true)} />
+      ) : chartData.length === 0 ? (
+        <p className="py-4 text-center text-xs font-semibold text-slate-400">데이터 없음</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${v}`} width={48} />
+            <Tooltip content={<CustomTooltip />} />
+            <Legend iconType="circle" iconSize={7} wrapperStyle={{ fontSize: 11 }} />
+            <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
+            <Bar dataKey="외국인" fill="#3b82f6" radius={[2, 2, 0, 0]}>
+              {chartData.map((d, i) => <Cell key={i} fill={d.외국인 >= 0 ? "#3b82f6" : "#93c5fd"} />)}
+            </Bar>
+            <Bar dataKey="기관" fill="#f59e0b" radius={[2, 2, 0, 0]}>
+              {chartData.map((d, i) => <Cell key={i} fill={d.기관 >= 0 ? "#f59e0b" : "#fde68a"} />)}
+            </Bar>
+            <Bar dataKey="개인" fill="#22c55e" radius={[2, 2, 0, 0]}>
+              {chartData.map((d, i) => <Cell key={i} fill={d.개인 >= 0 ? "#22c55e" : "#86efac"} />)}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+// ── Smart Money Section ────────────────────────────────────────────────────
+
+function SmartMoneySection() {
+  const [summaries, setSummaries] = useState<StockSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const results = await Promise.all(
+        MAJOR_STOCKS.map(async (s) => {
+          const res = await fetch(`/api/supply-demand?type=investor&ticker=${s.ticker}&market=${s.market}`);
+          const json: InvestorApiResponse = await res.json();
+          const rows = (json.output ?? []).filter((d) => d.frgn_ntby_tr_pbmn !== "");
+          const latest = rows[0];
+          if (!latest) return null;
+          return {
+            ticker: s.ticker, name: s.name,
+            date: latest.stck_bsop_date,
+            frgn: toNum(latest.frgn_ntby_tr_pbmn),
+            orgn: toNum(latest.orgn_ntby_tr_pbmn),
+            prsn: toNum(latest.prsn_ntby_tr_pbmn),
+            price: latest.stck_clpr,
+          } as StockSummary;
+        })
+      );
+      if (cancelled) return;
+      const smart = results.filter((r): r is StockSummary => r !== null && r.frgn > 0 && r.orgn > 0);
+      setSummaries(smart.sort((a, b) => (b.frgn + b.orgn) - (a.frgn + a.orgn)));
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
+          <Star size={10} /> 스마트머니
+        </span>
+        <h2 className="text-sm font-bold text-slate-700">외국인 + 기관 동시 순매수 종목</h2>
+        <span className="text-xs text-slate-400">— 주요 KOSPI 8종목 기준</span>
+      </div>
+
+      {loading ? (
+        <LoadingSpinner label="스마트머니 분석 중…" />
+      ) : summaries.length === 0 ? (
+        <p className="py-6 text-center text-sm font-semibold text-slate-400">
+          외국인·기관 동시 순매수 종목이 없습니다.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50">
+                <th className="py-2 pl-3 pr-2 text-left text-xs font-bold text-slate-500 w-8">순위</th>
+                <th className="py-2 px-2 text-left text-xs font-bold text-slate-500">종목</th>
+                <th className="py-2 px-2 text-right text-xs font-bold text-blue-600">외국인</th>
+                <th className="py-2 px-2 text-right text-xs font-bold text-amber-600">기관</th>
+                <th className="py-2 pl-2 pr-3 text-right text-xs font-bold text-slate-500">합산</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {summaries.map((s, i) => (
+                <tr key={s.ticker} className="border-b border-slate-100 hover:bg-amber-50 transition">
+                  <td className="py-2 pl-3 pr-2 text-xs font-bold text-amber-400">{i + 1}</td>
+                  <td className="py-2 px-2">
+                    <p className="text-sm font-bold text-slate-800">{s.name}</p>
+                    <p className="text-[10px] font-semibold text-slate-400">{s.ticker}</p>
+                  </td>
+                  <td className="py-2 px-2 text-right text-xs font-bold text-blue-500">+{fmtAmt(s.frgn)}</td>
+                  <td className="py-2 px-2 text-right text-xs font-bold text-amber-500">+{fmtAmt(s.orgn)}</td>
+                  <td className="py-2 pl-2 pr-3 text-right text-xs font-extrabold text-red-500">
+                    +{fmtAmt(s.frgn + s.orgn)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -203,285 +620,63 @@ function RankingTable({
 // ── Main Page ──────────────────────────────────────────────────────────────
 
 export default function SupplyDemandPage() {
-  const [market, setMarket] = useState<Market>("KOSPI");
-  const [rankingInvestor, setRankingInvestor] = useState<InvestorType>("foreign");
-  const [activeSection, setActiveSection] = useState<"buy" | "sell">("buy");
+  const [market, setMarket] = useState<"KOSPI" | "KOSDAQ">("KOSPI");
+  const [activeTab, setActiveTab] = useState<"market" | "major" | "search" | "smart">("market");
 
-  // Market trend
-  const [trendData, setTrendData] = useState<MarketTrendItem[]>([]);
-  const [trendLoading, setTrendLoading] = useState(false);
-  const [trendError, setTrendError] = useState("");
-  const [trendCached, setTrendCached] = useState(false);
-
-  // Ranking (buy + sell)
-  const [buyRanking, setBuyRanking] = useState<RankingItem[]>([]);
-  const [sellRanking, setSellRanking] = useState<RankingItem[]>([]);
-  const [rankingLoading, setRankingLoading] = useState(false);
-  const [rankingError, setRankingError] = useState("");
-
-  // Smart money: institution + foreign simultaneous buy
-  const [smartMoney, setSmartMoney] = useState<RankingItem[]>([]);
-  const [smartLoading, setSmartLoading] = useState(false);
-
-  const fetchTrend = useCallback(async (nocache = false) => {
-    setTrendLoading(true);
-    setTrendError("");
-    try {
-      const res = await fetch(
-        `/api/supply-demand?type=market&market=${market}${nocache ? "&nocache=1" : ""}`
-      );
-      const data: ApiResponse = await res.json();
-      if (data.rt_cd === "E") throw new Error(data.msg1 ?? "알 수 없는 오류");
-      if (data.rt_cd && data.rt_cd !== "0") throw new Error(`KIS 오류 (${data.rt_cd}): ${data.msg1 ?? ""}`);
-      const output = (data.output ?? data.output1 ?? []) as MarketTrendItem[];
-      setTrendData(output.slice(0, 20).reverse());
-      setTrendCached(!!data._cached);
-    } catch (e) {
-      setTrendError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setTrendLoading(false);
-    }
-  }, [market]);
-
-  const fetchRanking = useCallback(async (investorType: InvestorType, nocache = false) => {
-    setRankingLoading(true);
-    setRankingError("");
-    try {
-      const [buyRes, sellRes] = await Promise.all([
-        fetch(`/api/supply-demand?type=ranking&market=${market}&investor=${investorType}&direction=buy${nocache ? "&nocache=1" : ""}`),
-        fetch(`/api/supply-demand?type=ranking&market=${market}&investor=${investorType}&direction=sell${nocache ? "&nocache=1" : ""}`),
-      ]);
-      const [buyData, sellData]: [ApiResponse, ApiResponse] = await Promise.all([
-        buyRes.json(),
-        sellRes.json(),
-      ]);
-      if (buyData.rt_cd === "E") throw new Error(buyData.msg1 ?? "매수 순위 오류");
-      if (sellData.rt_cd === "E") throw new Error(sellData.msg1 ?? "매도 순위 오류");
-      setBuyRanking((buyData.output ?? buyData.output1 ?? []) as RankingItem[]);
-      setSellRanking((sellData.output ?? sellData.output1 ?? []) as RankingItem[]);
-    } catch (e) {
-      setRankingError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRankingLoading(false);
-    }
-  }, [market]);
-
-  // Smart money: find intersection of foreign buy + institution buy top-20
-  const fetchSmartMoney = useCallback(async () => {
-    setSmartLoading(true);
-    try {
-      const [fRes, iRes] = await Promise.all([
-        fetch(`/api/supply-demand?type=ranking&market=${market}&investor=foreign&direction=buy`),
-        fetch(`/api/supply-demand?type=ranking&market=${market}&investor=institution&direction=buy`),
-      ]);
-      const [fData, iData]: [ApiResponse, ApiResponse] = await Promise.all([
-        fRes.json(),
-        iRes.json(),
-      ]);
-      const foreignTop = (fData.output ?? fData.output1 ?? []) as RankingItem[];
-      const instTop = (iData.output ?? iData.output1 ?? []) as RankingItem[];
-      const instCodes = new Set(instTop.map((r) => r.mksc_shrn_iscd));
-      const intersection = foreignTop.filter(
-        (r) => r.mksc_shrn_iscd && instCodes.has(r.mksc_shrn_iscd)
-      );
-      setSmartMoney(intersection.slice(0, 10));
-    } catch {
-      // smart money is secondary — fail silently
-    } finally {
-      setSmartLoading(false);
-    }
-  }, [market]);
-
-  useEffect(() => {
-    fetchTrend();
-    fetchSmartMoney();
-  }, [fetchTrend, fetchSmartMoney]);
-
-  useEffect(() => {
-    fetchRanking(rankingInvestor);
-  }, [fetchRanking, rankingInvestor]);
-
-  // Chart data transformation
-  const chartData = trendData.map((d) => ({
-    date: fmtDate(d.stck_bsop_date ?? d.bsop_date ?? ""),
-    외국인: fmtAmtBillion(d.frgn_ntby_tr_pbmn ?? d.frgn_ntby_qty),
-    기관: fmtAmtBillion(d.orgn_ntby_tr_pbmn ?? d.orgn_ntby_qty),
-    개인: fmtAmtBillion(d.ivtr_ntby_tr_pbmn ?? d.ivtr_ntby_qty),
-  }));
-
-  const handleRefresh = () => {
-    fetchTrend(true);
-    fetchRanking(rankingInvestor, true);
-    fetchSmartMoney();
-  };
+  const tabs = [
+    { id: "market" as const, label: "시장 동향" },
+    { id: "major"  as const, label: "주요 종목" },
+    { id: "search" as const, label: "종목 조회" },
+    { id: "smart"  as const, label: "스마트머니" },
+  ];
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* ── 헤더 ──────────────────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-slate-200 bg-white shadow-soft">
+    <div className="flex flex-col gap-4">
+      {/* ── 컨트롤 헤더 ─────────────────────────────────────────────────── */}
+      <div className="rounded-lg border border-slate-200 bg-white shadow-soft overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-500">시장</span>
             <div className="flex rounded-md overflow-hidden border border-slate-200">
-              {(["KOSPI", "KOSDAQ"] as Market[]).map((m) => (
-                <button
-                  key={m} type="button"
-                  onClick={() => setMarket(m)}
-                  className={`px-3 py-1.5 text-xs font-bold transition ${market === m ? "bg-[#2f2f9d] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}
-                >
+              {(["KOSPI", "KOSDAQ"] as const).map((m) => (
+                <button key={m} type="button" onClick={() => setMarket(m)}
+                  className={`px-3 py-1.5 text-xs font-bold transition ${market === m ? "bg-[#2f2f9d] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
                   {m}
                 </button>
               ))}
             </div>
           </div>
-
-          <button
-            type="button" onClick={handleRefresh}
-            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 transition"
-          >
-            <RefreshCw size={12} /> 새로고침
-          </button>
-
-          {trendCached && (
-            <span className="text-xs font-semibold text-slate-400">캐시됨 (30분)</span>
-          )}
+          <span className="text-xs text-slate-400">KIS OpenAPI 기반 · 30분 캐시 · 영업일 T+1 확정</span>
         </div>
 
-        {/* ── 시장 전체 수급 동향 차트 ──────────────────────────────────── */}
+        {/* 탭 */}
+        <div className="flex border-b border-slate-200">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" onClick={() => setActiveTab(t.id)}
+              className={`px-4 py-2.5 text-xs font-bold transition border-b-2 ${activeTab === t.id ? "border-[#2f2f9d] text-[#2f2f9d] bg-blue-50" : "border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         <div className="p-4">
-          <h2 className="mb-3 text-sm font-bold text-slate-700">
-            {market} 투자자별 일별 순매수 동향
-            <span className="ml-2 text-xs font-semibold text-slate-400">(억원)</span>
-          </h2>
-
-          {trendLoading ? (
-            <LoadingSpinner label="시장 수급 데이터 불러오는 중…" />
-          ) : trendError ? (
-            <ErrorBox msg={trendError} onRetry={() => fetchTrend(true)} />
-          ) : chartData.length === 0 ? (
-            <p className="py-8 text-center text-sm font-semibold text-slate-400">데이터 없음</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v}억`} width={52} />
-                <Tooltip content={<TrendTooltip />} />
-                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
-                <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="3 3" />
-                <Bar dataKey="외국인" fill={COLORS.foreign} radius={[2, 2, 0, 0]}>
-                  {chartData.map((d, i) => (
-                    <Cell key={i} fill={d.외국인 >= 0 ? COLORS.foreign : "#93c5fd"} />
-                  ))}
-                </Bar>
-                <Bar dataKey="기관" fill={COLORS.institution} radius={[2, 2, 0, 0]}>
-                  {chartData.map((d, i) => (
-                    <Cell key={i} fill={d.기관 >= 0 ? COLORS.institution : "#fde68a"} />
-                  ))}
-                </Bar>
-                <Bar dataKey="개인" fill={COLORS.individual} radius={[2, 2, 0, 0]}>
-                  {chartData.map((d, i) => (
-                    <Cell key={i} fill={d.개인 >= 0 ? COLORS.individual : "#86efac"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          )}
+          {activeTab === "market"  && <MarketTrendSection market={market} />}
+          {activeTab === "major"   && <MajorStocksSection market={market} />}
+          {activeTab === "search"  && <StockSearchSection />}
+          {activeTab === "smart"   && <SmartMoneySection />}
         </div>
       </div>
 
-      {/* ── 투자자별 순매수/순매도 상위 종목 ─────────────────────────────── */}
-      <div className="rounded-lg border border-slate-200 bg-white shadow-soft overflow-hidden">
-        {/* 투자자 탭 + 방향 탭 */}
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50">
-          <span className="text-xs font-semibold text-slate-500">투자 주체</span>
-          <div className="flex rounded-md overflow-hidden border border-slate-200">
-            {(["foreign", "institution", "individual"] as InvestorType[]).map((inv) => (
-              <button
-                key={inv} type="button"
-                onClick={() => setRankingInvestor(inv)}
-                className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold transition ${rankingInvestor === inv ? "bg-[#2f2f9d] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}
-              >
-                {INVESTOR_ICONS[inv]} {INVESTOR_LABELS[inv]}
-              </button>
-            ))}
-          </div>
-
-          <div className="ml-auto flex rounded-md overflow-hidden border border-slate-200">
-            <button
-              type="button"
-              onClick={() => setActiveSection("buy")}
-              className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold transition ${activeSection === "buy" ? "bg-red-500 text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}
-            >
-              <TrendingUp size={12} /> 순매수 TOP 10
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSection("sell")}
-              className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold transition ${activeSection === "sell" ? "bg-blue-500 text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}
-            >
-              <TrendingDown size={12} /> 순매도 TOP 10
-            </button>
-          </div>
-        </div>
-
-        {/* 순위 테이블 */}
-        {rankingLoading ? (
-          <LoadingSpinner label="순위 데이터 불러오는 중…" />
-        ) : rankingError ? (
-          <div className="p-4">
-            <ErrorBox msg={rankingError} onRetry={() => fetchRanking(rankingInvestor, true)} />
-          </div>
-        ) : (
-          <div>
-            {activeSection === "buy" ? (
-              <>
-                <div className="px-4 pt-3 pb-1">
-                  <h3 className="text-xs font-bold text-slate-500">
-                    {INVESTOR_LABELS[rankingInvestor]} 순매수 상위 10종목 — {market}
-                  </h3>
-                </div>
-                <RankingTable items={buyRanking} direction="buy" />
-              </>
-            ) : (
-              <>
-                <div className="px-4 pt-3 pb-1">
-                  <h3 className="text-xs font-bold text-slate-500">
-                    {INVESTOR_LABELS[rankingInvestor]} 순매도 상위 10종목 — {market}
-                  </h3>
-                </div>
-                <RankingTable items={sellRanking} direction="sell" />
-              </>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── 스마트머니 동조 (외국인 + 기관 동시 순매수) ───────────────────── */}
+      {/* ── 포트폴리오 수급 연동 (항상 표시) ──────────────────────────── */}
       <div className="rounded-lg border border-slate-200 bg-white shadow-soft overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50">
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
-            ★ 스마트머니
-          </span>
-          <h2 className="text-sm font-bold text-slate-700">외국인 + 기관 동시 순매수 종목</h2>
-          <span className="text-xs font-semibold text-slate-400">— 외국인 순매수 TOP 20 기준</span>
+          <TrendingUp size={14} className="text-[#2f2f9d]" />
+          <h2 className="text-sm font-bold text-slate-700">고객 포트폴리오 수급 연동</h2>
+          <span className="text-xs text-slate-400">— 보유 국내주식 투자자 동향</span>
         </div>
-
-        {smartLoading ? (
-          <LoadingSpinner label="스마트머니 분석 중…" />
-        ) : smartMoney.length === 0 ? (
-          <p className="py-8 text-center text-sm font-semibold text-slate-400">
-            외국인·기관 동시 순매수 종목이 없거나 데이터를 불러오지 못했습니다.
-          </p>
-        ) : (
-          <>
-            <div className="px-4 pt-3 pb-1">
-              <p className="text-xs font-semibold text-slate-500">
-                외국인 순매수 상위 20종목 중 기관도 동시 순매수한 종목 ({smartMoney.length}개)
-              </p>
-            </div>
-            <RankingTable items={smartMoney} direction="buy" />
-          </>
-        )}
+        <div className="p-4">
+          <PortfolioSection />
+        </div>
       </div>
     </div>
   );
