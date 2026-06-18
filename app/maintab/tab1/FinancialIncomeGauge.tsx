@@ -882,7 +882,7 @@ export function calcFinancialIncomeSummary(
         cgBreakdownTemp.push({ name: a.name, ticker, gain, tax: 0, category: cat });
 
       // ② 국내 대주주 (보유액 10억 이상 국내주식)
-      } else if (isDomesticListed && value >= 1_000_000_000 && productType === "국내주식") {
+      } else if (isDomesticListed && value >= 5_000_000_000 && productType === "국내주식") {
         const tax = gain <= 0 ? 0
           : gain <= 300_000_000
             ? gain * 0.20
