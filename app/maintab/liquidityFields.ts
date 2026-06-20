@@ -1,5 +1,5 @@
 export type LiquidityKind = "regular" | "lumpSum" | "emergency";
-export type LiquidityPriority = "1순위" | "2순위" | "3순위" | "해당 없음";
+export type LiquidityPriority = "1" | "2" | "3" | "-";
 
 export type LiquidityEntry = {
   id: string;
@@ -11,64 +11,75 @@ export type LiquidityEntry = {
 };
 
 const PREFIX = "__liquidity_entries_v1__";
-export const liquidityPriorities: LiquidityPriority[] = ["1순위", "2순위", "3순위", "해당 없음"];
-export const regularTimingOptions = ["매월", "분기", "반기", "매년", "기타"];
-export const lumpSumTimingOptions = ["1년 이내", "1~3년", "3~5년", "5년 이상"];
+export const liquidityPriorities: LiquidityPriority[] = ["1", "2", "3", "-"];
+const amountPattern = String.raw`\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|만원|만\s*원|만|원)?`;
 
 function makeId(index = 0) {
   return `liq-${Date.now().toString(36)}-${index}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export function blankLiquidityEntry(index = 0): LiquidityEntry {
-  return { id: makeId(index), priority: "해당 없음", purpose: "", timing: "", customTiming: "", amount: "" };
+  return { id: makeId(index), priority: "-", purpose: "", timing: "", customTiming: "", amount: "" };
 }
 
 function splitLegacyText(value: string) {
   return value
     .replace(/(\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|만)?\s*원?)\s*(?:과|및|그리고)\s*(?=\d+\s*년|내년|올해|[가-힣]+\s)/g, "$1\n")
-    .split(/\n|;|ㆍ|·|,(?=\s*(?:\d|[가-힣]))/g)
+    .split(/\n|;|ㆍ|·|(?<!\d),(?!\d)(?=\s*(?:\d|[가-힣]))/g)
     .map((part) => part.trim())
     .filter(Boolean);
 }
 
 function normalizeTiming(kind: LiquidityKind, raw: string) {
-  const value = raw.replace(/\s+/g, "");
+  const value = raw
+    .replace(/\s+/g, "")
+    .replace(/마다$/, "")
+    .replace(/(?:뒤|후|이내)$/, "");
   if (!value) return "";
-  if (kind === "regular") return value === "매달" ? "매월" : value;
-  if (kind !== "lumpSum") return value;
-  if (/^(올해|내년|1년이내)$/.test(value)) return "1년 이내";
-  const year = Number(value.match(/(\d+)/)?.[1] ?? NaN);
-  if (Number.isFinite(year)) {
-    if (year <= 1) return "1년 이내";
-    if (year <= 3) return "1~3년";
-    if (year <= 5) return "3~5년";
-    return "5년 이상";
+  if (kind === "regular") {
+    if (value === "월" || value === "매달") return "매월";
+    if (value === "매년") return "1년";
+    return value;
   }
+  if (kind !== "lumpSum") return value;
   if (value.includes("은퇴")) return "5년 이상";
   return value;
 }
 
+function normalizePriority(raw: unknown): LiquidityPriority {
+  if (raw === "1" || raw === "1순위") return "1";
+  if (raw === "2" || raw === "2순위") return "2";
+  if (raw === "3" || raw === "3순위") return "3";
+  return "-";
+}
+
 function parseLegacyEntry(text: string, kind: LiquidityKind, index: number): LiquidityEntry {
   const entry = blankLiquidityEntry(index);
-  const amountMatch = text.match(/(\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|만)?\s*원?)/);
   const timingMatch = kind === "regular"
-    ? text.match(/(매월|매달|월\s*\d*회|분기|반기|매년|연\s*\d*회|기타)/)
+    ? text.match(/(매월|매달|월|분기|반기|매년|(?:\d+\s*(?:개월|년))\s*마다?)/)
     : kind === "lumpSum"
-      ? text.match(/(\d+\s*년\s*(?:이내|후)?|1~3년|3~5년|5년\s*이상|내년|올해|은퇴\s*시점)/)
+      ? text.match(/((?:\d+\s*(?:개월|년))\s*(?:뒤|후|이내)?|내년|올해|은퇴\s*시점)/)
       : null;
+  const amountSource = timingMatch ? text.replace(timingMatch[0], " ") : text;
+  const amountMatch = amountSource.match(new RegExp(`(${amountPattern})`));
   entry.amount = amountMatch?.[1]?.trim() ?? "";
   entry.timing = normalizeTiming(kind, timingMatch?.[1] ?? "");
   let purpose = text;
   if (amountMatch) purpose = purpose.replace(amountMatch[0], "");
   if (timingMatch) purpose = purpose.replace(timingMatch[0], "");
-  entry.purpose = purpose.replace(/[,\-–—()]/g, " ").replace(/\s+/g, " ").trim() || text;
+  entry.purpose = purpose
+    .replace(/^(?:월|매월|매달|분기|반기|매년)\s*/g, "")
+    .replace(/(?:마다|뒤|후|이내)/g, " ")
+    .replace(/[,\-–—()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim() || text;
   return entry;
 }
 
 function normalizeEntries(entries: LiquidityEntry[]) {
   return entries.map((entry, index) => ({
     id: entry.id || makeId(index),
-    priority: liquidityPriorities.includes(entry.priority) ? entry.priority : "해당 없음",
+    priority: normalizePriority(entry.priority),
     purpose: entry.purpose ?? "",
     timing: entry.timing ?? "",
     customTiming: entry.customTiming ?? "",
@@ -101,10 +112,15 @@ export function isLiquidityEntryFilled(entry: LiquidityEntry) {
 }
 
 export function formatLiquidityEntry(entry: LiquidityEntry, kind: LiquidityKind) {
-  const timing = entry.timing === "기타" ? (entry.customTiming ?? "") : entry.timing;
+  const timing = entry.timing === "기타" ? (entry.customTiming ?? "") : entry.timing.trim();
+  const displayTiming = kind === "regular" && timing && !timing.includes("매")
+    ? `${timing}마다`
+    : kind === "lumpSum" && timing
+      ? `${timing.replace(/(?:뒤|후)$/, "")} 후`
+      : timing;
   const parts = kind === "emergency"
     ? [entry.purpose, entry.amount]
-    : [timing, entry.purpose, entry.amount];
+    : [entry.purpose, displayTiming, entry.amount];
   return parts.map((part) => part.trim()).filter(Boolean).join(" ");
 }
 
