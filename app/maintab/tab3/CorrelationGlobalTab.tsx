@@ -2,8 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useCustomerContext, type CorrelationAnalysisState } from "../CustomerContext";
+import { preferenceFromRiskScore, preferenceLabel, type PortfolioPreference } from "../riskPreference";
 
-type Strategy = "conservative" | "balanced" | "aggressive";
+type Strategy = PortfolioPreference;
 
 const STRATEGIES: { id: Strategy; emoji: string; label: string; desc: string }[] = [
   { id: "conservative", emoji: "🛡️", label: "안전형",   desc: "변동성 최소화" },
@@ -12,9 +13,7 @@ const STRATEGIES: { id: Strategy; emoji: string; label: string; desc: string }[]
 ];
 
 function scoreToStrategy(score: number): Strategy {
-  if (score >= 70) return "aggressive";
-  if (score >= 40) return "balanced";
-  return "conservative";
+  return preferenceFromRiskScore(score);
 }
 
 function buildSrc(strategy: Strategy, k: number): string {
@@ -30,6 +29,7 @@ export default function CorrelationGlobalTab({
 }) {
   const { riskResult } = useCustomerContext();
   const initStrategy = scoreToStrategy(riskResult.score);
+  const expectedStrategy = scoreToStrategy(riskResult.score);
 
   const [isMounted, setIsMounted] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>(savedState?.strategy ?? initStrategy);
@@ -41,6 +41,7 @@ export default function CorrelationGlobalTab({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const kRef = useRef(k);
   useEffect(() => { kRef.current = k; }, [k]);
+  const showMismatchWarning = strategy !== expectedStrategy;
 
   useEffect(() => {
     const handleHeightMessage = (event: MessageEvent) => {
@@ -77,6 +78,7 @@ export default function CorrelationGlobalTab({
   // riskResult.score 변경 시 전략 동기화 — 마운트 전 스킵
   useEffect(() => {
     if (!isMounted) return;
+    if (savedState?.strategy) return;
     const next = scoreToStrategy(riskResult.score);
     setStrategy(next);
     setLoading(true);
@@ -157,6 +159,11 @@ export default function CorrelationGlobalTab({
         <span className="text-xs text-slate-400">
           해외 ETF 30종목 · 30×30 상관행렬 · 섹터 다양성 제약
         </span>
+        {showMismatchWarning ? (
+          <p className="basis-full text-xs font-bold text-red-600">
+            ⚠ 고객 투자 성향 결과는 ‘{preferenceLabel(expectedStrategy)}’입니다. 현재 ‘{preferenceLabel(strategy)}’ 포트폴리오를 조회 중입니다.
+          </p>
+        ) : null}
       </div>
 
       {/* ── iframe 영역 ───────────────────────────────────────────────── */}

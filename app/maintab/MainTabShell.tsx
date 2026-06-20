@@ -25,6 +25,7 @@ import {
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
 } from "./CustomerContext";
 import { FINANCIAL_INCOME_STORAGE_KEY, NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
+import { formatLiquiditySummary, normalizeLiquidityValue } from "./liquidityFields";
 
 const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
 
@@ -499,7 +500,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
   const rrttlluCompletion = useMemo(() => {
     const r = formData.rrttllu;
-    return completion([r.returnObjective, r.expectedReturnUnknown ? "unknown" : r.expectedReturn, r.investmentExperience.length ? "selected" : "", r.knowledgeLevel, r.derivativesExperience, r.financialAssetRatio, r.investmentAssetRatio, r.riskAttitude, r.lossResponse, r.timeHorizon, r.expectedInterestIncome, r.expectedDividendIncome, r.giftingPlan, r.globalTaxImportance, r.recentGlobalTaxSubject, r.foreignStockTaxImportance, r.regularCashflowNeed, r.lumpSumPlan, r.emergencyReservePlan, r.legalConstraints.length ? "selected" : "", r.preferredAssets, r.avoidedAssets, r.holdingOrDisposalPlan, r.uniqueOther]);
+    return completion([r.returnObjective, r.expectedReturnUnknown ? "unknown" : r.expectedReturn, r.investmentExperience.length ? "selected" : "", r.knowledgeLevel, r.derivativesExperience, r.financialAssetRatio, r.investmentAssetRatio, r.riskAttitude, r.lossResponse, r.timeHorizon, r.expectedInterestIncome, r.expectedDividendIncome, r.giftingPlan, r.globalTaxImportance, r.recentGlobalTaxSubject, r.foreignStockTaxImportance, formatLiquiditySummary(r.regularCashflowNeed, "regular"), formatLiquiditySummary(r.lumpSumPlan, "lumpSum"), formatLiquiditySummary(r.emergencyReservePlan, "emergency"), r.legalConstraints.length ? "selected" : "", r.preferredAssets, r.avoidedAssets, r.holdingOrDisposalPlan, r.uniqueOther]);
   }, [formData.rrttllu]);
 
   const internalJsonPayload = useMemo(() => buildStructuredJsonPayload(formData, confirmedRiskResult ?? riskResult, selectedCustomerProfile), [confirmedRiskResult, formData, riskResult, selectedCustomerProfile]);
@@ -713,6 +714,15 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
         "recentGlobalTaxSubject", "foreignStockTaxImportance", "regularCashflowNeed", "lumpSumPlan",
         "emergencyReservePlan", "legalConstraintOther", "preferredAssets", "avoidedAssets", "holdingOrDisposalPlan",
       ]);
+      if (hasExtractedText(rrttlluPatch.regularCashflowNeed)) {
+        rrttllu.regularCashflowNeed = normalizeLiquidityValue(rrttllu.regularCashflowNeed, "regular");
+      }
+      if (hasExtractedText(rrttlluPatch.lumpSumPlan)) {
+        rrttllu.lumpSumPlan = normalizeLiquidityValue(rrttllu.lumpSumPlan, "lumpSum");
+      }
+      if (hasExtractedText(rrttlluPatch.emergencyReservePlan)) {
+        rrttllu.emergencyReservePlan = normalizeLiquidityValue(rrttllu.emergencyReservePlan, "emergency");
+      }
       const manualUniqueOther = current.uniqueOtherManual ?? "";
       const nextSmartUniqueOther = hasExtractedText(rrttlluPatch.uniqueOther) ? rrttlluPatch.uniqueOther : "";
       rrttllu.uniqueOther = nextSmartUniqueOther
