@@ -191,6 +191,63 @@ function normalizeReturnRange(value: string) {
   return value.replace(/\s+/g, "").replace(/^연/, "").replace(/%$/, "") + "%";
 }
 
+const moneyTextPattern = String.raw`\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|만원|만\s*원|만|원)`;
+
+function normalizeMoneyText(value: string) {
+  return value
+    .replace(/\s+/g, "")
+    .replace(/만원/g, "만원")
+    .replace(/만 원/g, "만원")
+    .replace(/억원/g, "억");
+}
+
+function normalizeRegularPeriod(value: string) {
+  const compact = value.replace(/\s+/g, "").replace(/마다$/, "");
+  if (compact === "월" || compact === "매달") return "매월";
+  if (compact === "매년") return "1년";
+  return compact;
+}
+
+function normalizeFutureTiming(value: string) {
+  return value.replace(/\s+/g, "").replace(/(?:뒤|후|이내)$/, "");
+}
+
+function cleanLiquidityPurpose(value: string) {
+  return value
+    .replace(/^(?:마다|뒤|후|이내)\s*/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[,.\-–—\s]+|[,.\-–—\s]+$/g, "")
+    .trim();
+}
+
+function collectLiquidityEntries(text: string, kind: "regular" | "lumpSum" | "emergency") {
+  const clauses = splitMemoClauses(text);
+  const entries: string[] = [];
+  const pattern = kind === "regular"
+    ? new RegExp(`(매월|매달|월|분기|반기|매년|\\d+\\s*(?:개월|년))\\s*(?:마다)?\\s+([^.;\\n,]+?)\\s*(${moneyTextPattern})`, "g")
+    : kind === "lumpSum"
+      ? new RegExp(`((?:\\d+\\s*(?:개월|년)|내년|올해|은퇴\\s*시점)\\s*(?:뒤|후|이내)?)\\s+([^.;\\n,]+?)\\s*(${moneyTextPattern})`, "g")
+      : new RegExp(`([^.;\\n,]*?(?:의료비|병원비|간병비|비상금|비상예비자금|긴급자금|응급자금|예비자금)[^.;\\n,]*?)\\s*(${moneyTextPattern})\\s*(?:필요(?:해요|합니다|함)?|확보|대비|예정)?`, "g");
+
+  clauses.forEach((clause) => {
+    for (const match of clause.matchAll(pattern)) {
+      if (kind === "emergency") {
+        const purpose = cleanLiquidityPurpose(match[1] ?? "");
+        const amount = normalizeMoneyText(match[2] ?? "");
+        if (purpose && amount) entries.push(`${purpose} ${amount}`);
+        continue;
+      }
+      const timing = kind === "regular" ? normalizeRegularPeriod(match[1]) : normalizeFutureTiming(match[1]);
+      const purpose = cleanLiquidityPurpose(match[2] ?? "");
+      const amount = normalizeMoneyText(match[3] ?? "");
+      if (/의료비/.test(purpose)) continue;
+      if (timing && purpose && amount) entries.push(`${timing} ${purpose} ${amount}`);
+    }
+  });
+
+  return Array.from(new Set(entries));
+}
+
 function extractExpectedReturn(text: string) {
   const percent = String.raw`\d+(?:\.\d+)?(?:\s*[~\-]\s*\d+(?:\.\d+)?)?\s*%`;
   return firstMatch(text, [
@@ -443,6 +500,9 @@ function mockExtract(note: string): ExtractionEnvelope {
   }
   if (/해외주식|외화자산|달러/.test(text)) result.inferred.rrttllu.foreignStockTaxImportance = options.taxImportance[1];
 
+  const structuredCashflows = collectLiquidityEntries(text, "regular");
+  const structuredLargeCash = collectLiquidityEntries(text, "lumpSum");
+  const structuredEmergency = collectLiquidityEntries(text, "emergency");
   const cashflow = firstMatch(text, [
     /((?:월급\s*외\s*현금\s*흐름|정기적인\s*현금\s*유입|배당\s*기반\s*현금\s*흐름)[^.;\n]*(?:필요|선호|중요)?)/,
     /((?:월|매월)\s*\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|만)?\s*원?[^.;\n]*(?:생활비|현금\s*흐름|현금흐름|품위\s*유지비)[^.;\n]*)/,
@@ -451,8 +511,11 @@ function mockExtract(note: string): ExtractionEnvelope {
     /(?:월|매월).*(?:생활비|현금\s*흐름|현금흐름|품위\s*유지비)|(?:안정적인\s*)?(?:현금\s*흐름|현금흐름).*(?:필요|선호|중요|확보)|(?:생활비|노후\s*생활비|은퇴\s*후\s*생활비).*(?:필요|중요|확보)|(?:정기적인\s*현금\s*유입|월급\s*외\s*현금\s*흐름|배당\s*기반\s*현금\s*흐름).*(?:필요|선호|중요)?/,
   );
   const largeCash = firstMatch(text, [/(?:\d+\s*년\s*뒤|향후)[^,.;\n]*(?:유학|등록금|생활비|부동산\s*매입|목돈)[^,.;\n]*/]);
-  if (cashflow) result.extracted.rrttllu.regularCashflowNeed = cashflow;
-  if (largeCash) result.extracted.rrttllu.lumpSumPlan = largeCash;
+  if (structuredCashflows.length) result.extracted.rrttllu.regularCashflowNeed = structuredCashflows.join("\n");
+  else if (cashflow) result.extracted.rrttllu.regularCashflowNeed = cashflow;
+  if (structuredLargeCash.length) result.extracted.rrttllu.lumpSumPlan = structuredLargeCash.join("\n");
+  else if (largeCash) result.extracted.rrttllu.lumpSumPlan = largeCash;
+  if (structuredEmergency.length) result.extracted.rrttllu.emergencyReservePlan = structuredEmergency.join("\n");
 
   const legal: string[] = [];
   if (/임직원|자사주|선행\s*매매|매매\s*제한|전략기획|내부자/.test(text)) {
@@ -565,6 +628,12 @@ function buildPrompt(note: string) {
     "For irregularIncome, capture future non-recurring inflows such as bonus, stock options, business sale proceeds, share/equity sale proceeds, and large expected cash inflows even when exact amount is approximate.",
     "For investableAssets, capture the additional amount the customer is willing to invest from cash-like assets. This is a user-provided future allocation intention, not a calculated value.",
     "For Liquidity, capture recurring cashflow needs, large lump-sum use plans, and emergency reserve needs separately when possible.",
+    "For recurring cashflow needs, preserve each item as a separate line in extracted.rrttllu.regularCashflowNeed using this order: period purpose amount. Keep the original period value such as 매월, 2개월, 분기, 반기, 1년, 2년, 14개월. Do not include '마다' in the period.",
+    "For large lump-sum use plans, preserve each item as a separate line in extracted.rrttllu.lumpSumPlan using this order: timing purpose amount. Keep the original timing value such as 6개월, 1년, 2년, 5년. Do not include '뒤' or '후' in the timing.",
+    "For emergency reserve needs without timing, preserve each item as a separate line in extracted.rrttllu.emergencyReservePlan using this order: purpose amount. Medical costs, hospital costs, emergency funds, and reserve money without a timing expression should map to emergencyReservePlan.",
+    "Any item whose purpose is 의료비 must always map to extracted.rrttllu.emergencyReservePlan, even if a timing expression is present. Do not put 의료비 into regularCashflowNeed or lumpSumPlan.",
+    "Liquidity fields must be plain strings, not JSON arrays or objects. If there are multiple liquidity needs, separate them with newline characters. Never put multiple purposes into one purpose phrase.",
+    "When extracting Liquidity, never split comma-formatted money such as 1,500만원 or 1,500만 원. Do not move period/timing words into purpose, and do not treat timing numbers such as 2년 as money.",
     "Liquidity cashflow needs must be captured even when no exact amount exists. Expressions such as 안정적인 현금흐름 필요, 현금흐름이 중요, 생활비 확보가 중요, 정기적인 현금 유입 필요, 은퇴 후 생활비 확보 필요, 월급 외 현금흐름 필요, 배당 기반 현금흐름 선호, 노후 생활비 확보 목적 should map to regularCashflowNeed.",
     "For Tax, capture tax concerns including financial income comprehensive taxation, gift/inheritance tax, capital gains tax, and general tax reduction needs.",
     "For Legal, capture employee trading restrictions, insider/self-company stock restrictions, pre-trading restrictions, and other institutional limits.",
