@@ -12,9 +12,7 @@ import {
   formatLiquiditySummary,
   isLiquidityEntryFilled,
   liquidityPriorities,
-  lumpSumTimingOptions,
   parseLiquidityEntries,
-  regularTimingOptions,
   serializeLiquidityEntries,
   type LiquidityEntry,
   type LiquidityKind,
@@ -316,10 +314,10 @@ function PbPrivateNotice() {
   );
 }
 
-const liquidityKindMeta: Record<LiquidityKind, { label: string; structure: string; purposePlaceholder: string; amountPlaceholder: string }> = {
-  regular: { label: "향후 정기적인 현금흐름 필요", structure: "[우선순위] [목적] [주기] [금액]", purposePlaceholder: "예. 은퇴 후 생활비", amountPlaceholder: "예. 월 500만 원" },
-  lumpSum: { label: "향후 목돈 사용 계획", structure: "[우선순위] [목적] [시기] [금액]", purposePlaceholder: "예. 자녀 유학비", amountPlaceholder: "예. 3억" },
-  emergency: { label: "향후 비상예비자금 확보 계획", structure: "[우선순위] [목적] [금액]", purposePlaceholder: "예. 의료비 대비", amountPlaceholder: "예. 1억" },
+const liquidityKindMeta: Record<LiquidityKind, { label: string; purposePlaceholder: string; amountPlaceholder: string }> = {
+  regular: { label: "향후 정기적인 현금흐름 필요", purposePlaceholder: "목적", amountPlaceholder: "금액" },
+  lumpSum: { label: "향후 목돈 사용 계획", purposePlaceholder: "목적", amountPlaceholder: "금액" },
+  emergency: { label: "향후 비상예비자금 확보 계획", purposePlaceholder: "목적", amountPlaceholder: "금액" },
 };
 
 function LiquidityNeedsEditor({
@@ -339,7 +337,7 @@ function LiquidityNeedsEditor({
     emergency: parseLiquidityEntries(emergencyValue, "emergency"),
   };
   const usedPriorityCounts = [...entriesByKind.regular, ...entriesByKind.lumpSum, ...entriesByKind.emergency]
-    .filter((entry) => entry.priority !== "해당 없음")
+    .filter((entry) => entry.priority !== "-")
     .reduce<Record<string, number>>((acc, entry) => {
       acc[entry.priority] = (acc[entry.priority] ?? 0) + 1;
       return acc;
@@ -349,43 +347,63 @@ function LiquidityNeedsEditor({
   const updateEntry = (kind: LiquidityKind, index: number, patch: Partial<LiquidityEntry>) => {
     updateEntries(kind, entriesByKind[kind].map((entry, i) => i === index ? { ...entry, ...patch } : entry));
   };
+  const hasCompleteEntry = (kind: LiquidityKind, entry: LiquidityEntry) => {
+    const purpose = entry.purpose.trim();
+    const timing = entry.timing.trim();
+    const amount = entry.amount.trim();
+    return kind === "emergency" ? Boolean(purpose && amount) : Boolean(purpose && timing && amount);
+  };
+  const hasPartialEntry = (kind: LiquidityKind, entry: LiquidityEntry) => {
+    if (!isLiquidityEntryFilled(entry)) return false;
+    return !hasCompleteEntry(kind, entry);
+  };
+  const allEntries = [
+    ...entriesByKind.regular.map((entry) => ({ entry, kind: "regular" as const })),
+    ...entriesByKind.lumpSum.map((entry) => ({ entry, kind: "lumpSum" as const })),
+    ...entriesByKind.emergency.map((entry) => ({ entry, kind: "emergency" as const })),
+  ];
+  const filledEntries = allEntries.filter(({ entry }) => isLiquidityEntryFilled(entry));
+  const rankedEntries = [1, 2, 3].map((rank) => {
+    const found = allEntries.find(({ entry }) => entry.priority === String(rank));
+    return found ? formatLiquiditySummary(serializeLiquidityEntries([found.entry]), found.kind) : "";
+  });
+  const missingPriorityWarnings = (() => {
+    const hasRank = (rank: number) => rankedEntries[rank - 1].trim().length > 0;
+    if (filledEntries.length >= 3) return [1, 2, 3].filter((rank) => !hasRank(rank)).map((rank) => `${rank}순위가 비어 있습니다. 다시 입력해주세요.`);
+    if (!hasRank(1) && (hasRank(2) || hasRank(3))) return ["1순위가 비어 있습니다. 다시 입력해주세요."];
+    if (hasRank(1) && !hasRank(2) && hasRank(3)) return ["2순위가 비어 있습니다. 다시 입력해주세요."];
+    return [];
+  })();
 
   return (
     <div className="grid gap-3 xl:grid-cols-2">
       {(Object.keys(entriesByKind) as LiquidityKind[]).map((kind) => {
         const meta = liquidityKindMeta[kind];
         const entries = entriesByKind[kind];
-        const hasDuplicatePriority = entries.some((entry) => entry.priority !== "해당 없음" && usedPriorityCounts[entry.priority] > 1);
+        const hasDuplicatePriority = entries.some((entry) => entry.priority !== "-" && usedPriorityCounts[entry.priority] > 1);
+        const rowColumns = kind === "emergency"
+          ? "grid-cols-[40px_minmax(0,1fr)_92px]"
+          : "grid-cols-[40px_minmax(0,1fr)_78px_16px_92px]";
+        const suffix = kind === "regular" ? "마다" : "후";
+        const liquidityMissing = !entries.some((entry) => hasCompleteEntry(kind, entry)) || entries.some((entry) => hasPartialEntry(kind, entry));
         return (
           <div key={kind} className="question-card rounded-lg border border-slate-200 p-4">
-            <QuestionTitle label={meta.label} missing={!entries.some(isLiquidityEntryFilled)} className="mb-2 text-[15px] font-bold leading-6 text-slate-800" />
-            <div className={`mb-1 grid gap-2 text-xs font-bold text-blue-700 ${kind === "emergency" ? "grid-cols-[76px_minmax(0,1fr)_116px_28px]" : "grid-cols-[76px_minmax(0,1fr)_96px_116px_28px]"}`}>
-              <span>우선순위</span>
-              <span>목적</span>
-              {kind !== "emergency" ? <span>{kind === "regular" ? "주기" : "시기"}</span> : null}
-              <span>금액</span>
-              <span />
-            </div>
+            <QuestionTitle label={meta.label} missing={liquidityMissing} className="mb-2 text-[15px] font-bold leading-6 text-slate-800" />
             {hasDuplicatePriority ? <p className="mb-2 text-xs font-bold text-red-600">⚠️ 이미 사용 중인 순위입니다.</p> : null}
             <div className="grid gap-2">
               {entries.map((entry, index) => (
-                <div key={entry.id} className={`grid items-center gap-2 ${kind === "emergency" ? "grid-cols-[76px_minmax(0,1fr)_116px_28px]" : "grid-cols-[76px_minmax(0,1fr)_96px_116px_28px]"}`}>
-                  <select className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-xs font-semibold text-navy" value={entry.priority} onChange={(e) => updateEntry(kind, index, { priority: e.target.value as LiquidityEntry["priority"] })}>
+                <div key={entry.id} className={`grid items-center gap-2 ${rowColumns}`}>
+                  <select className="h-10 w-10 min-w-0 rounded-lg border border-slate-200 bg-white px-1 text-center text-xs font-semibold text-navy" value={entry.priority} onChange={(e) => updateEntry(kind, index, { priority: e.target.value as LiquidityEntry["priority"] })}>
                     {liquidityPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
                   </select>
                   <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink placeholder:text-slate-400" value={entry.purpose} placeholder={meta.purposePlaceholder} onChange={(e) => updateEntry(kind, index, { purpose: e.target.value })} />
                   {kind !== "emergency" ? (
-                    entry.timing === "기타" ? (
-                      <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm text-ink placeholder:text-slate-400" value={entry.customTiming ?? ""} placeholder="직접 입력" onChange={(e) => updateEntry(kind, index, { customTiming: e.target.value })} />
-                    ) : (
-                      <select className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-navy" value={entry.timing} onChange={(e) => updateEntry(kind, index, { timing: e.target.value, customTiming: "" })}>
-                        <option value="">선택</option>
-                        {(kind === "regular" ? regularTimingOptions : lumpSumTimingOptions).map((option) => <option key={option} value={option}>{option}</option>)}
-                      </select>
-                    )
+                    <>
+                      <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm text-ink placeholder:text-slate-400" value={entry.timing} placeholder={kind === "regular" ? "주기" : "시기"} onChange={(e) => updateEntry(kind, index, { timing: e.target.value, customTiming: "" })} />
+                      <span className="whitespace-nowrap text-[11px] font-bold text-black">{suffix}</span>
+                    </>
                   ) : null}
                   <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink placeholder:text-slate-400" value={entry.amount} placeholder={meta.amountPlaceholder} onChange={(e) => updateEntry(kind, index, { amount: e.target.value })} />
-                  <button type="button" className="h-9 w-7 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-500 hover:bg-slate-50" onClick={() => updateEntries(kind, entries.filter((_, i) => i !== index))} aria-label="입력칸 삭제">x</button>
                 </div>
               ))}
             </div>
@@ -395,6 +413,22 @@ function LiquidityNeedsEditor({
           </div>
         );
       })}
+      <div className="question-card rounded-lg border border-slate-200 p-4">
+        <div className="mb-3 text-[15px] font-bold leading-6 text-slate-800">🏆 유동성 우선순위</div>
+        <div className="grid gap-2 text-sm font-bold text-slate-800">
+          {["🥇", "🥈", "🥉"].map((medal, index) => (
+            <div key={medal} className="rounded-lg bg-slate-50 px-3 py-2">
+              <span className="mr-2">{medal}</span>
+              <span>{rankedEntries[index] || "해당 없음"}</span>
+            </div>
+          ))}
+        </div>
+        {missingPriorityWarnings.length ? (
+          <div className="mt-3 grid gap-1 text-xs font-bold text-red-600">
+            {missingPriorityWarnings.map((warning) => <p key={warning}>{warning}</p>)}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -1589,7 +1623,7 @@ export default function CustomerAnalysisTab() {
           <ChoiceGroup label="파생상품 투자 경험이 있으신가요?" description="파생상품: 파생상품, 원금비보장형 파생결합 증권, 파생상품펀드, 레버리지/인버스 ETF 등" options={fieldGroups.derivatives} value={formData.rrttllu.derivativesExperience} missing={!formData.rrttllu.derivativesExperience.trim()} onChange={(v) => setRrttllu("derivativesExperience", v)} />
           <AutoChoiceGroup label="순자산 중 금융자산의 비중" description="금융자산: 기존 투자자산 + 현금성 자산" options={fieldGroups.financialAssetRatio} value={formData.rrttllu.financialAssetRatio} />
           <AutoChoiceGroup label="금융자산 중 투자자산의 비중" description="투자자산: 주식, ETF, 펀드, 채권, 리츠(REITs), ELS 등" options={fieldGroups.investmentAssetRatio} value={formData.rrttllu.investmentAssetRatio} />
-          <ChoiceGroup label="기대이익 및 기대손실 등을 고려한 위험에 대한 태도" options={fieldGroups.riskAttitude} value={formData.rrttllu.riskAttitude} missing={!formData.rrttllu.riskAttitude.trim()} onChange={(v) => setRrttllu("riskAttitude", v)} />
+          <ChoiceGroup label="기대이익 및 기대손실 등을 고려한 위험에 대한 태도" options={fieldGroups.riskAttitude} value={formData.rrttllu.riskAttitude} missing={!formData.rrttllu.riskAttitude.trim()} optionGridClassName="grid-cols-1" onChange={(v) => setRrttllu("riskAttitude", v)} />
           <ChoiceGroup label="단기적으로 손실이 초과 발생할 때 대응" options={fieldGroups.lossResponse} value={formData.rrttllu.lossResponse} missing={!formData.rrttllu.lossResponse.trim()} onChange={(v) => setRrttllu("lossResponse", v)} />
         </CheckerboardGrid>
       </Panel>
