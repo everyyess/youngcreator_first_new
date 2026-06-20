@@ -21,12 +21,12 @@ const ASSET_PROXY: Record<string, { annVol: number; annReturn: number; beta: num
 };
 
 // 채권 프록시 역사적 드로우다운
-// 국내채권(114260.KS) / 해외채권(TLT) 4대 위기 당시 실측 하방 드로우다운
+// 국내채권(114260.KS) / 해외채권(TLT) 3대 위기 당시 실측 하방 드로우다운
 const BOND_PROXY_DRAWDOWN: Record<string, Record<number, number>> = {
-  "국내채권": { 1: -0.08, 2: -0.04, 3: -0.01, 4: -0.12 },
-  "해외채권": { 1: -0.10, 2: -0.04, 3:  0.08, 4: -0.08 },
-  "단기채":   { 1: -0.02, 2: -0.01, 3:  0.00, 4: -0.03 },
-  "달러채권": { 1: -0.06, 2: -0.02, 3:  0.10, 4: -0.06 },
+  "국내채권": { 1: -0.08, 2: -0.04, 3: -0.01 },
+  "해외채권": { 1: -0.10, 2: -0.04, 3:  0.08 },
+  "단기채":   { 1: -0.02, 2: -0.01, 3:  0.00 },
+  "달러채권": { 1: -0.06, 2: -0.02, 3:  0.10 },
 };
 
 type PersonaAsset = {
@@ -154,16 +154,8 @@ function getShock(asset: PersonaAsset, scenario: number): number {
   return 0;
 }
 
-// 시나리오 4 = 1+2+3 복합 충격, 최대 -80% 하한
-function getShock4(asset: PersonaAsset): number {
-  if (BOND_PROXY_DRAWDOWN[asset.name] !== undefined) {
-    return BOND_PROXY_DRAWDOWN[asset.name][4] ?? 0;
-  }
-  return Math.max(getShock(asset, 1) + getShock(asset, 2) + getShock(asset, 3), -0.80);
-}
-
 function getShockByScenario(asset: PersonaAsset, scenarioNum: number): number {
-  return scenarioNum === 4 ? getShock4(asset) : getShock(asset, scenarioNum);
+  return getShock(asset, scenarioNum);
 }
 
 function calcLossRate(assets: PersonaAsset[], scenario: number): number {
@@ -208,14 +200,6 @@ const scenarios = [
     scenarioNum: 3,
     hedge: "달러 자산 평가익 / 국내주식 하락",
   },
-  {
-    id: "stagflation",
-    label: "복합위기(스태그플레이션)",
-    detail: "금리인상+원자재+환율 3대 충격 동시 발생. 성장주·장기채 극단 손실.",
-    ref: "1970년대 오일쇼크 / 2022년 복합위기",
-    scenarioNum: 4,
-    hedge: "금·달러 헷지 효과 / 성장주·장기채 극단 손실",
-  },
 ];
 
 const crisisHistory = [
@@ -226,7 +210,7 @@ const crisisHistory = [
 ];
 
 export default function StressChart() {
-  const [selected, setSelected] = useState<string[]>(["rate", "commodity", "fx", "stagflation"]);
+  const [selected, setSelected] = useState<string[]>(["rate", "commodity", "fx"]);
   const [activePersona, setActivePersona] = useState(0);
 
   function toggle(id: string) {
@@ -281,7 +265,7 @@ export default function StressChart() {
           ))}
         </div>
 
-        {/* 시나리오 선택 (4개) */}
+        {/* 시나리오 선택 (3개) */}
         <div style={{ display: "flex", gap: 10, marginBottom: 24, flexWrap: "wrap" }}>
           {scenarios.map(s => (
             <button key={s.id} onClick={() => toggle(s.id)} style={{
@@ -341,9 +325,9 @@ export default function StressChart() {
                 return (
                   <div key={s.id} style={{
                     background: "#fff", borderRadius: 10, padding: 20,
-                    border: "1px solid #e5e7eb", borderLeft: `3px solid ${s.id === "stagflation" ? "#7C3AED" : NAVY}`,
+                    border: "1px solid #e5e7eb", borderLeft: `3px solid ${NAVY}`,
                   }}>
-                    <div style={{ color: s.id === "stagflation" ? "#7C3AED" : NAVY, fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                    <div style={{ color: NAVY, fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
                       {s.label}
                     </div>
                     <div style={{ color: "#6b7280", fontSize: 11, marginBottom: 8, lineHeight: 1.5 }}>{s.detail}</div>

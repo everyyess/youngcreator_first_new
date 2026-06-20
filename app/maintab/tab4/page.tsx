@@ -25,7 +25,7 @@ import {
 } from "../tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary, TLHData } from "../tab1/FinancialIncomeGauge";
 
-const SCENARIO_KEYS = ["scenario1", "scenario2", "scenario3", "scenario4"] as const;
+const SCENARIO_KEYS = ["scenario1", "scenario2", "scenario3"] as const;
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
@@ -325,13 +325,13 @@ export default function Tab4Page() {
           </div>
 
           {/*
-            ── 스트레스 테스트 – 4대 위기 시나리오 행 ──
+            ── 스트레스 테스트 – 3대 위기 시나리오 행 ──
             좌우가 selectedScenario 상태를 공유하여 같은 위기를 나란히 비교.
             래퍼 div는 stressResult 유무와 무관하게 항상 존재하여 격자 행 정렬 유지.
           */}
           <div className="flex flex-col">
             {leftStressResult && (
-              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
+              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 3대 위기 시나리오" accent="red">
                 <StressTestCard
                   stressResult={leftStressResult}
                   selectedScenario={selectedScenario}
@@ -342,7 +342,7 @@ export default function Tab4Page() {
           </div>
           <div className="flex flex-col">
             {rightStressResult && (
-              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
+              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 3대 위기 시나리오" accent="red">
                 <StressTestCard
                   stressResult={rightStressResult}
                   selectedScenario={selectedScenario}
