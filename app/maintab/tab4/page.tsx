@@ -365,7 +365,7 @@ export default function Tab4Page() {
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-samsung text-[10px] font-bold text-white">A</span>
                     <span className="text-xs font-bold text-navy">기존 포트폴리오 세금 점검</span>
                   </div>
-                  <FinancialIncomeGauge summary={summary} />
+                  <FinancialIncomeGauge summary={summary} hideCapitalGains={true} />
                 </>
               )}
             </div>
