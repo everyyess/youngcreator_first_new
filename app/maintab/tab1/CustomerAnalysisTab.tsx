@@ -126,6 +126,39 @@ function pickSelectable(section?: ExtractionSection) {
   return next;
 }
 
+function stringifySmartLiquidityPart(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const timing = record.timing ?? record.period ?? record.frequency ?? record.time ?? record.시기 ?? record.주기 ?? "";
+  const purpose = record.purpose ?? record.goal ?? record.need ?? record.목적 ?? "";
+  const amount = record.amount ?? record.money ?? record.금액 ?? "";
+  return [timing, purpose, amount].filter((part) => typeof part === "string" && part.trim()).join(" ");
+}
+
+function normalizeSmartLiquidityField(value: unknown) {
+  if (Array.isArray(value)) return value.map(stringifySmartLiquidityPart).filter(Boolean).join("\n");
+  if (value && typeof value === "object") return stringifySmartLiquidityPart(value);
+  return value;
+}
+
+function rerouteMedicalLiquidityToEmergency(rrttllu: ExtractionSection) {
+  const emergencyEntries = parseLiquidityEntries(typeof rrttllu.emergencyReservePlan === "string" ? rrttllu.emergencyReservePlan : "", "emergency")
+    .filter(isLiquidityEntryFilled);
+  (["regularCashflowNeed", "lumpSumPlan"] as const).forEach((key) => {
+    const kind = key === "regularCashflowNeed" ? "regular" : "lumpSum";
+    const value = rrttllu[key];
+    if (typeof value !== "string" || !value.trim()) return;
+    const entries = parseLiquidityEntries(value, kind);
+    const kept = entries.filter((entry) => !/의료비/.test(entry.purpose));
+    const medical = entries.filter((entry) => /의료비/.test(entry.purpose));
+    if (!medical.length) return;
+    rrttllu[key] = serializeLiquidityEntries(kept);
+    emergencyEntries.push(...medical.map((entry) => ({ ...entry, timing: "", customTiming: "" })));
+  });
+  if (emergencyEntries.length) rrttllu.emergencyReservePlan = serializeLiquidityEntries(emergencyEntries);
+}
+
 function normalizeUniqueMeaning(value: string) {
   const compact = value.replace(/\s+/g, "");
   if (/시장뉴스|단기이슈|뉴스.*민감|민감.*뉴스|민감하게반응/.test(compact)) return "market-sensitivity";
@@ -175,6 +208,12 @@ function toSmartExtractionPayload(envelope: SmartExtractionEnvelope): SmartExtra
     ...compactSection(extracted.rrttllu),
     ...pickSelectable(inferred.rrttllu),
   };
+  (["regularCashflowNeed", "lumpSumPlan", "emergencyReservePlan"] as const).forEach((key) => {
+    const normalized = normalizeSmartLiquidityField(rrttllu[key]);
+    if (typeof normalized === "string" && normalized.trim()) rrttllu[key] = normalized;
+    else if (Array.isArray(rrttllu[key]) || (rrttllu[key] && typeof rrttllu[key] === "object")) delete rrttllu[key];
+  });
+  rerouteMedicalLiquidityToEmergency(rrttllu);
   const mappedValues = [
     ...Object.values(financial),
     ...Object.values(rrttllu),

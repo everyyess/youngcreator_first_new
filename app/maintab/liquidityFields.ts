@@ -53,6 +53,16 @@ function normalizePriority(raw: unknown): LiquidityPriority {
   return "-";
 }
 
+function cleanPurpose(raw: string) {
+  return raw
+    .replace(/^(?:월|매월|매달|분기|반기|매년)\s*/g, "")
+    .replace(/(?:마다|뒤|후|이내)/g, " ")
+    .replace(/(?:필요(?:해요|합니다|함)?|확보(?:해요|합니다|함)?|계획(?:입니다|함)?|예정(?:입니다)?|목적)$/g, " ")
+    .replace(/[,\-–—()[\]{}"']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function parseLegacyEntry(text: string, kind: LiquidityKind, index: number): LiquidityEntry {
   const entry = blankLiquidityEntry(index);
   const timingMatch = kind === "regular"
@@ -67,13 +77,33 @@ function parseLegacyEntry(text: string, kind: LiquidityKind, index: number): Liq
   let purpose = text;
   if (amountMatch) purpose = purpose.replace(amountMatch[0], "");
   if (timingMatch) purpose = purpose.replace(timingMatch[0], "");
-  entry.purpose = purpose
-    .replace(/^(?:월|매월|매달|분기|반기|매년)\s*/g, "")
-    .replace(/(?:마다|뒤|후|이내)/g, " ")
-    .replace(/[,\-–—()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim() || text;
+  entry.purpose = cleanPurpose(purpose) || cleanPurpose(text) || text;
   return entry;
+}
+
+function stringifyLiquidityPart(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const timing = record.timing ?? record.period ?? record.frequency ?? record.time ?? record.시기 ?? record.주기 ?? "";
+  const purpose = record.purpose ?? record.goal ?? record.need ?? record.목적 ?? "";
+  const amount = record.amount ?? record.money ?? record.금액 ?? "";
+  return [timing, purpose, amount].filter((part) => typeof part === "string" && part.trim()).join(" ");
+}
+
+function parseJsonLikeEntries(raw: string, kind: LiquidityKind): LiquidityEntry[] | null {
+  const trimmed = raw.trim();
+  if (!/^[\[{]/.test(trimmed)) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    const values = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : Array.isArray(parsed?.entries) ? parsed.entries : [parsed];
+    const entries = values
+      .map((value: unknown, index: number) => parseLegacyEntry(stringifyLiquidityPart(value), kind, index))
+      .filter(isLiquidityEntryFilled);
+    return entries.length ? entries : null;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeEntries(entries: LiquidityEntry[]) {
@@ -89,18 +119,20 @@ function normalizeEntries(entries: LiquidityEntry[]) {
 
 export function parseLiquidityEntries(value: string, kind: LiquidityKind): LiquidityEntry[] {
   const raw = value.trim();
-  if (!raw) return [0, 1, 2].map((i) => blankLiquidityEntry(i));
+  if (!raw) return [blankLiquidityEntry(0)];
   if (raw.startsWith(PREFIX)) {
     try {
       const parsed = JSON.parse(raw.slice(PREFIX.length)) as LiquidityEntry[];
       const entries = Array.isArray(parsed) ? normalizeEntries(parsed) : [];
       return entries.length ? entries : [blankLiquidityEntry(0)];
     } catch {
-      return [0, 1, 2].map((i) => blankLiquidityEntry(i));
+      return [blankLiquidityEntry(0)];
     }
   }
+  const jsonEntries = parseJsonLikeEntries(raw, kind);
+  if (jsonEntries) return jsonEntries;
   const legacy = splitLegacyText(raw).map((part, index) => parseLegacyEntry(part, kind, index));
-  return legacy.length >= 3 ? legacy : [...legacy, ...Array.from({ length: 3 - legacy.length }, (_, i) => blankLiquidityEntry(legacy.length + i))];
+  return legacy.length ? legacy : [blankLiquidityEntry(0)];
 }
 
 export function serializeLiquidityEntries(entries: LiquidityEntry[]) {
