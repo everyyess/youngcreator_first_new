@@ -158,12 +158,14 @@ interface FinancialIncomeGaugeProps {
   summary: FinancialIncomeSummary | null;
   additionalIncome?: number;
   tlhData?: TLHData;
+  hideCapitalGains?: boolean;
 }
 
 export function FinancialIncomeGauge({
   summary,
   additionalIncome = 0,
   tlhData,
+  hideCapitalGains = false,
 }: FinancialIncomeGaugeProps) {
   const [activeTab, setActiveTab] = useState<"배당" | "이자" | "양도">("배당");
   const [taxDetailExpanded, setTaxDetailExpanded] = useState(false);
@@ -225,19 +227,6 @@ export function FinancialIncomeGauge({
   const interestItems = (summary?.breakdown ?? []).filter(b => b.incomeType === "이자");
   const visibleGainsItems = (summary?.capitalGainsBreakdown ?? []).filter(item => item.gain !== 0);
 
-  const cgTax = summary?.capitalGainsTax ?? 0;
-  const netCG = summary?.netCapitalGains ?? 0;
-  const CG_DEDUCTION = 2_500_000;
-  // 세액이 없으면 250만원 공제한도 기준, 있으면 세액의 2배를 100만원 단위로 올림해 최대값 설정
-  const cgGaugeMax = cgTax <= 0 ? CG_DEDUCTION : Math.ceil((cgTax * 2) / 1_000_000) * 1_000_000;
-  const cgGaugeValue = Math.max(cgTax, 0);
-  const cgGaugePct = Math.min((cgGaugeValue / cgGaugeMax) * 100, 100);
-  const cgGaugeColor = cgTax <= 0
-    ? (netCG > CG_DEDUCTION * 0.8 ? "#f59e0b" : "#10b981")
-    : cgTax <= 500_000 ? "#10b981"
-    : cgTax <= 1_000_000 ? "#f59e0b"
-    : "#dc2626";
-  const cgGaugeMaxLabel = cgTax <= 0 ? "250만원 (공제한도)" : fmtWon(cgGaugeMax);
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-soft overflow-hidden flex-1">
@@ -332,67 +321,11 @@ export function FinancialIncomeGauge({
         )}
       </div>
 
-      {/* 양도소득세 게이지 */}
-      <div className="px-4 pt-3 pb-3 border-t border-slate-100">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[11px] font-extrabold uppercase tracking-widest text-slate-400">
-            해외 양도소득세
-          </span>
-          <span
-            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-            style={{
-              backgroundColor: cgTax > 0 ? "#fff7ed" : "#f0fdf4",
-              color: cgTax > 0 ? "#ea580c" : "#16a34a",
-            }}
-          >
-            {cgTax > 0 ? "과세 대상" : "비과세"}
-          </span>
-        </div>
-        <div className="flex items-end gap-1.5 mb-1">
-          <span className="text-2xl font-black tracking-tight text-slate-800">
-            {fmtWon(cgTax)}
-          </span>
-          <span className="text-xs font-bold text-slate-400 pb-0.5">세액</span>
-        </div>
-        <div className="text-[11px] text-slate-500 mb-2">
-          순차익 {fmtWon(netCG)} · 기본공제 250만원
-        </div>
 
-        <div className="relative h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className="absolute left-0 top-0 h-full rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${cgGaugePct}%`, backgroundColor: cgGaugeColor }}
-          />
-        </div>
-        <div className="flex justify-between mt-1">
-          <span className="text-[10px] text-slate-400">0</span>
-          <span className="text-[10px] text-slate-500 font-bold">{cgGaugeMaxLabel}</span>
-        </div>
-
-        <div className="mt-2">
-          {cgTax > 0 ? (
-            <div className="flex items-start gap-2 rounded-lg bg-orange-50 border border-orange-200 px-3 py-2">
-              <AlertTriangle size={13} className="shrink-0 text-orange-500 mt-0.5" />
-              <p className="text-xs font-semibold text-orange-700 leading-snug">
-                순차익 <strong>{fmtWon(netCG)}</strong> · 250만원 초과분에 22% 과세
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg bg-emerald-50 px-3 py-2">
-              <span className="text-xs font-semibold text-emerald-700">
-                {netCG <= 0
-                  ? "양도차익 없음 · 비과세"
-                  : `기본공제 이내 · 비과세 (여유 ${fmtWon(CG_DEDUCTION - netCG)})`}
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 소득 탭: 배당 / 이자 / 양도 */}
+      {/* 소득 탭: 배당 / 이자 — hideCapitalGains 시 양도 탭 제외 */}
       <div className="border-t border-slate-100">
         <div className="flex border-b border-slate-100">
-          {(["배당", "이자", "양도"] as const).map((tab) => (
+          {(hideCapitalGains ? ["배당", "이자"] as const : ["배당", "이자", "양도"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -413,9 +346,19 @@ export function FinancialIncomeGauge({
         <div className="px-4 py-3 min-h-[80px]">
           {activeTab === "배당" && (
             <div className="space-y-0">
-              {dividendItems.length > 0 ? dividendItems.map((item, i) => (
-                <IncomeRow key={i} item={item} />
-              )) : (
+              {dividendItems.length > 0 ? (
+                <>
+                  {dividendItems.map((item, i) => (
+                    <IncomeRow key={i} item={item} />
+                  ))}
+                  <div className="mt-2 pt-2 border-t border-slate-100">
+                    <div className="flex justify-between text-xs font-bold text-navy">
+                      <span>배당소득 합계 (세전)</span>
+                      <span>{fmtWon(summary?.dividendIncome ?? 0)}</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
                 <p className="text-xs text-slate-400 text-center py-4">
                   배당소득 내역이 없습니다. 종목을 입력하면 자동 계산됩니다.
                 </p>
@@ -859,6 +802,22 @@ export function calcFinancialIncomeSummary(
       }
     }
 
+    // ── ② 국내 대주주 (보유액 50억 이상 국내주식) — gain 여부와 무관하게 항상 체크 ──────
+    if (isDomesticListed && value >= 5_000_000_000 && productType === "국내주식") {
+      // 기본공제 250만원 (국내 주식 양도소득 그룹 — 해외주식 그룹과 별도 적용)
+      const taxableGain = gain <= 0 ? 0 : Math.max(0, gain - 2_500_000);
+      // 세율: 3억 이하 22%, 3억 초과 27.5% (지방소득세 10% 포함)
+      const tax = taxableGain <= 0 ? 0
+        : taxableGain <= 300_000_000
+          ? taxableGain * 0.22
+          : 300_000_000 * 0.22 + (taxableGain - 300_000_000) * 0.275;
+      majorShareholderItems.push({ name: a.name, ticker, value, estimatedTax: Math.round(tax) });
+      if (tax > 0) {
+        domesticMajorShareholderTax += tax;
+        cgBreakdownTemp.push({ name: a.name, ticker, gain, tax: Math.round(tax), category: "국내대주주" });
+      }
+    }
+
     // ── 양도소득 ────────────────────────────────────────────────────────────────
     if (gain !== 0) {
       // ① 해외주식·해외ETF·해외펀드: 손익통산 후 250만원 공제, 22%
@@ -880,18 +839,6 @@ export function calcFinancialIncomeSummary(
         if (gain > 0) totalCapitalGains += gain;
         else totalCapitalLosses += gain;
         cgBreakdownTemp.push({ name: a.name, ticker, gain, tax: 0, category: cat });
-
-      // ② 국내 대주주 (보유액 10억 이상 국내주식)
-      } else if (isDomesticListed && value >= 1_000_000_000 && productType === "국내주식") {
-        const tax = gain <= 0 ? 0
-          : gain <= 300_000_000
-            ? gain * 0.20
-            : 300_000_000 * 0.20 + (gain - 300_000_000) * 0.25;
-        if (tax > 0) {
-          domesticMajorShareholderTax += tax;
-          cgBreakdownTemp.push({ name: a.name, ticker, gain, tax: Math.round(tax), category: "국내대주주" });
-          majorShareholderItems.push({ name: a.name, ticker, value, estimatedTax: Math.round(tax) });
-        }
 
       // ③ 국내상장 해외ETF (자산 = 해외) 매매차익 → 배당소득(집합투자)
       } else if (isDomesticListed && gain > 0 && assetClass === "해외주식") {

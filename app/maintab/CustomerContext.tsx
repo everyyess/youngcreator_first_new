@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { formatLiquiditySummary } from "./liquidityFields";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type CustomerId = string;
@@ -853,6 +854,9 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   const interestAmount = parseKrwAmount(expectedInterestIncome);
   const dividendAmount = parseKrwAmount(expectedDividendIncome);
   const taxAlert = financialIncomeTaxAlert(interestAmount, dividendAmount);
+  const regularCashflowNeed = formatLiquiditySummary(rrttllu.regularCashflowNeed, "regular");
+  const lumpSumPlan = formatLiquiditySummary(rrttllu.lumpSumPlan, "lumpSum");
+  const emergencyReservePlan = formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency");
   const hasMissingProfile = !customerProfile || !nullableText(customerProfile.name) || !nullableText(customerProfile.gender) || !nullableText(customerProfile.birthYear) || !nullableText(customerProfile.age) || !nullableText(customerProfile.job);
   const riskAnswers = {
     investment_experience: nullableArray(rrttllu.investmentExperience),
@@ -870,7 +874,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   if (Object.values(riskAnswers).some((v) => v === null)) warnings.push("위험 허용도 (Risk) 정보가 부족합니다.");
   if (!nullableText(rrttllu.timeHorizon)) warnings.push("투자 기간 (Time Horizon) 정보가 부족합니다.");
   if (!expectedInterestIncome || !expectedDividendIncome || interestAmount === null || dividendAmount === null || !nullableText(rrttllu.giftingPlan) || !nullableText(rrttllu.globalTaxImportance) || !nullableText(rrttllu.recentGlobalTaxSubject) || !nullableText(rrttllu.foreignStockTaxImportance)) warnings.push("세금 요인 (Tax) 정보가 부족합니다.");
-  if (!nullableText(rrttllu.regularCashflowNeed) || !nullableText(rrttllu.lumpSumPlan) || !nullableText(rrttllu.emergencyReservePlan)) warnings.push("유동성 필요 시기 (Liquidity) 정보가 부족합니다.");
+  if (!nullableText(regularCashflowNeed) || !nullableText(lumpSumPlan) || !nullableText(emergencyReservePlan)) warnings.push("유동성 필요 시기 (Liquidity) 정보가 부족합니다.");
   if (!rrttllu.legalConstraints.length) warnings.push("법적/규제 제약 (Legal) 정보가 부족합니다.");
   if (rrttllu.legalConstraints.includes("기타") && !nullableText(rrttllu.legalConstraintOther)) warnings.push("법적/규제 제약 (Legal) 정보가 부족합니다.");
   if (!nullableText(rrttllu.preferredAssets) || !nullableText(rrttllu.avoidedAssets) || !nullableText(rrttllu.holdingOrDisposalPlan)) warnings.push("고객 고유 상황 (Unique Circumstances) 정보가 부족합니다.");
@@ -882,7 +886,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
       risk: { score: riskResult.score, level: riskResult.level, answers: riskAnswers, interpretation: riskResult.interpretation },
       time_horizon: { investment_period: nullableText(rrttllu.timeHorizon) },
       tax: { expected_interest_income: expectedInterestIncome, expected_dividend_income: expectedDividendIncome, gift_plan: nullableText(rrttllu.giftingPlan), financial_income_tax_importance: nullableText(rrttllu.globalTaxImportance), financial_income_tax_history: nullableText(rrttllu.recentGlobalTaxSubject), foreign_stock_capital_gains_tax_importance: nullableText(rrttllu.foreignStockTaxImportance), financial_income_tax_alert: taxAlert },
-      liquidity: { cashflow_need: nullableText(rrttllu.regularCashflowNeed), large_cash_need: nullableText(rrttllu.lumpSumPlan), emergency_reserve_need: nullableText(rrttllu.emergencyReservePlan) },
+      liquidity: { cashflow_need: nullableText(regularCashflowNeed), large_cash_need: nullableText(lumpSumPlan), emergency_reserve_need: nullableText(emergencyReservePlan) },
       legal: { constraints: nullableArray(rrttllu.legalConstraints), other_detail: nullableText(rrttllu.legalConstraintOther) },
       unique_circumstances: {
         preferred_assets: { raw_input: nullableText(rrttllu.preferredAssets), portfolio_rule: { type: "soft_constraint", description: "고객이 선호하는 자산군은 포트폴리오 추천 시 우선 고려한다.", min_weight_hint: "10%" } },

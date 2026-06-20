@@ -118,6 +118,7 @@ export default function Tab3Page() {
           const keepSet = new Set(rebalancingSellAssets.map(a => `${a.name ?? ""}::${a.ticker ?? ""}`));
           const soldAssets = portfolioAssets.filter(a => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`));
 
+          // 완전 매도 종목: 양도소득세만 (배당/이자는 매도 후 발생 안 함)
           const soldAssetsForCalc: AssetForIncomeCalc[] = soldAssets
             .map((a) => {
               const isBond = a.productType === "국내채권" || a.productType === "해외채권";
@@ -125,7 +126,6 @@ export default function Tab3Page() {
               if (!resolvedName) return null;
               const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
               const enriched = originalEnrichedMap.get(key);
-              const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
               return {
                 name: resolvedName,
                 ticker: a.ticker ?? "",
@@ -137,13 +137,47 @@ export default function Tab3Page() {
                 amount: a.amount,
                 amount_type: a.amount_type,
                 buy_price: a.buy_price,
-                dividendYield: enriched?.dividendYield as number | undefined,
-                interestRate,
+                dividendYield: undefined,
+                interestRate: undefined,
               } as AssetForIncomeCalc;
             })
             .filter((x): x is AssetForIncomeCalc => x !== null);
 
-          const combinedAssetsForCalc = [...soldAssetsForCalc, ...assetsForCalc];
+          // 부분 매도 종목: 매도된 수량만큼 양도소득세 반영 (원래수량 - 잔여수량 = 매도수량)
+          const originalAmountMap = new Map(portfolioAssets.map(a => [`${a.name ?? ""}::${a.ticker ?? ""}`, a]));
+          const partiallySoldAssetsForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
+            .map((a) => {
+              if (a.amount_type !== "quantity") return null;
+              const isBond = a.productType === "국내채권" || a.productType === "해외채권";
+              if (isBond) return null;
+              const resolvedName = a.name || "";
+              if (!resolvedName) return null;
+              const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
+              const original = originalAmountMap.get(key);
+              const enriched = originalEnrichedMap.get(key);
+              if (!original || original.amount_type !== "quantity" || original.buy_price == null) return null;
+              const soldAmount = original.amount - a.amount;
+              if (soldAmount <= 0) return null;
+              return {
+                name: resolvedName,
+                ticker: a.ticker ?? "",
+                asset_class: a.asset_class,
+                productType: a.productType,
+                country: a.country,
+                current_price: (enriched?.current_price as number | undefined) ?? a.current_price,
+                current_value: undefined,
+                amount: soldAmount,
+                amount_type: "quantity" as const,
+                buy_price: original.buy_price,
+                dividendYield: undefined,
+                interestRate: undefined,
+              } as AssetForIncomeCalc;
+            })
+            .filter((x): x is AssetForIncomeCalc => x !== null);
+
+          // assetsForCalc(rebalancingBuyAssets 기반)에 잔류 종목이 이미 포함되므로
+          // remainingAssetsForCalc를 별도로 더하면 배당/이자가 이중 계산됨 — 제거
+          const combinedAssetsForCalc = [...soldAssetsForCalc, ...partiallySoldAssetsForCalc, ...assetsForCalc];
           const newTaxSummary = calcFinancialIncomeSummary(combinedAssetsForCalc, tMarginal);
           try {
             localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newTaxSummary));
