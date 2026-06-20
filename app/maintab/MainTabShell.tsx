@@ -9,6 +9,7 @@ import {
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
+  type SellRecord,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
@@ -16,6 +17,7 @@ import {
   formatChangeDate, formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
   loadAnalysisResult, loadPortfolioAssets, savePortfolioAssets,
   loadRebalancingState, saveRebalancingState, saveRebalancingBuyAssets,
+  loadSellHistory, saveSellHistory,
   loadNewAnalysisResult, saveNewAnalysisResult,
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
@@ -167,6 +169,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [productSelectionsLoadedMap, setProductSelectionsLoadedMap] = useState<Record<CustomerId, boolean>>({});
   const [productSelectionsDirtyMap, setProductSelectionsDirtyMap] = useState<Record<CustomerId, boolean>>({});
 
+  // ── TAB2-5 매도 시뮬레이터 이력 Maps (고객별 격리, Supabase 영속) ──────────
+  const [sellHistoryMap, setSellHistoryMap] = useState<Record<CustomerId, SellRecord[]>>({});
+  const [sellHistoryDirtyMap, setSellHistoryDirtyMap] = useState<Record<CustomerId, boolean>>({});
+
   // ── 원자적 읽기용 Ref — async 콜백 / 비동기 파이프라인에서 stale closure 없이 최신 상태 참조
   // React 상태 업데이트는 배치 처리되어 다음 렌더까지 pending 상태이므로,
   // 매 렌더에서 .current를 동기 갱신하면 항상 최신 커밋 값을 보장한다.
@@ -174,6 +180,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const rebalancingSellMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const rebalancingBuyMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const tab3AnalysisStateMapRef = useRef<Record<CustomerId, Tab3AnalysisState>>({});
+  const sellHistoryMapRef = useRef<Record<CustomerId, SellRecord[]>>({});
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
 
   // 파생값 — 공개 인터페이스는 Tab 1의 formData/riskResult 패턴과 동일
@@ -185,6 +192,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const newPortfolioAnalysisResult = newPortfolioAnalysisResultMap[selectedCustomer] ?? null;
   const tab3AnalysisState = tab3AnalysisStateMap[selectedCustomer] ?? {};
   const productSelectedIds = productSelectionsMap[selectedCustomer] ?? [];
+  const sellHistory = sellHistoryMap[selectedCustomer] ?? [];
 
   // Ref 동기화 — 렌더마다 최신 커밋 값 기록 (useEffect 없이 동기 할당)
   // 이를 통해 async 콜백이 stale 클로저 없이 항상 최신 상태를 읽을 수 있다
@@ -192,6 +200,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   rebalancingSellMapRef.current = rebalancingSellMap;
   rebalancingBuyMapRef.current = rebalancingBuyMap;
   tab3AnalysisStateMapRef.current = tab3AnalysisStateMap;
+  sellHistoryMapRef.current = sellHistoryMap;
   selectedCustomerRef.current = selectedCustomer;
 
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
@@ -270,7 +279,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       loadTab3AnalysisState(customerId),
       loadTaxSummaries(customerId),
       loadProductSelections(customerId),
-    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds]) => {
+      loadSellHistory(customerId),
+    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds, sellHistoryRows]) => {
       if (cancelled) {
         portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
         return;
@@ -284,6 +294,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
       setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
       setRebalancingLoadedMap(prev => ({ ...prev, [customerId]: true }));
+
+      setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
 
       setProductSelectionsMap(prev => ({ ...prev, [customerId]: productIds }));
       setProductSelectionsLoadedMap(prev => ({ ...prev, [customerId]: true }));
@@ -352,6 +364,18 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       setProductSelectionsDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
   }, [productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
+
+  // ── TAB2-5 매도 이력 변경 즉시 저장 → rebalancing_state.sell_history ────────
+  useEffect(() => {
+    if (!rebalancingLoadedMap[selectedCustomer]) return; // 로드 완료 후에만 저장
+    if (!sellHistoryDirtyMap[selectedCustomer]) return;
+
+    const customerId = selectedCustomer;
+    const history = sellHistoryMap[customerId] ?? [];
+    void saveSellHistory(customerId, history).then(() => {
+      setSellHistoryDirtyMap(prev => ({ ...prev, [customerId]: false }));
+    });
+  }, [sellHistoryMap, sellHistoryDirtyMap, rebalancingLoadedMap, selectedCustomer]);
 
   // ── 자산 변경 즉시 저장 — Tab 1의 saveCustomerDataJsonOnly 패턴과 완전히 동일
   // debounce 없음: 변경 즉시 저장하여 고객 전환 전에 항상 DB 반영 완료
@@ -488,7 +512,73 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     void saveTaxSummaryToDb(cid, type, summary);
   }, []); // stable
 
+  // ── TAB2-5 매도 시뮬레이터 callbacks ───────────────────────────────────────
+  const addSellRecord = useCallback((record: SellRecord) => {
+    const cid = selectedCustomerRef.current;
+
+    // ─ 1. sellHistory 누적 ─────────────────────────────────────────────────
+    const nextHistory = [...(sellHistoryMapRef.current[cid] ?? []), record];
+    setSellHistoryMap(prev => ({ ...prev, [cid]: nextHistory }));
+    setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: true }));
+
+    // ─ 2. rebalancingSellAssets 수량 차감 (Infinite Sell 차단) ─────────────
+    // 비어 있으면 원본 portfolioAssets 복사 → 첫 매도 시 자동 초기화
+    const currentSell = rebalancingSellMapRef.current[cid] ?? [];
+    const baseSell = currentSell.length > 0
+      ? currentSell
+      : (portfolioAssetsMapRef.current[cid] ?? []).map(a => ({ ...a }));
+
+    const nextSell = baseSell.map((a) => {
+      // quantity 타입 & name 일치 종목만 차감 (ticker 없는 종목 대비 name 매칭)
+      if (a.amount_type !== "quantity" || a.name !== record.name) return a;
+      return { ...a, amount: Math.max(0, a.amount - record.sellQty) };
+    });
+    setRebalancingSellMap(prev => ({ ...prev, [cid]: nextSell }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true })); // TAB3/TAB4 파이프라인 반영
+
+    // ─ 3. 기획서 수식 c = a − 누적매도금액; 헤더 가용자금(d) 연산 기반 ────────
+    const a = sumPortfolioCurrentValue(portfolioAssetsMapRef.current[cid] ?? []);
+    const totalSoldValue = nextHistory.reduce((s, r) => s + r.sellPrice * r.sellQty, 0);
+    const c = Math.max(0, a - totalSoldValue);
+    updateHeaderAssetSummary(cid, (current) => ({
+      ...current,
+      confirmedOperatingAssetsAfterSell: c,
+      confirmedOperatingAssetsAfterBuy: null,
+      confirmedBuyAmount: null,
+    }));
+  }, [updateHeaderAssetSummary]); // stable — 모든 읽기는 Ref 기반
+
+  const clearSellHistory = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    setSellHistoryMap(prev => ({ ...prev, [cid]: [] }));
+    setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: true }));
+    // rebalancingSellAssets → 원본 portfolioAssets로 롤백
+    const originalAssets = (portfolioAssetsMapRef.current[cid] ?? []).map(a => ({ ...a }));
+    setRebalancingSellMap(prev => ({ ...prev, [cid]: originalAssets }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+    updateHeaderAssetSummary(cid, (current) => ({
+      ...current,
+      confirmedOperatingAssetsAfterSell: null,
+      confirmedOperatingAssetsAfterBuy: null,
+      confirmedBuyAmount: null,
+    }));
+  }, [updateHeaderAssetSummary]); // stable
+
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
+
+  // d = b + (a - c): 기획서 표준 수식 — 가용 추가 투자 의향 자금
+  // a = 현재 포트폴리오 평가총액 | b = TAB1 투자가능자금 | c = 매도 확정 후 잔여자산
+  const availableInvestmentFunds = useMemo(() => {
+    // 포트폴리오 미로드 시 a = 0 되어 d가 음수 오염되는 것을 방지
+    if (!isPortfolioLoaded) return null;
+    const c = formData.headerAssetSummary?.confirmedOperatingAssetsAfterSell ?? null;
+    if (c === null) return null; // 매도 시뮬레이션 미진행 시 null
+    const a = sumPortfolioCurrentValue(portfolioAssets);
+    if (!Number.isFinite(a) || a <= 0) return null; // 유효한 평가총액 없으면 연산 생략
+    const b = parseKrwAmount(formData.financial.investableAssets) ?? 0;
+    const d = b + (a - c);
+    return Number.isFinite(d) ? d : null;
+  }, [formData.headerAssetSummary, formData.financial.investableAssets, portfolioAssets, isPortfolioLoaded]);
 
   const financialCompletion = useMemo(() => completion([
     formData.financial.existingInvestmentAssets, formData.financial.cashAssets, formData.financial.realEstate,
@@ -618,6 +708,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
         setProductSelectionsMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setProductSelectionsLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setProductSelectionsDirtyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setSellHistoryMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setSellHistoryDirtyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         portfolioLoadedRef.current.delete(deletedId);
         setStorageErrorMessage("");
       }
@@ -804,6 +896,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     productSelectedIds, setProductSelectedIds,
     // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)
     saveTaxSummary: saveTaxSummaryFn,
+    // TAB2-5 매도 시뮬레이터 전역 영속 (탭 전환 후에도 이력 유지)
+    sellHistory, addSellRecord, clearSellHistory, availableInvestmentFunds,
   };
 
   return (

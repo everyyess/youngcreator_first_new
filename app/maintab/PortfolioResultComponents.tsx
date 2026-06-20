@@ -89,6 +89,115 @@ export function normalizeAssetClass(cls: string): string {
   return ASSET_CLASS_ALIAS[cls] ?? ASSET_CLASS_ALIAS[cls.toLowerCase()] ?? cls;
 }
 
+// ─── Rebalancing Status Utilities ────────────────────────────────────────────
+
+export type RebalancingStatus = "유지" | "증가" | "감소" | "신규유입" | "매도";
+
+export interface RebalancingStatusInfo {
+  key: string;
+  ticker: string;
+  name: string;
+  productType: string;
+  assetClass: string;
+  status: RebalancingStatus;
+  prevTotalWeight: number;
+  newTotalWeight: number;
+  prevClassWeight: number;
+  newClassWeight: number;
+}
+
+export const STATUS_BADGE_STYLES: Record<RebalancingStatus, string> = {
+  유지:    "bg-slate-100  text-slate-600  border-slate-200",
+  증가:    "bg-emerald-100 text-emerald-700 border-emerald-200",
+  감소:    "bg-amber-100  text-amber-700  border-amber-200",
+  신규유입: "bg-blue-100   text-blue-700   border-blue-200",
+  매도:    "bg-red-100    text-red-700    border-red-200",
+};
+
+function assetKey(a: PortfolioAsset): string {
+  return (a.ticker ? a.ticker : a.name) ?? "";
+}
+
+function getAssetValueGeneric(a: PortfolioAsset): number {
+  if (a.current_value != null && a.current_value > 0) return a.current_value;
+  if (a.amount_type === "quantity" && a.buy_price != null && a.buy_price > 0 && a.amount > 0)
+    return a.buy_price * a.amount;
+  return a.amount ?? 0;
+}
+
+export function computeRebalancingStatuses(
+  initialAssets: PortfolioAsset[],
+  newAssets: PortfolioAsset[],
+): Map<string, RebalancingStatusInfo> {
+  const initTotal = initialAssets.reduce((s, a) => s + getAssetValueGeneric(a), 0);
+  const newTotal  = newAssets.reduce((s, a) => s + getAssetValueGeneric(a), 0);
+
+  const initClassTotals: Record<string, number> = {};
+  for (const a of initialAssets) {
+    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    initClassTotals[cls] = (initClassTotals[cls] ?? 0) + getAssetValueGeneric(a);
+  }
+  const newClassTotals: Record<string, number> = {};
+  for (const a of newAssets) {
+    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    newClassTotals[cls] = (newClassTotals[cls] ?? 0) + getAssetValueGeneric(a);
+  }
+
+  const initMap = new Map<string, PortfolioAsset>();
+  for (const a of initialAssets) { const k = assetKey(a); if (k) initMap.set(k, a); }
+  const newMap = new Map<string, PortfolioAsset>();
+  for (const a of newAssets) { const k = assetKey(a); if (k) newMap.set(k, a); }
+
+  const result = new Map<string, RebalancingStatusInfo>();
+  const allKeys = new Set([...initMap.keys(), ...newMap.keys()]);
+
+  for (const key of allKeys) {
+    const ia = initMap.get(key);
+    const na = newMap.get(key);
+    const initVal = ia ? getAssetValueGeneric(ia) : 0;
+    const newVal  = na ? getAssetValueGeneric(na) : 0;
+
+    const prevTotalWeight = initTotal > 0 ? initVal / initTotal : 0;
+    const newTotalWeight  = newTotal  > 0 ? newVal  / newTotal  : 0;
+
+    const initCls = ia ? normalizeAssetClass(ia.asset_class ?? ia.productType ?? "기타") : "";
+    const newCls  = na ? normalizeAssetClass(na.asset_class ?? na.productType ?? "기타") : "";
+    const cls     = newCls || initCls;
+
+    const prevClassWeight = (initClassTotals[initCls] ?? 0) > 0
+      ? initVal / initClassTotals[initCls] : 0;
+    const newClassWeight  = (newClassTotals[newCls] ?? 0) > 0
+      ? newVal  / newClassTotals[newCls]   : 0;
+
+    let status: RebalancingStatus;
+    if (!ia) {
+      status = "신규유입";
+    } else if (!na || newVal === 0) {
+      status = "매도";
+    } else {
+      const delta = newTotalWeight - prevTotalWeight;
+      if (Math.abs(delta) < 0.0005) status = "유지";
+      else if (delta > 0) status = "증가";
+      else status = "감소";
+    }
+
+    result.set(key, {
+      key,
+      ticker: (na?.ticker ?? ia?.ticker) ?? "",
+      name:   (na?.name   ?? ia?.name)   ?? key,
+      productType: (na?.productType ?? ia?.productType) ?? "",
+      assetClass: cls,
+      status,
+      prevTotalWeight,
+      newTotalWeight,
+      prevClassWeight,
+      newClassWeight,
+    });
+  }
+
+  return result;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function usePortfolioResult(): PortfolioAnalysisResult | null {
@@ -181,7 +290,8 @@ export function PieChartIcon() {
 // ─── Holding Performance Table ───────────────────────────────────────────────
 
 export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }) {
-  const rows = assets.filter((a) => a.name);
+  const rows = [...assets.filter((a) => a.name)]
+    .sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? ""));
   if (!rows.length) return null;
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -263,7 +373,15 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
 
 // ─── Donut Chart ─────────────────────────────────────────────────────────────
 
-export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
+export function DonutChart({
+  assets,
+  selectedClass = null,
+  onSegmentClick,
+}: {
+  assets: PortfolioAsset[];
+  selectedClass?: string | null;
+  onSegmentClick?: (cls: string | null) => void;
+}) {
   const [hoveredCls, setHoveredCls] = useState<string | null>(null);
   const getAssetValue = (a: PortfolioAsset): number => {
     if (a.current_value != null && a.current_value > 0) return a.current_value;
@@ -284,7 +402,8 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
   const segments = Object.entries(byClass).filter(([, pct]) => pct > 0.5).sort(([, a], [, b]) => b - a);
   const r = 15.9155;
   let cumulative = 0;
-  const hovered = hoveredCls ? (segments.find(([cls]) => cls === hoveredCls) ?? null) : null;
+  const activeCls = hoveredCls ?? selectedClass;
+  const activeSegment = activeCls ? (segments.find(([cls]) => cls === activeCls) ?? null) : null;
   return (
     <div className="flex flex-col items-center gap-6">
       <div className="relative h-56 w-56">
@@ -294,36 +413,401 @@ export function DonutChart({ assets }: { assets: PortfolioAsset[] }) {
             const offset = -cumulative;
             const dash = `${pct.toFixed(2)} ${(100 - pct).toFixed(2)}`;
             cumulative += pct;
+            const isActive = hoveredCls === cls || selectedClass === cls;
             return (
               <circle key={i} cx="18" cy="18" r={r} fill="none"
                 stroke={CLASS_COLORS[cls] ?? "#94a3b8"}
-                strokeWidth={hoveredCls === cls ? "5" : "3.5"}
+                strokeWidth={isActive ? "5" : "3.5"}
                 strokeDasharray={dash} strokeDashoffset={offset}
-                style={{ pointerEvents: "stroke", cursor: "pointer", transition: "stroke-width 0.15s" }}
+                style={{ pointerEvents: "stroke", cursor: onSegmentClick ? "pointer" : "default", transition: "stroke-width 0.15s" }}
                 onMouseEnter={() => setHoveredCls(cls)}
+                onClick={() => onSegmentClick?.(selectedClass === cls ? null : cls)}
               />
             );
           })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          {hovered ? (
+          {activeSegment ? (
             <div className="text-center leading-tight">
-              <p className="text-sm font-bold text-navy">{CLASS_DISPLAY_LABELS[hovered[0]] ?? hovered[0]}</p>
-              <p className="text-base font-bold text-samsung">{hovered[1].toFixed(1)}%</p>
+              <p className="text-sm font-bold text-navy">{CLASS_DISPLAY_LABELS[activeSegment[0]] ?? activeSegment[0]}</p>
+              <p className="text-base font-bold text-samsung">{activeSegment[1].toFixed(1)}%</p>
             </div>
-          ) : <p className="text-sm text-slate-400">자산군별 비중</p>}
+          ) : (
+            <div className="text-center leading-tight">
+              <p className="text-sm text-slate-400">자산군별 비중</p>
+              <p className="text-xs font-bold text-slate-500">
+                {segments.length}개 자산유형
+              </p>
+            </div>
+          )}
         </div>
       </div>
       {/* 범례 */}
       <div className="grid w-full max-w-sm grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-semibold">
         {segments.map(([cls, pct]) => (
-          <div key={cls} className={`flex items-center gap-1.5 cursor-default rounded px-1.5 py-1 transition-colors ${hoveredCls === cls ? "bg-slate-100" : ""}`}
-            onMouseEnter={() => setHoveredCls(cls)} onMouseLeave={() => setHoveredCls(null)}>
+          <div key={cls}
+            className={`flex items-center gap-1.5 rounded px-1.5 py-1 transition-colors ${hoveredCls === cls || selectedClass === cls ? "bg-slate-100" : ""} ${onSegmentClick ? "cursor-pointer" : "cursor-default"}`}
+            onMouseEnter={() => setHoveredCls(cls)}
+            onMouseLeave={() => setHoveredCls(null)}
+            onClick={() => onSegmentClick?.(selectedClass === cls ? null : cls)}
+          >
             <span className="h-3 w-3 shrink-0 rounded-lg" style={{ backgroundColor: CLASS_COLORS[cls] ?? "#94a3b8" }} />
             <span className="truncate text-slate-600">{CLASS_DISPLAY_LABELS[cls] ?? cls}</span>
             <span className="ml-auto shrink-0 font-bold text-navy">{pct.toFixed(1)}%</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Asset Class Table (도넛 연동 사이드 테이블) ──────────────────────────────
+
+export function AssetClassTable({
+  assets,
+  initialAssets,
+  filteredClass,
+  totalPortfolioValue,
+  rebalancingInfos,
+  onBadgeClick,
+}: {
+  assets: PortfolioAsset[];
+  initialAssets?: PortfolioAsset[];
+  filteredClass: string | null;
+  totalPortfolioValue: number;
+  rebalancingInfos?: Map<string, RebalancingStatusInfo>;
+  onBadgeClick?: (info: RebalancingStatusInfo) => void;
+}) {
+  // 전체 자산 기준 자산군 합산 (필터 여부와 무관하게 비중 분모로 사용)
+  const classTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const a of assets) {
+      const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+      totals[cls] = (totals[cls] ?? 0) + getAssetValueGeneric(a);
+    }
+    return totals;
+  }, [assets]);
+
+  // 초기 자산 중 [매도] 상태인 항목만 추출 (신규 포트폴리오에서 삭제된 종목)
+  const soldInfos = useMemo<RebalancingStatusInfo[]>(() => {
+    if (!rebalancingInfos || !initialAssets?.length) return [];
+    return initialAssets
+      .map((a) => rebalancingInfos.get(assetKey(a)))
+      .filter((info): info is RebalancingStatusInfo => info?.status === "매도");
+  }, [rebalancingInfos, initialAssets]);
+
+  const displayedActive = filteredClass
+    ? assets.filter((a) => normalizeAssetClass(a.asset_class ?? a.productType ?? "기타") === filteredClass)
+    : assets;
+  // 선택된 자산군에 속하는 완전 매도 종목만 노출 (info.assetClass는 이미 normalizeAssetClass 적용값)
+  const displayedSold = filteredClass
+    ? soldInfos.filter((info) => info.assetClass === filteredClass)
+    : soldInfos;
+
+  const hasRebalancing = !!rebalancingInfos;
+  const colCount = hasRebalancing ? 5 : 4;
+
+  const renderRow = (a: PortfolioAsset) => {
+    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    const val = getAssetValueGeneric(a);
+    const classTotal = classTotals[cls] ?? 0;
+    // 자산군 내 비중 = 해당 종목 평가액 / 해당 자산군 총합산 평가액
+    const classWeight = classTotal > 0 ? (val / classTotal) * 100 : 0;
+    // 전체 비중 = 해당 종목 평가액 / 포트폴리오 전체 총 가치액
+    const totalWeight = totalPortfolioValue > 0 ? (val / totalPortfolioValue) * 100 : 0;
+    const key = assetKey(a) || `${a.name}-${cls}`;
+    const info = rebalancingInfos?.get(assetKey(a));
+
+    return (
+      <tr key={key} className="bg-white hover:bg-slate-50">
+        <td className="px-2 py-2 text-center">
+          <span
+            className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
+            style={{
+              backgroundColor: (CLASS_COLORS[cls] ?? "#94a3b8") + "22",
+              color: CLASS_COLORS[cls] ?? "#64748b",
+            }}
+          >
+            {a.productType ?? cls}
+          </span>
+        </td>
+        <td className="px-2 py-2 text-left text-xs font-semibold text-navy max-w-0 truncate">{a.name}</td>
+        <td className="px-2 py-2 text-right text-xs font-bold text-slate-700">{classWeight.toFixed(1)}%</td>
+        <td className="px-2 py-2 text-right text-xs font-bold text-navy">{totalWeight.toFixed(1)}%</td>
+        {hasRebalancing && (
+          <td className="px-2 py-2 text-center">
+            {info && (
+              <button
+                type="button"
+                onClick={() => onBadgeClick?.(info)}
+                className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold transition hover:opacity-75 ${STATUS_BADGE_STYLES[info.status]}`}
+              >
+                {info.status}
+              </button>
+            )}
+          </td>
+        )}
+      </tr>
+    );
+  };
+
+  const renderSoldRow = (info: RebalancingStatusInfo) => (
+    <tr key={info.key} className="opacity-55 bg-white hover:bg-red-50">
+      <td className="px-2 py-2 text-center">
+        <span
+          className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
+          style={{ backgroundColor: "#ef444422", color: "#ef4444" }}
+        >
+          {info.productType || info.assetClass}
+        </span>
+      </td>
+      <td className="px-2 py-2 text-left text-xs font-semibold text-slate-500 max-w-0 truncate">{info.name}</td>
+      <td className="px-2 py-2 text-right text-xs text-slate-400">—</td>
+      <td className="px-2 py-2 text-right text-xs text-slate-400">—</td>
+      <td className="px-2 py-2 text-center">
+        <button
+          type="button"
+          onClick={() => onBadgeClick?.(info)}
+          className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold transition hover:opacity-75 ${STATUS_BADGE_STYLES["매도"]}`}
+        >
+          매도
+        </button>
+      </td>
+    </tr>
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {filteredClass && (
+        <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: CLASS_COLORS[filteredClass] ?? "#94a3b8" }} />
+          <span className="text-xs font-bold text-samsung">
+            {CLASS_DISPLAY_LABELS[filteredClass] ?? filteredClass} 필터링 중
+          </span>
+          <span className="ml-auto text-[10px] text-slate-400">슬라이스를 다시 클릭하면 전체 보기로 복귀</span>
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full table-fixed text-xs">
+          <thead className="border-b border-slate-200 bg-slate-50">
+            <tr>
+              <th className="w-[22%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">종목유형</th>
+              <th className="w-[30%] px-2 py-2 text-left   text-[10px] font-bold text-slate-500 whitespace-nowrap">종목명</th>
+              <th className="w-[18%] px-2 py-2 text-right  text-[10px] font-bold text-slate-500 whitespace-nowrap">자산군 내 비중</th>
+              <th className="w-[15%] px-2 py-2 text-right  text-[10px] font-bold text-slate-500 whitespace-nowrap">전체 비중</th>
+              {hasRebalancing && (
+                <th className="w-[15%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">변동 상태</th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {displayedActive.length > 0
+              ? [...displayedActive]
+                  .sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? ""))
+                  .map((a) => renderRow(a))
+              : (
+                <tr>
+                  <td colSpan={colCount} className="py-5 text-center text-xs text-slate-400">
+                    {filteredClass ? "해당 자산군에 속한 종목이 없습니다." : "표시할 종목이 없습니다."}
+                  </td>
+                </tr>
+              )}
+            {displayedSold.length > 0 && (
+              <>
+                <tr>
+                  <td colSpan={colCount} className="px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <div className="h-px flex-1 bg-red-200" />
+                      <span className="whitespace-nowrap text-[10px] font-bold text-red-500">완전 매도 종목</span>
+                      <div className="h-px flex-1 bg-red-200" />
+                    </div>
+                  </td>
+                </tr>
+                {[...displayedSold]
+                  .sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? ""))
+                  .map((info) => renderSoldRow(info))}
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Interactive Donut with Side Table ───────────────────────────────────────
+
+export function InteractiveDonutWithTable({
+  assets,
+  initialAssets,
+  showRebalancing = false,
+}: {
+  assets: PortfolioAsset[];
+  initialAssets?: PortfolioAsset[];
+  showRebalancing?: boolean;
+}) {
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [modalInfo, setModalInfo] = useState<RebalancingStatusInfo | null>(null);
+
+  const rebalancingInfos = useMemo<Map<string, RebalancingStatusInfo> | undefined>(() => {
+    if (!showRebalancing || !initialAssets?.length) return undefined;
+    return computeRebalancingStatuses(initialAssets, assets);
+  }, [showRebalancing, initialAssets, assets]);
+
+  const totalPortfolioValue = useMemo(
+    () => assets.reduce((s, a) => s + getAssetValueGeneric(a), 0),
+    [assets],
+  );
+
+  return (
+    <div className="flex flex-col gap-5">
+      <DonutChart
+        assets={assets}
+        selectedClass={selectedClass}
+        onSegmentClick={setSelectedClass}
+      />
+      <AssetClassTable
+        assets={assets}
+        initialAssets={initialAssets}
+        filteredClass={selectedClass}
+        totalPortfolioValue={totalPortfolioValue}
+        rebalancingInfos={rebalancingInfos}
+        onBadgeClick={setModalInfo}
+      />
+      {modalInfo && (
+        <RebalancingDetailModal info={modalInfo} onClose={() => setModalInfo(null)} />
+      )}
+    </div>
+  );
+}
+
+// ─── Rebalancing Detail Modal ─────────────────────────────────────────────────
+
+export function RebalancingDetailModal({
+  info,
+  onClose,
+}: {
+  info: RebalancingStatusInfo;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const isNew  = info.status === "신규유입";
+  const isSold = info.status === "매도";
+
+  const deltaTotal = (info.newTotalWeight - info.prevTotalWeight) * 100;
+  const deltaClass = (info.newClassWeight - info.prevClassWeight) * 100;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+      <div
+        className="relative z-10 mx-4 w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-5 py-4">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="truncate text-sm font-bold text-navy">{info.name}</span>
+            <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-bold ${STATUS_BADGE_STYLES[info.status]}`}>
+              {info.status}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 text-lg font-bold leading-none text-slate-400 transition hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="space-y-3 p-5">
+          {/* 전체 포트폴리오 비중 */}
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+              전체 포트폴리오 비중
+            </p>
+            {isNew ? (
+              <p className="text-sm font-semibold text-slate-500">
+                <span className="text-blue-600 font-bold">신규 편입</span>
+                <span className="mx-2 text-slate-400">→</span>
+                <span className="text-xl font-black text-navy">{(info.newTotalWeight * 100).toFixed(1)}%</span>
+              </p>
+            ) : isSold ? (
+              <p className="text-sm font-semibold text-slate-500">
+                <span className="text-base font-bold text-slate-700">{(info.prevTotalWeight * 100).toFixed(1)}%</span>
+                <span className="mx-2 text-slate-400">→</span>
+                <span className="font-bold text-red-600">매도 (0%)</span>
+              </p>
+            ) : (
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-xl font-black text-navy">
+                  {(info.prevTotalWeight * 100).toFixed(1)}%
+                </span>
+                <span className="text-slate-400">→</span>
+                <span className="text-xl font-black text-navy">
+                  {(info.newTotalWeight * 100).toFixed(1)}%
+                </span>
+                {deltaTotal > 0 ? (
+                  <span className="text-sm font-bold text-emerald-600">▲ +{deltaTotal.toFixed(1)}%p</span>
+                ) : deltaTotal < 0 ? (
+                  <span className="text-sm font-bold text-amber-600">▼ {deltaTotal.toFixed(1)}%p</span>
+                ) : (
+                  <span className="text-sm font-semibold text-slate-400">변동 없음</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 자산군 내 비중 */}
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+              자산군 내 비중 ({CLASS_DISPLAY_LABELS[info.assetClass] ?? info.assetClass})
+            </p>
+            {isNew ? (
+              <p className="text-sm font-semibold text-slate-500">
+                <span className="text-blue-600 font-bold">신규 편입</span>
+                <span className="mx-2 text-slate-400">→</span>
+                <span className="text-xl font-black text-navy">{(info.newClassWeight * 100).toFixed(1)}%</span>
+              </p>
+            ) : isSold ? (
+              <p className="text-sm font-semibold text-slate-500">
+                <span className="text-base font-bold text-slate-700">{(info.prevClassWeight * 100).toFixed(1)}%</span>
+                <span className="mx-2 text-slate-400">→</span>
+                <span className="font-bold text-red-600">매도 (0%)</span>
+              </p>
+            ) : (
+              <div className="flex items-baseline gap-2 flex-wrap">
+                <span className="text-xl font-black text-navy">
+                  {(info.prevClassWeight * 100).toFixed(1)}%
+                </span>
+                <span className="text-slate-400">→</span>
+                <span className="text-xl font-black text-navy">
+                  {(info.newClassWeight * 100).toFixed(1)}%
+                </span>
+                {deltaClass > 0 ? (
+                  <span className="text-sm font-bold text-emerald-600">▲ +{deltaClass.toFixed(1)}%p</span>
+                ) : deltaClass < 0 ? (
+                  <span className="text-sm font-bold text-amber-600">▼ {deltaClass.toFixed(1)}%p</span>
+                ) : null}
+              </div>
+            )}
+          </div>
+
+          {/* 자산군 색상 태그 */}
+          <div className="flex items-center gap-2 px-1">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: CLASS_COLORS[info.assetClass] ?? "#94a3b8" }} />
+            <span className="text-xs font-semibold text-slate-500">
+              {info.productType}{info.productType && " · "}{CLASS_DISPLAY_LABELS[info.assetClass] ?? info.assetClass}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -405,6 +889,14 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
     </div>
   );
 }
+
+// ─── Stress Test Scenario Order (시계열 연대기 순: 2018 → 2020 → 2022) ────────
+
+export const STRESS_SCENARIO_ORDER = [
+  { key: "scenario1" as const, period: "연준 양적긴축 쇼크 (2018)", desc: "연준 QT·금리 인상" },
+  { key: "scenario3" as const, period: "팬데믹 블랙스완 쇼크 (2020)",    desc: "블랙스완 쇼크" },
+  { key: "scenario2" as const, period: "러-우 원자재 공급망 위기 (2022)", desc: "원자재 공급망 위기" },
+] as const;
 
 // ─── Stress Test ─────────────────────────────────────────────────────────────
 
@@ -827,19 +1319,17 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
-          <DonutChart assets={enrichedAssets} />
-        </ResultCard>
+      <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
+        <InteractiveDonutWithTable assets={enrichedAssets} />
+      </ResultCard>
 
-        <ResultCard icon={<Activity size={18} />} title="자산 간 상관관계 히트맵" accent="slate">
+      <ResultCard icon={<Activity size={18} />} title="자산 간 상관관계 히트맵" accent="slate">
           {quantResult?.risk?.correlationHeatmap?.matrix?.length ? (
             <CorrelationHeatmap matrix={quantResult.risk.correlationHeatmap.matrix} labels={quantResult.risk.correlationHeatmap.labels} />
           ) : (
             <p className="text-sm text-slate-400">자산이 2개 이상일 때 표시됩니다.</p>
           )}
         </ResultCard>
-      </div>
 
       {quantResult && (
         <div className="grid gap-5">
@@ -880,13 +1370,9 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
       {stressResult && (
         <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 3대 위기 시나리오" accent="red">
           <div className="space-y-4">
-            {/* 기간 설명 배지 */}
+            {/* 기간 설명 배지 — 시계열 연대기 순(2018→2020→2022) */}
             <div className="flex flex-wrap gap-1.5">
-              {[
-                { key: "scenario1", period: "2018 긴축",    desc: "연준 QT·금리 인상" },
-                { key: "scenario2", period: "2022 러-우",   desc: "원자재 공급망 위기" },
-                { key: "scenario3", period: "2020 팬데믹",  desc: "블랙스완 쇼크" },
-              ].map(({ key, period, desc }, idx) => {
+              {STRESS_SCENARIO_ORDER.map(({ key, period, desc }, idx) => {
                 const sc = stressResult[key as keyof typeof stressResult] as { label: string; lossRate: number } | undefined;
                 const active = selectedScenario === idx;
                 return (
@@ -913,8 +1399,7 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
             </div>
             {/* 선택된 시나리오 상세 바 차트 */}
             {(() => {
-              const keys = ["scenario1", "scenario2", "scenario3"] as const;
-              const sc = stressResult[keys[selectedScenario]] as Parameters<typeof StressScenarioBar>[0]["scenario"] | undefined;
+              const sc = stressResult[STRESS_SCENARIO_ORDER[selectedScenario].key] as Parameters<typeof StressScenarioBar>[0]["scenario"] | undefined;
               if (!sc) return null;
               return <StressScenarioBar scenario={sc} />;
             })()}

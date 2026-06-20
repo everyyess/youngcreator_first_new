@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Activity, BarChart2, FolderOpen, GitBranch, RefreshCcw } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
@@ -11,14 +11,7 @@ import {
 } from "../PortfolioResultComponents";
 import TechnicalAnalysisTab from "./TechnicalAnalysisTab";
 import OptionAnalysisTab from "./OptionAnalysisTab";
-import RebalancingPortfolioInput from "../RebalancingPortfolioInput";
-import { useCustomerContext } from "../CustomerContext";
-import {
-  calcFinancialIncomeSummary,
-  NEW_PORTFOLIO_INCOME_STORAGE_KEY,
-  type AssetForIncomeCalc,
-} from "../tab1/FinancialIncomeGauge";
-import { parseKoreanNumber } from "@/lib/portfolioLogic";
+import SellSimulatorTab from "../SellSimulatorTab";
 
 // ─── Sub-tab 정의 ─────────────────────────────────────────────────────────────
 
@@ -39,134 +32,6 @@ const TAB2_SUBTAB_KEY = "tab2-active-subtab";
 export default function Tab2Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
   const data = usePortfolioResult();
-  const {
-    portfolioAssets,
-    rebalancingSellAssets,
-    setRebalancingSellAssets,
-    confirmRebalancingSell,
-    resetRebalancingSellSummary,
-    analysisResult,
-    formData,
-    saveTaxSummary,
-  } = useCustomerContext();
-
-  const tMarginal = useMemo(() => {
-    const total = parseKoreanNumber(formData.financial.totalAssets);
-    if (total >= 5e9) return 0.45;
-    if (total >= 3e9) return 0.40;
-    if (total >= 1.2e9) return 0.35;
-    return 0.38;
-  }, [formData.financial.totalAssets]);
-
-  const handleConfirmSell = () => {
-    confirmRebalancingSell();
-
-    const enrichedMap = new Map(
-      (analysisResult?.enrichedAssets ?? []).map(e => [
-        `${e.name ?? ""}::${e.ticker ?? ""}`, e as Record<string, unknown>
-      ])
-    );
-
-    // 편출(매도)된 자산 = 기존 포트폴리오에서 리밸런싱 후 남은 자산을 제외한 것
-    const keepSet = new Set(rebalancingSellAssets.map(a => `${a.name ?? ""}::${a.ticker ?? ""}`));
-    const soldAssets = portfolioAssets.filter(a => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`));
-
-    // 완전 매도 종목: 양도소득세만 (배당/이자는 매도 후 발생 안 함)
-    const soldAssetsForCalc: AssetForIncomeCalc[] = soldAssets
-      .map((a) => {
-        const isBond = a.productType === "국내채권" || a.productType === "해외채권";
-        const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
-        if (!resolvedName) return null;
-        const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
-        const enriched = enrichedMap.get(key);
-        return {
-          name: resolvedName,
-          ticker: a.ticker ?? "",
-          asset_class: a.asset_class,
-          productType: a.productType,
-          country: a.country,
-          current_price: (enriched?.current_price as number | undefined) ?? a.current_price,
-          current_value: (enriched?.current_value as number | undefined) ?? a.current_value,
-          amount: a.amount,
-          amount_type: a.amount_type,
-          buy_price: a.buy_price,
-          dividendYield: undefined,
-          interestRate: undefined,
-        } as AssetForIncomeCalc;
-      })
-      .filter((x): x is AssetForIncomeCalc => x !== null);
-
-    // 부분 매도 종목: 매도된 수량만큼 양도소득세 반영 (원래수량 - 잔여수량 = 매도수량)
-    const originalAmountMap = new Map(portfolioAssets.map(a => [`${a.name ?? ""}::${a.ticker ?? ""}`, a]));
-    const partiallySoldAssetsForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
-      .map((a) => {
-        // quantity 타입 비채권만 양도소득 계산 대상
-        if (a.amount_type !== "quantity") return null;
-        const isBond = a.productType === "국내채권" || a.productType === "해외채권";
-        if (isBond) return null;
-        const resolvedName = a.name || "";
-        if (!resolvedName) return null;
-        const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
-        const original = originalAmountMap.get(key);
-        const enriched = enrichedMap.get(key);
-        if (!original || original.amount_type !== "quantity" || original.buy_price == null) return null;
-        const soldAmount = original.amount - a.amount;
-        if (soldAmount <= 0) return null;
-        return {
-          name: resolvedName,
-          ticker: a.ticker ?? "",
-          asset_class: a.asset_class,
-          productType: a.productType,
-          country: a.country,
-          current_price: (enriched?.current_price as number | undefined) ?? a.current_price,
-          current_value: undefined,
-          amount: soldAmount,
-          amount_type: "quantity" as const,
-          buy_price: original.buy_price,
-          dividendYield: undefined,
-          interestRate: undefined,
-        } as AssetForIncomeCalc;
-      })
-      .filter((x): x is AssetForIncomeCalc => x !== null);
-
-    // 잔류 종목(부분 매도 포함): 감소된 수량 기준 배당/이자소득 반영
-    const remainingAssetsForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
-      .map((a) => {
-        const isBond = a.productType === "국내채권" || a.productType === "해외채권";
-        const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
-        if (!resolvedName) return null;
-        const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
-        const enriched = enrichedMap.get(key);
-        const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
-        return {
-          name: resolvedName,
-          ticker: a.ticker ?? "",
-          asset_class: a.asset_class,
-          productType: a.productType,
-          country: a.country,
-          current_price: (enriched?.current_price as number | undefined) ?? a.current_price,
-          // 비채권은 current_value를 undefined로 두어 current_price * 남은수량으로 계산되게 함
-          current_value: isBond ? ((enriched?.current_value as number | undefined) ?? a.current_value) : undefined,
-          amount: a.amount,
-          amount_type: a.amount_type,
-          buy_price: isBond ? a.buy_price : undefined,
-          dividendYield: enriched?.dividendYield as number | undefined,
-          interestRate,
-        } as AssetForIncomeCalc;
-      })
-      .filter((x): x is AssetForIncomeCalc => x !== null);
-
-    const combinedForCalc = [...soldAssetsForCalc, ...partiallySoldAssetsForCalc, ...remainingAssetsForCalc];
-    if (combinedForCalc.length > 0) {
-      const summary = calcFinancialIncomeSummary(combinedForCalc, tMarginal);
-      try {
-        localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(summary));
-        window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
-      } catch {}
-      saveTaxSummary('new', summary);
-    }
-
-  };
 
   useEffect(() => {
     const stored = window.localStorage.getItem(TAB2_SUBTAB_KEY);
@@ -231,17 +96,7 @@ export default function Tab2Page() {
       )}
 
       {activeInnerTab === "rebalancing" && (
-        <RebalancingPortfolioInput
-          assets={rebalancingSellAssets}
-          seedAssets={portfolioAssets}
-          onAssetsChange={setRebalancingSellAssets}
-          onConfirm={handleConfirmSell}
-          onReset={resetRebalancingSellSummary}
-          sectionTitle="자산 입력 및 분석 실행"
-          sectionBadge="리밸런싱 편출 관리"
-          noticeBanner="보유 현황 및 진단 페이지의 포트폴리오를 불러왔습니다. 편출(매도)할 종목을 삭제하거나 수량을 조정하세요. 이 페이지의 변경사항은 보유 현황 및 진단 페이지에 반영되지 않습니다."
-          confirmSuccessMessage="편출 목록이 확정되었습니다. TAB3 리밸런싱(매수) 페이지에서 편입할 종목을 추가하세요."
-        />
+        <SellSimulatorTab />
       )}
     </>
   );

@@ -228,6 +228,17 @@ export type PortfolioAnalysisResult = {
   tlhResult?: any;
 };
 
+// TAB2-5 매도 시뮬레이터 확정 이력 레코드 (Supabase 영속 단위)
+export type SellRecord = {
+  id: string;
+  name: string;
+  productType: string;
+  sellPrice: number;
+  sellQty: number;
+  buyPrice: number | null;
+  realizedGain: number;
+};
+
 export type Tab3InnerTab = "correlation-domestic" | "correlation-global" | "rebalancing";
 export type CorrelationPeriodRange = "1W" | "1M" | "3M" | "6M" | "1Y" | "3Y";
 export type CorrelationInnerViewTab = "optimal" | "heatmap" | "chart" | "weight" | "sectorlist";
@@ -1048,6 +1059,31 @@ export async function saveRebalancingBuyAssets(customerId: CustomerId, buyAssets
   );
 }
 
+// TAB2-5 매도 시뮬레이터 확정 이력 → rebalancing_state.sell_history 컬럼
+export async function loadSellHistory(customerId: CustomerId): Promise<SellRecord[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("rebalancing_state")
+      .select("sell_history")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return [];
+    const raw = (data as Record<string, unknown>).sell_history;
+    return Array.isArray(raw) ? (raw as SellRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveSellHistory(customerId: CustomerId, history: SellRecord[]): Promise<void> {
+  if (!supabase) return;
+  await rebSB().upsert(
+    { customer_id: customerId, sell_history: history, updated_at: new Date().toISOString() },
+    { onConflict: "customer_id" },
+  );
+}
+
 // ── New Portfolio Analysis Result Helpers ─────────────────────────────────
 
 export async function loadNewAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
@@ -1187,6 +1223,12 @@ export type CustomerContextValue = {
   setProductSelectedIds: (ids: string[]) => void;
   // ── 세금 요약 Supabase 저장 (Tab 2/3에서 호출) ────────────────────────────
   saveTaxSummary: (type: 'current' | 'new', summary: unknown) => void;
+  // ── 매도 시뮬레이터 확정 이력 (TAB2-5 → 전역 영속 + Supabase) ──────────────
+  sellHistory: SellRecord[];
+  addSellRecord: (record: SellRecord) => void;
+  clearSellHistory: () => void;
+  // d = b + (a - c): 가용 추가 투자 의향 자금 (기획서 표준 수식)
+  availableInvestmentFunds: number | null;
 };
 
 export const CustomerContext = createContext<CustomerContextValue | null>(null);
