@@ -6,6 +6,19 @@ import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
 import type { SmartExtractionPayload, StoredAdvisoryGuide } from "../CustomerContext";
 import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal, MissingNotice, QuestionTitle, questionLabel } from "../ui";
+import { preferenceBadgeClass, preferenceLabelFromScore } from "../riskPreference";
+import {
+  blankLiquidityEntry,
+  formatLiquiditySummary,
+  isLiquidityEntryFilled,
+  liquidityPriorities,
+  lumpSumTimingOptions,
+  parseLiquidityEntries,
+  regularTimingOptions,
+  serializeLiquidityEntries,
+  type LiquidityEntry,
+  type LiquidityKind,
+} from "../liquidityFields";
 import { geminiDailyUsageLimit, geminiUsageUpdatedEvent, incrementGeminiUsageToday, readGeminiUsageToday, writeGeminiUsageToday } from "@/lib/geminiUsage";
 
 const grayQuestionCardStyle = {
@@ -184,26 +197,93 @@ function toSmartExtractionPayload(envelope: SmartExtractionEnvelope): SmartExtra
 
 // ── Editable customer fields ─────────────────────────────────────────────────
 function EditableField({
-  label, value, placeholder, widthClassName = "w-32", onChange,
+  label, value, placeholder, widthClassName = "w-32", disabled = false, onChange,
 }: {
-  label: string; value: string; placeholder?: string; widthClassName?: string; onChange: (value: string) => void;
+  label: string; value: string; placeholder?: string; widthClassName?: string; disabled?: boolean; onChange: (value: string) => void;
 }) {
   return (
     <label className={`block ${widthClassName}`}>
       <span className="mb-1 block text-xs font-bold text-samsung">[{label}]</span>
       <input
-        className="h-10 min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-sm font-bold text-navy transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+        className="h-10 min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-sm font-bold text-navy transition placeholder:font-normal placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung disabled:bg-slate-100 disabled:text-slate-500"
         value={value}
         placeholder={placeholder ?? "입력 대기"}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
     </label>
   );
 }
 
+function GenderToggle({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="block w-24">
+      <span className="mb-1 block text-xs font-bold text-samsung">[성별]</span>
+      <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+        {["남", "여"].map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => onChange(value === option ? "" : option)}
+            className={`h-10 text-sm font-bold transition ${
+              value === option ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+            }`}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SelectField({
+  label, value, placeholder, options, widthClassName = "w-24", onChange,
+}: {
+  label: string; value: string; placeholder?: string; options: string[]; widthClassName?: string; onChange: (value: string) => void;
+}) {
+  return (
+    <label className={`block ${widthClassName}`}>
+      <span className="mb-1 block text-xs font-bold text-samsung">[{label}]</span>
+      <select
+        className="h-10 min-w-0 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-sm font-bold text-navy transition hover:border-slate-300 focus:border-samsung"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{placeholder ?? "선택"}</option>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function calculateKoreanAgeFromBirthDate(raw: string) {
+  const digits = raw.replace(/\D/g, "");
+  if (!(digits.length === 6 || digits.length === 8)) return "";
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const yy = digits.length === 8 ? Number(digits.slice(0, 4)) : Number(digits.slice(0, 2));
+  const year = digits.length === 8 ? yy : (yy <= currentYear % 100 ? 2000 + yy : 1900 + yy);
+  const month = Number(digits.slice(digits.length === 8 ? 4 : 2, digits.length === 8 ? 6 : 4));
+  const day = Number(digits.slice(digits.length === 8 ? 6 : 4, digits.length === 8 ? 8 : 6));
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return "";
+  let age = currentYear - year;
+  const birthdayThisYear = new Date(currentYear, month - 1, day);
+  if (now < birthdayThisYear) age -= 1;
+  return age >= 0 && age < 130 ? String(age) : "";
+}
+
 function CustomerInfoCard() {
   const { selectedCustomerProfile, updateCustomerProfile } = useCustomerContext();
   const profile = selectedCustomerProfile;
+  const birthDate = profile.birth_year ?? profile.birthYear;
+  const calculatedAge = calculateKoreanAgeFromBirthDate(birthDate);
+
+  useEffect(() => {
+    if (calculatedAge && profile.age !== calculatedAge) updateCustomerProfile("age", calculatedAge);
+    if (!birthDate.trim() && profile.age) updateCustomerProfile("age", "");
+  }, [birthDate, calculatedAge, profile.age, updateCustomerProfile]);
+
   return (
     <section className="rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-soft sm:px-4">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-end">
@@ -214,13 +294,13 @@ function CustomerInfoCard() {
           <p className="text-base font-bold text-navy">고객 프로필</p>
         </div>
         <div className="ml-0 flex flex-wrap items-end gap-2 lg:ml-4 lg:flex-nowrap">
-          <EditableField label="성명" value={profile.name} widthClassName="w-24 sm:w-28" onChange={(v) => updateCustomerProfile("name", v)} />
-          <EditableField label="성별" value={profile.gender} widthClassName="w-20 sm:w-24" onChange={(v) => updateCustomerProfile("gender", v)} />
+          <EditableField label="성명" value={profile.name} widthClassName="w-24 sm:w-28" placeholder="예. 홍길동" onChange={(v) => updateCustomerProfile("name", v)} />
+          <GenderToggle value={profile.gender} onChange={(v) => updateCustomerProfile("gender", v)} />
           <div className="flex flex-wrap gap-2 lg:flex-nowrap">
-            <EditableField label="출생연도" value={profile.birth_year ?? profile.birthYear} widthClassName="w-24 sm:w-28" placeholder="입력 대기" onChange={(v) => updateCustomerProfile("birthYear", v)} />
-            <EditableField label="만 나이" value={profile.age} widthClassName="w-20 sm:w-24" placeholder="입력 대기" onChange={(v) => updateCustomerProfile("age", v)} />
+            <EditableField label="생년월일" value={birthDate} widthClassName="w-24 sm:w-28" placeholder="예. 671018" onChange={(v) => updateCustomerProfile("birthYear", v.replace(/\D/g, "").slice(0, 8))} />
+            <EditableField label="만 나이" value={birthDate.trim() ? calculatedAge : ""} widthClassName="w-20 sm:w-24" placeholder="입력 대기" disabled onChange={() => {}} />
           </div>
-          <EditableField label="직업" value={profile.job} widthClassName="w-52 max-w-full xl:w-60" onChange={(v) => updateCustomerProfile("job", v)} />
+          <EditableField label="직업" value={profile.job} widthClassName="w-52 max-w-full xl:w-60" placeholder="예. 삼성증권 PB" onChange={(v) => updateCustomerProfile("job", v)} />
         </div>
       </div>
     </section>
@@ -232,6 +312,89 @@ function PbPrivateNotice() {
     <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
       <LockKeyhole size={14} />
       <span>PB 참고용 정보입니다. 고객에게 노출되지 않도록 주의하세요.</span>
+    </div>
+  );
+}
+
+const liquidityKindMeta: Record<LiquidityKind, { label: string; structure: string; purposePlaceholder: string; amountPlaceholder: string }> = {
+  regular: { label: "향후 정기적인 현금흐름 필요", structure: "[우선순위] [목적] [주기] [금액]", purposePlaceholder: "예. 은퇴 후 생활비", amountPlaceholder: "예. 월 500만 원" },
+  lumpSum: { label: "향후 목돈 사용 계획", structure: "[우선순위] [목적] [시기] [금액]", purposePlaceholder: "예. 자녀 유학비", amountPlaceholder: "예. 3억" },
+  emergency: { label: "향후 비상예비자금 확보 계획", structure: "[우선순위] [목적] [금액]", purposePlaceholder: "예. 의료비 대비", amountPlaceholder: "예. 1억" },
+};
+
+function LiquidityNeedsEditor({
+  regularValue,
+  lumpSumValue,
+  emergencyValue,
+  onChange,
+}: {
+  regularValue: string;
+  lumpSumValue: string;
+  emergencyValue: string;
+  onChange: (kind: LiquidityKind, value: string) => void;
+}) {
+  const entriesByKind: Record<LiquidityKind, LiquidityEntry[]> = {
+    regular: parseLiquidityEntries(regularValue, "regular"),
+    lumpSum: parseLiquidityEntries(lumpSumValue, "lumpSum"),
+    emergency: parseLiquidityEntries(emergencyValue, "emergency"),
+  };
+  const usedPriorityCounts = [...entriesByKind.regular, ...entriesByKind.lumpSum, ...entriesByKind.emergency]
+    .filter((entry) => entry.priority !== "해당 없음")
+    .reduce<Record<string, number>>((acc, entry) => {
+      acc[entry.priority] = (acc[entry.priority] ?? 0) + 1;
+      return acc;
+    }, {});
+
+  const updateEntries = (kind: LiquidityKind, entries: LiquidityEntry[]) => onChange(kind, serializeLiquidityEntries(entries));
+  const updateEntry = (kind: LiquidityKind, index: number, patch: Partial<LiquidityEntry>) => {
+    updateEntries(kind, entriesByKind[kind].map((entry, i) => i === index ? { ...entry, ...patch } : entry));
+  };
+
+  return (
+    <div className="grid gap-3 xl:grid-cols-2">
+      {(Object.keys(entriesByKind) as LiquidityKind[]).map((kind) => {
+        const meta = liquidityKindMeta[kind];
+        const entries = entriesByKind[kind];
+        const hasDuplicatePriority = entries.some((entry) => entry.priority !== "해당 없음" && usedPriorityCounts[entry.priority] > 1);
+        return (
+          <div key={kind} className="question-card rounded-lg border border-slate-200 p-4">
+            <QuestionTitle label={meta.label} missing={!entries.some(isLiquidityEntryFilled)} className="mb-2 text-[15px] font-bold leading-6 text-slate-800" />
+            <div className={`mb-1 grid gap-2 text-xs font-bold text-blue-700 ${kind === "emergency" ? "grid-cols-[76px_minmax(0,1fr)_116px_28px]" : "grid-cols-[76px_minmax(0,1fr)_96px_116px_28px]"}`}>
+              <span>우선순위</span>
+              <span>목적</span>
+              {kind !== "emergency" ? <span>{kind === "regular" ? "주기" : "시기"}</span> : null}
+              <span>금액</span>
+              <span />
+            </div>
+            {hasDuplicatePriority ? <p className="mb-2 text-xs font-bold text-red-600">⚠️ 이미 사용 중인 순위입니다.</p> : null}
+            <div className="grid gap-2">
+              {entries.map((entry, index) => (
+                <div key={entry.id} className={`grid items-center gap-2 ${kind === "emergency" ? "grid-cols-[76px_minmax(0,1fr)_116px_28px]" : "grid-cols-[76px_minmax(0,1fr)_96px_116px_28px]"}`}>
+                  <select className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-xs font-semibold text-navy" value={entry.priority} onChange={(e) => updateEntry(kind, index, { priority: e.target.value as LiquidityEntry["priority"] })}>
+                    {liquidityPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                  </select>
+                  <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink placeholder:text-slate-400" value={entry.purpose} placeholder={meta.purposePlaceholder} onChange={(e) => updateEntry(kind, index, { purpose: e.target.value })} />
+                  {kind !== "emergency" ? (
+                    entry.timing === "기타" ? (
+                      <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm text-ink placeholder:text-slate-400" value={entry.customTiming ?? ""} placeholder="직접 입력" onChange={(e) => updateEntry(kind, index, { customTiming: e.target.value })} />
+                    ) : (
+                      <select className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-navy" value={entry.timing} onChange={(e) => updateEntry(kind, index, { timing: e.target.value, customTiming: "" })}>
+                        <option value="">선택</option>
+                        {(kind === "regular" ? regularTimingOptions : lumpSumTimingOptions).map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    )
+                  ) : null}
+                  <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink placeholder:text-slate-400" value={entry.amount} placeholder={meta.amountPlaceholder} onChange={(e) => updateEntry(kind, index, { amount: e.target.value })} />
+                  <button type="button" className="h-9 w-7 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-500 hover:bg-slate-50" onClick={() => updateEntries(kind, entries.filter((_, i) => i !== index))} aria-label="입력칸 삭제">x</button>
+                </div>
+              ))}
+            </div>
+            <button type="button" className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-extrabold text-blue-700 hover:bg-blue-100" onClick={() => updateEntries(kind, [...entries, blankLiquidityEntry(entries.length)])}>
+              + 추가
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -921,6 +1084,7 @@ function SummaryAnalysisCard({
   const financial = formData.financial;
   const rrttllu = formData.rrttllu;
   const riskGrade = summaryRiskGrade(riskResult.score);
+  const riskPreferenceLabel = preferenceLabelFromScore(riskResult.score);
   const returnRows: [string, string][] = [
     ["투자 목적", summaryValue(rrttllu.returnObjective)],
     ["기대수익률", rrttllu.expectedReturnUnknown ? "구체적인 수치는 모름" : summaryValue(rrttllu.expectedReturn)],
@@ -948,9 +1112,9 @@ function SummaryAnalysisCard({
     ["법적/제도적 제약", legalSummary],
   ];
   const liquidityRows: [string, string][] = [
-    ["정기 현금흐름 필요", summaryValue(rrttllu.regularCashflowNeed)],
-    ["목돈 사용 계획", summaryValue(rrttllu.lumpSumPlan)],
-    ["비상예비자금 계획", summaryValue(rrttllu.emergencyReservePlan)],
+    ["정기 현금흐름 필요", summaryValue(formatLiquiditySummary(rrttllu.regularCashflowNeed, "regular"))],
+    ["목돈 사용 계획", summaryValue(formatLiquiditySummary(rrttllu.lumpSumPlan, "lumpSum"))],
+    ["비상예비자금 계획", summaryValue(formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency"))],
   ];
   const blank = (value: string | string[]) => Array.isArray(value) ? value.length === 0 : !value.trim();
   const summaryMissing = {
@@ -976,7 +1140,7 @@ function SummaryAnalysisCard({
     ].some((value) => blank(value)),
     timeHorizon: !rrttllu.timeHorizon.trim(),
     tax: [rrttllu.giftingPlan, rrttllu.globalTaxImportance, rrttllu.recentGlobalTaxSubject, rrttllu.foreignStockTaxImportance].some((value) => !value.trim()),
-    liquidity: [rrttllu.regularCashflowNeed, rrttllu.lumpSumPlan, rrttllu.emergencyReservePlan].some((value) => !value.trim()),
+    liquidity: !formatLiquiditySummary(rrttllu.regularCashflowNeed, "regular") || !formatLiquiditySummary(rrttllu.lumpSumPlan, "lumpSum") || !formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency"),
     legal: !rrttllu.legalConstraints.length || (rrttllu.legalConstraints.includes("기타") && !rrttllu.legalConstraintOther.trim()),
   };
   return (
@@ -1013,6 +1177,7 @@ function SummaryAnalysisCard({
               <span>{riskResult.score}/100 </span>
               <span className={`font-extrabold ${riskGrade.color}`}>{riskGrade.level}</span>
               <span> ({riskGrade.detail})</span>
+              <span className={`${preferenceBadgeClass} ml-2 align-middle`}>{riskPreferenceLabel}</span>
               <p className="mt-2 font-semibold text-slate-950">{riskGrade.description}</p>
             </div>
           </SummaryRow>
@@ -1030,14 +1195,36 @@ function SummaryAnalysisCard({
                   닫기
                 </button>
               </div>
-              <div className="grid gap-2">
-                {riskGradeGuide.map((grade) => (
-                  <div key={grade.range} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6">
-                    <span className="font-extrabold text-slate-950">{grade.range}</span>
-                    <span className="px-2 text-slate-400">|</span>
-                    <span className={`font-extrabold ${grade.color}`}>{grade.detail}</span>
-                    <span className="px-2 text-slate-400">|</span>
-                    <span className="font-semibold text-slate-950">{grade.description}</span>
+              <div className="space-y-3">
+                {[
+                  { label: "🔥 공격형", grades: riskGradeGuide.slice(0, 2), connector: "bracket" },
+                  { label: "⚖️ 밸런스형", grades: riskGradeGuide.slice(2, 3), connector: "dash" },
+                  { label: "🛡️ 안전형", grades: riskGradeGuide.slice(3, 5), connector: "bracket" },
+                ].map((group) => (
+                  <div key={group.label} className="grid grid-cols-[5.5rem_28px_1fr] items-center gap-3">
+                    <span className={preferenceBadgeClass}>{group.label}</span>
+                    <span className="relative flex h-full min-h-10 items-center justify-center">
+                      {group.connector === "bracket" ? (
+                        <span className="relative block h-full min-h-24 w-5">
+                          <span className="absolute left-0 top-[25%] bottom-[25%] w-0.5 bg-[#1f2a5a]" />
+                          <span className="absolute left-0 top-[25%] h-0.5 w-5 bg-[#1f2a5a]" />
+                          <span className="absolute left-0 top-[75%] h-0.5 w-5 bg-[#1f2a5a]" />
+                        </span>
+                      ) : (
+                        <span className="block h-0.5 w-5 bg-[#1f2a5a]" />
+                      )}
+                    </span>
+                    <div className="grid gap-2">
+                      {group.grades.map((grade) => (
+                        <div key={grade.range} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6">
+                          <span className="font-extrabold text-slate-950">{grade.range}</span>
+                          <span className="px-2 text-slate-400">|</span>
+                          <span className={`font-extrabold ${grade.color}`}>{grade.detail}</span>
+                          <span className="px-2 text-slate-400">|</span>
+                          <span className="font-semibold text-slate-950">{grade.description}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1254,7 +1441,7 @@ export default function CustomerAnalysisTab() {
     ].some((value) => isBlank(value)),
     timeHorizon: !rr.timeHorizon.trim(),
     tax: [rr.giftingPlan, rr.globalTaxImportance, rr.recentGlobalTaxSubject, rr.foreignStockTaxImportance].some((value) => !value.trim()),
-    liquidity: [rr.regularCashflowNeed, rr.lumpSumPlan, rr.emergencyReservePlan].some((value) => !value.trim()),
+    liquidity: !formatLiquiditySummary(rr.regularCashflowNeed, "regular") || !formatLiquiditySummary(rr.lumpSumPlan, "lumpSum") || !formatLiquiditySummary(rr.emergencyReservePlan, "emergency"),
     legal: !rr.legalConstraints.length || (rr.legalConstraints.includes("기타") && !rr.legalConstraintOther.trim()),
   };
 
@@ -1424,11 +1611,16 @@ export default function CustomerAnalysisTab() {
 
       {/* ⑤ Liquidity */}
       <Panel icon={<WalletCards size={18} />} eyebrow="RRTTLLU" title="⑤ Liquidity 유동성 필요 시기">
-        <CheckerboardGrid className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          <TextField label="향후 정기적인 현금흐름 필요" value={formData.rrttllu.regularCashflowNeed} placeholder="예. 20년간 월 생활비 500만 원" missing={!formData.rrttllu.regularCashflowNeed.trim()} onChange={(v) => setRrttllu("regularCashflowNeed", v)} />
-          <TextField label="향후 목돈 사용 계획" value={formData.rrttllu.lumpSumPlan} placeholder="예. 5년 후 자녀 유학비 1억원" missing={!formData.rrttllu.lumpSumPlan.trim()} onChange={(v) => setRrttllu("lumpSumPlan", v)} />
-          <TextField label="향후 비상예비자금 확보 계획" value={formData.rrttllu.emergencyReservePlan} placeholder="예. 의료비 등 비상 상황 대비 1억 원" missing={!formData.rrttllu.emergencyReservePlan.trim()} onChange={(v) => setRrttllu("emergencyReservePlan", v)} />
-        </CheckerboardGrid>
+        <LiquidityNeedsEditor
+          regularValue={formData.rrttllu.regularCashflowNeed}
+          lumpSumValue={formData.rrttllu.lumpSumPlan}
+          emergencyValue={formData.rrttllu.emergencyReservePlan}
+          onChange={(kind, value) => {
+            if (kind === "regular") setRrttllu("regularCashflowNeed", value);
+            if (kind === "lumpSum") setRrttllu("lumpSumPlan", value);
+            if (kind === "emergency") setRrttllu("emergencyReservePlan", value);
+          }}
+        />
       </Panel>
 
       {/* ⑥ Legal */}
