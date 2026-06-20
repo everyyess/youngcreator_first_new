@@ -7,8 +7,9 @@ import {
   type CorrelationInnerViewTab,
   type CorrelationPeriodRange,
 } from "../CustomerContext";
+import { preferenceFromRiskScore, preferenceLabel, type PortfolioPreference } from "../riskPreference";
 
-type Strategy = "conservative" | "balanced" | "aggressive";
+type Strategy = PortfolioPreference;
 
 const STRATEGIES: { id: Strategy; emoji: string; label: string; desc: string }[] = [
   { id: "conservative", emoji: "🛡️", label: "안전형",   desc: "변동성 최소화" },
@@ -17,9 +18,7 @@ const STRATEGIES: { id: Strategy; emoji: string; label: string; desc: string }[]
 ];
 
 function scoreToStrategy(score: number): Strategy {
-  if (score >= 70) return "aggressive";
-  if (score >= 40) return "balanced";
-  return "conservative";
+  return preferenceFromRiskScore(score);
 }
 
 function buildSrc(strategy: Strategy, k: number, state?: CorrelationAnalysisState): string {
@@ -43,6 +42,7 @@ export default function CorrelationDomesticTab({
 }) {
   const { riskResult } = useCustomerContext();
   const initStrategy = scoreToStrategy(riskResult.score);
+  const expectedStrategy = scoreToStrategy(riskResult.score);
 
   const [isMounted, setIsMounted] = useState(false);
   const [strategy, setStrategy] = useState<Strategy>(savedState?.strategy ?? initStrategy);
@@ -54,6 +54,8 @@ export default function CorrelationDomesticTab({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const kRef = useRef(k);
   useEffect(() => { kRef.current = k; }, [k]);
+  const prevMajorStateKey = useRef<string>("");
+  const showMismatchWarning = strategy !== expectedStrategy;
 
   // 클라이언트 마운트 확인 후 최초 src 생성 (SSR 타임스탬프 불일치 방지)
   useEffect(() => {
@@ -80,6 +82,7 @@ export default function CorrelationDomesticTab({
       const message = event.data as { type?: string; state?: Partial<CorrelationAnalysisState> } | null;
       if (message?.type !== "domestic-correlation-state" || !message.state) return;
       onStateChange?.({
+        ...savedState,
         strategy,
         k,
         periodRange: message.state.periodRange as CorrelationPeriodRange | undefined,
@@ -89,15 +92,21 @@ export default function CorrelationDomesticTab({
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [strategy, k, onStateChange]);
+  }, [strategy, k, savedState, onStateChange]);
 
   useEffect(() => {
     if (!isMounted) return;
     const nextStrategy = savedState?.strategy;
     const nextK = savedState?.k;
+    const nextPeriod = savedState?.periodRange;
+    const nextLockedTicker = savedState?.lockedTicker ?? "";
+    const nextInnerViewTab = savedState?.innerViewTab ?? "";
+    const majorKey = `${nextStrategy}|${nextK}|${nextPeriod}|${nextLockedTicker}|${nextInnerViewTab}`;
+    if (majorKey === prevMajorStateKey.current) return;
+    prevMajorStateKey.current = majorKey;
     if (nextStrategy && nextStrategy !== strategy) setStrategy(nextStrategy);
     if (typeof nextK === "number" && nextK !== k) setK(nextK);
-    if (nextStrategy || typeof nextK === "number") {
+    if (nextStrategy || typeof nextK === "number" || nextPeriod || nextLockedTicker || nextInnerViewTab) {
       setLoading(true);
       setActiveSrc(buildSrc(nextStrategy ?? strategy, nextK ?? k, savedState));
     }
@@ -107,6 +116,7 @@ export default function CorrelationDomesticTab({
   // riskResult.score 변경 시 전략 동기화 — 마운트 전 스킵
   useEffect(() => {
     if (!isMounted) return;
+    if (savedState?.strategy) return;
     const next = scoreToStrategy(riskResult.score);
     setStrategy(next);
     setLoading(true);
@@ -188,6 +198,11 @@ export default function CorrelationDomesticTab({
         <span className="text-xs text-slate-400">
           국내 KODEX ETF 30종목 · 30×30 상관행렬 · 섹터 다양성 제약
         </span>
+        {showMismatchWarning ? (
+          <p className="basis-full text-xs font-bold text-red-600">
+            ⚠ 고객 투자 성향 결과는 ‘{preferenceLabel(expectedStrategy)}’입니다. 현재 ‘{preferenceLabel(strategy)}’ 포트폴리오를 조회 중입니다.
+          </p>
+        ) : null}
       </div>
 
       {/* ── iframe 영역 ───────────────────────────────────────────────── */}

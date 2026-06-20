@@ -8,7 +8,7 @@ import {
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
-  type SmartExtractionPayload, type StoredCustomerState,
+  type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
@@ -25,6 +25,7 @@ import {
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
 } from "./CustomerContext";
 import { FINANCIAL_INCOME_STORAGE_KEY, NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
+import { formatLiquiditySummary, normalizeLiquidityValue } from "./liquidityFields";
 
 const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
 
@@ -499,7 +500,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
 
   const rrttlluCompletion = useMemo(() => {
     const r = formData.rrttllu;
-    return completion([r.returnObjective, r.expectedReturnUnknown ? "unknown" : r.expectedReturn, r.investmentExperience.length ? "selected" : "", r.knowledgeLevel, r.derivativesExperience, r.financialAssetRatio, r.investmentAssetRatio, r.riskAttitude, r.lossResponse, r.timeHorizon, r.expectedInterestIncome, r.expectedDividendIncome, r.giftingPlan, r.globalTaxImportance, r.recentGlobalTaxSubject, r.foreignStockTaxImportance, r.regularCashflowNeed, r.lumpSumPlan, r.emergencyReservePlan, r.legalConstraints.length ? "selected" : "", r.preferredAssets, r.avoidedAssets, r.holdingOrDisposalPlan, r.uniqueOther]);
+    return completion([r.returnObjective, r.expectedReturnUnknown ? "unknown" : r.expectedReturn, r.investmentExperience.length ? "selected" : "", r.knowledgeLevel, r.derivativesExperience, r.financialAssetRatio, r.investmentAssetRatio, r.riskAttitude, r.lossResponse, r.timeHorizon, r.expectedInterestIncome, r.expectedDividendIncome, r.giftingPlan, r.globalTaxImportance, r.recentGlobalTaxSubject, r.foreignStockTaxImportance, formatLiquiditySummary(r.regularCashflowNeed, "regular"), formatLiquiditySummary(r.lumpSumPlan, "lumpSum"), formatLiquiditySummary(r.emergencyReservePlan, "emergency"), r.legalConstraints.length ? "selected" : "", r.preferredAssets, r.avoidedAssets, r.holdingOrDisposalPlan, r.uniqueOther]);
   }, [formData.rrttllu]);
 
   const internalJsonPayload = useMemo(() => buildStructuredJsonPayload(formData, confirmedRiskResult ?? riskResult, selectedCustomerProfile), [confirmedRiskResult, formData, riskResult, selectedCustomerProfile]);
@@ -670,11 +671,18 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     return compact.replace(/[^\p{Script=Hangul}a-zA-Z0-9]/gu, "").slice(0, 32);
   };
 
+  const isPbOpeningMentForUniqueOther = (value: string) => {
+    const compact = value.replace(/\s+/g, "");
+    return compact.includes("고객님의투자성향")
+      && compact.includes("니즈를파악")
+      && compact.includes("몇가지여쭤");
+  };
+
   const mergeUniqueOther = (existing: string, incoming: string) => {
     const values = [
       ...incoming.split(/\n/),
       ...existing.split(/\n/),
-    ].map((value) => value.trim()).filter(Boolean);
+    ].map((value) => value.trim()).filter((value) => !isPbOpeningMentForUniqueOther(value)).filter(Boolean);
     const byMeaning = new Map<string, string>();
     values.forEach((value) => {
       const key = uniqueOtherMeaningKey(value);
@@ -706,6 +714,15 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
         "recentGlobalTaxSubject", "foreignStockTaxImportance", "regularCashflowNeed", "lumpSumPlan",
         "emergencyReservePlan", "legalConstraintOther", "preferredAssets", "avoidedAssets", "holdingOrDisposalPlan",
       ]);
+      if (hasExtractedText(rrttlluPatch.regularCashflowNeed)) {
+        rrttllu.regularCashflowNeed = normalizeLiquidityValue(rrttllu.regularCashflowNeed, "regular");
+      }
+      if (hasExtractedText(rrttlluPatch.lumpSumPlan)) {
+        rrttllu.lumpSumPlan = normalizeLiquidityValue(rrttllu.lumpSumPlan, "lumpSum");
+      }
+      if (hasExtractedText(rrttlluPatch.emergencyReservePlan)) {
+        rrttllu.emergencyReservePlan = normalizeLiquidityValue(rrttllu.emergencyReservePlan, "emergency");
+      }
       const manualUniqueOther = current.uniqueOtherManual ?? "";
       const nextSmartUniqueOther = hasExtractedText(rrttlluPatch.uniqueOther) ? rrttlluPatch.uniqueOther : "";
       rrttllu.uniqueOther = nextSmartUniqueOther
@@ -738,6 +755,12 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     ...prev,
     aiGuidePbNotes: { ...(prev.aiGuidePbNotes ?? {}), [checkpointId]: value },
   }));
+  const setAiAdvisoryGuide = (guide: StoredAdvisoryGuide | null, payloadSignature = "", generatedAt = "") => setFormData((prev) => ({
+    ...prev,
+    aiAdvisoryGuide: guide,
+    aiGuidePayloadSignature: payloadSignature,
+    aiGuideGeneratedAt: generatedAt,
+  }));
   const setIrregularIncome = (value: string) => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: value, irregularIncomeNone: false } }));
   const toggleNoIrregularIncome = () => setFormData((prev) => ({ ...prev, financial: { ...prev.financial, irregularIncome: "", irregularIncomeNone: !prev.financial.irregularIncomeNone } }));
   const setExpectedReturn = (value: string) => setFormData((prev) => ({ ...prev, rrttllu: { ...prev.rrttllu, expectedReturn: value, expectedReturnUnknown: false } }));
@@ -767,7 +790,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     riskResult, financialCompletion, rrttlluCompletion, internalJsonPayload, warnings,
     analysisRequested, confirmedRiskResult, changeHistory, changeHistoryExpanded,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
-    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote,
+    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote, setAiAdvisoryGuide,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
     updateCustomerProfile, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태

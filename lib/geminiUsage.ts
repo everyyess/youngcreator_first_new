@@ -1,5 +1,6 @@
 export const geminiUsageStorageKey = "samsung-vvip-gemini-usage";
 export const geminiUsageUpdatedEvent = "samsung-vvip-gemini-usage-updated";
+export const geminiDailyUsageLimit = 20;
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -17,12 +18,13 @@ export function readGeminiUsageToday() {
 
 export function writeGeminiUsageToday(count: number) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(geminiUsageStorageKey, JSON.stringify({ date: todayKey(), count }));
-  window.dispatchEvent(new CustomEvent(geminiUsageUpdatedEvent, { detail: { count } }));
+  const safeCount = Math.max(0, Math.min(geminiDailyUsageLimit, count));
+  window.localStorage.setItem(geminiUsageStorageKey, JSON.stringify({ date: todayKey(), count: safeCount }));
+  window.dispatchEvent(new CustomEvent(geminiUsageUpdatedEvent, { detail: { count: safeCount } }));
 }
 
 export function incrementGeminiUsageToday() {
-  const next = readGeminiUsageToday() + 1;
+  const next = Math.min(geminiDailyUsageLimit, readGeminiUsageToday() + 1);
   writeGeminiUsageToday(next);
   return next;
 }

@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { formatLiquiditySummary } from "./liquidityFields";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type CustomerId = string;
@@ -132,7 +133,15 @@ export type ChangeEntry = { label: string; before: string; after: string; change
 
 export type CustomerUpdatedMap = Record<CustomerId, number>;
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; headerAssetSummary: HeaderAssetSummaryState };
+export type StoredAdvisoryGuideLine = { text: string; highlights?: string[]; memoItems?: string[] };
+export type StoredAdvisoryGuideCheckpoint = { id: string; title: string; prompt?: string };
+export type StoredAdvisoryGuide = {
+  conflicts: { lines: StoredAdvisoryGuideLine[] };
+  followUps: { lines: StoredAdvisoryGuideLine[]; checkpoints: StoredAdvisoryGuideCheckpoint[] };
+  explanation: { lines: StoredAdvisoryGuideLine[] };
+};
+
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; aiAdvisoryGuide: StoredAdvisoryGuide | null; aiGuidePayloadSignature: string; aiGuideGeneratedAt: string; headerAssetSummary: HeaderAssetSummaryState };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -238,16 +247,16 @@ export type Tab3AnalysisState = {
 // 빈 자산 행 템플릿 — MainTabShell과 ExistingPortfolioTab에서 공용으로 사용
 export const EMPTY_PORTFOLIO_ASSET: PortfolioAsset = {
   name: "",
-  asset_class: "해외주식",
+  asset_class: "국내주식",
   theme: "기타",
-  country: "미국",
+  country: "한국",
   buy_price: null,
   amount: 0,
   amount_type: "quantity",
   is_hedged: false,
   needs_review: false,
   ticker: "",
-  productType: "해외주식",
+  productType: "국내주식",
   bond_yield: null,
   bond_maturity: null,
   owner_customer_id: null,  // 소유권 미확정 — addPortfolioRow 시 selectedCustomer로 덮어씌워짐
@@ -324,7 +333,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, aiAdvisoryGuide: null, aiGuidePayloadSignature: "", aiGuideGeneratedAt: "", headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -354,6 +363,9 @@ export function normalizeAppState(value: unknown): AppState {
     uniqueOtherManual: typeof state.uniqueOtherManual === "string" ? state.uniqueOtherManual : "",
     smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
     aiGuidePbNotes: state.aiGuidePbNotes && typeof state.aiGuidePbNotes === "object" && !Array.isArray(state.aiGuidePbNotes) ? state.aiGuidePbNotes as Record<string, string> : {},
+    aiAdvisoryGuide: state.aiAdvisoryGuide && typeof state.aiAdvisoryGuide === "object" && !Array.isArray(state.aiAdvisoryGuide) ? state.aiAdvisoryGuide as StoredAdvisoryGuide : null,
+    aiGuidePayloadSignature: typeof state.aiGuidePayloadSignature === "string" ? state.aiGuidePayloadSignature : "",
+    aiGuideGeneratedAt: typeof state.aiGuideGeneratedAt === "string" ? state.aiGuideGeneratedAt : "",
     headerAssetSummary: state.headerAssetSummary && typeof state.headerAssetSummary === "object" && !Array.isArray(state.headerAssetSummary)
         ? {
             confirmedOperatingAssetsAfterSell: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedOperatingAssetsAfterSell ?? null : null,
@@ -842,6 +854,9 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   const interestAmount = parseKrwAmount(expectedInterestIncome);
   const dividendAmount = parseKrwAmount(expectedDividendIncome);
   const taxAlert = financialIncomeTaxAlert(interestAmount, dividendAmount);
+  const regularCashflowNeed = formatLiquiditySummary(rrttllu.regularCashflowNeed, "regular");
+  const lumpSumPlan = formatLiquiditySummary(rrttllu.lumpSumPlan, "lumpSum");
+  const emergencyReservePlan = formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency");
   const hasMissingProfile = !customerProfile || !nullableText(customerProfile.name) || !nullableText(customerProfile.gender) || !nullableText(customerProfile.birthYear) || !nullableText(customerProfile.age) || !nullableText(customerProfile.job);
   const riskAnswers = {
     investment_experience: nullableArray(rrttllu.investmentExperience),
@@ -859,7 +874,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
   if (Object.values(riskAnswers).some((v) => v === null)) warnings.push("위험 허용도 (Risk) 정보가 부족합니다.");
   if (!nullableText(rrttllu.timeHorizon)) warnings.push("투자 기간 (Time Horizon) 정보가 부족합니다.");
   if (!expectedInterestIncome || !expectedDividendIncome || interestAmount === null || dividendAmount === null || !nullableText(rrttllu.giftingPlan) || !nullableText(rrttllu.globalTaxImportance) || !nullableText(rrttllu.recentGlobalTaxSubject) || !nullableText(rrttllu.foreignStockTaxImportance)) warnings.push("세금 요인 (Tax) 정보가 부족합니다.");
-  if (!nullableText(rrttllu.regularCashflowNeed) || !nullableText(rrttllu.lumpSumPlan) || !nullableText(rrttllu.emergencyReservePlan)) warnings.push("유동성 필요 시기 (Liquidity) 정보가 부족합니다.");
+  if (!nullableText(regularCashflowNeed) || !nullableText(lumpSumPlan) || !nullableText(emergencyReservePlan)) warnings.push("유동성 필요 시기 (Liquidity) 정보가 부족합니다.");
   if (!rrttllu.legalConstraints.length) warnings.push("법적/규제 제약 (Legal) 정보가 부족합니다.");
   if (rrttllu.legalConstraints.includes("기타") && !nullableText(rrttllu.legalConstraintOther)) warnings.push("법적/규제 제약 (Legal) 정보가 부족합니다.");
   if (!nullableText(rrttllu.preferredAssets) || !nullableText(rrttllu.avoidedAssets) || !nullableText(rrttllu.holdingOrDisposalPlan)) warnings.push("고객 고유 상황 (Unique Circumstances) 정보가 부족합니다.");
@@ -871,7 +886,7 @@ export function buildStructuredJsonPayload(formData: AppState, riskResult: RiskR
       risk: { score: riskResult.score, level: riskResult.level, answers: riskAnswers, interpretation: riskResult.interpretation },
       time_horizon: { investment_period: nullableText(rrttllu.timeHorizon) },
       tax: { expected_interest_income: expectedInterestIncome, expected_dividend_income: expectedDividendIncome, gift_plan: nullableText(rrttllu.giftingPlan), financial_income_tax_importance: nullableText(rrttllu.globalTaxImportance), financial_income_tax_history: nullableText(rrttllu.recentGlobalTaxSubject), foreign_stock_capital_gains_tax_importance: nullableText(rrttllu.foreignStockTaxImportance), financial_income_tax_alert: taxAlert },
-      liquidity: { cashflow_need: nullableText(rrttllu.regularCashflowNeed), large_cash_need: nullableText(rrttllu.lumpSumPlan), emergency_reserve_need: nullableText(rrttllu.emergencyReservePlan) },
+      liquidity: { cashflow_need: nullableText(regularCashflowNeed), large_cash_need: nullableText(lumpSumPlan), emergency_reserve_need: nullableText(emergencyReservePlan) },
       legal: { constraints: nullableArray(rrttllu.legalConstraints), other_detail: nullableText(rrttllu.legalConstraintOther) },
       unique_circumstances: {
         preferred_assets: { raw_input: nullableText(rrttllu.preferredAssets), portfolio_rule: { type: "soft_constraint", description: "고객이 선호하는 자산군은 포트폴리오 추천 시 우선 고려한다.", min_weight_hint: "10%" } },
@@ -1137,6 +1152,7 @@ export type CustomerContextValue = {
   toggleLegalConstraint: (option: string) => void;
   setSmartInputNote: (value: string) => void;
   setAiGuidePbNote: (checkpointId: string, value: string) => void;
+  setAiAdvisoryGuide: (guide: StoredAdvisoryGuide | null, payloadSignature?: string, generatedAt?: string) => void;
   analyzeRrttllu: () => void;
   resetSelectedCustomer: () => void;
   resetSelectedCustomerInputs: () => void;

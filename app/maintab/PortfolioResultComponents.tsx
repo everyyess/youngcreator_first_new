@@ -411,11 +411,20 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
 export function StressScenarioBar({
   scenario,
 }: {
-  scenario: { label: string; lossRate: number; lossAmount: number; details: { name: string; contribution: number }[] };
+  scenario: {
+    label: string;
+    lossRate: number;
+    lossAmount: number;
+    details: { name: string; shock: number; contribution: number; productType?: string }[];
+  };
 }) {
-  const details = scenario.details.slice(0, 8);
-  const maxContrib = Math.max(...details.map((d) => Math.abs(d.contribution)), 0.001);
-  const CHART_DOMAIN = Math.max(maxContrib * 1.1, 0.01);
+  // 채권 자산(국내채권·해외채권)은 렌더링에서 완전 제외 — quantEngine에서 이미 필터됐더라도 이중 가드
+  const details = scenario.details
+    .filter(d => d.productType !== '국내채권' && d.productType !== '해외채권')
+    .slice(0, 8);
+  // 바 차트 스케일: 개별 종목 자체 충격률(shock) 기준
+  const maxShock = Math.max(...details.map((d) => Math.abs(d.shock ?? d.contribution)), 0.001);
+  const CHART_DOMAIN = Math.max(maxShock * 1.1, 0.01);
   const isGain = scenario.lossRate >= 0;
   const ratePct = Math.abs(scenario.lossRate * 100).toFixed(1);
 
@@ -435,9 +444,11 @@ export function StressScenarioBar({
       </div>
       <div className="space-y-1">
         {details.map((d) => {
-          const barPct = Math.min((Math.abs(d.contribution) / CHART_DOMAIN) * 100, 100);
-          const isNeg = d.contribution < 0;
-          const isPos = d.contribution > 0;
+          // 개별 종목 자체 충격률(shock)로 표시
+          const shockVal = d.shock ?? d.contribution;
+          const barPct = Math.min((Math.abs(shockVal) / CHART_DOMAIN) * 100, 100);
+          const isNeg = shockVal < 0;
+          const isPos = shockVal > 0;
           const valColor = isPos ? "text-emerald-600" : isNeg ? "text-red-500" : "text-slate-400";
           const sign = isPos ? "+" : "";
           return (
@@ -472,7 +483,7 @@ export function StressScenarioBar({
               </div>
 
               <span className={`text-right font-bold ${valColor}`}>
-                {sign}{(d.contribution * 100).toFixed(1)}%
+                {sign}{(shockVal * 100).toFixed(1)}%
               </span>
             </div>
           );
@@ -867,32 +878,53 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
       )}
 
       {stressResult && (
-        <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
+        <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 3대 위기 시나리오" accent="red">
           <div className="space-y-4">
-            <div className="flex flex-wrap gap-2">
-              {(["scenario1", "scenario2", "scenario3", "scenario4"] as const).map((key, idx) => {
-                const sc = stressResult[key];
+            {/* 기간 설명 배지 */}
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { key: "scenario1", period: "2018 긴축",    desc: "연준 QT·금리 인상" },
+                { key: "scenario2", period: "2022 러-우",   desc: "원자재 공급망 위기" },
+                { key: "scenario3", period: "2020 팬데믹",  desc: "블랙스완 쇼크" },
+              ].map(({ key, period, desc }, idx) => {
+                const sc = stressResult[key as keyof typeof stressResult] as { label: string; lossRate: number } | undefined;
+                const active = selectedScenario === idx;
                 return (
-                  <button key={key} type="button" onClick={() => setSelectedScenario(idx)}
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setSelectedScenario(idx)}
                     className={`rounded-lg border px-3 py-2 text-left text-xs font-bold transition ${
-                      selectedScenario === idx ? "border-red-300 bg-red-50 text-red-800" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"}`}>
-                    <span className="block">{sc?.label ?? `시나리오 ${idx + 1}`}</span>
-                    <span className={`block text-xs ${selectedScenario === idx ? "text-red-600" : "text-slate-400"}`}>
-                      {sc ? `${(sc.lossRate * 100).toFixed(1)}%` : ""}
-                    </span>
+                      active
+                        ? "border-red-300 bg-red-50 text-red-800"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span className="block font-extrabold">{period}</span>
+                    <span className={`block text-[10px] font-normal ${active ? "text-red-500" : "text-slate-400"}`}>{desc}</span>
+                    {sc && (
+                      <span className={`block text-xs font-bold ${active ? "text-red-700" : "text-slate-500"}`}>
+                        {(sc.lossRate * 100).toFixed(1)}%
+                      </span>
+                    )}
                   </button>
                 );
               })}
             </div>
+            {/* 선택된 시나리오 상세 바 차트 */}
             {(() => {
-              const keys = ["scenario1", "scenario2", "scenario3", "scenario4"];
-              const sc = stressResult[keys[selectedScenario]];
+              const keys = ["scenario1", "scenario2", "scenario3"] as const;
+              const sc = stressResult[keys[selectedScenario]] as Parameters<typeof StressScenarioBar>[0]["scenario"] | undefined;
               if (!sc) return null;
               return <StressScenarioBar scenario={sc} />;
             })()}
+            {/* 채권 제외 안내 */}
+            <p className="text-[10px] font-semibold text-slate-400">
+              * 채권 자산(국내채권·해외채권)은 이자 수취 특성상 스트레스 충격 산정에서 제외됩니다.
+            </p>
             {stressResult.riskTypes?.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {stressResult.riskTypes.map((rt: string) => (
+                {(stressResult.riskTypes as string[]).map((rt) => (
                   <span key={rt} className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold text-red-800">{rt}</span>
                 ))}
               </div>
