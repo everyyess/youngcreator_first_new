@@ -424,7 +424,7 @@ function LiquidityNeedsEditor({
           ? "grid-cols-[40px_minmax(0,1fr)_92px]"
           : "grid-cols-[40px_minmax(0,1fr)_78px_16px_92px]";
         const suffix = kind === "regular" ? "마다" : "후";
-        const liquidityMissing = !entries.some((entry) => hasCompleteEntry(kind, entry)) || entries.some((entry) => hasPartialEntry(kind, entry));
+        const liquidityMissing = entries.some((entry) => hasPartialEntry(kind, entry));
         return (
           <div key={kind} className="question-card rounded-lg border border-slate-200 p-4">
             <QuestionTitle label={meta.label} missing={liquidityMissing} className="mb-2 text-[15px] font-bold leading-6 text-slate-800" />
@@ -498,6 +498,24 @@ function isGeminiResourceExhausted(value: unknown) {
   return /RESOURCE_EXHAUSTED|rate_limit|quota|429/i.test(body);
 }
 
+function normalizeTranscriptText(text: string) {
+  return text.replace(/\uD30C\uAD34\uB429\uB2C8\uB2E4/g, "\uD30C\uAE30\uB429\uB2C8\uB2E4").trim();
+}
+
+function normalizeTranscriptTurns(transcript: ConversationTurn[]) {
+  return transcript.reduce<ConversationTurn[]>((merged, turn) => {
+    const text = normalizeTranscriptText(turn.text ?? "");
+    if (!text) return merged;
+    const last = merged[merged.length - 1];
+    if (last?.speaker === turn.speaker) {
+      last.text = `${last.text.trim()} ${text}`.trim();
+      return merged;
+    }
+    merged.push({ ...turn, text });
+    return merged;
+  }, []);
+}
+
 function geminiUsageLabel(count: number) {
   return `오늘 Gemini 추정 사용량: ${Math.min(geminiDailyUsageLimit, count)}/${geminiDailyUsageLimit}회 (추정치)`;
 }
@@ -527,7 +545,7 @@ function SmartInputCard() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const transcript = formData.smartTranscript ?? [];
+  const transcript = normalizeTranscriptTurns(formData.smartTranscript ?? []);
   const additionalMemo = formData.smartAdditionalMemo ?? "";
   const visibleVoiceStatus = voiceStatusCustomer === selectedCustomer ? voiceStatus : "";
 
@@ -573,7 +591,7 @@ function SmartInputCard() {
         throw new Error(result?.detail && !message.includes(result.detail) ? `${message} / ${result.detail}` : message);
       }
       if (result.geminiUsed === true) setUsageToday(incrementGeminiUsageToday());
-      const normalizedTranscript = nextTranscript.length ? nextTranscript : [{ speaker: "고객" as const, text: result.text?.trim() ?? "" }];
+      const normalizedTranscript = normalizeTranscriptTurns(nextTranscript.length ? nextTranscript : [{ speaker: "\uACE0\uAC1D" as const, text: result.text?.trim() ?? "" }]);
       setSmartTranscript(normalizedTranscript);
       setSmartInputNote(transcriptToSmartInputText(normalizedTranscript, additionalMemo));
       setCurrentCustomerVoiceStatus(doneMessage);
@@ -690,7 +708,8 @@ function SmartInputCard() {
   };
 
   const extract = async () => {
-    const extractionNote = transcriptToSmartInputText(formData.smartTranscript ?? [], formData.smartAdditionalMemo ?? "");
+    const normalizedTranscript = normalizeTranscriptTurns(formData.smartTranscript ?? []);
+    const extractionNote = transcriptToSmartInputText(normalizedTranscript, formData.smartAdditionalMemo ?? "");
     console.log("Smart Input extract requested", {
       customerId: selectedCustomer,
       smartInput: extractionNote,
@@ -730,7 +749,7 @@ function SmartInputCard() {
       const response = await fetch("/api/extract-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: extractionNote, transcript: formData.smartTranscript, additionalMemo: formData.smartAdditionalMemo, estimatedUsageToday }),
+        body: JSON.stringify({ note: extractionNote, transcript: normalizedTranscript, additionalMemo: formData.smartAdditionalMemo, estimatedUsageToday }),
       });
       const result = await response.json();
       if (!response.ok || !result?.ok) {
@@ -1514,6 +1533,12 @@ export default function CustomerAnalysisTab() {
   const [advisoryGuideError, setAdvisoryGuideError] = useState("");
   const [advisoryGuideNotice, setAdvisoryGuideNotice] = useState("");
   const advisoryGuide = useMemo(() => normalizeAdvisoryGuide(formData.aiAdvisoryGuide), [formData.aiAdvisoryGuide]);
+  const advisoryGuideRrttllu = useMemo(() => ({
+    ...formData.rrttllu,
+    regularCashflowNeed: formatLiquiditySummary(formData.rrttllu.regularCashflowNeed, "regular"),
+    lumpSumPlan: formatLiquiditySummary(formData.rrttllu.lumpSumPlan, "lumpSum"),
+    emergencyReservePlan: formatLiquiditySummary(formData.rrttllu.emergencyReservePlan, "emergency"),
+  }), [formData.rrttllu]);
 
   const advisoryGuidePayload = useMemo(() => ({
     customerId: selectedCustomer,
@@ -1521,14 +1546,14 @@ export default function CustomerAnalysisTab() {
     smartInputNote: formData.smartInputNote,
     formData: {
       financial: formData.financial,
-      rrttllu: formData.rrttllu,
+      rrttllu: advisoryGuideRrttllu,
     },
     riskResult,
     structuredJson: internalJsonPayload,
     uniqueOther: formData.rrttllu.uniqueOther,
     smartInputContext: {
-      raw: transcriptToSmartInputText(formData.smartTranscript ?? [], formData.smartAdditionalMemo ?? ""),
-      transcript: formData.smartTranscript ?? [],
+      raw: transcriptToSmartInputText(normalizeTranscriptTurns(formData.smartTranscript ?? []), formData.smartAdditionalMemo ?? ""),
+      transcript: normalizeTranscriptTurns(formData.smartTranscript ?? []),
       additionalMemo: formData.smartAdditionalMemo ?? "",
       reflectedUniqueOther: formData.rrttllu.uniqueOther,
       smartExtractedUniqueOther: formData.smartExtractedUniqueOther,
@@ -1536,7 +1561,7 @@ export default function CustomerAnalysisTab() {
       reflectedAvoidedAssets: formData.rrttllu.avoidedAssets,
       reflectedExistingAssetPlan: formData.rrttllu.holdingOrDisposalPlan,
     },
-  }), [formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartTranscript, formData.smartAdditionalMemo, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
+  }), [formData.financial, advisoryGuideRrttllu, formData.smartInputNote, formData.smartTranscript, formData.smartAdditionalMemo, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
 
   const advisoryGuidePayloadSignature = useMemo(() => stableStringify(advisoryGuidePayload), [advisoryGuidePayload]);
 

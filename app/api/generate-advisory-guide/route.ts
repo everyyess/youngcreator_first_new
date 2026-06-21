@@ -61,6 +61,91 @@ function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+const liquidityStoragePrefix = "__liquidity_entries_v1__";
+
+function ensureWonSuffix(value: string) {
+  const trimmed = value.trim();
+  return trimmed && !trimmed.endsWith("원") ? `${trimmed} 원` : trimmed;
+}
+
+function formatStoredLiquidityValue(value: string, kind: "regular" | "lumpSum" | "emergency") {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith(liquidityStoragePrefix)) return trimmed;
+  try {
+    const entries = JSON.parse(trimmed.slice(liquidityStoragePrefix.length));
+    if (!Array.isArray(entries)) return "";
+    return entries
+      .map((entry) => {
+        const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+        const purpose = text(record.purpose);
+        const timing = text(record.timing === "기타" ? record.customTiming : record.timing);
+        const amount = ensureWonSuffix(text(record.amount));
+        if (!purpose && !timing && !amount) return "";
+        if (kind === "regular") {
+          const period = timing ? (timing.includes("매") ? timing : `${timing}마다`) : "";
+          return [purpose ? `${purpose} 목적으로` : "", period, amount ? `${amount}의 정기 현금흐름 필요가 있음` : "정기 현금흐름 필요가 있음"].filter(Boolean).join(" ");
+        }
+        if (kind === "lumpSum") {
+          const when = timing ? `${timing.replace(/(?:후|뒤|내)$/, "")} 내` : "";
+          return [when, purpose ? `${purpose} 목적으로` : "", amount ? `${amount}의 목돈 사용 계획이 있음` : "목돈 사용 계획이 있음"].filter(Boolean).join(" ");
+        }
+        return [purpose ? `${purpose} 목적으로` : "", amount ? `${amount}의 비상예비자금 확보 계획이 있음` : "비상예비자금 확보 계획이 있음"].filter(Boolean).join(" ");
+      })
+      .filter(Boolean)
+      .join(", ");
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeInternalMetadataText(value: string) {
+  return value
+    .replace(/__liquidity_entries_v1__\s*\[[^\r\n]*/g, "")
+    .replace(/__liquidity_entries_v1__/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function sanitizeAdvisoryPayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeAdvisoryPayload);
+  if (!value || typeof value !== "object") {
+    return typeof value === "string" ? sanitizeInternalMetadataText(value) : value;
+  }
+  const source = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  Object.entries(source).forEach(([key, item]) => {
+    if (typeof item === "string") {
+      if (key === "regularCashflowNeed") next[key] = formatStoredLiquidityValue(item, "regular");
+      else if (key === "lumpSumPlan") next[key] = formatStoredLiquidityValue(item, "lumpSum");
+      else if (key === "emergencyReservePlan") next[key] = formatStoredLiquidityValue(item, "emergency");
+      else next[key] = sanitizeInternalMetadataText(item);
+      return;
+    }
+    next[key] = sanitizeAdvisoryPayload(item);
+  });
+  return next;
+}
+
+function sanitizeGuideLine(line: GuideLine): GuideLine | null {
+  const cleanText = sanitizeInternalMetadataText(line.text);
+  if (!cleanText) return null;
+  return {
+    ...line,
+    text: cleanText,
+    highlights: line.highlights?.map(sanitizeInternalMetadataText).filter(Boolean),
+    memoItems: line.memoItems?.map(sanitizeInternalMetadataText).filter(Boolean),
+  };
+}
+
+function sanitizeAdvisoryGuide(guide: AdvisoryGuide): AdvisoryGuide {
+  const cleanLines = (lines: GuideLine[]) => lines.map(sanitizeGuideLine).filter((line): line is GuideLine => Boolean(line));
+  return {
+    conflicts: { lines: cleanLines(guide.conflicts.lines) },
+    followUps: { ...guide.followUps, lines: cleanLines(guide.followUps.lines) },
+    explanation: { lines: cleanLines(guide.explanation.lines) },
+  };
+}
+
 function parseKoreanAmount(value: unknown): number | null {
   const raw = text(value).replace(/,/g, "");
   if (!raw) return null;
@@ -798,10 +883,12 @@ function normalizeGuide(value: unknown): AdvisoryGuide {
         if (!line || typeof line !== "object") return null;
         const item = line as Partial<GuideLine>;
         if (typeof item.text !== "string" || !item.text.trim()) return null;
+        const cleanText = sanitizeInternalMetadataText(item.text);
+        if (!cleanText) return null;
         return {
-          text: item.text.trim(),
-          highlights: Array.isArray(item.highlights) ? item.highlights.filter((h): h is string => typeof h === "string" && h.trim().length > 0) : [],
-          memoItems: Array.isArray(item.memoItems) ? item.memoItems.filter((m): m is string => typeof m === "string" && m.trim().length > 0) : [],
+          text: cleanText,
+          highlights: Array.isArray(item.highlights) ? item.highlights.map(sanitizeInternalMetadataText).filter((h): h is string => h.length > 0) : [],
+          memoItems: Array.isArray(item.memoItems) ? item.memoItems.map(sanitizeInternalMetadataText).filter((m): m is string => m.length > 0) : [],
         };
       })
       .filter((line): line is GuideLine => Boolean(line))
@@ -1050,13 +1137,14 @@ function fallbackGuide(payload: any): AdvisoryGuide {
 }
 
 async function callGemini(payload: unknown) {
-  const ruleGuide = buildRuleInsights(payload);
+  const sanitizedPayload = sanitizeAdvisoryPayload(payload);
+  const ruleGuide = buildRuleInsights(sanitizedPayload);
   const apiKey = getGeminiApiKey();
-  if (!apiKey) return { source: "mock", geminiUsed: false, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+  if (!apiKey) return { source: "mock", geminiUsed: false, data: sanitizeAdvisoryGuide(mergeGuides(ruleGuide, fallbackGuide(sanitizedPayload), sanitizedPayload)) };
 
   try {
-    const prompt = buildPrompt(payload, ruleGuide);
-    const requestPayload = payload as {
+    const prompt = buildPrompt(sanitizedPayload, ruleGuide);
+    const requestPayload = sanitizedPayload as {
       customerId?: string;
       smartInputNote?: string;
       uniqueOther?: string;
@@ -1087,12 +1175,12 @@ async function callGemini(payload: unknown) {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string") throw new Error("Gemini response did not include JSON text.");
-    return { source: "gemini", geminiUsed: true, data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
+    return { source: "gemini", geminiUsed: true, data: sanitizeAdvisoryGuide(mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), sanitizedPayload)) };
   } catch (error) {
     console.error("AI advisory guide generation failed. Falling back to mock.", { error });
     const errorText = error instanceof Error ? error.message : JSON.stringify(error);
     const fallbackReason = /RESOURCE_EXHAUSTED|429|quota|rate_limit/i.test(errorText) ? "rate_limit" : "api_request_failed";
-    return { source: "mock", geminiUsed: false, fallback: true, fallbackReason, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+    return { source: "mock", geminiUsed: false, fallback: true, fallbackReason, data: sanitizeAdvisoryGuide(mergeGuides(ruleGuide, fallbackGuide(sanitizedPayload), sanitizedPayload)) };
   }
 }
 
