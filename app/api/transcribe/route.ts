@@ -92,6 +92,24 @@ function extractTextFromPhrase(phrase: Record<string, unknown>) {
   ).trim();
 }
 
+function normalizeTranscriptText(text: string) {
+  return text.replace(/\uD30C\uAD34\uB429\uB2C8\uB2E4/g, "\uD30C\uAE30\uB429\uB2C8\uB2E4").trim();
+}
+
+function normalizeTranscriptTurns(transcript: TranscriptTurn[]) {
+  return transcript.reduce<TranscriptTurn[]>((merged, turn) => {
+    const text = normalizeTranscriptText(turn.text);
+    if (!text) return merged;
+    const last = merged[merged.length - 1];
+    if (last?.speaker === turn.speaker) {
+      last.text = `${last.text.trim()} ${text}`.trim();
+      return merged;
+    }
+    merged.push({ ...turn, text });
+    return merged;
+  }, []);
+}
+
 function parseAzureTranscript(result: unknown): TranscriptTurn[] {
   const speakerMap = new Map<string, "PB" | "고객">();
   const data = result && typeof result === "object" ? result as Record<string, unknown> : {};
@@ -201,7 +219,7 @@ export async function POST(request: Request) {
       return jsonError("Azure 음성 변환에 실패했습니다.", 502, failures.join(" | ") || "Azure STT request failed.");
     }
 
-    const transcript = parseAzureTranscript(result);
+    const transcript = normalizeTranscriptTurns(parseAzureTranscript(result));
     const text = transcript.map((turn) => `${turn.speaker}: ${turn.text}`).join("\n").trim();
     if (!transcript.length || !text) {
       console.error("Azure STT returned empty transcript", { usedEndpoint, result });
