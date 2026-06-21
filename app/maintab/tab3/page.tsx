@@ -59,14 +59,17 @@ export default function Tab3Page() {
     updateTab3AnalysisState({ activeInnerTab: tab });
   };
 
-  // 탭 2-1과 동일한 한계세율 추정 로직
   const tMarginal = useMemo(() => {
-    const total = parseKoreanNumber(formData.financial.totalAssets);
-    if (total >= 5e9) return 0.45;
-    if (total >= 3e9) return 0.40;
-    if (total >= 1.2e9) return 0.35;
-    return 0.38;
-  }, [formData.financial.totalAssets]);
+    const income = parseKoreanNumber(formData.financial.annualFixedIncome ?? "");
+    if (income > 1_000_000_000) return 0.45;
+    if (income > 500_000_000)   return 0.42;
+    if (income > 300_000_000)   return 0.40;
+    if (income > 150_000_000)   return 0.38;
+    if (income > 88_000_000)    return 0.35;
+    if (income > 50_000_000)    return 0.24;
+    if (income > 14_000_000)    return 0.15;
+    return 0.06;
+  }, [formData.financial.annualFixedIncome]);
 
   // 리밸런싱 매수 확정 → 신규 포트폴리오 정량 분석 + 세금 계산
   const handleConfirmBuy = useCallback(async () => {
@@ -82,6 +85,12 @@ export default function Tab3Page() {
       if (result) {
         confirmRebalancingBuy();
         setNewPortfolioAnalysisResult(result);
+
+        // 신규 포트폴리오 자산 목록 → PensionTaxPanel에서 읽음
+        try {
+          localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(rebalancingBuyAssets));
+          window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
+        } catch {}
 
         // 신규 포트폴리오 세금 요약 계산 후 Tab4 게이지에 반영
         const assetsForCalc: AssetForIncomeCalc[] = (result.enrichedAssets ?? [])

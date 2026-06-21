@@ -288,18 +288,36 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       setProductSelectionsMap(prev => ({ ...prev, [customerId]: productIds }));
       setProductSelectionsLoadedMap(prev => ({ ...prev, [customerId]: true }));
 
-      // 세금 요약 → localStorage 복원 + 이벤트 발행 (Tab 4 FinancialIncomeGauge 갱신)
+      // 세금 요약 + 신규 포트폴리오 자산 → localStorage 복원 (고객별 격리)
+      // ※ 이벤트보다 먼저 localStorage를 기록해야 PensionTaxPanel이 올바른 데이터를 읽음
       const { currentSummary, newSummary } = taxSummaries;
       if (typeof window !== 'undefined') {
+        // 신규 포트폴리오 자산 복원 (PensionTaxPanel → new-portfolio-assets-v1)
+        const buyAssets = rebalancing.buyAssets as unknown[];
+        try {
+          if (buyAssets?.length > 0) {
+            localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(buyAssets));
+          } else {
+            localStorage.removeItem("new-portfolio-assets-v1");
+          }
+        } catch {}
+
         if (currentSummary) {
           try {
             localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(currentSummary));
             window.dispatchEvent(new CustomEvent("financial-income-updated"));
           } catch {}
+        } else {
+          try { localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY); } catch {}
         }
         if (newSummary) {
           try {
             localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newSummary));
+            window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
+          } catch {}
+        } else {
+          try {
+            localStorage.removeItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY);
             window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
           } catch {}
         }

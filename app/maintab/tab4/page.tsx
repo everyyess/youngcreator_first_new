@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Download, GitCompare, TrendingUp, WalletCards } from "lucide-react";
+import { AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
+import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import {
   DonutChart,
   fmt,
@@ -29,7 +30,27 @@ const SCENARIO_KEYS = ["scenario1", "scenario2", "scenario3", "scenario4"] as co
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
-  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets } = useCustomerContext();
+  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData } = useCustomerContext();
+  const [showPensionPanel, setShowPensionPanel] = useState(false);
+
+  const tMarginal = useMemo(() => {
+    const raw = formData.financial.annualFixedIncome ?? "";
+    const n = raw.replace(/[^0-9.억만천]/g, "");
+    let income = 0;
+    const eok = n.match(/([0-9.]+)억/);
+    const man = n.match(/([0-9.]+)만/);
+    if (eok) income += parseFloat(eok[1]) * 1e8;
+    if (man) income += parseFloat(man[1]) * 1e4;
+    if (!eok && !man) income = parseFloat(n.replace(/[^0-9.]/g, "")) || 0;
+    if (income > 1_000_000_000) return 0.45;
+    if (income > 500_000_000)   return 0.42;
+    if (income > 300_000_000)   return 0.40;
+    if (income > 150_000_000)   return 0.38;
+    if (income > 88_000_000)    return 0.35;
+    if (income > 50_000_000)    return 0.24;
+    if (income > 14_000_000)    return 0.15;
+    return 0.06;
+  }, [formData.financial.annualFixedIncome]);
   const [summary, setSummary] = useState<FinancialIncomeSummary | null>(null);
   const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
   // 좌우 동일 시나리오 인덱스 공유 — 같은 위기 시나리오를 나란히 비교
@@ -212,6 +233,35 @@ export default function Tab4Page() {
   return (
     <div className="space-y-6">
 
+      {/* ── 절세 제안 전략 모달 ── */}
+      {showPensionPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowPensionPanel(false)}>
+          <div
+            className="relative w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+              <div className="flex items-center gap-2 text-rose-700">
+                <Sparkles size={15} />
+                <span className="text-sm font-bold">절세 제안 전략</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPensionPanel(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {/* 본문 */}
+            <div className="p-4">
+              <PensionTaxPanel tMarginal={tMarginal} alwaysOpen />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── 페이지 헤더 + PDF 버튼 ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -371,9 +421,18 @@ export default function Tab4Page() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
-                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${newSummary ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
-                <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
+                <div className="flex items-center gap-2">
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${newSummary ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
+                  <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPensionPanel(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition shrink-0"
+                >
+                  <Sparkles size={11} /> 절세 제안 전략
+                </button>
               </div>
               {newSummary ? (
                 <FinancialIncomeGauge summary={newSummary} tlhData={tlhData} />
