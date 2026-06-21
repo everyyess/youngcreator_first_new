@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BarChart3, ClipboardList, Info, LockKeyhole, PieChart, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from "lucide-react";
 import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
-import type { SmartExtractionPayload, StoredAdvisoryGuide } from "../CustomerContext";
+import type { ConversationTurn, SmartExtractionPayload, StoredAdvisoryGuide } from "../CustomerContext";
 import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal, MissingNotice, QuestionTitle, questionLabel } from "../ui";
 import { preferenceBadgeClass, preferenceLabelFromScore } from "../riskPreference";
 import {
@@ -502,8 +502,19 @@ function geminiUsageLabel(count: number) {
   return `오늘 Gemini 추정 사용량: ${Math.min(geminiDailyUsageLimit, count)}/${geminiDailyUsageLimit}회 (추정치)`;
 }
 
+function transcriptToSmartInputText(transcript: ConversationTurn[], additionalMemo: string) {
+  const transcriptText = transcript
+    .map((turn) => `${turn.speaker}: ${turn.text.trim()}`)
+    .filter((line) => line.replace(/^(PB|고객):\s*/, "").trim())
+    .join("\n");
+  const memo = additionalMemo.trim();
+  return [transcriptText ? `[음성 상담 대화록]\n${transcriptText}` : "", memo ? `[추가 메모]\n${memo}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function SmartInputCard() {
-  const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, selectedCustomerProfile, setSmartInputNote } = useCustomerContext();
+  const { applySmartExtraction, formData, selectedCustomer, selectedCustomerProfile, setSmartAdditionalMemo, setSmartInputNote, setSmartTranscript } = useCustomerContext();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [usageToday, setUsageToday] = useState(0);
@@ -516,7 +527,8 @@ function SmartInputCard() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const note = formData.smartInputNote;
+  const transcript = formData.smartTranscript ?? [];
+  const additionalMemo = formData.smartAdditionalMemo ?? "";
   const visibleVoiceStatus = voiceStatusCustomer === selectedCustomer ? voiceStatus : "";
 
   const setCurrentCustomerVoiceStatus = (message: string) => {
@@ -554,13 +566,16 @@ function SmartInputCard() {
         method: "POST",
         body: form,
       });
-      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; message?: string; error?: string; detail?: string; geminiUsed?: boolean } | null;
-      if (!response.ok || !result?.success || !result.text?.trim()) {
-        const message = result?.message ?? result?.error ?? "Gemini 응답 실패";
+      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; transcript?: ConversationTurn[]; message?: string; error?: string; detail?: string; geminiUsed?: boolean } | null;
+      const nextTranscript = Array.isArray(result?.transcript) ? result.transcript.filter((turn) => turn?.text?.trim()) : [];
+      if (!response.ok || !result?.success || (!nextTranscript.length && !result.text?.trim())) {
+        const message = result?.message ?? result?.error ?? "Azure STT 응답 실패";
         throw new Error(result?.detail && !message.includes(result.detail) ? `${message} / ${result.detail}` : message);
       }
       if (result.geminiUsed === true) setUsageToday(incrementGeminiUsageToday());
-      setSmartInputNote(result.text.trim());
+      const normalizedTranscript = nextTranscript.length ? nextTranscript : [{ speaker: "고객" as const, text: result.text?.trim() ?? "" }];
+      setSmartTranscript(normalizedTranscript);
+      setSmartInputNote(transcriptToSmartInputText(normalizedTranscript, additionalMemo));
       setCurrentCustomerVoiceStatus(doneMessage);
       return true;
     } catch (error) {
@@ -675,24 +690,21 @@ function SmartInputCard() {
   };
 
   const extract = async () => {
-    const textareaValue = document.querySelector<HTMLTextAreaElement>("[data-smart-input-textarea='true']")?.value ?? "";
+    const extractionNote = transcriptToSmartInputText(formData.smartTranscript ?? [], formData.smartAdditionalMemo ?? "");
     console.log("Smart Input extract requested", {
       customerId: selectedCustomer,
-      smartInput: note,
-      smartInputLength: note.length,
-      trimmedLength: note.trim().length,
-      textareaValue,
-      textareaValueLength: textareaValue.length,
-      textareaMatchesState: textareaValue === note,
+      smartInput: extractionNote,
+      smartInputLength: extractionNote.length,
+      trimmedLength: extractionNote.trim().length,
     });
-    if (!note.trim()) {
-      setMessage("자연어 메모를 먼저 입력해주세요.");
+    if (!extractionNote.trim()) {
+      setMessage("음성 상담 대화록 또는 추가 메모를 먼저 입력해주세요.");
       return;
     }
     const cacheKey = smartInputCacheKey(selectedCustomer);
     try {
       const cached = JSON.parse(window.localStorage.getItem(cacheKey) ?? "null") as { note?: string; result?: { data?: SmartExtractionEnvelope; source?: string; fallback?: boolean; fallbackReason?: string; retryDelay?: number; estimatedUsageToday?: number; estimatedRemainingToday?: number; quotaLimit?: number } } | null;
-      if (cached?.note === note && cached.result?.data) {
+      if (cached?.note === extractionNote && cached.result?.data) {
         console.info("Smart Input reused cached extraction result", {
           customerId: selectedCustomer,
           source: cached.result.source,
@@ -712,13 +724,13 @@ function SmartInputCard() {
       const estimatedUsageToday = readGeminiUsageToday();
       console.info("[Gemini Call Trigger] extract-customer", {
         customerId: selectedCustomer,
-        smartInputLength: note.length,
+        smartInputLength: extractionNote.length,
         estimatedUsageToday,
       });
       const response = await fetch("/api/extract-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note, estimatedUsageToday }),
+        body: JSON.stringify({ note: extractionNote, transcript: formData.smartTranscript, additionalMemo: formData.smartAdditionalMemo, estimatedUsageToday }),
       });
       const result = await response.json();
       if (!response.ok || !result?.ok) {
@@ -726,7 +738,7 @@ function SmartInputCard() {
           status: response.status,
           result,
           customerId: selectedCustomer,
-          smartInput: note,
+          smartInput: extractionNote,
         });
         throw new Error(result?.reason ? `${result.error ?? "extract failed"} (${result.reason})` : result?.error ?? "extract failed");
       }
@@ -763,7 +775,7 @@ function SmartInputCard() {
         setMessage("Mock Parser로 추출 가능한 항목을 반영했습니다.");
       }
       window.localStorage.setItem(cacheKey, JSON.stringify({
-        note,
+        note: extractionNote,
         result: {
           source: result.source,
           fallback: result.fallback,
@@ -779,9 +791,9 @@ function SmartInputCard() {
       console.error("Smart Input extraction failed", {
         error,
         customerId: selectedCustomer,
-        failedSmartInput: note,
-        failedSmartInputLength: note.length,
-        failedTrimmedLength: note.trim().length,
+        failedSmartInput: extractionNote,
+        failedSmartInputLength: extractionNote.length,
+        failedTrimmedLength: extractionNote.trim().length,
       });
       if (isGeminiResourceExhausted(error instanceof Error ? error.message : error)) {
         markGeminiLimitReached();
@@ -796,38 +808,77 @@ function SmartInputCard() {
 
   const resetAll = () => {
     setMessage("");
-    resetSelectedCustomerInputs();
+    setSmartTranscript([]);
+    setSmartAdditionalMemo("");
+    setSmartInputNote("");
+    setVoiceStatus("");
+    setVoiceStatusCustomer(null);
+    chunksRef.current = [];
+    recorderRef.current = null;
+    stopCurrentStream();
+    setRecordingState("idle");
+    setUploadBusy(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setResetOpen(false);
   };
 
   return (
-    <section className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 shadow-soft sm:p-5">
+    <section className="rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-soft sm:p-5">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_132px]">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-3">
-            <p className="text-sm font-extrabold text-yellow-900">Smart Input</p>
+            <p className="text-sm font-extrabold text-sky-900">Smart Input</p>
             <PbPrivateNotice />
             <SmartInputStatusBadge message={visibleVoiceStatus} />
           </div>
-          <textarea
-            data-smart-input-textarea="true"
-            className="min-h-40 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] leading-6 text-ink shadow-inner transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
-            value={note}
-            placeholder="고객 정보와 니즈를 자연어로 입력합니다."
-            onChange={(e) => setSmartInputNote(e.target.value)}
-          />
+          <div className="space-y-3 bg-sky-50">
+            <div className="rounded-lg border border-sky-200 bg-white p-4">
+              <p className="mb-3 text-sm font-extrabold text-navy">대화록</p>
+              {transcript.length ? (
+                <div className="space-y-3">
+                  {transcript.map((turn, index) => (
+                    <div key={`${turn.speaker}-${index}`} className="grid grid-cols-[44px_minmax(0,1fr)] items-start gap-3">
+                      <span className={`inline-flex h-7 w-11 items-center justify-center rounded-full text-xs font-extrabold ${
+                        turn.speaker === "PB"
+                          ? "border border-navy bg-white text-navy"
+                          : "bg-navy text-white"
+                      }`}>
+                        {turn.speaker}
+                      </span>
+                      <p className="pt-0.5 text-[15px] leading-6 text-black">{turn.text}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-400">
+                  음성 파일 업로드 또는 녹음을 완료하면 PB/고객 대화록이 표시됩니다.
+                </p>
+              )}
+            </div>
+            <div className="rounded-lg border border-sky-200 bg-white p-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-extrabold text-navy">추가 메모</span>
+                <textarea
+                  className="min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-[15px] leading-6 text-ink transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+                  value={additionalMemo}
+                  placeholder="녹음 종료 후 추가 정보, 고객 성향, 주의점, 커뮤니케이션 방식 등을 입력하세요."
+                  onChange={(e) => setSmartAdditionalMemo(e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
           {message === "gemini_rate_limit" ? (
             <div className="mt-2 space-y-1">
-              <p className="text-sm font-extrabold text-yellow-900">■ Gemini 무료 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.</p>
-              <p className="text-xs font-bold text-yellow-800">
+              <p className="text-sm font-extrabold text-sky-900">■ Gemini 무료 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.</p>
+              <p className="text-xs font-bold text-sky-800">
                 {geminiUsageLabel(usageToday)}
               </p>
             </div>
           ) : message ? (
-            <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-yellow-900"}`}>{message}</p>
+            <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-sky-900"}`}>{message}</p>
           ) : null}
           {message !== "gemini_rate_limit" ? (
-            <p className="mt-2 text-xs font-bold text-yellow-800">
+            <p className="mt-2 text-xs font-bold text-sky-800">
               {geminiUsageLabel(usageToday)}
             </p>
           ) : null}
@@ -904,8 +955,8 @@ function SmartInputCard() {
       {resetOpen ? (
         <ConfirmModal
           icon={<Trash2 size={26} />}
-          title="Smart Input 및 설문조사 초기화"
-          body={`${selectedCustomerProfile.name || "현재 고객"} Smart Input과 설문조사 입력 내용이 모두 사라집니다. 정말 초기화하시겠습니까?`}
+          title="Smart Input 초기화"
+          body={`${selectedCustomerProfile.name || "현재 고객"} Smart Input 대화록과 추가 메모를 초기화하시겠습니까?`}
           cancelLabel="취소"
           confirmLabel="삭제"
           onCancel={() => setResetOpen(false)}
@@ -1476,14 +1527,16 @@ export default function CustomerAnalysisTab() {
     structuredJson: internalJsonPayload,
     uniqueOther: formData.rrttllu.uniqueOther,
     smartInputContext: {
-      raw: formData.smartInputNote,
+      raw: transcriptToSmartInputText(formData.smartTranscript ?? [], formData.smartAdditionalMemo ?? ""),
+      transcript: formData.smartTranscript ?? [],
+      additionalMemo: formData.smartAdditionalMemo ?? "",
       reflectedUniqueOther: formData.rrttllu.uniqueOther,
       smartExtractedUniqueOther: formData.smartExtractedUniqueOther,
       reflectedPreferredAssets: formData.rrttllu.preferredAssets,
       reflectedAvoidedAssets: formData.rrttllu.avoidedAssets,
       reflectedExistingAssetPlan: formData.rrttllu.holdingOrDisposalPlan,
     },
-  }), [formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
+  }), [formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartTranscript, formData.smartAdditionalMemo, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
 
   const advisoryGuidePayloadSignature = useMemo(() => stableStringify(advisoryGuidePayload), [advisoryGuidePayload]);
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getGeminiApiKey } from "@/lib/geminiServerEnv";
+
+type TranscriptTurn = { speaker: "PB" | "고객"; text: string; timestamp?: string };
 
 const allowedExtensions = new Set(["mp3", "wav", "m4a", "webm"]);
 const mimeByExtension: Record<string, string> = {
@@ -14,8 +15,8 @@ function fileExtension(name: string) {
   return name.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function jsonError(message: string, status: number, detail?: string, source: "mock" | "gemini" = "mock") {
-  return NextResponse.json({ success: false, source, geminiUsed: false, message, error: message, detail }, { status });
+function jsonError(message: string, status: number, detail?: string) {
+  return NextResponse.json({ success: false, source: "azure", azureUsed: false, geminiUsed: false, message, error: message, detail }, { status });
 }
 
 function resolveAudioFile(file: File) {
@@ -30,18 +31,19 @@ function resolveAudioFile(file: File) {
   };
 }
 
-function textFromGeminiResponse(value: unknown) {
-  const data = value as {
-    candidates?: Array<{
-      content?: {
-        parts?: Array<{ text?: string }>;
-      };
-    }>;
-  };
-  return data.candidates?.[0]?.content?.parts
-    ?.map((part) => (typeof part.text === "string" ? part.text : ""))
-    .join("")
-    .trim() ?? "";
+function azureEndpointCandidates(projectEndpoint: string) {
+  const clean = projectEndpoint.replace(/\/+$/, "");
+  const origin = (() => {
+    try {
+      return new URL(clean).origin;
+    } catch {
+      return clean;
+    }
+  })();
+  return Array.from(new Set([
+    `${origin}/speechtotext/transcriptions:transcribe?api-version=2024-11-15`,
+    `${clean}/speechtotext/transcriptions:transcribe?api-version=2024-11-15`,
+  ]));
 }
 
 function stringifyErrorDetail(value: unknown) {
@@ -53,48 +55,110 @@ function stringifyErrorDetail(value: unknown) {
   }
 }
 
-function extractGeminiErrorMessage(value: unknown) {
-  const data = value as { error?: { message?: unknown; status?: unknown; details?: unknown } };
-  const message = typeof data?.error?.message === "string" ? data.error.message : "";
-  const status = typeof data?.error?.status === "string" ? data.error.status : "";
-  return [status, message].filter(Boolean).join(": ");
+function speakerLabel(rawSpeaker: unknown, speakerMap: Map<string, "PB" | "고객">) {
+  const raw = String(rawSpeaker ?? "").trim();
+  if (/^PB$/i.test(raw)) return "PB";
+  if (/고객|customer|client/i.test(raw)) return "고객";
+  const key = raw || `speaker-${speakerMap.size + 1}`;
+  const existing = speakerMap.get(key);
+  if (existing) return existing;
+  const next = speakerMap.size === 0 ? "PB" : "고객";
+  speakerMap.set(key, next);
+  return next;
 }
 
-function m4aMimeCandidates(primaryMimeType: string, extension: string) {
-  if (extension !== "m4a") return [primaryMimeType];
-  return Array.from(new Set([primaryMimeType || "audio/mp4", "audio/mp4", "audio/aac"]));
+function timestampFromOffset(value: unknown) {
+  const ms = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
-async function requestGeminiTranscription(apiKey: string, bytes: Buffer, mimeType: string) {
-  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+function extractTextFromPhrase(phrase: Record<string, unknown>) {
+  const nBest = Array.isArray(phrase.nBest) ? phrase.nBest as Record<string, unknown>[] : Array.isArray(phrase.NBest) ? phrase.NBest as Record<string, unknown>[] : [];
+  const best = nBest[0] ?? {};
+  return String(
+    phrase.display ??
+    phrase.Display ??
+    phrase.text ??
+    phrase.Text ??
+    best.display ??
+    best.Display ??
+    best.lexical ??
+    best.Lexical ??
+    "",
+  ).trim();
+}
+
+function parseAzureTranscript(result: unknown): TranscriptTurn[] {
+  const speakerMap = new Map<string, "PB" | "고객">();
+  const data = result && typeof result === "object" ? result as Record<string, unknown> : {};
+  const directTranscript = Array.isArray(data.transcript) ? data.transcript as Record<string, unknown>[] : [];
+  if (directTranscript.length) {
+    return directTranscript
+      .map((turn, index) => ({
+        speaker: speakerLabel(turn.speaker ?? turn.Speaker ?? index, speakerMap),
+        text: String(turn.text ?? turn.Text ?? "").trim(),
+        timestamp: typeof turn.timestamp === "string" ? turn.timestamp : undefined,
+      }))
+      .filter((turn) => turn.text);
+  }
+
+  const phrases = [
+    ...(Array.isArray(data.recognizedPhrases) ? data.recognizedPhrases as Record<string, unknown>[] : []),
+    ...(Array.isArray(data.phrases) ? data.phrases as Record<string, unknown>[] : []),
+  ];
+  if (phrases.length) {
+    return phrases
+      .map((phrase, index) => ({
+        speaker: speakerLabel(phrase.speaker ?? phrase.Speaker ?? phrase.speakerId ?? phrase.channel ?? index, speakerMap),
+        text: extractTextFromPhrase(phrase),
+        timestamp: timestampFromOffset(phrase.offsetMilliseconds ?? phrase.OffsetMilliseconds ?? phrase.offset),
+      }))
+      .filter((turn) => turn.text);
+  }
+
+  const combined = Array.isArray(data.combinedPhrases) ? data.combinedPhrases as Record<string, unknown>[] : [];
+  if (combined.length) {
+    return combined
+      .map((phrase, index) => ({
+        speaker: speakerLabel(phrase.speaker ?? phrase.channel ?? index, speakerMap),
+        text: extractTextFromPhrase(phrase),
+      }))
+      .filter((turn) => turn.text);
+  }
+
+  const text = String(data.text ?? data.displayText ?? data.DisplayText ?? "").trim();
+  return text ? [{ speaker: "고객", text }] : [];
+}
+
+async function requestAzureTranscription(endpoint: string, apiKey: string, audio: File, mimeType: string) {
+  const form = new FormData();
+  form.append("audio", new Blob([await audio.arrayBuffer()], { type: mimeType }), audio.name || "audio.webm");
+  form.append("definition", JSON.stringify({
+    locales: ["ko-KR"],
+    diarization: { enabled: true, maxSpeakers: 2 },
+    profanityFilterMode: "None",
+  }));
+
+  return fetch(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: "다음 상담 음성을 가능한 한 정확하게 한국어 텍스트로 변환해주세요.\n요약하지 말고 원문에 가깝게 출력해주세요.",
-            },
-            {
-              inline_data: {
-                mime_type: mimeType,
-                data: bytes.toString("base64"),
-              },
-            },
-          ],
-        },
-      ],
-    }),
+    headers: {
+      "Ocp-Apim-Subscription-Key": apiKey,
+      "api-key": apiKey,
+    },
+    body: form,
   });
 }
 
 export async function POST(request: Request) {
   try {
-    const apiKey = getGeminiApiKey();
-    if (!apiKey) {
-      return jsonError("Gemini API 키가 설정되지 않았습니다.", 500);
+    const apiKey = process.env.AZURE_API_KEY?.trim();
+    const projectEndpoint = process.env.AZURE_PROJECT_ENDPOINT?.trim();
+    if (!apiKey || !projectEndpoint) {
+      return jsonError("Azure STT 환경변수가 설정되지 않았습니다.", 500, "AZURE_API_KEY and AZURE_PROJECT_ENDPOINT are required.");
     }
 
     const formData = await request.formData();
@@ -111,27 +175,17 @@ export async function POST(request: Request) {
         `Unsupported extension '${extension || "(none)"}' with browser MIME '${rawMimeType || "(empty)"}'.`,
       );
     }
+    if (audio.size <= 0) return jsonError("빈 오디오 파일입니다.", 400, `File '${audio.name}' has size ${audio.size}.`);
 
-    if (audio.size <= 0) {
-      return jsonError("빈 오디오 파일입니다.", 400, `File '${audio.name}' has size ${audio.size}.`);
-    }
-
-    console.info("Gemini transcription input", {
-      fileName: audio.name,
-      extension,
-      rawMimeType: rawMimeType || "(empty)",
-      normalizedMimeType: mimeType,
-      size: audio.size,
-    });
-
-    const bytes = Buffer.from(await audio.arrayBuffer());
-    const triedMimeTypes: string[] = [];
+    const endpoints = azureEndpointCandidates(projectEndpoint);
     let response: Response | null = null;
     let result: unknown = null;
+    let usedEndpoint = "";
+    const failures: string[] = [];
 
-    for (const candidateMimeType of m4aMimeCandidates(mimeType, extension)) {
-      triedMimeTypes.push(candidateMimeType);
-      response = await requestGeminiTranscription(apiKey, bytes, candidateMimeType);
+    for (const endpoint of endpoints) {
+      usedEndpoint = endpoint;
+      response = await requestAzureTranscription(endpoint, apiKey, audio, mimeType);
       const rawText = await response.text().catch(() => "");
       try {
         result = rawText ? JSON.parse(rawText) : null;
@@ -139,63 +193,24 @@ export async function POST(request: Request) {
         result = rawText;
       }
       if (response.ok) break;
-
-      const geminiMessage = extractGeminiErrorMessage(result);
-      console.error("Gemini transcription failed for MIME candidate", {
-        status: response.status,
-        statusText: response.statusText,
-        fileName: audio.name,
-        extension,
-        rawMimeType,
-        normalizedMimeType: mimeType,
-        candidateMimeType,
-        triedMimeTypes,
-        size: audio.size,
-        geminiMessage,
-        result,
-      });
-
-      if (extension !== "m4a" || !/mime|media|audio|unsupported|invalid/i.test(geminiMessage)) break;
+      failures.push(`${response.status} ${response.statusText}: ${stringifyErrorDetail(result)}`);
     }
 
-    if (!response) {
-      return jsonError("Gemini 음성 변환에 실패했습니다.", 502, "Gemini request was not created.", "gemini");
+    if (!response || !response.ok) {
+      console.error("Azure STT failed", { usedEndpoint, failures, fileName: audio.name, rawMimeType, mimeType, size: audio.size });
+      return jsonError("Azure 음성 변환에 실패했습니다.", 502, failures.join(" | ") || "Azure STT request failed.");
     }
 
-    if (!response.ok) {
-      const geminiMessage = extractGeminiErrorMessage(result);
-      const detail = geminiMessage || stringifyErrorDetail(result ?? { status: response.status, statusText: response.statusText });
-      console.error("Gemini transcription failed", {
-        status: response.status,
-        statusText: response.statusText,
-        fileName: audio.name,
-        extension,
-        rawMimeType,
-        normalizedMimeType: mimeType,
-        triedMimeTypes,
-        size: audio.size,
-        geminiMessage,
-        result,
-      });
-      return jsonError(`Gemini 음성 변환에 실패했습니다.${detail ? ` (${detail})` : ""}`, 502, detail, "gemini");
-    }
-    const text = textFromGeminiResponse(result);
-    if (!text) {
-      const detail = JSON.stringify(result ?? {});
-      console.error("Gemini transcription returned empty text", {
-        fileName: audio.name,
-        extension,
-        rawMimeType,
-        normalizedMimeType: mimeType,
-        size: audio.size,
-        result,
-      });
-      return jsonError("음성에서 텍스트를 추출하지 못했습니다.", 502, detail, "gemini");
+    const transcript = parseAzureTranscript(result);
+    const text = transcript.map((turn) => `${turn.speaker}: ${turn.text}`).join("\n").trim();
+    if (!transcript.length || !text) {
+      console.error("Azure STT returned empty transcript", { usedEndpoint, result });
+      return jsonError("음성에서 대화록을 추출하지 못했습니다.", 502, stringifyErrorDetail(result));
     }
 
-    return NextResponse.json({ success: true, source: "gemini", geminiUsed: true, text });
+    return NextResponse.json({ success: true, source: "azure", azureUsed: true, geminiUsed: false, transcript, text });
   } catch (error) {
-    console.error("Transcription route failed", error);
-    return jsonError("음성 변환 중 오류가 발생했습니다.", 500, error instanceof Error ? error.message : String(error), "gemini");
+    console.error("Azure transcription route failed", error);
+    return jsonError("음성 변환 중 오류가 발생했습니다.", 500, error instanceof Error ? error.message : String(error));
   }
 }

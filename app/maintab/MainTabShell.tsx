@@ -843,6 +843,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       : { ...prev, rrttllu: { ...prev.rrttllu, [key]: value } }
   ));
   const setSmartInputNote = (value: string) => setFormData((prev) => ({ ...prev, smartInputNote: value }));
+  const setSmartTranscript = (value: AppState["smartTranscript"]) => setFormData((prev) => ({ ...prev, smartTranscript: value }));
+  const setSmartAdditionalMemo = (value: string) => setFormData((prev) => ({ ...prev, smartAdditionalMemo: value }));
   const setAiGuidePbNote = (checkpointId: string, value: string) => setFormData((prev) => ({
     ...prev,
     aiGuidePbNotes: { ...(prev.aiGuidePbNotes ?? {}), [checkpointId]: value },
@@ -882,7 +884,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     riskResult, financialCompletion, rrttlluCompletion, internalJsonPayload, warnings,
     analysisRequested, confirmedRiskResult, changeHistory, changeHistoryExpanded,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
-    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote, setAiAdvisoryGuide,
+    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setSmartTranscript, setSmartAdditionalMemo, setAiGuidePbNote, setAiAdvisoryGuide,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
     updateCustomerProfile, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태
