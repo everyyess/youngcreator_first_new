@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BarChart3, ClipboardList, Info, LockKeyhole, PieChart, ShieldCheck, Sparkles, Trash2, UserRound, WalletCards } from "lucide-react";
 import { useCustomerContext } from "../CustomerContext";
 import { fieldGroups, returnOptions, riskExperienceOptions } from "../CustomerContext";
-import type { SmartExtractionPayload, StoredAdvisoryGuide } from "../CustomerContext";
+import type { ConversationTurn, SmartExtractionPayload, StoredAdvisoryGuide } from "../CustomerContext";
 import { Panel, TextField, TextAreaField, IncomeWithNoneField, ExpectedReturnField, ChoiceGroup, MultiChoiceGroup, CheckerboardGrid, ConfirmModal, MissingNotice, QuestionTitle, questionLabel } from "../ui";
 import { preferenceBadgeClass, preferenceLabelFromScore } from "../riskPreference";
 import {
@@ -12,9 +12,7 @@ import {
   formatLiquiditySummary,
   isLiquidityEntryFilled,
   liquidityPriorities,
-  lumpSumTimingOptions,
   parseLiquidityEntries,
-  regularTimingOptions,
   serializeLiquidityEntries,
   type LiquidityEntry,
   type LiquidityKind,
@@ -128,6 +126,39 @@ function pickSelectable(section?: ExtractionSection) {
   return next;
 }
 
+function stringifySmartLiquidityPart(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const timing = record.timing ?? record.period ?? record.frequency ?? record.time ?? record.시기 ?? record.주기 ?? "";
+  const purpose = record.purpose ?? record.goal ?? record.need ?? record.목적 ?? "";
+  const amount = record.amount ?? record.money ?? record.금액 ?? "";
+  return [timing, purpose, amount].filter((part) => typeof part === "string" && part.trim()).join(" ");
+}
+
+function normalizeSmartLiquidityField(value: unknown) {
+  if (Array.isArray(value)) return value.map(stringifySmartLiquidityPart).filter(Boolean).join("\n");
+  if (value && typeof value === "object") return stringifySmartLiquidityPart(value);
+  return value;
+}
+
+function rerouteMedicalLiquidityToEmergency(rrttllu: ExtractionSection) {
+  const emergencyEntries = parseLiquidityEntries(typeof rrttllu.emergencyReservePlan === "string" ? rrttllu.emergencyReservePlan : "", "emergency")
+    .filter(isLiquidityEntryFilled);
+  (["regularCashflowNeed", "lumpSumPlan"] as const).forEach((key) => {
+    const kind = key === "regularCashflowNeed" ? "regular" : "lumpSum";
+    const value = rrttllu[key];
+    if (typeof value !== "string" || !value.trim()) return;
+    const entries = parseLiquidityEntries(value, kind);
+    const kept = entries.filter((entry) => !/의료비/.test(entry.purpose));
+    const medical = entries.filter((entry) => /의료비/.test(entry.purpose));
+    if (!medical.length) return;
+    rrttllu[key] = serializeLiquidityEntries(kept);
+    emergencyEntries.push(...medical.map((entry) => ({ ...entry, timing: "", customTiming: "" })));
+  });
+  if (emergencyEntries.length) rrttllu.emergencyReservePlan = serializeLiquidityEntries(emergencyEntries);
+}
+
 function normalizeUniqueMeaning(value: string) {
   const compact = value.replace(/\s+/g, "");
   if (/시장뉴스|단기이슈|뉴스.*민감|민감.*뉴스|민감하게반응/.test(compact)) return "market-sensitivity";
@@ -177,6 +208,12 @@ function toSmartExtractionPayload(envelope: SmartExtractionEnvelope): SmartExtra
     ...compactSection(extracted.rrttllu),
     ...pickSelectable(inferred.rrttllu),
   };
+  (["regularCashflowNeed", "lumpSumPlan", "emergencyReservePlan"] as const).forEach((key) => {
+    const normalized = normalizeSmartLiquidityField(rrttllu[key]);
+    if (typeof normalized === "string" && normalized.trim()) rrttllu[key] = normalized;
+    else if (Array.isArray(rrttllu[key]) || (rrttllu[key] && typeof rrttllu[key] === "object")) delete rrttllu[key];
+  });
+  rerouteMedicalLiquidityToEmergency(rrttllu);
   const mappedValues = [
     ...Object.values(financial),
     ...Object.values(rrttllu),
@@ -316,10 +353,10 @@ function PbPrivateNotice() {
   );
 }
 
-const liquidityKindMeta: Record<LiquidityKind, { label: string; structure: string; purposePlaceholder: string; amountPlaceholder: string }> = {
-  regular: { label: "향후 정기적인 현금흐름 필요", structure: "[우선순위] [목적] [주기] [금액]", purposePlaceholder: "예. 은퇴 후 생활비", amountPlaceholder: "예. 월 500만 원" },
-  lumpSum: { label: "향후 목돈 사용 계획", structure: "[우선순위] [목적] [시기] [금액]", purposePlaceholder: "예. 자녀 유학비", amountPlaceholder: "예. 3억" },
-  emergency: { label: "향후 비상예비자금 확보 계획", structure: "[우선순위] [목적] [금액]", purposePlaceholder: "예. 의료비 대비", amountPlaceholder: "예. 1억" },
+const liquidityKindMeta: Record<LiquidityKind, { label: string; purposePlaceholder: string; amountPlaceholder: string }> = {
+  regular: { label: "향후 정기적인 현금흐름 필요", purposePlaceholder: "목적", amountPlaceholder: "금액" },
+  lumpSum: { label: "향후 목돈 사용 계획", purposePlaceholder: "목적", amountPlaceholder: "금액" },
+  emergency: { label: "향후 비상예비자금 확보 계획", purposePlaceholder: "목적", amountPlaceholder: "금액" },
 };
 
 function LiquidityNeedsEditor({
@@ -339,7 +376,7 @@ function LiquidityNeedsEditor({
     emergency: parseLiquidityEntries(emergencyValue, "emergency"),
   };
   const usedPriorityCounts = [...entriesByKind.regular, ...entriesByKind.lumpSum, ...entriesByKind.emergency]
-    .filter((entry) => entry.priority !== "해당 없음")
+    .filter((entry) => entry.priority !== "-")
     .reduce<Record<string, number>>((acc, entry) => {
       acc[entry.priority] = (acc[entry.priority] ?? 0) + 1;
       return acc;
@@ -349,43 +386,63 @@ function LiquidityNeedsEditor({
   const updateEntry = (kind: LiquidityKind, index: number, patch: Partial<LiquidityEntry>) => {
     updateEntries(kind, entriesByKind[kind].map((entry, i) => i === index ? { ...entry, ...patch } : entry));
   };
+  const hasCompleteEntry = (kind: LiquidityKind, entry: LiquidityEntry) => {
+    const purpose = entry.purpose.trim();
+    const timing = entry.timing.trim();
+    const amount = entry.amount.trim();
+    return kind === "emergency" ? Boolean(purpose && amount) : Boolean(purpose && timing && amount);
+  };
+  const hasPartialEntry = (kind: LiquidityKind, entry: LiquidityEntry) => {
+    if (!isLiquidityEntryFilled(entry)) return false;
+    return !hasCompleteEntry(kind, entry);
+  };
+  const allEntries = [
+    ...entriesByKind.regular.map((entry) => ({ entry, kind: "regular" as const })),
+    ...entriesByKind.lumpSum.map((entry) => ({ entry, kind: "lumpSum" as const })),
+    ...entriesByKind.emergency.map((entry) => ({ entry, kind: "emergency" as const })),
+  ];
+  const filledEntries = allEntries.filter(({ entry }) => isLiquidityEntryFilled(entry));
+  const rankedEntries = [1, 2, 3].map((rank) => {
+    const found = allEntries.find(({ entry }) => entry.priority === String(rank));
+    return found ? formatLiquiditySummary(serializeLiquidityEntries([found.entry]), found.kind) : "";
+  });
+  const missingPriorityWarnings = (() => {
+    const hasRank = (rank: number) => rankedEntries[rank - 1].trim().length > 0;
+    if (filledEntries.length >= 3) return [1, 2, 3].filter((rank) => !hasRank(rank)).map((rank) => `${rank}순위가 비어 있습니다. 다시 입력해주세요.`);
+    if (!hasRank(1) && (hasRank(2) || hasRank(3))) return ["1순위가 비어 있습니다. 다시 입력해주세요."];
+    if (hasRank(1) && !hasRank(2) && hasRank(3)) return ["2순위가 비어 있습니다. 다시 입력해주세요."];
+    return [];
+  })();
 
   return (
     <div className="grid gap-3 xl:grid-cols-2">
       {(Object.keys(entriesByKind) as LiquidityKind[]).map((kind) => {
         const meta = liquidityKindMeta[kind];
         const entries = entriesByKind[kind];
-        const hasDuplicatePriority = entries.some((entry) => entry.priority !== "해당 없음" && usedPriorityCounts[entry.priority] > 1);
+        const hasDuplicatePriority = entries.some((entry) => entry.priority !== "-" && usedPriorityCounts[entry.priority] > 1);
+        const rowColumns = kind === "emergency"
+          ? "grid-cols-[40px_minmax(0,1fr)_92px]"
+          : "grid-cols-[40px_minmax(0,1fr)_78px_16px_92px]";
+        const suffix = kind === "regular" ? "마다" : "후";
+        const liquidityMissing = entries.some((entry) => hasPartialEntry(kind, entry));
         return (
           <div key={kind} className="question-card rounded-lg border border-slate-200 p-4">
-            <QuestionTitle label={meta.label} missing={!entries.some(isLiquidityEntryFilled)} className="mb-2 text-[15px] font-bold leading-6 text-slate-800" />
-            <div className={`mb-1 grid gap-2 text-xs font-bold text-blue-700 ${kind === "emergency" ? "grid-cols-[76px_minmax(0,1fr)_116px_28px]" : "grid-cols-[76px_minmax(0,1fr)_96px_116px_28px]"}`}>
-              <span>우선순위</span>
-              <span>목적</span>
-              {kind !== "emergency" ? <span>{kind === "regular" ? "주기" : "시기"}</span> : null}
-              <span>금액</span>
-              <span />
-            </div>
+            <QuestionTitle label={meta.label} missing={liquidityMissing} className="mb-2 text-[15px] font-bold leading-6 text-slate-800" />
             {hasDuplicatePriority ? <p className="mb-2 text-xs font-bold text-red-600">⚠️ 이미 사용 중인 순위입니다.</p> : null}
             <div className="grid gap-2">
               {entries.map((entry, index) => (
-                <div key={entry.id} className={`grid items-center gap-2 ${kind === "emergency" ? "grid-cols-[76px_minmax(0,1fr)_116px_28px]" : "grid-cols-[76px_minmax(0,1fr)_96px_116px_28px]"}`}>
-                  <select className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-xs font-semibold text-navy" value={entry.priority} onChange={(e) => updateEntry(kind, index, { priority: e.target.value as LiquidityEntry["priority"] })}>
+                <div key={entry.id} className={`grid items-center gap-2 ${rowColumns}`}>
+                  <select className="h-10 w-10 min-w-0 rounded-lg border border-slate-200 bg-white px-1 text-center text-xs font-semibold text-navy" value={entry.priority} onChange={(e) => updateEntry(kind, index, { priority: e.target.value as LiquidityEntry["priority"] })}>
                     {liquidityPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
                   </select>
                   <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink placeholder:text-slate-400" value={entry.purpose} placeholder={meta.purposePlaceholder} onChange={(e) => updateEntry(kind, index, { purpose: e.target.value })} />
                   {kind !== "emergency" ? (
-                    entry.timing === "기타" ? (
-                      <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm text-ink placeholder:text-slate-400" value={entry.customTiming ?? ""} placeholder="직접 입력" onChange={(e) => updateEntry(kind, index, { customTiming: e.target.value })} />
-                    ) : (
-                      <select className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-semibold text-navy" value={entry.timing} onChange={(e) => updateEntry(kind, index, { timing: e.target.value, customTiming: "" })}>
-                        <option value="">선택</option>
-                        {(kind === "regular" ? regularTimingOptions : lumpSumTimingOptions).map((option) => <option key={option} value={option}>{option}</option>)}
-                      </select>
-                    )
+                    <>
+                      <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm text-ink placeholder:text-slate-400" value={entry.timing} placeholder={kind === "regular" ? "주기" : "시기"} onChange={(e) => updateEntry(kind, index, { timing: e.target.value, customTiming: "" })} />
+                      <span className="whitespace-nowrap text-[11px] font-bold text-black">{suffix}</span>
+                    </>
                   ) : null}
                   <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-ink placeholder:text-slate-400" value={entry.amount} placeholder={meta.amountPlaceholder} onChange={(e) => updateEntry(kind, index, { amount: e.target.value })} />
-                  <button type="button" className="h-9 w-7 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-500 hover:bg-slate-50" onClick={() => updateEntries(kind, entries.filter((_, i) => i !== index))} aria-label="입력칸 삭제">x</button>
                 </div>
               ))}
             </div>
@@ -395,6 +452,22 @@ function LiquidityNeedsEditor({
           </div>
         );
       })}
+      <div className="question-card rounded-lg border border-slate-200 p-4">
+        <div className="mb-3 text-[15px] font-bold leading-6 text-slate-800">🏆 유동성 우선순위</div>
+        <div className="grid gap-2 text-sm font-bold text-slate-800">
+          {["🥇", "🥈", "🥉"].map((medal, index) => (
+            <div key={medal} className="rounded-lg bg-slate-50 px-3 py-2">
+              <span className="mr-2">{medal}</span>
+              <span>{rankedEntries[index] || "해당 없음"}</span>
+            </div>
+          ))}
+        </div>
+        {missingPriorityWarnings.length ? (
+          <div className="mt-3 grid gap-1 text-xs font-bold text-red-600">
+            {missingPriorityWarnings.map((warning) => <p key={warning}>{warning}</p>)}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -425,12 +498,41 @@ function isGeminiResourceExhausted(value: unknown) {
   return /RESOURCE_EXHAUSTED|rate_limit|quota|429/i.test(body);
 }
 
+function normalizeTranscriptText(text: string) {
+  return text.replace(/\uD30C\uAD34\uB429\uB2C8\uB2E4/g, "\uD30C\uAE30\uB429\uB2C8\uB2E4").trim();
+}
+
+function normalizeTranscriptTurns(transcript: ConversationTurn[]) {
+  return transcript.reduce<ConversationTurn[]>((merged, turn) => {
+    const text = normalizeTranscriptText(turn.text ?? "");
+    if (!text) return merged;
+    const last = merged[merged.length - 1];
+    if (last?.speaker === turn.speaker) {
+      last.text = `${last.text.trim()} ${text}`.trim();
+      return merged;
+    }
+    merged.push({ ...turn, text });
+    return merged;
+  }, []);
+}
+
 function geminiUsageLabel(count: number) {
   return `오늘 Gemini 추정 사용량: ${Math.min(geminiDailyUsageLimit, count)}/${geminiDailyUsageLimit}회 (추정치)`;
 }
 
+function transcriptToSmartInputText(transcript: ConversationTurn[], additionalMemo: string) {
+  const transcriptText = transcript
+    .map((turn) => `${turn.speaker}: ${turn.text.trim()}`)
+    .filter((line) => line.replace(/^(PB|고객):\s*/, "").trim())
+    .join("\n");
+  const memo = additionalMemo.trim();
+  return [transcriptText ? `[음성 상담 대화록]\n${transcriptText}` : "", memo ? `[추가 메모]\n${memo}` : ""]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function SmartInputCard() {
-  const { applySmartExtraction, formData, resetSelectedCustomerInputs, selectedCustomer, selectedCustomerProfile, setSmartInputNote } = useCustomerContext();
+  const { applySmartExtraction, formData, selectedCustomer, selectedCustomerProfile, setSmartAdditionalMemo, setSmartInputNote, setSmartTranscript } = useCustomerContext();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [usageToday, setUsageToday] = useState(0);
@@ -443,7 +545,8 @@ function SmartInputCard() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const note = formData.smartInputNote;
+  const transcript = normalizeTranscriptTurns(formData.smartTranscript ?? []);
+  const additionalMemo = formData.smartAdditionalMemo ?? "";
   const visibleVoiceStatus = voiceStatusCustomer === selectedCustomer ? voiceStatus : "";
 
   const setCurrentCustomerVoiceStatus = (message: string) => {
@@ -481,13 +584,16 @@ function SmartInputCard() {
         method: "POST",
         body: form,
       });
-      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; message?: string; error?: string; detail?: string; geminiUsed?: boolean } | null;
-      if (!response.ok || !result?.success || !result.text?.trim()) {
-        const message = result?.message ?? result?.error ?? "Gemini 응답 실패";
+      const result = await response.json().catch(() => null) as { success?: boolean; text?: string; transcript?: ConversationTurn[]; message?: string; error?: string; detail?: string; geminiUsed?: boolean } | null;
+      const nextTranscript = Array.isArray(result?.transcript) ? result.transcript.filter((turn) => turn?.text?.trim()) : [];
+      if (!response.ok || !result?.success || (!nextTranscript.length && !result.text?.trim())) {
+        const message = result?.message ?? result?.error ?? "Azure STT 응답 실패";
         throw new Error(result?.detail && !message.includes(result.detail) ? `${message} / ${result.detail}` : message);
       }
       if (result.geminiUsed === true) setUsageToday(incrementGeminiUsageToday());
-      setSmartInputNote(result.text.trim());
+      const normalizedTranscript = normalizeTranscriptTurns(nextTranscript.length ? nextTranscript : [{ speaker: "\uACE0\uAC1D" as const, text: result.text?.trim() ?? "" }]);
+      setSmartTranscript(normalizedTranscript);
+      setSmartInputNote(transcriptToSmartInputText(normalizedTranscript, additionalMemo));
       setCurrentCustomerVoiceStatus(doneMessage);
       return true;
     } catch (error) {
@@ -602,24 +708,22 @@ function SmartInputCard() {
   };
 
   const extract = async () => {
-    const textareaValue = document.querySelector<HTMLTextAreaElement>("[data-smart-input-textarea='true']")?.value ?? "";
+    const normalizedTranscript = normalizeTranscriptTurns(formData.smartTranscript ?? []);
+    const extractionNote = transcriptToSmartInputText(normalizedTranscript, formData.smartAdditionalMemo ?? "");
     console.log("Smart Input extract requested", {
       customerId: selectedCustomer,
-      smartInput: note,
-      smartInputLength: note.length,
-      trimmedLength: note.trim().length,
-      textareaValue,
-      textareaValueLength: textareaValue.length,
-      textareaMatchesState: textareaValue === note,
+      smartInput: extractionNote,
+      smartInputLength: extractionNote.length,
+      trimmedLength: extractionNote.trim().length,
     });
-    if (!note.trim()) {
-      setMessage("자연어 메모를 먼저 입력해주세요.");
+    if (!extractionNote.trim()) {
+      setMessage("음성 상담 대화록 또는 추가 메모를 먼저 입력해주세요.");
       return;
     }
     const cacheKey = smartInputCacheKey(selectedCustomer);
     try {
       const cached = JSON.parse(window.localStorage.getItem(cacheKey) ?? "null") as { note?: string; result?: { data?: SmartExtractionEnvelope; source?: string; fallback?: boolean; fallbackReason?: string; retryDelay?: number; estimatedUsageToday?: number; estimatedRemainingToday?: number; quotaLimit?: number } } | null;
-      if (cached?.note === note && cached.result?.data) {
+      if (cached?.note === extractionNote && cached.result?.data) {
         console.info("Smart Input reused cached extraction result", {
           customerId: selectedCustomer,
           source: cached.result.source,
@@ -639,13 +743,13 @@ function SmartInputCard() {
       const estimatedUsageToday = readGeminiUsageToday();
       console.info("[Gemini Call Trigger] extract-customer", {
         customerId: selectedCustomer,
-        smartInputLength: note.length,
+        smartInputLength: extractionNote.length,
         estimatedUsageToday,
       });
       const response = await fetch("/api/extract-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note, estimatedUsageToday }),
+        body: JSON.stringify({ note: extractionNote, transcript: normalizedTranscript, additionalMemo: formData.smartAdditionalMemo, estimatedUsageToday }),
       });
       const result = await response.json();
       if (!response.ok || !result?.ok) {
@@ -653,7 +757,7 @@ function SmartInputCard() {
           status: response.status,
           result,
           customerId: selectedCustomer,
-          smartInput: note,
+          smartInput: extractionNote,
         });
         throw new Error(result?.reason ? `${result.error ?? "extract failed"} (${result.reason})` : result?.error ?? "extract failed");
       }
@@ -690,7 +794,7 @@ function SmartInputCard() {
         setMessage("Mock Parser로 추출 가능한 항목을 반영했습니다.");
       }
       window.localStorage.setItem(cacheKey, JSON.stringify({
-        note,
+        note: extractionNote,
         result: {
           source: result.source,
           fallback: result.fallback,
@@ -706,9 +810,9 @@ function SmartInputCard() {
       console.error("Smart Input extraction failed", {
         error,
         customerId: selectedCustomer,
-        failedSmartInput: note,
-        failedSmartInputLength: note.length,
-        failedTrimmedLength: note.trim().length,
+        failedSmartInput: extractionNote,
+        failedSmartInputLength: extractionNote.length,
+        failedTrimmedLength: extractionNote.trim().length,
       });
       if (isGeminiResourceExhausted(error instanceof Error ? error.message : error)) {
         markGeminiLimitReached();
@@ -723,38 +827,77 @@ function SmartInputCard() {
 
   const resetAll = () => {
     setMessage("");
-    resetSelectedCustomerInputs();
+    setSmartTranscript([]);
+    setSmartAdditionalMemo("");
+    setSmartInputNote("");
+    setVoiceStatus("");
+    setVoiceStatusCustomer(null);
+    chunksRef.current = [];
+    recorderRef.current = null;
+    stopCurrentStream();
+    setRecordingState("idle");
+    setUploadBusy(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setResetOpen(false);
   };
 
   return (
-    <section className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 shadow-soft sm:p-5">
+    <section className="rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-soft sm:p-5">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_132px]">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-3">
-            <p className="text-sm font-extrabold text-yellow-900">Smart Input</p>
+            <p className="text-sm font-extrabold text-sky-900">Smart Input</p>
             <PbPrivateNotice />
             <SmartInputStatusBadge message={visibleVoiceStatus} />
           </div>
-          <textarea
-            data-smart-input-textarea="true"
-            className="min-h-40 w-full resize-y rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-[15px] leading-6 text-ink shadow-inner transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
-            value={note}
-            placeholder="고객 정보와 니즈를 자연어로 입력합니다."
-            onChange={(e) => setSmartInputNote(e.target.value)}
-          />
+          <div className="space-y-3 bg-sky-50">
+            <div className="rounded-lg border border-sky-200 bg-white p-4">
+              <p className="mb-3 text-sm font-extrabold text-navy">대화록</p>
+              {transcript.length ? (
+                <div className="space-y-3">
+                  {transcript.map((turn, index) => (
+                    <div key={`${turn.speaker}-${index}`} className="grid grid-cols-[44px_minmax(0,1fr)] items-start gap-3">
+                      <span className={`inline-flex h-7 w-11 items-center justify-center rounded-full text-xs font-extrabold ${
+                        turn.speaker === "PB"
+                          ? "border border-navy bg-white text-navy"
+                          : "bg-navy text-white"
+                      }`}>
+                        {turn.speaker}
+                      </span>
+                      <p className="pt-0.5 text-[15px] leading-6 text-black">{turn.text}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-semibold text-slate-400">
+                  음성 파일 업로드 또는 녹음을 완료하면 PB/고객 대화록이 표시됩니다.
+                </p>
+              )}
+            </div>
+            <div className="rounded-lg border border-sky-200 bg-white p-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-extrabold text-navy">추가 메모</span>
+                <textarea
+                  className="min-h-24 w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-[15px] leading-6 text-ink transition placeholder:text-slate-400 hover:border-slate-300 focus:border-samsung"
+                  value={additionalMemo}
+                  placeholder="녹음 종료 후 추가 정보, 고객 성향, 주의점, 커뮤니케이션 방식 등을 입력하세요."
+                  onChange={(e) => setSmartAdditionalMemo(e.target.value)}
+                />
+              </label>
+            </div>
+          </div>
           {message === "gemini_rate_limit" ? (
             <div className="mt-2 space-y-1">
-              <p className="text-sm font-extrabold text-yellow-900">■ Gemini 무료 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.</p>
-              <p className="text-xs font-bold text-yellow-800">
+              <p className="text-sm font-extrabold text-sky-900">■ Gemini 무료 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.</p>
+              <p className="text-xs font-bold text-sky-800">
                 {geminiUsageLabel(usageToday)}
               </p>
             </div>
           ) : message ? (
-            <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-yellow-900"}`}>{message}</p>
+            <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-sky-900"}`}>{message}</p>
           ) : null}
           {message !== "gemini_rate_limit" ? (
-            <p className="mt-2 text-xs font-bold text-yellow-800">
+            <p className="mt-2 text-xs font-bold text-sky-800">
               {geminiUsageLabel(usageToday)}
             </p>
           ) : null}
@@ -831,8 +974,8 @@ function SmartInputCard() {
       {resetOpen ? (
         <ConfirmModal
           icon={<Trash2 size={26} />}
-          title="Smart Input 및 설문조사 초기화"
-          body={`${selectedCustomerProfile.name || "현재 고객"} Smart Input과 설문조사 입력 내용이 모두 사라집니다. 정말 초기화하시겠습니까?`}
+          title="Smart Input 초기화"
+          body={`${selectedCustomerProfile.name || "현재 고객"} Smart Input 대화록과 추가 메모를 초기화하시겠습니까?`}
           cancelLabel="취소"
           confirmLabel="삭제"
           onCancel={() => setResetOpen(false)}
@@ -1390,6 +1533,12 @@ export default function CustomerAnalysisTab() {
   const [advisoryGuideError, setAdvisoryGuideError] = useState("");
   const [advisoryGuideNotice, setAdvisoryGuideNotice] = useState("");
   const advisoryGuide = useMemo(() => normalizeAdvisoryGuide(formData.aiAdvisoryGuide), [formData.aiAdvisoryGuide]);
+  const advisoryGuideRrttllu = useMemo(() => ({
+    ...formData.rrttllu,
+    regularCashflowNeed: formatLiquiditySummary(formData.rrttllu.regularCashflowNeed, "regular"),
+    lumpSumPlan: formatLiquiditySummary(formData.rrttllu.lumpSumPlan, "lumpSum"),
+    emergencyReservePlan: formatLiquiditySummary(formData.rrttllu.emergencyReservePlan, "emergency"),
+  }), [formData.rrttllu]);
 
   const advisoryGuidePayload = useMemo(() => ({
     customerId: selectedCustomer,
@@ -1397,20 +1546,20 @@ export default function CustomerAnalysisTab() {
     smartInputNote: formData.smartInputNote,
     formData: {
       financial: formData.financial,
-      rrttllu: formData.rrttllu,
+      rrttllu: advisoryGuideRrttllu,
     },
     riskResult,
     structuredJson: internalJsonPayload,
     uniqueOther: formData.rrttllu.uniqueOther,
     smartInputContext: {
-      raw: formData.smartInputNote,
+      raw: transcriptToSmartInputText(normalizeTranscriptTurns(formData.smartTranscript ?? []), formData.smartAdditionalMemo ?? ""),
+      transcript: normalizeTranscriptTurns(formData.smartTranscript ?? []),
+      additionalMemo: formData.smartAdditionalMemo ?? "",
       reflectedUniqueOther: formData.rrttllu.uniqueOther,
       smartExtractedUniqueOther: formData.smartExtractedUniqueOther,
-      reflectedPreferredAssets: formData.rrttllu.preferredAssets,
-      reflectedAvoidedAssets: formData.rrttllu.avoidedAssets,
       reflectedExistingAssetPlan: formData.rrttllu.holdingOrDisposalPlan,
     },
-  }), [formData.financial, formData.rrttllu, formData.smartInputNote, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
+  }), [formData.financial, advisoryGuideRrttllu, formData.smartInputNote, formData.smartTranscript, formData.smartAdditionalMemo, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
 
   const advisoryGuidePayloadSignature = useMemo(() => stableStringify(advisoryGuidePayload), [advisoryGuidePayload]);
 
@@ -1525,7 +1674,6 @@ export default function CustomerAnalysisTab() {
 
       {activeSubTab === "input" ? (
         <>
-      <CustomerInfoCard />
       <SmartInputCard />
 
       {/* 기본 재무 정보 */}
@@ -1589,7 +1737,7 @@ export default function CustomerAnalysisTab() {
           <ChoiceGroup label="파생상품 투자 경험이 있으신가요?" description="파생상품: 파생상품, 원금비보장형 파생결합 증권, 파생상품펀드, 레버리지/인버스 ETF 등" options={fieldGroups.derivatives} value={formData.rrttllu.derivativesExperience} missing={!formData.rrttllu.derivativesExperience.trim()} onChange={(v) => setRrttllu("derivativesExperience", v)} />
           <AutoChoiceGroup label="순자산 중 금융자산의 비중" description="금융자산: 기존 투자자산 + 현금성 자산" options={fieldGroups.financialAssetRatio} value={formData.rrttllu.financialAssetRatio} />
           <AutoChoiceGroup label="금융자산 중 투자자산의 비중" description="투자자산: 주식, ETF, 펀드, 채권, 리츠(REITs), ELS 등" options={fieldGroups.investmentAssetRatio} value={formData.rrttllu.investmentAssetRatio} />
-          <ChoiceGroup label="기대이익 및 기대손실 등을 고려한 위험에 대한 태도" options={fieldGroups.riskAttitude} value={formData.rrttllu.riskAttitude} missing={!formData.rrttllu.riskAttitude.trim()} onChange={(v) => setRrttllu("riskAttitude", v)} />
+          <ChoiceGroup label="기대이익 및 기대손실 등을 고려한 위험에 대한 태도" options={fieldGroups.riskAttitude} value={formData.rrttllu.riskAttitude} missing={!formData.rrttllu.riskAttitude.trim()} optionGridClassName="grid-cols-1" onChange={(v) => setRrttllu("riskAttitude", v)} />
           <ChoiceGroup label="단기적으로 손실이 초과 발생할 때 대응" options={fieldGroups.lossResponse} value={formData.rrttllu.lossResponse} missing={!formData.rrttllu.lossResponse.trim()} onChange={(v) => setRrttllu("lossResponse", v)} />
         </CheckerboardGrid>
       </Panel>
@@ -1679,7 +1827,6 @@ export default function CustomerAnalysisTab() {
       ) : (
         activeSubTab === "analysis" ? (
         <>
-          <CustomerInfoCard />
           <SummaryAnalysisCard
             formData={formData}
             riskResult={riskResult}

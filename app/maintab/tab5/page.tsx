@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { useCustomerContext } from "../CustomerContext";
 import { usePortfolioResult } from "../PortfolioResultComponents";
+import { parseLiquidityEntries, type LiquidityKind } from "../liquidityFields";
 
 type BucketType = "자본증식" | "인컴창출" | "위험헷지" | "유동성" | "절세";
 type TaxType = "국내주식형" | "해외주식형" | "채권형" | "비과세연금" | "분리과세" | "소득공제";
@@ -27,10 +28,17 @@ interface Product {
 interface Client {
   riskAppetite: number; targetReturn: number; investmentPeriod: number;
   liquidityRatio: number; isTaxTarget: boolean; isHighIncomeWorker: boolean; age: number;
-  monthlyIncome: number; monthlyCashflow: number;
-  lumpSumAmount: number; lumpSumTimepoint: number;
-  emergencyAmount: number; investableAssets: number;
+  monthlyIncome: number; investableAssets: number;
+  lumpSumTimepoint: number;
+  liquidityNeeds: LiquidityNeed[];
 }
+
+type LiquidityNeed = {
+  kind: LiquidityKind;
+  priority: 1 | 2 | 3;
+  amount: number;
+  timing: string;
+};
 
 const PRODUCT_DOCS: Record<string, string> = {
   r1: "/docs/wrap-plainvanilla-macro.pdf",
@@ -88,27 +96,128 @@ const GENERIC_HOLDINGS = new Set([
 ]);
 function isRealHolding(h: string): boolean { return !GENERIC_HOLDINGS.has(h); }
 
-function parseAmount(text: string): number {
+function parseSingleAmount(text: string): number {
   if (!text) return 0;
   const t = text.replace(/,/g, "").replace(/\s/g, "");
-  const m = t.match(/(\d+(?:\.\d+)?)\s*(억|천만|백만|만)?/);
-  if (!m) return 0;
-  const n = parseFloat(m[1]);
-  if (m[2] === "억") return n * 1e8;
-  if (m[2] === "천만") return n * 1e7;
-  if (m[2] === "백만") return n * 1e6;
-  if (m[2] === "만") return n * 1e4;
-  return n;
+  const matches = Array.from(t.matchAll(/(\d+(?:\.\d+)?)(억|천만|백만|만원|만)?/g));
+  if (!matches.length) return 0;
+  const total = matches.reduce((sum, m) => {
+    const n = parseFloat(m[1]);
+    if (m[2] === "억") return sum + n * 1e8;
+    if (m[2] === "천만") return sum + n * 1e7;
+    if (m[2] === "백만") return sum + n * 1e6;
+    if (m[2] === "만원" || m[2] === "만") return sum + n * 1e4;
+    return sum + n;
+  }, 0);
+  return total;
 }
 
-function parseTimepoint(text: string): number {
-  if (!text) return 5;
-  if (/즉시|당장|6개월|올해|1년\s*이내/.test(text)) return 0.5;
-  if (/1~?2년|1년/.test(text)) return 1.5;
-  if (/2~?3년|2년/.test(text)) return 2.5;
-  if (/3~?5년|3년|4년/.test(text)) return 4;
-  if (/5년\s*이상|5년|10년|장기/.test(text)) return 7;
-  return 3;
+function parseAmount(text: string): number {
+  if (!text) return 0;
+  const parts = text.split(/\s*(?:~|～|〜)\s*/).filter(Boolean);
+  if (parts.length >= 2) {
+    const left = parseSingleAmount(parts[0]);
+    const right = parseSingleAmount(parts[1]);
+    if (left > 0 && right > 0) return (left + right) / 2;
+  }
+  return parseSingleAmount(text);
+}
+
+function parseRegularPeriodMonths(text: string): number {
+  const t = text.replace(/\s+/g, "").replace(/마다$/, "");
+  if (!t) return 0;
+  if (/^(매월|월|1개월)$/.test(t)) return 1;
+  if (/^(격월|2개월)$/.test(t)) return 2;
+  if (/^(분기|3개월)$/.test(t)) return 3;
+  if (/^(반기|6개월)$/.test(t)) return 6;
+  if (/^(매년|연|1년|12개월)$/.test(t)) return 12;
+  const month = t.match(/^(\d+(?:\.\d+)?)개월$/);
+  if (month) return parseFloat(month[1]);
+  const year = t.match(/^(\d+(?:\.\d+)?)년$/);
+  if (year) return parseFloat(year[1]) * 12;
+  return 0;
+}
+
+function parseFutureMonths(text: string): number {
+  const t = text.replace(/\s+/g, "").replace(/(?:뒤|후|이내)$/, "");
+  if (!t) return 0;
+  const range = t.match(/^(\d+(?:\.\d+)?)~(\d+(?:\.\d+)?)(개월|년)$/);
+  if (range) {
+    const midpoint = (parseFloat(range[1]) + parseFloat(range[2])) / 2;
+    return range[3] === "년" ? midpoint * 12 : midpoint;
+  }
+  const month = t.match(/^(\d+(?:\.\d+)?)개월$/);
+  if (month) return parseFloat(month[1]);
+  const year = t.match(/^(\d+(?:\.\d+)?)년$/);
+  if (year) return parseFloat(year[1]) * 12;
+  return 0;
+}
+
+function calcLiquidityNeedScore(need: LiquidityNeed, c: Client): number | null {
+  if (need.amount <= 0) return null;
+  if (need.kind === "regular") {
+    const months = parseRegularPeriodMonths(need.timing);
+    if (months <= 0 || c.monthlyIncome <= 0) return null;
+    return (need.amount / months / c.monthlyIncome) * 100;
+  }
+  if (need.kind === "lumpSum") {
+    const months = parseFutureMonths(need.timing);
+    if (months <= 0 || c.investableAssets <= 0) return null;
+    const years = months / 12;
+    const base = years <= 1 ? 80 : years <= 3 ? 60 : years <= 5 ? 40 : 20;
+    const weight = years <= 1 ? 1.0 : years <= 3 ? 0.8 : years <= 5 ? 0.5 : 0.2;
+    return base + (need.amount / c.investableAssets) * 100 * weight * 0.5;
+  }
+  if (c.investableAssets <= 0) return null;
+  return 50 + (need.amount / c.investableAssets) * 50;
+}
+
+function calcLiquidityPriorityScore(c: Client) {
+  const priorityWeights: Record<1 | 2 | 3, number> = { 1: 0.5, 2: 0.3, 3: 0.2 };
+  const scored = ([1, 2, 3] as const)
+    .map((priority) => {
+      const need = c.liquidityNeeds.find((item) => item.priority === priority);
+      if (!need) return null;
+      const score = calcLiquidityNeedScore(need, c);
+      if (score == null || score <= 0) return null;
+      return { priority, score: Math.min(100, score), weight: priorityWeights[priority] };
+    })
+    .filter((item): item is { priority: 1 | 2 | 3; score: number; weight: number } => item !== null);
+  const weightSum = scored.reduce((sum, item) => sum + item.weight, 0);
+  if (weightSum <= 0) return 1;
+  return Math.max(scored.reduce((sum, item) => sum + item.score * (item.weight / weightSum), 0), 1);
+}
+
+function collectLiquidityNeeds(rrttllu: {
+  regularCashflowNeed: string;
+  lumpSumPlan: string;
+  emergencyReservePlan: string;
+}): LiquidityNeed[] {
+  const entries = [
+    ...parseLiquidityEntries(rrttllu.regularCashflowNeed, "regular").map((entry) => ({ entry, kind: "regular" as const })),
+    ...parseLiquidityEntries(rrttllu.lumpSumPlan, "lumpSum").map((entry) => ({ entry, kind: "lumpSum" as const })),
+    ...parseLiquidityEntries(rrttllu.emergencyReservePlan, "emergency").map((entry) => ({ entry, kind: "emergency" as const })),
+  ];
+  return entries
+    .map(({ entry, kind }) => {
+      const priority = Number(entry.priority);
+      if (priority !== 1 && priority !== 2 && priority !== 3) return null;
+      return {
+        kind,
+        priority,
+        amount: parseAmount(entry.amount),
+        timing: entry.timing,
+      };
+    })
+    .filter((item): item is LiquidityNeed => item !== null);
+}
+
+function representativeLumpSumYears(needs: LiquidityNeed[]) {
+  const rankedLump = needs
+    .filter((need) => need.kind === "lumpSum")
+    .sort((a, b) => a.priority - b.priority)[0];
+  const months = rankedLump ? parseFutureMonths(rankedLump.timing) : 0;
+  return months > 0 ? months / 12 : 5;
 }
 
 function getBlended(p: Product) {
@@ -120,16 +229,7 @@ function calcWeights(c: Client) {
   const uI = Math.max((c.age / 100) * 50 + (6 - c.riskAppetite) * 5, 1);
   const uH = Math.max(c.riskAppetite * 15, 1);
   const uT = c.isTaxTarget ? 100 : 5;
-  const cashflowRatio = c.monthlyIncome > 0 ? c.monthlyCashflow / c.monthlyIncome : 0.5;
-  const cashflowScore = Math.max(cashflowRatio * 100, 1);
-  const lumpRatio = c.investableAssets > 0 ? c.lumpSumAmount / c.investableAssets : 0;
-  const tp = c.lumpSumTimepoint;
-  const tpBase = tp <= 1 ? 80 : tp <= 3 ? 60 : tp <= 5 ? 40 : 20;
-  const tpWeight = tp <= 1 ? 1.0 : tp <= 3 ? 0.8 : tp <= 5 ? 0.5 : 0.2;
-  const lumpScore = Math.max(tpBase + lumpRatio * 100 * tpWeight * 0.5, 1);
-  const emergencyRatio = c.investableAssets > 0 ? c.emergencyAmount / c.investableAssets : 0;
-  const emergencyScore = Math.max(50 + emergencyRatio * 50, 1);
-  const uL = Math.max(cashflowScore * 0.30 + lumpScore * 0.50 + emergencyScore * 0.20, 1);
+  const uL = calcLiquidityPriorityScore(c);
   const total = uG + uI + uH + uL + uT;
   const arr: { bucket: BucketType; w: number }[] = [
     { bucket:"자본증식", w:uG/total }, { bucket:"인컴창출", w:uI/total },
@@ -482,7 +582,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets } = useCustomerContext();
+  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation } = useCustomerContext();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
   const [bucketOffset, setBucketOffset] = useState<Partial<Record<BucketType,number>>>({});
@@ -494,9 +594,9 @@ export default function Tab5Page() {
     if (!rrttlluReady) return {
       riskAppetite:3, targetReturn:8, investmentPeriod:3, liquidityRatio:0.2,
       isTaxTarget:false, isHighIncomeWorker:false, age:50,
-      monthlyIncome:0, monthlyCashflow:0,
-      lumpSumAmount:0, lumpSumTimepoint:5,
-      emergencyAmount:0, investableAssets:0,
+      monthlyIncome:0, investableAssets:0,
+      lumpSumTimepoint:5,
+      liquidityNeeds: [],
     };
     const isTaxTarget = internalJsonPayload.rrttllu.tax.financial_income_tax_alert.includes("초과");
     const age = parseInt(selectedCustomerProfile.age||"50");
@@ -504,7 +604,6 @@ export default function Tab5Page() {
     const ta = parseFloat(formData.financial.totalAssets.replace(/[^0-9.]/g,""))||0;
     const annualIncome = parseAmount(formData.financial.annualFixedIncome);
     const monthlyIncome = annualIncome / 12;
-    const monthlyCashflow = parseAmount(formData.financial.monthlyFixedExpense);
     const investableAssets = parseAmount(formData.financial.investableAssets);
 
 // TAB2·TAB3 리밸런싱 반영 추가투자자금 (헤더와 동일 로직)
@@ -520,9 +619,7 @@ const additionalInvestmentAmount = (() => {
   if (confirmedOperatingAssetsAfterBuy == null) return additionalAfterSell;
   return additionalAfterSell - (confirmedOperatingAssetsAfterBuy - confirmedOperatingAssetsAfterSell);
 })();
-    const lumpSumAmount = parseAmount(formData.rrttllu.lumpSumPlan);
-    const lumpSumTimepoint = parseTimepoint(formData.rrttllu.lumpSumPlan);
-    const emergencyAmount = parseAmount(formData.rrttllu.emergencyReservePlan);
+    const liquidityNeeds = collectLiquidityNeeds(formData.rrttllu);
     return {
       riskAppetite: riskLevelToAppetite(riskResult.level),
       targetReturn: returnObjectiveToPercent(formData.rrttllu.returnObjective),
@@ -530,9 +627,9 @@ const additionalInvestmentAmount = (() => {
       liquidityRatio: fa&&ta ? Math.min(fa/ta,1) : 0.2,
       isTaxTarget, isHighIncomeWorker:false,
       age: isNaN(age)?50:age,
-      monthlyIncome, monthlyCashflow,
-      lumpSumAmount, lumpSumTimepoint,
-      emergencyAmount, investableAssets: additionalInvestmentAmount,
+      monthlyIncome, investableAssets: additionalInvestmentAmount,
+      lumpSumTimepoint: representativeLumpSumYears(liquidityNeeds),
+      liquidityNeeds,
     };
   }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady]);
 
@@ -981,6 +1078,24 @@ const additionalInvestmentAmount = (() => {
           })()}
         </section>
       )}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => finishActiveConsultation(false)}
+          disabled={!activeConsultation}
+          className="rounded-xl bg-red-600 px-5 py-3 text-sm font-extrabold text-white shadow-soft transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+        >
+          상담 종료
+        </button>
+        <button
+          type="button"
+          onClick={resumeLatestConsultation}
+          disabled={Boolean(activeConsultation)}
+          className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-extrabold text-blue-700 shadow-soft transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          상담 재개
+        </button>
+      </div>
     </>
   );
 }

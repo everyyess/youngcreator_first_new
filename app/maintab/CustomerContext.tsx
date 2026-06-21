@@ -141,7 +141,25 @@ export type StoredAdvisoryGuide = {
   explanation: { lines: StoredAdvisoryGuideLine[] };
 };
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; aiAdvisoryGuide: StoredAdvisoryGuide | null; aiGuidePayloadSignature: string; aiGuideGeneratedAt: string; headerAssetSummary: HeaderAssetSummaryState };
+export type ConversationSpeaker = "PB" | "고객";
+export type ConversationTurn = { speaker: ConversationSpeaker; text: string; timestamp?: string };
+
+export type ConsultationSessionRecord = {
+  id: string;
+  customerId: string;
+  title: string;
+  date: string;
+  duration: string;
+  durationSeconds?: number;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  summarySnapshot?: unknown;
+  autoEnded?: boolean;
+  autoEndedMessage?: string;
+};
+
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; smartTranscript: ConversationTurn[]; smartAdditionalMemo: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; aiAdvisoryGuide: StoredAdvisoryGuide | null; aiGuidePayloadSignature: string; aiGuideGeneratedAt: string; headerAssetSummary: HeaderAssetSummaryState; consultationSessions: ConsultationSessionRecord[] };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -226,6 +244,17 @@ export type PortfolioAnalysisResult = {
   healthResult?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tlhResult?: any;
+};
+
+// TAB2-5 매도 시뮬레이터 확정 이력 레코드 (Supabase 영속 단위)
+export type SellRecord = {
+  id: string;
+  name: string;
+  productType: string;
+  sellPrice: number;
+  sellQty: number;
+  buyPrice: number | null;
+  realizedGain: number;
 };
 
 export type Tab3InnerTab = "correlation-domestic" | "correlation-global" | "rebalancing";
@@ -333,7 +362,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, aiAdvisoryGuide: null, aiGuidePayloadSignature: "", aiGuideGeneratedAt: "", headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", smartTranscript: [], smartAdditionalMemo: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, aiAdvisoryGuide: null, aiGuidePayloadSignature: "", aiGuideGeneratedAt: "", headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null }, consultationSessions: [] };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -358,8 +387,41 @@ export function normalizeAppState(value: unknown): AppState {
   const state = value && typeof value === "object" ? (value as Partial<AppState>) : {};
   const financial = state.financial && typeof state.financial === "object" ? state.financial : {};
   const rrttllu = state.rrttllu && typeof state.rrttllu === "object" ? state.rrttllu : {};
+  const consultationSessions = Array.isArray(state.consultationSessions)
+    ? state.consultationSessions
+        .map((session) => session && typeof session === "object" ? session as Partial<ConsultationSessionRecord> : null)
+        .filter((session): session is Partial<ConsultationSessionRecord> => Boolean(session?.id))
+        .map((session): ConsultationSessionRecord => ({
+          id: typeof session.id === "string" ? session.id : "",
+          customerId: typeof session.customerId === "string" ? session.customerId : "",
+          title: typeof session.title === "string" ? session.title : "",
+          date: typeof session.date === "string" ? session.date : "",
+          duration: typeof session.duration === "string" ? session.duration : "",
+          durationSeconds: typeof session.durationSeconds === "number" ? session.durationSeconds : 0,
+          status: typeof session.status === "string" ? session.status : "draft",
+          createdAt: typeof session.createdAt === "string" ? session.createdAt : "",
+          updatedAt: typeof session.updatedAt === "string" ? session.updatedAt : "",
+          summarySnapshot: session.summarySnapshot,
+          autoEnded: Boolean(session.autoEnded),
+          autoEndedMessage: typeof session.autoEndedMessage === "string" ? session.autoEndedMessage : "",
+        }))
+        .filter((session) => session.id && session.customerId)
+    : [];
+  const smartTranscript = Array.isArray(state.smartTranscript)
+    ? state.smartTranscript
+        .map((turn) => turn && typeof turn === "object" ? turn as Partial<ConversationTurn> : null)
+        .filter((turn): turn is Partial<ConversationTurn> => Boolean(turn))
+        .map((turn): ConversationTurn => ({
+          speaker: turn.speaker === "PB" ? "PB" : "고객",
+          text: typeof turn.text === "string" ? turn.text : "",
+          timestamp: typeof turn.timestamp === "string" ? turn.timestamp : undefined,
+        }))
+        .filter((turn) => turn.text.trim())
+    : [];
   return deriveCalculatedAppState({
     smartInputNote: typeof state.smartInputNote === "string" ? state.smartInputNote : "",
+    smartTranscript,
+    smartAdditionalMemo: typeof state.smartAdditionalMemo === "string" ? state.smartAdditionalMemo : "",
     uniqueOtherManual: typeof state.uniqueOtherManual === "string" ? state.uniqueOtherManual : "",
     smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
     aiGuidePbNotes: state.aiGuidePbNotes && typeof state.aiGuidePbNotes === "object" && !Array.isArray(state.aiGuidePbNotes) ? state.aiGuidePbNotes as Record<string, string> : {},
@@ -373,6 +435,7 @@ export function normalizeAppState(value: unknown): AppState {
             confirmedBuyAmount: typeof (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount === "number" ? (state.headerAssetSummary as Partial<HeaderAssetSummaryState>).confirmedBuyAmount ?? null : null,
           }
       : defaults.headerAssetSummary,
+    consultationSessions,
     financial: { ...defaults.financial, ...financial, irregularIncomeNone: Boolean((financial as Partial<FinancialInfo>).irregularIncomeNone) },
     rrttllu: {
       ...defaults.rrttllu, ...rrttllu,
@@ -1048,6 +1111,31 @@ export async function saveRebalancingBuyAssets(customerId: CustomerId, buyAssets
   );
 }
 
+// TAB2-5 매도 시뮬레이터 확정 이력 → rebalancing_state.sell_history 컬럼
+export async function loadSellHistory(customerId: CustomerId): Promise<SellRecord[]> {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase
+      .from("rebalancing_state")
+      .select("sell_history")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (error || !data) return [];
+    const raw = (data as Record<string, unknown>).sell_history;
+    return Array.isArray(raw) ? (raw as SellRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveSellHistory(customerId: CustomerId, history: SellRecord[]): Promise<void> {
+  if (!supabase) return;
+  await rebSB().upsert(
+    { customer_id: customerId, sell_history: history, updated_at: new Date().toISOString() },
+    { onConflict: "customer_id" },
+  );
+}
+
 // ── New Portfolio Analysis Result Helpers ─────────────────────────────────
 
 export async function loadNewAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
@@ -1151,6 +1239,8 @@ export type CustomerContextValue = {
   toggleInvestmentExperience: (option: string) => void;
   toggleLegalConstraint: (option: string) => void;
   setSmartInputNote: (value: string) => void;
+  setSmartTranscript: (value: ConversationTurn[]) => void;
+  setSmartAdditionalMemo: (value: string) => void;
   setAiGuidePbNote: (checkpointId: string, value: string) => void;
   setAiAdvisoryGuide: (guide: StoredAdvisoryGuide | null, payloadSignature?: string, generatedAt?: string) => void;
   analyzeRrttllu: () => void;
@@ -1158,6 +1248,10 @@ export type CustomerContextValue = {
   resetSelectedCustomerInputs: () => void;
   applySmartExtraction: (payload: SmartExtractionPayload) => void;
   updateCustomerProfile: (key: keyof Omit<CustomerProfile, "id">, value: string) => void;
+  finishActiveConsultation: (autoEnded?: boolean) => void;
+  resumeLatestConsultation: () => void;
+  activeConsultation: unknown;
+  activeConsultationElapsedSeconds: number;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   // ── 포트폴리오 전역 상태 (탭 이동 시에도 메모리에서 유지됨) ──────────────
   portfolioAssets: PortfolioAsset[];
@@ -1187,6 +1281,12 @@ export type CustomerContextValue = {
   setProductSelectedIds: (ids: string[]) => void;
   // ── 세금 요약 Supabase 저장 (Tab 2/3에서 호출) ────────────────────────────
   saveTaxSummary: (type: 'current' | 'new', summary: unknown) => void;
+  // ── 매도 시뮬레이터 확정 이력 (TAB2-5 → 전역 영속 + Supabase) ──────────────
+  sellHistory: SellRecord[];
+  addSellRecord: (record: SellRecord) => void;
+  clearSellHistory: () => void;
+  // d = b + (a - c): 가용 추가 투자 의향 자금 (기획서 표준 수식)
+  availableInvestmentFunds: number | null;
 };
 
 export const CustomerContext = createContext<CustomerContextValue | null>(null);

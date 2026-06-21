@@ -2,13 +2,14 @@
 
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { Home, Trash2 } from "lucide-react";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
+  type SellRecord,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
@@ -16,6 +17,7 @@ import {
   formatChangeDate, formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
   loadAnalysisResult, loadPortfolioAssets, savePortfolioAssets,
   loadRebalancingState, saveRebalancingState, saveRebalancingBuyAssets,
+  loadSellHistory, saveSellHistory,
   loadNewAnalysisResult, saveNewAnalysisResult,
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
@@ -26,6 +28,17 @@ import {
 } from "./CustomerContext";
 import { FINANCIAL_INCOME_STORAGE_KEY, NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
 import { formatLiquiditySummary, normalizeLiquidityValue } from "./liquidityFields";
+import {
+  consultationTimerEventName,
+  finishSession,
+  formatTimer,
+  getCustomerSessions,
+  getElapsedSeconds,
+  maxConsultationSeconds,
+  readActiveConsultation,
+  writeActiveConsultation,
+  type ActiveConsultation,
+} from "../consultationStore";
 
 const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
 
@@ -110,6 +123,22 @@ function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetS
   };
 }
 
+function buildConsultationSummarySnapshot(state: AppState) {
+  const { financial, rrttllu } = state;
+  return {
+    existingInvestmentAssets: financial.existingInvestmentAssets,
+    cashAssets: financial.cashAssets,
+    investableAssets: financial.investableAssets,
+    returnObjective: rrttllu.returnObjective,
+    expectedReturn: rrttllu.expectedReturnUnknown ? "모르겠음" : rrttllu.expectedReturn,
+    timeHorizon: rrttllu.timeHorizon,
+    regularCashflowNeed: formatLiquiditySummary(rrttllu.regularCashflowNeed, "regular"),
+    lumpSumPlan: formatLiquiditySummary(rrttllu.lumpSumPlan, "lumpSum"),
+    emergencyReservePlan: formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency"),
+    uniqueOther: rrttllu.uniqueOther,
+  };
+}
+
 
 export default function MainTabShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -129,6 +158,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   // 실제 복원은 마운트 후 useEffect(isMounted 플래그)에서 안전하게 처리한다.
   const [isMounted, setIsMounted] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>(defaultCustomerProfiles[0].id);
+  const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
+  const [activeConsultationElapsedSeconds, setActiveConsultationElapsedSeconds] = useState(0);
   const [showCustomerTabs, setShowCustomerTabs] = useState(false);
   const [draggedCustomerId, setDraggedCustomerId] = useState<CustomerId | null>(null);
   const [customerDropIndex, setCustomerDropIndex] = useState<number | null>(null);
@@ -167,6 +198,10 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [productSelectionsLoadedMap, setProductSelectionsLoadedMap] = useState<Record<CustomerId, boolean>>({});
   const [productSelectionsDirtyMap, setProductSelectionsDirtyMap] = useState<Record<CustomerId, boolean>>({});
 
+  // ── TAB2-5 매도 시뮬레이터 이력 Maps (고객별 격리, Supabase 영속) ──────────
+  const [sellHistoryMap, setSellHistoryMap] = useState<Record<CustomerId, SellRecord[]>>({});
+  const [sellHistoryDirtyMap, setSellHistoryDirtyMap] = useState<Record<CustomerId, boolean>>({});
+
   // ── 원자적 읽기용 Ref — async 콜백 / 비동기 파이프라인에서 stale closure 없이 최신 상태 참조
   // React 상태 업데이트는 배치 처리되어 다음 렌더까지 pending 상태이므로,
   // 매 렌더에서 .current를 동기 갱신하면 항상 최신 커밋 값을 보장한다.
@@ -174,6 +209,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const rebalancingSellMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const rebalancingBuyMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const tab3AnalysisStateMapRef = useRef<Record<CustomerId, Tab3AnalysisState>>({});
+  const sellHistoryMapRef = useRef<Record<CustomerId, SellRecord[]>>({});
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
 
   // 파생값 — 공개 인터페이스는 Tab 1의 formData/riskResult 패턴과 동일
@@ -185,6 +221,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const newPortfolioAnalysisResult = newPortfolioAnalysisResultMap[selectedCustomer] ?? null;
   const tab3AnalysisState = tab3AnalysisStateMap[selectedCustomer] ?? {};
   const productSelectedIds = productSelectionsMap[selectedCustomer] ?? [];
+  const sellHistory = sellHistoryMap[selectedCustomer] ?? [];
 
   // Ref 동기화 — 렌더마다 최신 커밋 값 기록 (useEffect 없이 동기 할당)
   // 이를 통해 async 콜백이 stale 클로저 없이 항상 최신 상태를 읽을 수 있다
@@ -192,9 +229,74 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   rebalancingSellMapRef.current = rebalancingSellMap;
   rebalancingBuyMapRef.current = rebalancingBuyMap;
   tab3AnalysisStateMapRef.current = tab3AnalysisStateMap;
+  sellHistoryMapRef.current = sellHistoryMap;
   selectedCustomerRef.current = selectedCustomer;
 
   const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
+
+  const finishActiveConsultation = useCallback((autoEnded = false) => {
+    const active = activeConsultation ?? readActiveConsultation();
+    if (!active) return;
+    const seconds = autoEnded ? maxConsultationSeconds : getElapsedSeconds(active);
+    const state = customerData[active.customerId] ?? createInitialState();
+    const sessions = getCustomerSessions(state);
+    if (!sessions.some((session) => session.id === active.sessionId)) {
+      writeActiveConsultation(null);
+      setActiveConsultation(null);
+      setActiveConsultationElapsedSeconds(0);
+      return;
+    }
+    const snapshot = buildConsultationSummarySnapshot(state);
+    const nextSessions = sessions.map((session) => session.id === active.sessionId ? { ...finishSession(session, seconds, autoEnded), summarySnapshot: snapshot } : session);
+    const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
+    setCustomerData((prev) => ({ ...prev, [active.customerId]: nextState }));
+    saveCustomerDataJsonOnly(active.customerId, nextState).catch((error) => console.error("Failed to save consultation duration", error));
+    writeActiveConsultation(null);
+    setActiveConsultation(null);
+    setActiveConsultationElapsedSeconds(0);
+  }, [activeConsultation, customerData]);
+
+  const resumeLatestConsultation = useCallback(() => {
+    const state = customerData[selectedCustomer] ?? createInitialState();
+    const sessions = getCustomerSessions(state);
+    const target = [...sessions].sort((a, b) => `${b.updatedAt}${b.date}`.localeCompare(`${a.updatedAt}${a.date}`))[0];
+    if (!target) return;
+    const resumed = { ...target, status: "active" as const, updatedAt: new Date().toISOString() };
+    const nextSessions = sessions.map((session) => session.id === target.id ? resumed : session);
+    const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
+    setCustomerData((prev) => ({ ...prev, [selectedCustomer]: nextState }));
+    saveCustomerDataJsonOnly(selectedCustomer, nextState).catch((error) => console.error("Failed to resume consultation", error));
+    storeSelectedCustomerId(selectedCustomer);
+    writeActiveConsultation({ sessionId: target.id, customerId: selectedCustomer, startedAt: new Date().toISOString(), returnPath: `/maintab/${currentSegment ?? "tab1"}` });
+    setActiveConsultation(readActiveConsultation());
+  }, [customerData, currentSegment, selectedCustomer]);
+
+  useEffect(() => {
+    const syncActive = () => {
+      const active = readActiveConsultation();
+      setActiveConsultation(active);
+      setActiveConsultationElapsedSeconds(getElapsedSeconds(active));
+    };
+    syncActive();
+    window.addEventListener(consultationTimerEventName, syncActive);
+    window.addEventListener("storage", syncActive);
+    return () => {
+      window.removeEventListener(consultationTimerEventName, syncActive);
+      window.removeEventListener("storage", syncActive);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeConsultation) return;
+    const tick = () => {
+      const elapsed = getElapsedSeconds(activeConsultation);
+      setActiveConsultationElapsedSeconds(elapsed);
+      if (elapsed >= maxConsultationSeconds) finishActiveConsultation(true);
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [activeConsultation, finishActiveConsultation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -270,7 +372,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       loadTab3AnalysisState(customerId),
       loadTaxSummaries(customerId),
       loadProductSelections(customerId),
-    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds]) => {
+      loadSellHistory(customerId),
+    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds, sellHistoryRows]) => {
       if (cancelled) {
         portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
         return;
@@ -284,6 +387,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
       setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
       setRebalancingLoadedMap(prev => ({ ...prev, [customerId]: true }));
+
+      setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
 
       setProductSelectionsMap(prev => ({ ...prev, [customerId]: productIds }));
       setProductSelectionsLoadedMap(prev => ({ ...prev, [customerId]: true }));
@@ -370,6 +475,18 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       setProductSelectionsDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
   }, [productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
+
+  // ── TAB2-5 매도 이력 변경 즉시 저장 → rebalancing_state.sell_history ────────
+  useEffect(() => {
+    if (!rebalancingLoadedMap[selectedCustomer]) return; // 로드 완료 후에만 저장
+    if (!sellHistoryDirtyMap[selectedCustomer]) return;
+
+    const customerId = selectedCustomer;
+    const history = sellHistoryMap[customerId] ?? [];
+    void saveSellHistory(customerId, history).then(() => {
+      setSellHistoryDirtyMap(prev => ({ ...prev, [customerId]: false }));
+    });
+  }, [sellHistoryMap, sellHistoryDirtyMap, rebalancingLoadedMap, selectedCustomer]);
 
   // ── 자산 변경 즉시 저장 — Tab 1의 saveCustomerDataJsonOnly 패턴과 완전히 동일
   // debounce 없음: 변경 즉시 저장하여 고객 전환 전에 항상 DB 반영 완료
@@ -506,7 +623,73 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     void saveTaxSummaryToDb(cid, type, summary);
   }, []); // stable
 
+  // ── TAB2-5 매도 시뮬레이터 callbacks ───────────────────────────────────────
+  const addSellRecord = useCallback((record: SellRecord) => {
+    const cid = selectedCustomerRef.current;
+
+    // ─ 1. sellHistory 누적 ─────────────────────────────────────────────────
+    const nextHistory = [...(sellHistoryMapRef.current[cid] ?? []), record];
+    setSellHistoryMap(prev => ({ ...prev, [cid]: nextHistory }));
+    setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: true }));
+
+    // ─ 2. rebalancingSellAssets 수량 차감 (Infinite Sell 차단) ─────────────
+    // 비어 있으면 원본 portfolioAssets 복사 → 첫 매도 시 자동 초기화
+    const currentSell = rebalancingSellMapRef.current[cid] ?? [];
+    const baseSell = currentSell.length > 0
+      ? currentSell
+      : (portfolioAssetsMapRef.current[cid] ?? []).map(a => ({ ...a }));
+
+    const nextSell = baseSell.map((a) => {
+      // quantity 타입 & name 일치 종목만 차감 (ticker 없는 종목 대비 name 매칭)
+      if (a.amount_type !== "quantity" || a.name !== record.name) return a;
+      return { ...a, amount: Math.max(0, a.amount - record.sellQty) };
+    });
+    setRebalancingSellMap(prev => ({ ...prev, [cid]: nextSell }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true })); // TAB3/TAB4 파이프라인 반영
+
+    // ─ 3. 기획서 수식 c = a − 누적매도금액; 헤더 가용자금(d) 연산 기반 ────────
+    const a = sumPortfolioCurrentValue(portfolioAssetsMapRef.current[cid] ?? []);
+    const totalSoldValue = nextHistory.reduce((s, r) => s + r.sellPrice * r.sellQty, 0);
+    const c = Math.max(0, a - totalSoldValue);
+    updateHeaderAssetSummary(cid, (current) => ({
+      ...current,
+      confirmedOperatingAssetsAfterSell: c,
+      confirmedOperatingAssetsAfterBuy: null,
+      confirmedBuyAmount: null,
+    }));
+  }, [updateHeaderAssetSummary]); // stable — 모든 읽기는 Ref 기반
+
+  const clearSellHistory = useCallback(() => {
+    const cid = selectedCustomerRef.current;
+    setSellHistoryMap(prev => ({ ...prev, [cid]: [] }));
+    setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: true }));
+    // rebalancingSellAssets → 원본 portfolioAssets로 롤백
+    const originalAssets = (portfolioAssetsMapRef.current[cid] ?? []).map(a => ({ ...a }));
+    setRebalancingSellMap(prev => ({ ...prev, [cid]: originalAssets }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+    updateHeaderAssetSummary(cid, (current) => ({
+      ...current,
+      confirmedOperatingAssetsAfterSell: null,
+      confirmedOperatingAssetsAfterBuy: null,
+      confirmedBuyAmount: null,
+    }));
+  }, [updateHeaderAssetSummary]); // stable
+
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
+
+  // d = b + (a - c): 기획서 표준 수식 — 가용 추가 투자 의향 자금
+  // a = 현재 포트폴리오 평가총액 | b = TAB1 투자가능자금 | c = 매도 확정 후 잔여자산
+  const availableInvestmentFunds = useMemo(() => {
+    // 포트폴리오 미로드 시 a = 0 되어 d가 음수 오염되는 것을 방지
+    if (!isPortfolioLoaded) return null;
+    const c = formData.headerAssetSummary?.confirmedOperatingAssetsAfterSell ?? null;
+    if (c === null) return null; // 매도 시뮬레이션 미진행 시 null
+    const a = sumPortfolioCurrentValue(portfolioAssets);
+    if (!Number.isFinite(a) || a <= 0) return null; // 유효한 평가총액 없으면 연산 생략
+    const b = parseKrwAmount(formData.financial.investableAssets) ?? 0;
+    const d = b + (a - c);
+    return Number.isFinite(d) ? d : null;
+  }, [formData.headerAssetSummary, formData.financial.investableAssets, portfolioAssets, isPortfolioLoaded]);
 
   const financialCompletion = useMemo(() => completion([
     formData.financial.existingInvestmentAssets, formData.financial.cashAssets, formData.financial.realEstate,
@@ -636,6 +819,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
         setProductSelectionsMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setProductSelectionsLoadedMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         setProductSelectionsDirtyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setSellHistoryMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
+        setSellHistoryDirtyMap(prev => { const next = { ...prev }; delete next[deletedId]; return next; });
         portfolioLoadedRef.current.delete(deletedId);
         setStorageErrorMessage("");
       }
@@ -769,6 +954,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       : { ...prev, rrttllu: { ...prev.rrttllu, [key]: value } }
   ));
   const setSmartInputNote = (value: string) => setFormData((prev) => ({ ...prev, smartInputNote: value }));
+  const setSmartTranscript = (value: AppState["smartTranscript"]) => setFormData((prev) => ({ ...prev, smartTranscript: value }));
+  const setSmartAdditionalMemo = (value: string) => setFormData((prev) => ({ ...prev, smartAdditionalMemo: value }));
   const setAiGuidePbNote = (checkpointId: string, value: string) => setFormData((prev) => ({
     ...prev,
     aiGuidePbNotes: { ...(prev.aiGuidePbNotes ?? {}), [checkpointId]: value },
@@ -808,9 +995,9 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     riskResult, financialCompletion, rrttlluCompletion, internalJsonPayload, warnings,
     analysisRequested, confirmedRiskResult, changeHistory, changeHistoryExpanded,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
-    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setAiGuidePbNote, setAiAdvisoryGuide,
+    toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setSmartTranscript, setSmartAdditionalMemo, setAiGuidePbNote, setAiAdvisoryGuide,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
-    updateCustomerProfile, setChangeHistoryExpanded,
+    updateCustomerProfile, finishActiveConsultation, resumeLatestConsultation, activeConsultation, activeConsultationElapsedSeconds, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태
     portfolioAssets, isPortfolioLoaded, analysisResult,
     addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
@@ -822,22 +1009,24 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     productSelectedIds, setProductSelectedIds,
     // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)
     saveTaxSummary: saveTaxSummaryFn,
+    // TAB2-5 매도 시뮬레이터 전역 영속 (탭 전환 후에도 이력 유지)
+    sellHistory, addSellRecord, clearSellHistory, availableInvestmentFunds,
   };
 
   return (
     <CustomerContext.Provider value={contextValue}>
       <main className="min-h-screen px-5 py-6 text-ink lg:px-8">
         <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
-          <CustomerSelector
-            customers={customerProfiles} selectedCustomer={selectedCustomer}
-            showCustomers={showCustomerTabs} onToggleSearch={() => setShowCustomerTabs((p) => !p)}
-            onSelectCustomer={selectCustomer} onAddCustomer={addCustomer}
-            onRequestDelete={() => setDeleteConfirmOpen(true)}
-            onDragStartCustomer={setDraggedCustomerId} draggedCustomerId={draggedCustomerId}
-            dropIndex={customerDropIndex} onSetDropIndex={setCustomerDropIndex}
-            onDropCustomer={reorderCustomer} recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
+          <HeaderSummary
+            currentCustomer={selectedCustomerProfile}
+            recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
             assetSummary={headerAssetSummary}
             storageErrorMessage={storageErrorMessage}
+            activeConsultation={activeConsultation}
+            elapsedSeconds={activeConsultationElapsedSeconds}
+            onHome={() => router.push("/home")}
+            onFinish={() => finishActiveConsultation(false)}
+            onResume={resumeLatestConsultation}
           />
           <div className="flex flex-col gap-5 xl:flex-row">
             <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
@@ -867,6 +1056,66 @@ const segmentToTab: Record<string, string> = {
   tab4: "compare",
   tab5: "recommend",
 };
+
+function HeaderSummary({
+  currentCustomer, recentUpdatedAt, assetSummary, storageErrorMessage,
+  activeConsultation, elapsedSeconds, onHome, onFinish, onResume,
+}: {
+  currentCustomer?: CustomerProfile;
+  recentUpdatedAt: number;
+  assetSummary: { operatingAssets: string; additionalAssets: string };
+  storageErrorMessage: string;
+  activeConsultation: ActiveConsultation | null;
+  elapsedSeconds: number;
+  onHome: () => void;
+  onFinish: () => void;
+  onResume: () => void;
+}) {
+  const gender = currentCustomer?.gender?.trim() || "-";
+  const age = currentCustomer?.age?.trim() || "-";
+  const job = currentCustomer?.job?.trim() || "-";
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-base font-extrabold text-slate-900">
+            현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span>
+          </p>
+          <p className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[15px] font-bold text-slate-900">
+            <span>성별 <span className="text-samsung">{gender}</span></span>
+            <span className="text-slate-300">|</span>
+            <span>만 나이 <span className="text-samsung">{age}</span></span>
+            <span className="text-slate-300">|</span>
+            <span>직업 <span className="text-samsung">{job}</span></span>
+          </p>
+          <p className="mt-1 text-[15px] font-extrabold text-slate-700">
+            운용 자산 <span className="text-samsung">{assetSummary.operatingAssets}</span>
+            <span className="px-1 text-slate-400">|</span>
+            추가 투자 의향 <span className="text-samsung">{assetSummary.additionalAssets}</span>
+          </p>
+          <p className="mt-1 text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button type="button" onClick={onHome} aria-label="HOME" className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-navy transition hover:border-blue-200 hover:bg-blue-50">
+            <Home size={17} /> HOME
+          </button>
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 font-mono text-sm font-extrabold text-blue-800">
+            {formatTimer(elapsedSeconds)}
+          </div>
+          <button type="button" onClick={onFinish} disabled={!activeConsultation} className="h-10 rounded-lg bg-red-600 px-3 text-sm font-extrabold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+            상담 종료
+          </button>
+          <button type="button" onClick={onResume} disabled={Boolean(activeConsultation)} className="h-10 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
+            상담 재개
+          </button>
+        </div>
+      </div>
+      {storageErrorMessage ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{storageErrorMessage}</div> : null}
+    </section>
+  );
+}
+
 function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const segment = useSelectedLayoutSegment();
   const activeTab = (segment ? segmentToTab[segment] : null) ?? "profile";

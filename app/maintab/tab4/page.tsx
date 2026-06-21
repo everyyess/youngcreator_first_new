@@ -4,14 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import {
-  DonutChart,
   fmt,
   fmtPct,
+  InteractiveDonutWithTable,
   MetricCard,
   NewPortfolioPlaceholder,
   PieChartIcon,
   PortfolioIssueBanner,
   ResultCard,
+  STRESS_SCENARIO_ORDER,
   StressScenarioBar,
   usePortfolioResult,
 } from "../PortfolioResultComponents";
@@ -26,7 +27,8 @@ import {
 } from "../tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary, TLHData } from "../tab1/FinancialIncomeGauge";
 
-const SCENARIO_KEYS = ["scenario1", "scenario2", "scenario3", "scenario4"] as const;
+// 시계열 연대기 순 키 배열 — STRESS_SCENARIO_ORDER 에서 파생 (2018→2020→2022)
+const SCENARIO_KEYS = STRESS_SCENARIO_ORDER.map((s) => s.key);
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
@@ -124,9 +126,30 @@ export default function Tab4Page() {
   const leftAssets: PortfolioAsset[] = Array.isArray(leftData?.enrichedAssets)
     ? (leftData!.enrichedAssets as PortfolioAsset[])
     : [];
-  const rightAssets: PortfolioAsset[] = Array.isArray(rightData?.enrichedAssets)
-    ? (rightData.enrichedAssets as PortfolioAsset[])
-    : [];
+
+  // 잔류 종목의 현재가를 기존 포트폴리오 enriched 데이터에서 보완
+  // TAB2-5 매도 확정 이후 rebalancingSellAssets에는 0수량 종목이 포함됨
+  const enrichedRemainingAssets = useMemo(() => {
+    const map = new Map(leftAssets.map(a => [`${a.name ?? ""}::${a.ticker ?? ""}`, a]));
+    return rebalancingSellAssets.map(a => {
+      const enriched = map.get(`${a.name ?? ""}::${a.ticker ?? ""}`);
+      return {
+        ...a,
+        current_price: enriched?.current_price ?? a.current_price,
+        current_value: enriched?.current_value ?? a.current_value,
+      };
+    });
+  }, [rebalancingSellAssets, leftAssets]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // TAB3 분석 결과가 있으면 그것을 우선 사용;
+  // 없으면 TAB2-5 매도 후 잔여 자산(enrichedRemainingAssets, amount>0만)을 베이스라인으로 사용
+  const rightAssets: PortfolioAsset[] = useMemo(() => {
+    if (Array.isArray(rightData?.enrichedAssets) && rightData!.enrichedAssets.length > 0) {
+      return rightData!.enrichedAssets as PortfolioAsset[];
+    }
+    // TAB2-5 매도 후 잔여 포트폴리오를 TAB4 우측 패널 베이스라인으로 사용
+    return enrichedRemainingAssets.filter(a => a.amount > 0);
+  }, [rightData, enrichedRemainingAssets]);
 
   // B패널 TLH용 데이터 — 신규 포트폴리오 자산 + 현재 세금 요약
   const tlhData = useMemo<TLHData | undefined>(() => {
@@ -144,7 +167,7 @@ export default function Tab4Page() {
       netCapitalGains: newSummary?.netCapitalGains ?? 0,
       capitalGainsTax: newSummary?.foreignCapitalGainsTax ?? 0,
     };
-  }, [rightData, newSummary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rightAssets, newSummary]); // eslint-disable-line react-hooks/exhaustive-deps
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leftStressResult = (leftData as any)?.stressResult;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -155,22 +178,11 @@ export default function Tab4Page() {
     [summary, leftAssets] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // 잔류 종목의 현재가를 기존 포트폴리오 enriched 데이터에서 보완
-  const enrichedRemainingAssets = useMemo(() => {
-    const map = new Map(leftAssets.map(a => [`${a.name ?? ""}::${a.ticker ?? ""}`, a]));
-    return rebalancingSellAssets.map(a => {
-      const enriched = map.get(`${a.name ?? ""}::${a.ticker ?? ""}`);
-      return {
-        ...a,
-        current_price: enriched?.current_price ?? a.current_price,
-        current_value: enriched?.current_value ?? a.current_value,
-      };
-    });
-  }, [rebalancingSellAssets, leftAssets]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // rightAssets에 잔류 자산이 이미 포함(TAB3 분석 시) 또는 rightAssets 자체가 잔류 자산(fallback)이므로
+  // enrichedRemainingAssets를 별도 합산하면 이중 계산 발생 — rightAssets 단독 사용
   const rightAfterTaxReturn = useMemo(
-    () => newSummary ? calcAfterTaxReturn(newSummary, [...enrichedRemainingAssets, ...rightAssets]) : null,
-    [newSummary, enrichedRemainingAssets, rightAssets] // eslint-disable-line react-hooks/exhaustive-deps
+    () => newSummary ? calcAfterTaxReturn(newSummary, rightAssets) : null,
+    [newSummary, rightAssets] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // ── PDF 다운로드 ───────────────────────────────────────────────────────────
@@ -301,9 +313,13 @@ export default function Tab4Page() {
             <span className="text-sm font-bold text-navy">기존 포트폴리오</span>
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 shadow-soft">
-            <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white ${rightData ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
-            <span className={`text-sm font-bold ${rightData ? "text-navy" : "text-slate-400"}`}>
-              {rightData ? "신규 포트폴리오 (리밸런싱 완료)" : "신규 포트폴리오 (준비 중)"}
+            <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold text-white ${rightAssets.length > 0 ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
+            <span className={`text-sm font-bold ${rightAssets.length > 0 ? "text-navy" : "text-slate-400"}`}>
+              {rightData
+                ? "신규 포트폴리오 (리밸런싱 완료)"
+                : rightAssets.length > 0
+                ? "매도 후 잔여 포트폴리오"
+                : "신규 포트폴리오 (준비 중)"}
             </span>
           </div>
 
@@ -325,7 +341,7 @@ export default function Tab4Page() {
           {/* ── 자산군별 비중 분포 행 ── */}
           {leftData ? (
             <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
-              <DonutChart assets={leftAssets} />
+              <InteractiveDonutWithTable assets={leftAssets} />
             </ResultCard>
           ) : (
             <div className="flex min-h-[480px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 text-center">
@@ -333,9 +349,13 @@ export default function Tab4Page() {
               <p className="text-sm font-semibold text-slate-400">2번 탭에서 자산을 입력하고 분석 실행을 눌러주세요.</p>
             </div>
           )}
-          {rightData ? (
+          {rightAssets.length > 0 ? (
             <ResultCard icon={<PieChartIcon />} title="자산군별 비중 분포" accent="slate">
-              <DonutChart assets={rightAssets} />
+              <InteractiveDonutWithTable
+                assets={rightAssets}
+                initialAssets={leftAssets}
+                showRebalancing={leftAssets.length > 0}
+              />
             </ResultCard>
           ) : (
             <NewPortfolioPlaceholder />
@@ -375,13 +395,13 @@ export default function Tab4Page() {
           </div>
 
           {/*
-            ── 스트레스 테스트 – 4대 위기 시나리오 행 ──
+            ── 스트레스 테스트 – 3대 위기 시나리오 행 ──
             좌우가 selectedScenario 상태를 공유하여 같은 위기를 나란히 비교.
             래퍼 div는 stressResult 유무와 무관하게 항상 존재하여 격자 행 정렬 유지.
           */}
           <div className="flex flex-col">
             {leftStressResult && (
-              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
+              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 3대 위기 시나리오" accent="red">
                 <StressTestCard
                   stressResult={leftStressResult}
                   selectedScenario={selectedScenario}
@@ -392,7 +412,7 @@ export default function Tab4Page() {
           </div>
           <div className="flex flex-col">
             {rightStressResult && (
-              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
+              <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 3대 위기 시나리오" accent="red">
                 <StressTestCard
                   stressResult={rightStressResult}
                   selectedScenario={selectedScenario}
@@ -467,9 +487,9 @@ function StressTestCard({
 }) {
   return (
     <div className="flex flex-col flex-1 gap-4">
-      {/* 시나리오 탭 버튼 */}
+      {/* 시나리오 탭 버튼 — 시계열 연대기 순(2018→2020→2022) */}
       <div className="flex flex-wrap gap-2">
-        {SCENARIO_KEYS.map((key, idx) => {
+        {STRESS_SCENARIO_ORDER.map(({ key, period, desc }, idx) => {
           const sc = stressResult[key];
           const isSelected = selectedScenario === idx;
           return (
@@ -483,8 +503,9 @@ function StressTestCard({
                   : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
               }`}
             >
-              <span className="block">{sc?.label ?? `시나리오 ${idx + 1}`}</span>
-              <span className={`block text-xs ${isSelected ? "text-red-600" : "text-slate-400"}`}>
+              <span className="block font-extrabold">{period}</span>
+              <span className={`block text-[10px] font-normal ${isSelected ? "text-red-500" : "text-slate-400"}`}>{desc}</span>
+              <span className={`block text-xs font-bold ${isSelected ? "text-red-600" : "text-slate-400"}`}>
                 {sc ? `${(sc.lossRate * 100).toFixed(1)}%` : "—"}
               </span>
             </button>
@@ -494,7 +515,7 @@ function StressTestCard({
 
       {/* 선택된 시나리오 막대 그래프 */}
       {(() => {
-        const sc = stressResult[SCENARIO_KEYS[selectedScenario]];
+        const sc = stressResult[STRESS_SCENARIO_ORDER[selectedScenario].key];
         return sc ? <StressScenarioBar scenario={sc} /> : (
           <p className="text-sm text-slate-400">시나리오 데이터가 없습니다.</p>
         );
