@@ -1557,8 +1557,6 @@ export default function CustomerAnalysisTab() {
       additionalMemo: formData.smartAdditionalMemo ?? "",
       reflectedUniqueOther: formData.rrttllu.uniqueOther,
       smartExtractedUniqueOther: formData.smartExtractedUniqueOther,
-      reflectedPreferredAssets: formData.rrttllu.preferredAssets,
-      reflectedAvoidedAssets: formData.rrttllu.avoidedAssets,
       reflectedExistingAssetPlan: formData.rrttllu.holdingOrDisposalPlan,
     },
   }), [formData.financial, advisoryGuideRrttllu, formData.smartInputNote, formData.smartTranscript, formData.smartAdditionalMemo, formData.smartExtractedUniqueOther, internalJsonPayload, riskResult, selectedCustomer, selectedCustomerProfile]);
@@ -1676,7 +1674,6 @@ export default function CustomerAnalysisTab() {
 
       {activeSubTab === "input" ? (
         <>
-      <CustomerInfoCard />
       <SmartInputCard />
 
       {/* 기본 재무 정보 */}
@@ -1830,7 +1827,6 @@ export default function CustomerAnalysisTab() {
       ) : (
         activeSubTab === "analysis" ? (
         <>
-          <CustomerInfoCard />
           <SummaryAnalysisCard
             formData={formData}
             riskResult={riskResult}
