@@ -602,17 +602,7 @@ export default function PensionTaxPanel({
                     <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{man(savingAmount)}</div>
                     <AllocationBreakdown {...savingResult} />
                     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 11px" }}>
-                        <div style={{ fontSize: 11, color: C.slate, marginBottom: 6 }}>세액공제</div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
-                          <span style={{ color: C.slate }}>고소득자 기준 (13.2%)</span>
-                          <span style={{ fontWeight: 700, color: C.green }}>{man(savingResult.totalAmount * 0.132)}</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                          <span style={{ color: C.slate }}>저소득자 기준 (16.5%)</span>
-                          <span style={{ fontWeight: 700, color: C.green }}>{man(savingResult.totalAmount * 0.165)}</span>
-                        </div>
-                      </div>
+                      <Metric label="세액공제 (13.2%)" value={man(savingResult.totalAmount * 0.132)} tone="green" />
                       <Metric label="연간 회피 금융소득" value={man(savingResult.totalIncome)} tone="green" />
                     </div>
                   </ScenarioCard>
@@ -677,17 +667,7 @@ export default function PensionTaxPanel({
                       </div>
                     )}
                     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 11px" }}>
-                        <div style={{ fontSize: 11, color: C.slate, marginBottom: 6 }}>세액공제</div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 3 }}>
-                          <span style={{ color: C.slate }}>고소득자 기준 (13.2%)</span>
-                          <span style={{ fontWeight: 700, color: C.green }}>{man(creditableIrp * 0.132)}</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                          <span style={{ color: C.slate }}>저소득자 기준 (16.5%)</span>
-                          <span style={{ fontWeight: 700, color: C.green }}>{man(creditableIrp * 0.165)}</span>
-                        </div>
-                      </div>
+                      <Metric label="세액공제 (13.2%)" value={man(creditableIrp * 0.132)} tone="green" />
                       <Metric label="연간 회피 금융소득" value={man(irpResult.totalIncome)} tone="green" />
                     </div>
                   </ScenarioCard>
@@ -738,14 +718,20 @@ export default function PensionTaxPanel({
                 </div>
 
                 {/* ISA restriction toggle */}
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.slate, marginBottom: 14, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={isaRestricted}
-                    onChange={e => setIsaRestricted(e.target.checked)}
-                  />
-                  최근 3년 내 금융소득종합과세 대상자였음 (자동 반영 · 직접 조정 가능)
-                </label>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.slate, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={isaRestricted}
+                      onChange={e => setIsaRestricted(e.target.checked)}
+                    />
+                    최근 3년 내 금융소득종합과세 대상자였음 (자동 반영 · 직접 조정 가능)
+                  </label>
+                  <div style={{ fontSize: 11, color: C.slate, textAlign: "right", lineHeight: 1.7, flexShrink: 0 }}>
+                    <div>고소득자 기준 (13.2%) 적용</div>
+                    <div>저소득자 기준 (16.5%) 적용</div>
+                  </div>
+                </div>
 
                 {/* Summary card */}
                 <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px" }}>
@@ -756,17 +742,7 @@ export default function PensionTaxPanel({
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
-                    <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: "9px 11px" }}>
-                      <div style={{ fontSize: 11, color: C.slate, marginBottom: 6 }}>연금계좌 세액공제</div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginBottom: 3 }}>
-                        <span style={{ color: C.slate }}>고소득자 (13.2%)</span>
-                        <span style={{ fontWeight: 700, color: C.green }}>{man((creditableSaving + creditableIrp) * 0.132)}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5 }}>
-                        <span style={{ color: C.slate }}>저소득자 (16.5%)</span>
-                        <span style={{ fontWeight: 700, color: C.green }}>{man((creditableSaving + creditableIrp) * 0.165)}</span>
-                      </div>
-                    </div>
+                    <Metric label="연금계좌 세액공제 (13.2%)" value={man(creditPension)} tone="green" />
                     <Metric label="ISA 세금 절감" value={man(isaSaving)} tone="green" />
                     <Metric
                       label="종합과세 구간 절감"
