@@ -141,7 +141,10 @@ export type StoredAdvisoryGuide = {
   explanation: { lines: StoredAdvisoryGuideLine[] };
 };
 
-export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; aiAdvisoryGuide: StoredAdvisoryGuide | null; aiGuidePayloadSignature: string; aiGuideGeneratedAt: string; headerAssetSummary: HeaderAssetSummaryState };
+export type ConversationSpeaker = "PB" | "고객";
+export type ConversationTurn = { speaker: ConversationSpeaker; text: string; timestamp?: string };
+
+export type AppState = { financial: FinancialInfo; rrttllu: RrttlluInfo; smartInputNote: string; smartTranscript: ConversationTurn[]; smartAdditionalMemo: string; uniqueOtherManual: string; smartExtractedUniqueOther: string; aiGuidePbNotes: Record<string, string>; aiAdvisoryGuide: StoredAdvisoryGuide | null; aiGuidePayloadSignature: string; aiGuideGeneratedAt: string; headerAssetSummary: HeaderAssetSummaryState };
 
 export type CustomerProfile = {
   id: CustomerId;
@@ -344,7 +347,7 @@ const emptyRrttllu: RrttlluInfo = {
 };
 
 export function createInitialState(): AppState {
-  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, aiAdvisoryGuide: null, aiGuidePayloadSignature: "", aiGuideGeneratedAt: "", headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
+  return { financial: { ...emptyFinancial }, rrttllu: { ...emptyRrttllu, investmentExperience: [], legalConstraints: [] }, smartInputNote: "", smartTranscript: [], smartAdditionalMemo: "", uniqueOtherManual: "", smartExtractedUniqueOther: "", aiGuidePbNotes: {}, aiAdvisoryGuide: null, aiGuidePayloadSignature: "", aiGuideGeneratedAt: "", headerAssetSummary: { confirmedOperatingAssetsAfterSell: null, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null } };
 }
 
 export function createInitialCustomerData(profiles = defaultCustomerProfiles): Record<CustomerId, AppState> {
@@ -369,8 +372,21 @@ export function normalizeAppState(value: unknown): AppState {
   const state = value && typeof value === "object" ? (value as Partial<AppState>) : {};
   const financial = state.financial && typeof state.financial === "object" ? state.financial : {};
   const rrttllu = state.rrttllu && typeof state.rrttllu === "object" ? state.rrttllu : {};
+  const smartTranscript = Array.isArray(state.smartTranscript)
+    ? state.smartTranscript
+        .map((turn) => turn && typeof turn === "object" ? turn as Partial<ConversationTurn> : null)
+        .filter((turn): turn is Partial<ConversationTurn> => Boolean(turn))
+        .map((turn): ConversationTurn => ({
+          speaker: turn.speaker === "PB" ? "PB" : "고객",
+          text: typeof turn.text === "string" ? turn.text : "",
+          timestamp: typeof turn.timestamp === "string" ? turn.timestamp : undefined,
+        }))
+        .filter((turn) => turn.text.trim())
+    : [];
   return deriveCalculatedAppState({
     smartInputNote: typeof state.smartInputNote === "string" ? state.smartInputNote : "",
+    smartTranscript,
+    smartAdditionalMemo: typeof state.smartAdditionalMemo === "string" ? state.smartAdditionalMemo : "",
     uniqueOtherManual: typeof state.uniqueOtherManual === "string" ? state.uniqueOtherManual : "",
     smartExtractedUniqueOther: typeof state.smartExtractedUniqueOther === "string" ? state.smartExtractedUniqueOther : "",
     aiGuidePbNotes: state.aiGuidePbNotes && typeof state.aiGuidePbNotes === "object" && !Array.isArray(state.aiGuidePbNotes) ? state.aiGuidePbNotes as Record<string, string> : {},
@@ -1187,6 +1203,8 @@ export type CustomerContextValue = {
   toggleInvestmentExperience: (option: string) => void;
   toggleLegalConstraint: (option: string) => void;
   setSmartInputNote: (value: string) => void;
+  setSmartTranscript: (value: ConversationTurn[]) => void;
+  setSmartAdditionalMemo: (value: string) => void;
   setAiGuidePbNote: (checkpointId: string, value: string) => void;
   setAiAdvisoryGuide: (guide: StoredAdvisoryGuide | null, payloadSignature?: string, generatedAt?: string) => void;
   analyzeRrttllu: () => void;
