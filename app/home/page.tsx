@@ -7,9 +7,11 @@ import {
   createInitialCustomerData,
   createInitialState,
   createNewCustomerProfile,
+  calculateRiskResult,
   customerRowsToStoredState,
   customerStorage,
   defaultCustomerProfiles,
+  getStoredSelectedCustomerId,
   saveCustomerDataJsonOnly,
   saveCustomerProfileColumns,
   storeSelectedCustomerId,
@@ -72,22 +74,38 @@ function customerDisplay(profile?: CustomerProfile | null) {
 }
 
 function ageDisplay(age: string) {
-  return age ? `만 ${age}세` : "입력 대기";
+  return age ? `${age}세` : "입력 대기";
 }
 
 function buildSummarySnapshot(state?: AppState) {
   if (!state) return null;
   const { financial, rrttllu } = state;
+  const risk = calculateRiskResult(rrttllu);
   return {
+    netAssets: financial.totalAssets,
+    financialAssets: financial.financialAssets,
+    realEstate: financial.realEstate,
+    debt: financial.debt,
+    annualFixedIncome: financial.annualFixedIncome,
+    monthlyFixedExpense: financial.monthlyFixedExpense,
+    irregularIncome: financial.irregularIncomeNone ? "없음" : financial.irregularIncome,
     existingInvestmentAssets: financial.existingInvestmentAssets,
     cashAssets: financial.cashAssets,
     investableAssets: financial.investableAssets,
     returnObjective: rrttllu.returnObjective,
     expectedReturn: rrttllu.expectedReturnUnknown ? "모르겠음" : rrttllu.expectedReturn,
+    riskScore: risk.score,
+    riskLevel: risk.level,
+    riskInterpretation: risk.interpretation,
     timeHorizon: rrttllu.timeHorizon,
+    giftingPlan: rrttllu.giftingPlan,
+    globalTaxImportance: rrttllu.globalTaxImportance,
+    recentGlobalTaxSubject: rrttllu.recentGlobalTaxSubject,
+    foreignStockTaxImportance: rrttllu.foreignStockTaxImportance,
     regularCashflowNeed: formatLiquiditySummary(rrttllu.regularCashflowNeed, "regular"),
     lumpSumPlan: formatLiquiditySummary(rrttllu.lumpSumPlan, "lumpSum"),
     emergencyReservePlan: formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency"),
+    legalConstraints: Array.isArray(rrttllu.legalConstraints) ? rrttllu.legalConstraints.join(", ") : "",
     uniqueOther: rrttllu.uniqueOther,
   };
 }
@@ -108,6 +126,54 @@ function summaryRows(snapshot?: SummarySnapshot | null) {
     ["비상예비자금 계획", snapshot.emergencyReservePlan || "미입력"],
     ["고객 고유 상황", snapshot.uniqueOther || "미입력"],
   ] as [string, string][];
+}
+
+function valueOrWaiting(value?: string | number | null) {
+  const text = value == null ? "" : String(value).trim();
+  return text || "입력 대기";
+}
+
+function missingNotice(values: Array<string | number | null | undefined>) {
+  return values.some((value) => valueOrWaiting(value) === "입력 대기");
+}
+
+function summarySections(snapshot?: SummarySnapshot | null) {
+  if (!snapshot) return [];
+  return [
+    {
+      title: "고객 재무 현황",
+      missing: missingNotice([snapshot.netAssets, snapshot.financialAssets, snapshot.realEstate, snapshot.debt, snapshot.annualFixedIncome, snapshot.monthlyFixedExpense, snapshot.investableAssets, snapshot.irregularIncome]),
+      items: [
+        ["순자산", snapshot.netAssets],
+        ["금융자산", snapshot.financialAssets],
+        ["부동산", snapshot.realEstate],
+        ["부채", snapshot.debt],
+        ["연 고정소득", snapshot.annualFixedIncome],
+        ["월 고정지출", snapshot.monthlyFixedExpense],
+        ["추가 투자 의향 자산", snapshot.investableAssets],
+        ["향후 예상되는 비정기 소득", snapshot.irregularIncome],
+      ],
+    },
+    { title: "Return", missing: missingNotice([snapshot.returnObjective, snapshot.expectedReturn]), items: [["투자 목적", snapshot.returnObjective], ["기대수익률", snapshot.expectedReturn]] },
+    {
+      title: "Risk",
+      missing: false,
+      risk: true,
+      items: [["", `${snapshot.riskScore}/100 ${snapshot.riskLevel}`], ["", snapshot.riskInterpretation]],
+    },
+    { title: "Time Horizon", missing: missingNotice([snapshot.timeHorizon]), items: [["투자 기간", snapshot.timeHorizon]] },
+    {
+      title: "Tax",
+      missing: missingNotice([snapshot.giftingPlan, snapshot.globalTaxImportance, snapshot.recentGlobalTaxSubject, snapshot.foreignStockTaxImportance]),
+      items: [["사전증여", snapshot.giftingPlan], ["종합과세 절감", snapshot.globalTaxImportance], ["최근 과세대상", snapshot.recentGlobalTaxSubject], ["해외주식 절세", snapshot.foreignStockTaxImportance]],
+    },
+    {
+      title: "Liquidity",
+      missing: missingNotice([snapshot.regularCashflowNeed, snapshot.lumpSumPlan, snapshot.emergencyReservePlan]),
+      items: [["정기 현금흐름 필요", snapshot.regularCashflowNeed], ["목돈 사용 계획", snapshot.lumpSumPlan], ["비상예비자금 계획", snapshot.emergencyReservePlan]],
+    },
+    { title: "Legal", missing: missingNotice([snapshot.legalConstraints]), items: [["법적/제도적 제약", snapshot.legalConstraints]] },
+  ];
 }
 
 function sessionSummarySnapshot(session: ConsultationSession): SummarySnapshot | null {
@@ -159,6 +225,8 @@ export default function HomePage() {
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [storageMessage, setStorageMessage] = useState("");
+  const [customerDeleteTarget, setCustomerDeleteTarget] = useState<CustomerProfile | null>(null);
+  const [sessionDeleteTarget, setSessionDeleteTarget] = useState<ConsultationSession | null>(null);
 
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
@@ -175,7 +243,12 @@ export default function HomePage() {
     const stored = customerRowsToStoredState(result.rows);
     setCustomers(stored.customerProfiles);
     setCustomerData(stored.customerData);
-    setSelectedCustomerId((current) => current || stored.customerProfiles[0]?.id || "");
+    const storedSelected = getStoredSelectedCustomerId();
+    setSelectedCustomerId((current) => {
+      if (current && stored.customerProfiles.some((customer) => customer.id === current)) return current;
+      if (storedSelected && stored.customerProfiles.some((customer) => customer.id === storedSelected)) return storedSelected;
+      return stored.customerProfiles[0]?.id || "";
+    });
   }, []);
 
   useEffect(() => { loadCustomers(); }, [loadCustomers]);
@@ -228,10 +301,40 @@ export default function HomePage() {
   }, [sessions, upsertSession]);
 
   const deleteSession = (session: ConsultationSession) => {
-    if (!window.confirm("정말로 삭제하시겠습니까?")) return;
+    setSessionDeleteTarget(session);
+  };
+
+  const confirmDeleteSession = () => {
+    const session = sessionDeleteTarget;
+    if (!session) return;
     const state = customerData[session.customerId] ?? createInitialState();
     persistCustomerState(session.customerId, { ...state, consultationSessions: getCustomerSessions(state).filter((item) => item.id !== session.id) });
     if (expandedSessionId === session.id) setExpandedSessionId(null);
+    setSessionDeleteTarget(null);
+  };
+
+  const confirmDeleteCustomer = async () => {
+    const target = customerDeleteTarget;
+    if (!target) return;
+    const result = await customerStorage.remove(target.id);
+    if (!result.ok) {
+      setStorageMessage(result.message);
+      return;
+    }
+    setCustomers((prev) => {
+      const next = prev.filter((customer) => customer.id !== target.id);
+      const nextSelected = next[0]?.id ?? "";
+      setSelectedCustomerId(nextSelected);
+      if (nextSelected) storeSelectedCustomerId(nextSelected);
+      return next;
+    });
+    setCustomerData((prev) => {
+      const next = { ...prev };
+      delete next[target.id];
+      return next;
+    });
+    if (expandedSession?.customerId === target.id) setExpandedSessionId(null);
+    setCustomerDeleteTarget(null);
   };
 
   function startSession(session: ConsultationSession) {
@@ -331,12 +434,12 @@ export default function HomePage() {
           {leftOpen ? (
             <div className="grid gap-4">
               {storageMessage ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{storageMessage}</p> : null}
-              <div className="grid grid-cols-[minmax(0,0.8fr)_104px] gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
                 <label className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3">
                   <Search size={16} className="text-slate-400" />
                   <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="고객 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
                 </label>
-                <button type="button" onClick={() => setShowAddCustomerForm((value) => !value)} className="whitespace-nowrap rounded-xl bg-blue-600 px-2 text-[11px] font-extrabold text-white hover:bg-blue-700">신규 고객 추가</button>
+                <button type="button" onClick={() => setShowAddCustomerForm((value) => !value)} className="whitespace-nowrap rounded-xl bg-blue-600 px-2 text-xs font-extrabold text-white hover:bg-blue-700">신규 고객 추가</button>
               </div>
               <div className="grid max-h-40 gap-1 overflow-y-auto pr-1">
                 {filteredCustomers.map((customer) => (
@@ -346,7 +449,7 @@ export default function HomePage() {
                 ))}
               </div>
               {showAddCustomerForm ? <CustomerProfileEditor profile={newCustomer} setProfile={setNewCustomer} onSave={addCustomer} onCancel={() => setShowAddCustomerForm(false)} /> : null}
-              {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} onCreate={openCreateForm} /> : null}
+              {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} onCreate={openCreateForm} onDelete={() => setCustomerDeleteTarget(selectedCustomer)} /> : null}
               {showCreateForm && draftSession ? (
                 <CreateSessionForm draft={draftSession} setDraft={(updater) => setDraftSession((prev) => prev ? updater(prev) : prev)} onCancel={() => setShowCreateForm(false)} onSave={() => saveDraftSession(false)} onStart={() => saveDraftSession(true)} />
               ) : null}
@@ -373,8 +476,9 @@ export default function HomePage() {
           {rightOpen ? (
             <div className="grid gap-5">
               {activeConsultation ? (
-                <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/maintab/tab1")} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
-                  <Home size={15} /> 상담 화면으로 돌아가기 <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
+                <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/maintab/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
+                  <span className="inline-flex items-center gap-1"><Home size={15} /> 상담 화면으로 돌아가기</span>
+                  <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
                 </button>
               ) : null}
               <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} />
@@ -390,6 +494,22 @@ export default function HomePage() {
           sessions={sessions}
           onUpdate={(patch) => updateSession(expandedSession.id, patch)}
           onClose={() => setExpandedSessionId(null)}
+        />
+      ) : null}
+      {customerDeleteTarget ? (
+        <DeleteConfirmModal
+          title="고객 정보 삭제"
+          body={`${customerName(customerDeleteTarget)}님의 모든 정보가 사라집니다. 정말 삭제하시겠습니까?`}
+          onCancel={() => setCustomerDeleteTarget(null)}
+          onConfirm={confirmDeleteCustomer}
+        />
+      ) : null}
+      {sessionDeleteTarget ? (
+        <DeleteConfirmModal
+          title="상담 내역 삭제"
+          body={`${customerName(customers.find((customer) => customer.id === sessionDeleteTarget.customerId))}님의 ${displayKoreanDate(sessionDeleteTarget.date)} 상담 내역이 사라집니다. 정말 삭제하시겠습니까?`}
+          onCancel={() => setSessionDeleteTarget(null)}
+          onConfirm={confirmDeleteSession}
         />
       ) : null}
     </main>
@@ -437,23 +557,28 @@ function CustomerProfileEditor({ profile, setProfile, onSave, onCancel }: { prof
   );
 }
 
-function SelectedCustomerInfo({ customer, onChange, onCreate }: { customer: CustomerProfile; onChange: (id: CustomerId, patch: Partial<CustomerProfile>) => void; onCreate: () => void }) {
+function SelectedCustomerInfo({ customer, onChange, onCreate, onDelete }: { customer: CustomerProfile; onChange: (id: CustomerId, patch: Partial<CustomerProfile>) => void; onCreate: () => void; onDelete: () => void }) {
   const birth = customer.birthYear || customer.birth_year || "";
   return (
     <section>
       <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">고객 정보</p>
       <div className="rounded-xl border border-slate-900 bg-white p-3 shadow-sm">
       <div className="grid gap-2">
-        <div className="grid grid-cols-[minmax(0,1fr)_70px] gap-2">
-          <ProfileInput label="성명" value={customer.name} placeholder="성명" compact onChange={(value) => onChange(customer.id, { name: value })} />
+        <div className="grid grid-cols-[minmax(0,1fr)_62px] gap-1.5">
+          <ProfileInput label="성명" value={customer.name} placeholder="성명" compact narrowLabel onChange={(value) => onChange(customer.id, { name: value })} />
           <GenderToggle value={customer.gender} onChange={(gender) => onChange(customer.id, { gender })} />
         </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_80px] gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_48px] gap-2">
           <ProfileInput label="생년월일" value={birth} placeholder="생년월일" compact onChange={(value) => onChange(customer.id, { birthYear: value, birth_year: value })} />
-          <div className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-500">{ageDisplay(customer.age)}</div>
+          <div className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-500">{customer.age ? `${customer.age}세` : "대기"}</div>
         </div>
         <ProfileInput label="직업" value={customer.job} placeholder="직업" onChange={(value) => onChange(customer.id, { job: value })} />
-        <button type="button" onClick={onCreate} className="min-h-12 rounded-lg bg-blue-600 px-3 text-xs font-extrabold text-white hover:bg-blue-700">신규 상담 일지 생성</button>
+        <div className="grid grid-cols-[minmax(0,1fr)_40px] gap-2">
+          <button type="button" onClick={onCreate} className="min-h-12 whitespace-nowrap rounded-lg bg-blue-600 px-2 text-xs font-extrabold text-white hover:bg-blue-700">신규 상담 일지 생성</button>
+          <button type="button" onClick={onDelete} aria-label="고객 정보 삭제" className="flex min-h-12 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100">
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
       </div>
     </section>
@@ -462,7 +587,7 @@ function SelectedCustomerInfo({ customer, onChange, onCreate }: { customer: Cust
 
 function GenderToggle({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
+    <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-slate-100 p-1">
       {["남", "여"].map((option) => (
         <button key={option} type="button" onClick={() => onChange(option)} className={`h-8 rounded-md text-xs font-extrabold transition ${value === option ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-blue-50"}`}>
           {option}
@@ -472,10 +597,10 @@ function GenderToggle({ value, onChange }: { value: string; onChange: (value: st
   );
 }
 
-function ProfileInput({ label, value, placeholder, onChange, compact = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean }) {
+function ProfileInput({ label, value, placeholder, onChange, compact = false, narrowLabel = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean; narrowLabel?: boolean }) {
   return (
-    <label className={`grid items-center gap-2 ${compact ? "grid-cols-[44px_minmax(0,1fr)]" : "grid-cols-[58px_minmax(0,1fr)]"}`}>
-      <span className="text-xs font-extrabold text-slate-600">{label}</span>
+    <label className={`grid items-center gap-2 ${narrowLabel ? "grid-cols-[42px_minmax(0,1fr)]" : compact ? "grid-cols-[58px_minmax(0,1fr)]" : "grid-cols-[58px_minmax(0,1fr)]"}`}>
+      <span className="whitespace-nowrap text-xs font-extrabold text-slate-600">{label}</span>
       <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm placeholder:font-normal" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
@@ -483,15 +608,17 @@ function ProfileInput({ label, value, placeholder, onChange, compact = false }: 
 
 function CreateSessionForm({ draft, setDraft, onCancel, onSave, onStart }: { draft: ConsultationSession; setDraft: (updater: (prev: ConsultationSession) => ConsultationSession) => void; onCancel: () => void; onSave: () => void; onStart: () => void }) {
   return (
-    <section className="rounded-xl border border-slate-900 bg-blue-50/70 p-3">
+    <section className="box-border w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-slate-900 bg-blue-50/70 p-3">
       <p className="mb-3 text-sm font-extrabold text-blue-900">신규 상담 생성</p>
-      <div className="grid gap-2">
-        <input className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="상담 제목" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} />
-        <input className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm" type="date" value={draft.date} onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))} />
-        <div className="grid grid-cols-[0.65fr_1fr_1.15fr] gap-2">
+      <div className="grid min-w-0 gap-2">
+        <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="상담 제목" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} />
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_48px] gap-1.5">
+          <input className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-[11px]" type="date" value={draft.date} onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))} />
           <button type="button" onClick={onCancel} className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">취소</button>
-          <button type="button" onClick={onSave} className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">임시저장</button>
-          <button type="button" onClick={onStart} className="whitespace-nowrap rounded-lg bg-blue-600 px-2 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+        </div>
+        <div className="grid min-w-0 grid-cols-2 gap-1.5">
+          <button type="button" onClick={onSave} className="min-w-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-1 py-2 text-[10px] font-extrabold text-slate-700">임시저장</button>
+          <button type="button" onClick={onStart} className="min-w-0 whitespace-nowrap rounded-lg bg-blue-600 px-1 py-2 text-[10px] font-extrabold text-white hover:bg-blue-700">상담 시작</button>
         </div>
       </div>
     </section>
@@ -561,16 +688,42 @@ function SummaryModal({ session, customer, sessions, onUpdate, onClose }: { sess
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="mb-4 text-sm font-extrabold text-blue-900">성향 및 니즈 분석 요약</p>
-          <div className="grid gap-2">
-            {summaryRows(snapshot).map(([label, value]) => (
-              <div key={label} className="grid gap-1 rounded-xl bg-slate-50 px-4 py-3 text-sm sm:grid-cols-[150px_minmax(0,1fr)]">
-                <span className="font-extrabold text-slate-500">{label}</span>
-                <span className="font-bold text-slate-800">{value}</span>
-              </div>
-            ))}
-          </div>
+          <SummaryTable snapshot={snapshot} />
         </div>
       </section>
+    </div>
+  );
+}
+
+function SummaryTable({ snapshot }: { snapshot: SummarySnapshot | null }) {
+  const sections = summarySections(snapshot);
+  if (!sections.length) {
+    return <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-500">상담 종료 후 요약 내용을 확인할 수 있습니다.</p>;
+  }
+  return (
+    <div className="grid gap-2">
+      {sections.map((section) => (
+        <div key={section.title} className="grid overflow-hidden rounded-xl border border-slate-200 bg-white sm:grid-cols-[120px_minmax(0,1fr)]">
+          <div className="flex items-center bg-sky-100 px-3 py-3">
+            <span className="text-xs font-black text-blue-900">{section.title}</span>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2.5">
+            {section.risk ? (
+              <div className="grid gap-2">
+                <p className="text-xs font-black text-slate-950">{valueOrWaiting(section.items[0]?.[1])}</p>
+                <p className="text-xs font-bold leading-5 text-slate-950">{valueOrWaiting(section.items[1]?.[1])}</p>
+              </div>
+            ) : (
+              section.items.map(([label, value]) => (
+                <span key={label} className="inline-flex items-center gap-1.5 text-xs font-black text-slate-950">
+                  <span className="rounded-lg bg-sky-100 px-2 py-1 text-blue-900">{label}</span>
+                  <span>{valueOrWaiting(value)}</span>
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -593,4 +746,26 @@ function SideSection({ title, sessions, customers, expandedSessionId, setExpande
 
 function EmptyBox({ text }: { text: string }) {
   return <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-400">{text}</div>;
+}
+
+function DeleteConfirmModal({ title, body, onCancel, onConfirm }: { title: string; body: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 px-4">
+      <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-700">
+            <Trash2 size={22} />
+          </div>
+          <div>
+            <h2 className="text-lg font-black text-slate-950">{title}</h2>
+            <p className="mt-2 text-sm font-bold leading-6 text-slate-600">{body}</p>
+          </div>
+        </div>
+        <div className="mt-6 grid grid-cols-2 gap-2">
+          <button type="button" onClick={onCancel} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-extrabold text-slate-700 hover:bg-slate-50">취소</button>
+          <button type="button" onClick={onConfirm} className="rounded-xl bg-red-600 px-4 py-3 text-sm font-extrabold text-white hover:bg-red-700">삭제</button>
+        </div>
+      </section>
+    </div>
+  );
 }

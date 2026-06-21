@@ -125,16 +125,32 @@ function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetS
 
 function buildConsultationSummarySnapshot(state: AppState) {
   const { financial, rrttllu } = state;
+  const risk = calculateRiskResult(rrttllu);
   return {
+    netAssets: financial.totalAssets,
+    financialAssets: financial.financialAssets,
+    realEstate: financial.realEstate,
+    debt: financial.debt,
+    annualFixedIncome: financial.annualFixedIncome,
+    monthlyFixedExpense: financial.monthlyFixedExpense,
+    irregularIncome: financial.irregularIncomeNone ? "없음" : financial.irregularIncome,
     existingInvestmentAssets: financial.existingInvestmentAssets,
     cashAssets: financial.cashAssets,
     investableAssets: financial.investableAssets,
     returnObjective: rrttllu.returnObjective,
     expectedReturn: rrttllu.expectedReturnUnknown ? "모르겠음" : rrttllu.expectedReturn,
+    riskScore: risk.score,
+    riskLevel: risk.level,
+    riskInterpretation: risk.interpretation,
     timeHorizon: rrttllu.timeHorizon,
+    giftingPlan: rrttllu.giftingPlan,
+    globalTaxImportance: rrttllu.globalTaxImportance,
+    recentGlobalTaxSubject: rrttllu.recentGlobalTaxSubject,
+    foreignStockTaxImportance: rrttllu.foreignStockTaxImportance,
     regularCashflowNeed: formatLiquiditySummary(rrttllu.regularCashflowNeed, "regular"),
     lumpSumPlan: formatLiquiditySummary(rrttllu.lumpSumPlan, "lumpSum"),
     emergencyReservePlan: formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency"),
+    legalConstraints: Array.isArray(rrttllu.legalConstraints) ? rrttllu.legalConstraints.join(", ") : "",
     uniqueOther: rrttllu.uniqueOther,
   };
 }
@@ -1074,6 +1090,7 @@ function HeaderSummary({
   const gender = currentCustomer?.gender?.trim() || "-";
   const age = currentCustomer?.age?.trim() || "-";
   const job = currentCustomer?.job?.trim() || "-";
+  const valueClassName = "text-sky-500";
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
@@ -1082,17 +1099,17 @@ function HeaderSummary({
           <p className="text-base font-extrabold text-slate-900">
             현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span>
           </p>
-          <p className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[15px] font-bold text-slate-900">
-            <span>성별 <span className="text-samsung">{gender}</span></span>
+          <p className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[13px] font-bold text-slate-600">
+            <span>성별 <span className={valueClassName}>{gender}</span></span>
             <span className="text-slate-300">|</span>
-            <span>만 나이 <span className="text-samsung">{age}</span></span>
+            <span>연령 <span className={valueClassName}>{age === "-" ? "-" : `만 ${age}세`}</span></span>
             <span className="text-slate-300">|</span>
-            <span>직업 <span className="text-samsung">{job}</span></span>
+            <span>직업 <span className={valueClassName}>{job}</span></span>
           </p>
-          <p className="mt-1 text-[15px] font-extrabold text-slate-700">
-            운용 자산 <span className="text-samsung">{assetSummary.operatingAssets}</span>
+          <p className="mt-1 text-[13px] font-extrabold text-slate-600">
+            운용 자산 <span className={valueClassName}>{assetSummary.operatingAssets}</span>
             <span className="px-1 text-slate-400">|</span>
-            추가 투자 의향 <span className="text-samsung">{assetSummary.additionalAssets}</span>
+            추가 투자 의향 <span className={valueClassName}>{assetSummary.additionalAssets}</span>
           </p>
           <p className="mt-1 text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
         </div>

@@ -548,6 +548,7 @@ function SmartInputCard() {
   const transcript = normalizeTranscriptTurns(formData.smartTranscript ?? []);
   const additionalMemo = formData.smartAdditionalMemo ?? "";
   const visibleVoiceStatus = voiceStatusCustomer === selectedCustomer ? voiceStatus : "";
+  const extractCompleteMessage = message === "customer_extract_complete" ? "고객 정보 추출이 완료되었습니다." : "";
 
   const setCurrentCustomerVoiceStatus = (message: string) => {
     setVoiceStatusCustomer(selectedCustomer);
@@ -786,7 +787,7 @@ function SmartInputCard() {
       if (result.geminiUsed === true) {
         const nextUsage = incrementGeminiUsageToday();
         setUsageToday(nextUsage);
-        setMessage("");
+        setMessage("customer_extract_complete");
       } else if (result.fallbackReason === "rate_limit") {
         markGeminiLimitReached();
         setMessage("gemini_rate_limit");
@@ -849,6 +850,7 @@ function SmartInputCard() {
             <p className="text-sm font-extrabold text-sky-900">Smart Input</p>
             <PbPrivateNotice />
             <SmartInputStatusBadge message={visibleVoiceStatus} />
+            <SmartInputStatusBadge message={extractCompleteMessage} />
           </div>
           <div className="space-y-3 bg-sky-50">
             <div className="rounded-lg border border-sky-200 bg-white p-4">
@@ -893,7 +895,7 @@ function SmartInputCard() {
                 {geminiUsageLabel(usageToday)}
               </p>
             </div>
-          ) : message ? (
+          ) : message && message !== "customer_extract_complete" ? (
             <p className={`mt-2 text-sm font-bold ${message.includes("실패") ? "text-red-700" : "text-sky-900"}`}>{message}</p>
           ) : null}
           {message !== "gemini_rate_limit" ? (
@@ -952,14 +954,14 @@ function SmartInputCard() {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          <div className="grid gap-1.5">
             <button
               type="button"
               onClick={extract}
               disabled={loading}
               className="min-h-9 rounded-lg border border-yellow-300 bg-white px-2 py-1.5 text-xs font-extrabold text-yellow-900 transition hover:bg-yellow-100 disabled:cursor-wait disabled:opacity-60"
             >
-              {loading ? "추출 중" : "추출"}
+              {loading ? "추출 중" : "추출하기"}
             </button>
             <button
               type="button"
@@ -1636,7 +1638,7 @@ export default function CustomerAnalysisTab() {
         advisoryGuidePayloadSignature,
         new Date().toISOString(),
       );
-      setAdvisoryGuideNotice("");
+      setAdvisoryGuideNotice("AI 상담 가이드 생성이 완료되었습니다. Tab1-3에서 확인해주세요.");
     } catch (error) {
       console.error("AI advisory guide request failed", { error, advisoryGuidePayload });
       if (isGeminiResourceExhausted(error instanceof Error ? error.message : error)) {
