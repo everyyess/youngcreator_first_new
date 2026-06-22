@@ -104,6 +104,23 @@ grant execute on function public.lookup_customer_login_email(text) to anon, auth
 grant execute on function public.find_pb_employee_id(text, text) to anon, authenticated;
 grant execute on function public.find_customer_user_id(text, text) to anon, authenticated;
 
+create or replace function public.current_pb_employee_id()
+returns text
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select employee_id
+  from public.auth_profiles
+  where id = auth.uid()
+    and role = 'pb'
+  limit 1
+$$;
+
+revoke all on function public.current_pb_employee_id() from public;
+grant execute on function public.current_pb_employee_id() to authenticated;
+
 drop policy if exists "auth_profiles_select_own" on public.auth_profiles;
 create policy "auth_profiles_select_own"
 on public.auth_profiles
@@ -134,13 +151,7 @@ for select
 to authenticated
 using (
   role = 'customer'
-  and exists (
-    select 1
-    from public.auth_profiles pb
-    where pb.id = auth.uid()
-      and pb.role = 'pb'
-      and pb.employee_id = auth_profiles.pb_employee_id
-  )
+  and pb_employee_id = public.current_pb_employee_id()
 );
 
 -- Service-role operations, including password reset lookup and admin maintenance,

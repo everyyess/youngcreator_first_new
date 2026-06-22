@@ -90,7 +90,7 @@ export function sortSessionsNewest(a: ConsultationSession, b: ConsultationSessio
 }
 
 export function displaySessionTitle(title: string) {
-  return title.trim() || "?쒕ぉ???낅젰?댁＜?몄슂.";
+  return title.trim() || "상담 제목을 입력해주세요.";
 }
 
 export function displayKoreanDate(value: string) {
