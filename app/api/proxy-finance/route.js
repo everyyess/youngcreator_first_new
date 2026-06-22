@@ -420,6 +420,7 @@ export async function GET(request) {
 
   // ── [KR 경로] Gemini → krCode 직접 조립 → Yahoo v7 AC 폴백 ──────────────
   let ticker = null;
+  let resolvedKoreanName = null; // Gemini에서 얻은 한국어 종목명
 
   if (forcedMarket === 'KR') {
     // [1순위] Gemini: 6자리 krCode + market → 티커 직접 조립 (Yahoo AC 완전 우회)
@@ -436,6 +437,7 @@ export async function GET(request) {
       ticker = `${paddedCode}${suffix}`;
       console.log(`[proxy-finance] Gemini KR 직접 조립: '${assetName}' → '${ticker}'`);
     }
+    if (geminiMetaKR?.koreanName) resolvedKoreanName = geminiMetaKR.koreanName;
 
     // [2순위] Gemini 실패/불명 → Yahoo v7 Autocomplete 폴백
     if (!ticker) {
@@ -494,6 +496,7 @@ export async function GET(request) {
 
       // 영문 사명이 있으면 Yahoo Search 정확도 향상
       if (geminiMetaUS?.englishName) searchQuery = geminiMetaUS.englishName;
+      if (geminiMetaUS?.koreanName)  resolvedKoreanName = geminiMetaUS.koreanName;
     }
 
     try {
@@ -654,11 +657,18 @@ export async function GET(request) {
     const dividendYield              = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
     const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
 
-    // officialName: Yahoo meta.shortName → longName 순 폴백
-    const officialName =
+    // officialName: Gemini 한국어명 우선 → Yahoo shortName → longName 폴백
+    // 해외 종목(US): "한국어명(TICKER)" 포맷 (예: "로켓랩(RKLB)")
+    // 국내 종목(KR): Yahoo가 이미 한국어로 반환하므로 그대로 사용
+    const yahooName =
       (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim()) ? chartMeta.shortName.trim()
       : (typeof chartMeta?.longName  === 'string' && chartMeta.longName.trim())  ? chartMeta.longName.trim()
       : null;
+    let officialName = yahooName;
+    if (resolvedKoreanName && forcedMarket === 'US') {
+      const baseTicker = ticker.split('.')[0]; // "RKLB" (접미사 제거)
+      officialName = `${resolvedKoreanName}(${baseTicker})`;
+    }
 
     return Response.json({ ticker, officialName, ...finalMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
 
