@@ -11,6 +11,8 @@ import {
   Sparkles,
   Lock,
   Ban,
+  AlertCircle,
+  Lightbulb,
 } from "lucide-react";
 import { NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./FinancialIncomeGauge";
 import type { FinancialIncomeSummary } from "./FinancialIncomeGauge";
@@ -47,6 +49,8 @@ const C = {
   greenSoft:      "#d1fae5",  // emerald-100
   terracotta:     "#e11d48",  // rose-600
   terracottaSoft: "#ffe4e6",  // rose-100
+  orange:         "#f97316",  // orange-500
+  orangeSoft:     "#ffedd5",  // orange-100
   grayBg:         "#f1f5f9",  // slate-100
   rose:           "#be123c",  // rose-700
   roseSoft:       "#fff1f2",  // rose-50
@@ -207,8 +211,8 @@ const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 function Metric({
   label, value, tone, emphasize, sub,
 }: { label: string; value: string; tone?: string; emphasize?: boolean; sub?: string }) {
-  const toneColor = ({ green: C.green, gold: C.gold, terracotta: C.terracotta, slate: C.slate } as Record<string, string>)[tone ?? ""] ?? C.ink;
-  const toneBg   = ({ green: C.greenSoft, gold: C.goldSoft, terracotta: C.terracottaSoft, slate: C.grayBg } as Record<string, string>)[tone ?? ""] ?? C.paper;
+  const toneColor = ({ green: C.green, gold: C.gold, terracotta: C.terracotta, slate: C.slate, orange: C.orange } as Record<string, string>)[tone ?? ""] ?? C.ink;
+  const toneBg   = ({ green: C.greenSoft, gold: C.goldSoft, terracotta: C.terracottaSoft, slate: C.grayBg, orange: C.orangeSoft } as Record<string, string>)[tone ?? ""] ?? C.paper;
   return (
     <div style={{ background: emphasize ? toneBg : "transparent", border: `1px solid ${emphasize ? toneColor : C.line}`, borderRadius: 10, padding: "9px 11px" }}>
       <div style={{ fontSize: 11, color: C.slate, marginBottom: 4 }}>{label}</div>
@@ -229,9 +233,9 @@ function AllocationBreakdown({ picks, totalAmount, totalIncome }: AllocResult) {
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {picks.map(p => (
-          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, background: C.paper, borderRadius: 6, padding: "5px 8px" }}>
-            <span>{p.name} <span style={{ color: C.slate }}>({p.category})</span></span>
-            <span style={{ fontWeight: 700 }}>{man(p.amount)} · {pct(p.rate)}</span>
+          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, background: C.paper, borderRadius: 6, padding: "5px 8px", gap: 6 }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: 1 }}>{p.name} <span style={{ color: C.slate }}>({p.category})</span></span>
+            <span style={{ fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>{man(p.amount)} · {pct(p.rate)}</span>
           </div>
         ))}
       </div>
@@ -399,10 +403,13 @@ export default function PensionTaxPanel({
   }, [summary, isaInitialized]);
 
   // ── 기납입액 반영 잔여 한도 계산 ─────────────────────────────────
-  const savingMax       = Math.max(SAVING_CREDIT_MAX - priorSaving, 0);
+  const savingCreditMax = Math.max(SAVING_CREDIT_MAX - priorSaving, 0);          // 세액공제 잔여한도 (표시용)
+  const totalPensionRemaining = Math.max(PENSION_MAX - priorSaving - priorIrp, 0);
+  const irpAmountRawCapped = Math.min(irpAmountRaw, totalPensionRemaining);
+  const savingMax       = Math.max(totalPensionRemaining - irpAmountRawCapped, 0); // 슬라이더 상한 (1800만 - IRP)
   const savingAmount    = Math.min(savingAmountRaw, savingMax);
-  const irpCreditMax    = Math.max(COMBINED_CREDIT_MAX - priorSaving - priorIrp - savingAmount, 0); // 세액공제 잔여한도
-  const irpMax          = Math.max(PENSION_MAX - priorSaving - priorIrp - savingAmount, 0);          // 실제 납입 잔여한도
+  const irpCreditMax    = Math.max(COMBINED_CREDIT_MAX - priorSaving - priorIrp - Math.min(savingAmount, SAVING_CREDIT_MAX), 0); // 세액공제는 600만까지만 차감
+  const irpMax          = Math.max(totalPensionRemaining - savingAmount, 0);
   const irpAmount       = Math.min(irpAmountRaw, irpMax);
   const isaMax       = Math.max(20_000_000 - priorIsa, 0);
   const isaAmount    = Math.min(isaAmountRaw, isaMax);
@@ -545,10 +552,25 @@ export default function PensionTaxPanel({
 
             {/* Not over threshold notice */}
             {!isOverThreshold && baseFinancialIncome > 0 && (
-              <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6 }}>
-                <strong style={{ color: C.green }}>종합과세 구간 절감 효과는 해당없음.</strong>{" "}
-                금융소득이 2,000만원 미만이라 초과분이 없습니다. 대신{" "}
-                <strong>세액공제 + ISA 비과세·저율과세</strong>를 중심으로 제안하세요.
+              <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <AlertCircle size={15} style={{ color: C.green, flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <strong style={{ color: C.green }}>종합과세 구간 절감 효과는 해당없음.</strong>{" "}
+                  금융소득이 2,000만원 미만이라 초과분이 없습니다. 대신{" "}
+                  <strong>세액공제 + ISA 비과세·저율과세</strong>를 중심으로 제안하세요.
+                </div>
+              </div>
+            )}
+
+            {/* IRP extra benefit notice */}
+            {baseFinancialIncome > 0 && (
+              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <Lightbulb size={15} style={{ color: "#1d4ed8", flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <strong style={{ color: "#1d4ed8" }}>세액공제 외 IRP 추가 혜택.</strong>{" "}
+                  운용 중 배당·이자에 <strong>15.4% 원천징수 없이 100% 재투자</strong>되어 복리 효과가 극대화됩니다.
+                  수령 시에도 일반 15.4% 대신 <strong>연령별 3.3~5.5% 저율과세</strong>가 적용됩니다.
+                </div>
               </div>
             )}
 
@@ -594,16 +616,19 @@ export default function PensionTaxPanel({
                               <td style={{ padding: "5px 6px" }}>{man(a.balance)}</td>
                               <td style={{ padding: "5px 6px", fontWeight: 700, color: C.gold }}>{pct(a.rate)}</td>
                               {blocked ? (
-                                <td colSpan={3} style={{ padding: "5px 8px", textAlign: "center" }}>
-                                  {hasTax ? (
-                                    <span style={{ fontSize: 11, color: "#b91c1c" }}>
-                                      매도 시 양도세 약 <strong>{man(taxAmt)}</strong>
-                                      <span style={{ color: C.slate, fontWeight: 400 }}> (차익 {man(a.capitalGain)} × 22%)</span>
-                                    </span>
-                                  ) : (
-                                    <span style={{ fontSize: 11, color: C.slate }}>3계좌 편입 불가</span>
-                                  )}
-                                </td>
+                                <>
+                                  <td style={{ padding: "5px 6px", textAlign: "center", color: C.slate, fontWeight: 700 }}>–</td>
+                                  <td style={{ padding: "5px 6px", textAlign: "center", color: C.slate, fontWeight: 700 }}>–</td>
+                                  <td style={{ padding: "5px 6px", textAlign: "center" }}>
+                                    {hasTax ? (
+                                      <span style={{ fontSize: 11, color: "#b91c1c" }}>
+                                        양도세 약 <strong>{man(taxAmt)}</strong>
+                                      </span>
+                                    ) : (
+                                      <span style={{ fontSize: 11, color: C.slate }}>–</span>
+                                    )}
+                                  </td>
+                                </>
                               ) : (
                                 (["saving", "irp", "isa"] as const).map(k => (
                                   <td key={k} style={{ padding: "5px 6px", textAlign: "center", color: elig[k] ? C.green : C.slate, fontWeight: 700 }}>
@@ -645,15 +670,18 @@ export default function PensionTaxPanel({
                         <span style={{ fontSize: 11, color: C.slate }}>만원</span>
                       </div>
                     </div>
-                    {savingMax === 0 ? (
-                      <div style={{ fontSize: 12, color: C.terracotta, background: C.terracottaSoft, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
-                        연간 세액공제 한도(600만원)에 도달했습니다.
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 11, color: C.green, marginBottom: 4 }}>
-                        세액공제 잔여한도 {man(savingMax)}
-                      </div>
-                    )}
+                    <div style={{ minHeight: 38, marginBottom: 4 }}>
+                      {savingMax === 0 ? (
+                        <div style={{ fontSize: 12, color: C.terracotta, background: C.terracottaSoft, borderRadius: 8, padding: "8px 10px" }}>
+                          연금저축+IRP 합산 납입한도(1,800만원)에 도달했습니다.
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 11, color: C.green }}>세액공제 잔여한도 {man(savingCreditMax)}</div>
+                          <div style={{ fontSize: 11, color: C.slate }}>총 납입 잔여한도 {man(savingMax)}</div>
+                        </>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11, color: C.slate, marginBottom: 4, fontWeight: 600 }}>추가 납입할 금액</div>
                     <input
                       type="range" min={0} max={savingMax} step={100000}
@@ -662,11 +690,15 @@ export default function PensionTaxPanel({
                       disabled={savingMax === 0}
                       style={{ width: "100%", accentColor: "#f97316" }}
                     />
-                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{man(savingAmount)}</div>
+                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{man(savingAmount)}</div>
+                    <div style={{ textAlign: "right", fontSize: 10, color: C.slate, marginBottom: 4, visibility: (savingAmount > savingCreditMax && savingCreditMax >= 0) ? "visible" : "hidden" }}>
+                      세액공제 {man(savingCreditMax)} · 과세이연만 {man(savingAmount - savingCreditMax)}
+                    </div>
                     <AllocationBreakdown {...savingResult} />
-                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    <div style={{ height: 24, marginBottom: 10, visibility: "hidden" }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: "auto" }}>
                       <Metric label="세액공제 (13.2%)" value={man(creditableSaving * 0.132)} tone="green" />
-                      <Metric label="연간 회피 금융소득" value={man(savingResult.totalIncome)} tone="green" />
+                      <Metric label="연간 회피 금융소득" value={man(savingResult.totalIncome)} tone="orange" />
                     </div>
                   </ScenarioCard>
 
@@ -688,20 +720,18 @@ export default function PensionTaxPanel({
                         <span style={{ fontSize: 11, color: C.slate }}>만원</span>
                       </div>
                     </div>
-                    {irpMax === 0 ? (
-                      <div style={{ fontSize: 12, color: C.terracotta, background: C.terracottaSoft, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
-                        연금저축+IRP 합산 납입한도(1,800만원)에 도달했습니다.
-                      </div>
-                    ) : (
-                      <div style={{ marginBottom: 4 }}>
-                        <div style={{ fontSize: 11, color: C.green }}>
-                          세액공제 잔여한도 {man(irpCreditMax)}
+                    <div style={{ minHeight: 38, marginBottom: 4 }}>
+                      {irpMax === 0 ? (
+                        <div style={{ fontSize: 12, color: C.terracotta, background: C.terracottaSoft, borderRadius: 8, padding: "8px 10px" }}>
+                          연금저축+IRP 합산 납입한도(1,800만원)에 도달했습니다.
                         </div>
-                        <div style={{ fontSize: 11, color: C.slate }}>
-                          총 납입 잔여한도 {man(irpMax)}
-                        </div>
-                      </div>
-                    )}
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 11, color: C.green }}>세액공제 잔여한도 {man(irpCreditMax)}</div>
+                          <div style={{ fontSize: 11, color: C.slate }}>총 납입 잔여한도 {man(irpMax)}</div>
+                        </>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11, color: C.slate, marginBottom: 4, fontWeight: 600 }}>추가 납입할 금액</div>
                     <input
                       type="range" min={0} max={irpMax} step={100000}
@@ -711,27 +741,25 @@ export default function PensionTaxPanel({
                       style={{ width: "100%", accentColor: "#f97316" }}
                     />
                     <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{man(irpAmount)}</div>
-                    {irpDeferralOnly > 0 && (
-                      <div style={{ textAlign: "right", fontSize: 10, color: C.slate, marginBottom: 4 }}>
-                        세액공제 {man(creditableIrp)} · 과세이연만 {man(irpDeferralOnly)}
-                      </div>
-                    )}
+                    <div style={{ textAlign: "right", fontSize: 10, color: C.slate, marginBottom: 4, visibility: irpDeferralOnly > 0 ? "visible" : "hidden" }}>
+                      세액공제 {man(creditableIrp)} · 과세이연만 {man(irpDeferralOnly)}
+                    </div>
                     <AllocationBreakdown {...irpResult} />
-                    {irpResult.totalAmount > 0 && (
-                      <div style={{ marginBottom: 10 }}>
-                        <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", border: `1px solid ${C.line}` }}>
-                          <div style={{ width: `${irpResult.riskRatio * 100}%`, background: C.gold }} />
-                          <div style={{ width: `${(1 - irpResult.riskRatio) * 100}%`, background: C.green }} />
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.slate, marginTop: 3 }}>
-                          <span>위험자산 {pct(irpResult.riskRatio)} (상한 70%)</span>
-                          <span>안전자산 {pct(1 - irpResult.riskRatio)}</span>
-                        </div>
+                    <div style={{ height: 24, marginBottom: 10, visibility: irpResult.totalAmount > 0 ? "visible" : "hidden" }}>
+                      <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", border: `1px solid ${C.line}` }}>
+                        <div style={{ width: `${irpResult.riskRatio * 100}%`, background: C.gold }} />
+                        <div style={{ width: `${(1 - irpResult.riskRatio) * 100}%`, background: C.green }} />
                       </div>
-                    )}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      <Metric label="세액공제 (13.2%)" value={man(creditableIrp * 0.132)} tone="green" />
-                      <Metric label="연간 회피 금융소득" value={man(irpResult.totalIncome)} tone="green" />
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.slate, marginTop: 3 }}>
+                        <span>위험자산 {pct(irpResult.riskRatio)} (상한 70%)</span>
+                        <span>안전자산 {pct(1 - irpResult.riskRatio)}</span>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: "auto" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                        <Metric label="세액공제 (13.2%)" value={man(creditableIrp * 0.132)} tone="green" />
+                        <Metric label="연간 회피 금융소득" value={man(irpResult.totalIncome)} tone="orange" />
+                      </div>
                     </div>
                   </ScenarioCard>
 
@@ -755,15 +783,18 @@ export default function PensionTaxPanel({
                         <span style={{ fontSize: 11, color: C.slate }}>만원</span>
                       </div>
                     </div>
-                    {isaMax === 0 ? (
-                      <div style={{ fontSize: 12, color: C.terracotta, background: C.terracottaSoft, borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
-                        연간 납입한도(2,000만원)에 도달했습니다.
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 11, color: C.green, marginBottom: 4 }}>
-                        납입 잔여한도 {man(isaMax)}
-                      </div>
-                    )}
+                    <div style={{ minHeight: 38, marginBottom: 4 }}>
+                      {isaMax === 0 ? (
+                        <div style={{ fontSize: 12, color: C.terracotta, background: C.terracottaSoft, borderRadius: 8, padding: "8px 10px" }}>
+                          연간 납입한도(2,000만원)에 도달했습니다.
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 11, color: C.green }}>납입 잔여한도 {man(isaMax)}</div>
+                          <div style={{ fontSize: 11, color: C.slate }}>&nbsp;</div>
+                        </>
+                      )}
+                    </div>
                     <div style={{ fontSize: 11, color: C.slate, marginBottom: 4, fontWeight: 600 }}>추가 납입할 금액</div>
                     <input
                       type="range" min={0} max={isaMax} step={500000}
@@ -772,16 +803,18 @@ export default function PensionTaxPanel({
                       disabled={isaMax === 0}
                       style={{ width: "100%", accentColor: "#f97316" }}
                     />
-                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{man(isaAmount)}</div>
+                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{man(isaAmount)}</div>
+                    <div style={{ marginBottom: 4, visibility: "hidden", fontSize: 10 }}>&nbsp;</div>
                     <AllocationBreakdown {...isaResult} />
-                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      <Metric label="ISA 절세 (200만원 비과세 · 초과분 9.9%)" value={man(isaSaving)} tone="green" />
+                    <div style={{ height: 24, marginBottom: 10, visibility: "hidden" }} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: "auto" }}>
+                      <Metric label="ISA 절세 (200만원 비과세 · 초과분 9.9%)" value={man(isaSaving)} tone="orange" />
                     </div>
                   </ScenarioCard>
                 </div>
 
                 {/* ISA restriction toggle */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ marginBottom: 6 }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.slate, cursor: "pointer" }}>
                     <input
                       type="checkbox"
@@ -790,10 +823,6 @@ export default function PensionTaxPanel({
                     />
                     최근 3년 내 금융소득종합과세 대상자였음 (자동 반영 · 직접 조정 가능)
                   </label>
-                  <div style={{ fontSize: 11, color: C.slate, textAlign: "right", lineHeight: 1.7, flexShrink: 0 }}>
-                    <div>고소득자 기준 (13.2%) 적용</div>
-                    <div>저소득자 기준 (16.5%) 적용</div>
-                  </div>
                 </div>
 
                 {/* Summary card */}
@@ -818,7 +847,8 @@ export default function PensionTaxPanel({
 
                 {/* Footnote */}
                 <div style={{ fontSize: 11, color: C.slate, marginTop: 14, lineHeight: 1.7, borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
-                  탭 3-3 신규 포트폴리오 및 탭 4 금융소득 계산 결과를 자동 반영합니다.
+                  <div>세액공제율: 고소득자 13.2% · 저소득자 16.5% 적용</div>
+                  <div>탭 3-3 신규 포트폴리오 및 탭 4 금융소득 계산 결과를 자동 반영합니다.</div>
                 </div>
               </>
             )}
