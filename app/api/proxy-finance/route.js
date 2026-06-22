@@ -395,25 +395,6 @@ async function fetchNaverDividend(krCode) {
   return 0;
 }
 
-// ── 배당 지급 주기 감지 ────────────────────────────────────────────────────
-// events: [{date(unix), amount}] 형태의 배열 (시간순 정렬)
-// 연속 지급 간격(일) 평균으로 주기 추론
-// 반환: 연간 지급 횟수 (1=연간, 2=반기, 4=분기, 12=월간)
-function detectDividendFrequency(events) {
-  if (events.length < 2) return 1;
-  const sorted = [...events].sort((a, b) => a.date - b.date);
-  const gaps = [];
-  for (let i = 1; i < sorted.length; i++) {
-    const gapDays = (sorted[i].date - sorted[i - 1].date) / (24 * 3600);
-    if (gapDays > 10) gaps.push(gapDays); // 10일 미만 간격은 동일 지급 중복으로 제외
-  }
-  if (gaps.length === 0) return 1;
-  const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-  if (avgGap < 45)  return 12; // 월간
-  if (avgGap < 120) return 4;  // 분기
-  if (avgGap < 270) return 2;  // 반기
-  return 1;                     // 연간
-}
 
 // ── Route Handler ──────────────────────────────────────────────────────────
 export async function GET(request) {
@@ -686,32 +667,15 @@ export async function GET(request) {
       typeof chartMeta?.regularMarketPrice === 'number' ? chartMeta.regularMarketPrice : 0;
 
     const rawDividends  = yahooJson?.chart?.result?.[0]?.events?.dividends ?? {};
-    const nowTs         = Math.floor(Date.now() / 1000);
-    const oneYearAgo    = nowTs - 365 * 24 * 3600;
-    const twoYearsAgo   = nowTs - 2 * 365 * 24 * 3600;
+    const nowTs      = Math.floor(Date.now() / 1000);
+    const oneYearAgo = nowTs - 365 * 24 * 3600;
 
-    // 지난 2년 이벤트 → 지급 주기 감지
-    const allEvents = Object.values(rawDividends)
-      .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= twoYearsAgo)
-      .sort((a, b) => a.date - b.date);
-
-    const expectedFrequency = detectDividendFrequency(allEvents); // 1/2/4/12
-
-    // 지난 12개월 이벤트
-    const recentEvents = allEvents.filter(e => e.date >= oneYearAgo);
-    const paymentCount = recentEvents.length;
-
-    // 연간 배당금(주당) 산출
-    //   - 12개월 데이터 충분(paymentCount >= expectedFrequency): 그냥 합산
-    //   - 부족(중간에 상장 or 데이터 누락): 최근 1회 × 연간 횟수로 연간화
-    let annualDividendPerShare = 0;
-    if (paymentCount >= expectedFrequency) {
-      annualDividendPerShare = recentEvents.reduce((s, e) => s + e.amount, 0);
-    } else if (paymentCount > 0) {
-      const mostRecentAmt = recentEvents[recentEvents.length - 1].amount;
-      annualDividendPerShare = mostRecentAmt * expectedFrequency;
-      console.log(`[proxy-finance] 배당 연간화 (${ticker}): 최근 ${mostRecentAmt} × ${expectedFrequency}회 = ${annualDividendPerShare}`);
-    }
+    // 지난 12개월 실제 지급 합산 (trailing 12-month)
+    // date = ex-dividend date (Yahoo 기준). 미래 예정 배당 제외(e.date <= nowTs).
+    // 분기/연간 여부와 무관하게 실제 지급된 배당금만 더함 — 추정·연간화 없음
+    const recentEvents = Object.values(rawDividends)
+      .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= oneYearAgo && e.date <= nowTs);
+    const annualDividendPerShare = recentEvents.reduce((s, e) => s + e.amount, 0);
 
     const eventsDividendYield =
       annualDividendPerShare > 0 && regularMarketPrice > 0
@@ -736,6 +700,16 @@ export async function GET(request) {
         const summaryJson = await summaryRes.json();
         const detail = summaryJson?.quoteSummary?.result?.[0]?.summaryDetail;
         if (!detail) continue;
+        // 실제 응답 필드 확인용 — 배포 전 제거 예정
+        console.log(`[proxy-finance] summaryDetail keys (${ticker}):`, Object.keys(detail));
+        console.log(`[proxy-finance] summaryDetail dividend fields (${ticker}):`, JSON.stringify({
+          dividendYield:              detail?.dividendYield,
+          trailingAnnualDividendYield: detail?.trailingAnnualDividendYield,
+          dividendRate:               detail?.dividendRate,
+          trailingAnnualDividendRate: detail?.trailingAnnualDividendRate,
+        }));
+        // dividendYield.raw = trailingAnnualDividendYield (TTM, 연간 소수)
+        // trailingAnnualDividendRate.raw = TTM 주당 배당금 합산
         const dy   = detail?.dividendYield?.raw;
         const tadr = detail?.trailingAnnualDividendRate?.raw;
         if (typeof dy   === 'number') summaryDividendYield = dy;
