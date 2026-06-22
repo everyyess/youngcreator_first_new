@@ -343,6 +343,78 @@ async function fetchTickerByWebScraping(assetName) {
   return ticker;
 }
 
+// ── Naver Finance 배당수익률 조회 (국내 종목 전용) ───────────────────────────
+// 1차: api.finance.naver.com JSON API (가장 빠름)
+// 2차: finance.naver.com/item/main.naver HTML 스크래핑 (폴백)
+// 반환: 연간 배당수익률 소수 (예: 0.025 = 2.5%), 실패 시 0
+async function fetchNaverDividend(krCode) {
+  if (!krCode || !/^\d{6}$/.test(krCode)) return 0;
+
+  const NAVER_HEADERS = {
+    'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':          'text/html,application/xhtml+xml,application/json,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'Referer':         'https://finance.naver.com/',
+  };
+
+  // 1차: Naver Finance JSON API
+  try {
+    const apiUrl = `https://api.finance.naver.com/service/itemSummary.nhn?itemcode=${krCode}`;
+    const res = await fetchWithTimeout(apiUrl, { headers: NAVER_HEADERS }, 5_000);
+    if (res.ok) {
+      const data = await safeJson(res);
+      const pct = parseFloat(data?.dividend ?? 0);
+      if (pct > 0 && pct < 50) {
+        console.log(`[proxy-finance] Naver JSON 배당수익률 (${krCode}): ${pct}%`);
+        return pct / 100;
+      }
+    }
+  } catch { /* 2차로 폴백 */ }
+
+  // 2차: Naver Finance HTML 스크래핑
+  try {
+    const htmlUrl = `https://finance.naver.com/item/main.naver?code=${krCode}`;
+    const res = await fetchWithTimeout(htmlUrl, { headers: NAVER_HEADERS }, 8_000);
+    if (!res.ok) return 0;
+    const html = await res.text();
+
+    // 패턴 A: <th scope="row">배당수익률</th><td ...>2.58</td>
+    const matchA = /배당수익률[^<]*<\/[^>]+>\s*<td[^>]*>\s*([0-9]+\.?[0-9]*)\s*<\/td>/i.exec(html);
+    // 패턴 B: 배당수익률 뒤 숫자+% 형식 (어떤 태그든)
+    const matchB = /배당수익률[^0-9]*([0-9]+\.?[0-9]*)\s*%/i.exec(html);
+    const raw = matchA ?? matchB;
+    if (raw) {
+      const pct = parseFloat(raw[1]);
+      if (pct > 0 && pct < 50) {
+        console.log(`[proxy-finance] Naver HTML 배당수익률 (${krCode}): ${pct}%`);
+        return pct / 100;
+      }
+    }
+  } catch { /* 실패 무시 */ }
+
+  return 0;
+}
+
+// ── 배당 지급 주기 감지 ────────────────────────────────────────────────────
+// events: [{date(unix), amount}] 형태의 배열 (시간순 정렬)
+// 연속 지급 간격(일) 평균으로 주기 추론
+// 반환: 연간 지급 횟수 (1=연간, 2=반기, 4=분기, 12=월간)
+function detectDividendFrequency(events) {
+  if (events.length < 2) return 1;
+  const sorted = [...events].sort((a, b) => a.date - b.date);
+  const gaps = [];
+  for (let i = 1; i < sorted.length; i++) {
+    const gapDays = (sorted[i].date - sorted[i - 1].date) / (24 * 3600);
+    if (gapDays > 10) gaps.push(gapDays); // 10일 미만 간격은 동일 지급 중복으로 제외
+  }
+  if (gaps.length === 0) return 1;
+  const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+  if (avgGap < 45)  return 12; // 월간
+  if (avgGap < 120) return 4;  // 분기
+  if (avgGap < 270) return 2;  // 반기
+  return 1;                     // 연간
+}
+
 // ── Route Handler ──────────────────────────────────────────────────────────
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -609,23 +681,43 @@ export async function GET(request) {
       }, { status: 200 });
     }
 
-    // ── 배당수익률 계산 (events.dividends) ────────────────────────────────
+    // ── 배당수익률 계산 (주기 감지 → 연간화) ───────────────────────────────
     const regularMarketPrice =
       typeof chartMeta?.regularMarketPrice === 'number' ? chartMeta.regularMarketPrice : 0;
 
-    const rawDividends = yahooJson?.chart?.result?.[0]?.events?.dividends ?? {};
-    const oneYearAgo   = Math.floor(Date.now() / 1000) - 365 * 24 * 3600;
+    const rawDividends  = yahooJson?.chart?.result?.[0]?.events?.dividends ?? {};
+    const nowTs         = Math.floor(Date.now() / 1000);
+    const oneYearAgo    = nowTs - 365 * 24 * 3600;
+    const twoYearsAgo   = nowTs - 2 * 365 * 24 * 3600;
 
-    const eventsTrailingRate = Object.values(rawDividends ?? {}).reduce((sum, entry) => {
-      const ts  = typeof entry?.date   === 'number' ? entry.date   : 0;
-      const amt = typeof entry?.amount === 'number' ? entry.amount : 0;
-      return ts >= oneYearAgo ? sum + amt : sum;
-    }, 0);
+    // 지난 2년 이벤트 → 지급 주기 감지
+    const allEvents = Object.values(rawDividends)
+      .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= twoYearsAgo)
+      .sort((a, b) => a.date - b.date);
+
+    const expectedFrequency = detectDividendFrequency(allEvents); // 1/2/4/12
+
+    // 지난 12개월 이벤트
+    const recentEvents = allEvents.filter(e => e.date >= oneYearAgo);
+    const paymentCount = recentEvents.length;
+
+    // 연간 배당금(주당) 산출
+    //   - 12개월 데이터 충분(paymentCount >= expectedFrequency): 그냥 합산
+    //   - 부족(중간에 상장 or 데이터 누락): 최근 1회 × 연간 횟수로 연간화
+    let annualDividendPerShare = 0;
+    if (paymentCount >= expectedFrequency) {
+      annualDividendPerShare = recentEvents.reduce((s, e) => s + e.amount, 0);
+    } else if (paymentCount > 0) {
+      const mostRecentAmt = recentEvents[recentEvents.length - 1].amount;
+      annualDividendPerShare = mostRecentAmt * expectedFrequency;
+      console.log(`[proxy-finance] 배당 연간화 (${ticker}): 최근 ${mostRecentAmt} × ${expectedFrequency}회 = ${annualDividendPerShare}`);
+    }
 
     const eventsDividendYield =
-      eventsTrailingRate > 0 && regularMarketPrice > 0
-        ? eventsTrailingRate / regularMarketPrice
+      annualDividendPerShare > 0 && regularMarketPrice > 0
+        ? annualDividendPerShare / regularMarketPrice
         : 0;
+    const eventsTrailingRate = annualDividendPerShare;
 
     // ── quoteSummary API로 더 정확한 배당 데이터 조회 ───────────────────
     const quoteSummaryUrls = [
@@ -654,8 +746,24 @@ export async function GET(request) {
       }
     }
 
-    const dividendYield              = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
-    const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
+    // ── Naver Finance 배당수익률 (국내 종목 폴백) ────────────────────────
+    // Yahoo 배당 데이터가 없거나 0인 KR 종목에 한해 Naver에서 추가 조회
+    const isKrTicker = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
+    const krCode = isKrTicker ? ticker.split('.')[0] : null;
+    let naverDividendYield = 0;
+    if (isKrTicker && krCode) {
+      const yahooBest = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
+      if (yahooBest === 0) {
+        naverDividendYield = await fetchNaverDividend(krCode);
+      }
+    }
+
+    // 최종 배당수익률: quoteSummary > events 연간화 > Naver Finance
+    const dividendYield =
+      summaryDividendYield > 0 ? summaryDividendYield
+      : eventsDividendYield  > 0 ? eventsDividendYield
+      : naverDividendYield;
+    const trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
 
     // officialName: Gemini 한국어명 우선 → Yahoo shortName → longName 폴백
     // 해외 종목(US): "한국어명(TICKER)" 포맷 (예: "로켓랩(RKLB)")
