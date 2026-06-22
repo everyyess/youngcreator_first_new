@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronLeft, ChevronRight, Home, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Home, LogOut, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
 import {
   createInitialCustomerData,
   createInitialState,
@@ -38,6 +38,7 @@ import {
   type ActiveConsultation,
   type ConsultationSession,
 } from "../consultationStore";
+import { formatLoginTime, pbAuthStore, type PbSession } from "../authStore";
 
 const tempPbName = "삼성";
 
@@ -66,6 +67,10 @@ function customerName(profile?: CustomerProfile) {
 
 function customerBirth(profile?: CustomerProfile) {
   return (profile?.birth_year ?? profile?.birthYear ?? profile?.fallbackBirthYear ?? "").trim();
+}
+
+function sortCustomersByName(customers: CustomerProfile[]) {
+  return [...customers].sort((a, b) => customerName(a).localeCompare(customerName(b), "ko-KR"));
 }
 
 function customerDisplay(profile?: CustomerProfile | null) {
@@ -227,6 +232,7 @@ export default function HomePage() {
   const [storageMessage, setStorageMessage] = useState("");
   const [customerDeleteTarget, setCustomerDeleteTarget] = useState<CustomerProfile | null>(null);
   const [sessionDeleteTarget, setSessionDeleteTarget] = useState<ConsultationSession | null>(null);
+  const [pbSession, setPbSession] = useState<PbSession | null>(null);
 
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
@@ -241,7 +247,7 @@ export default function HomePage() {
     if (result.errorMessage) setStorageMessage(result.errorMessage);
     if (!result.rows.length) return;
     const stored = customerRowsToStoredState(result.rows);
-    setCustomers(stored.customerProfiles);
+    setCustomers(sortCustomersByName(stored.customerProfiles));
     setCustomerData(stored.customerData);
     const storedSelected = getStoredSelectedCustomerId();
     setSelectedCustomerId((current) => {
@@ -251,7 +257,15 @@ export default function HomePage() {
     });
   }, []);
 
-  useEffect(() => { loadCustomers(); }, [loadCustomers]);
+  useEffect(() => {
+    setPbSession(pbAuthStore.readSession());
+    loadCustomers();
+  }, [loadCustomers]);
+
+  const logout = async () => {
+    await pbAuthStore.logout();
+    router.push("/");
+  };
 
   useEffect(() => {
     const syncActive = () => {
@@ -418,7 +432,7 @@ export default function HomePage() {
       setStorageMessage(result.message);
       return;
     }
-    setCustomers((prev) => [...prev, profile]);
+    setCustomers((prev) => sortCustomersByName([...prev, profile]));
     setCustomerData((prev) => ({ ...prev, [profile.id]: state }));
     setSelectedCustomerId(profile.id);
     storeSelectedCustomerId(profile.id);
@@ -430,7 +444,18 @@ export default function HomePage() {
     <main className="min-h-screen bg-[radial-gradient(ellipse_85%_65%_at_8%_0%,rgba(99,102,241,0.11),transparent_55%),radial-gradient(ellipse_65%_65%_at_98%_100%,rgba(59,130,246,0.18),transparent_55%),#f8fafc] p-4 text-slate-900">
       <div className="grid min-h-[calc(100vh-2rem)] gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "240px" : "56px"}` }}>
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}>
-          <PanelHeader open={leftOpen} title={`${tempPbName} PB님, 오늘도 힘내세요!`} side="left" onToggle={() => setLeftOpen((value) => !value)} />
+          <div className="mb-4 flex items-start justify-between gap-2">
+            {leftOpen ? (
+              <div>
+                <p className="text-base font-black text-blue-950">{pbSession?.name || tempPbName} PB님,</p>
+                <p className="mt-1 text-sm font-extrabold text-blue-900">오늘도 힘내세요!</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">마지막 로그인: {formatLoginTime(pbSession?.lastLoginAt)}</p>
+              </div>
+            ) : null}
+            <button type="button" onClick={() => setLeftOpen((value) => !value)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:text-blue-700">
+              {leftOpen ? <PanelLeftClose size={18} /> : <ChevronRight size={18} />}
+            </button>
+          </div>
           {leftOpen ? (
             <div className="grid gap-4">
               {storageMessage ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{storageMessage}</p> : null}
@@ -475,6 +500,9 @@ export default function HomePage() {
           <PanelHeader open={rightOpen} title="상담 일정" side="right" onToggle={() => setRightOpen((value) => !value)} />
           {rightOpen ? (
             <div className="grid gap-5">
+              <button type="button" onClick={logout} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+                <LogOut size={16} /> 로그아웃
+              </button>
               {activeConsultation ? (
                 <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/maintab/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
                   <span className="inline-flex items-center gap-1"><Home size={15} /> 상담 화면으로 돌아가기</span>
@@ -613,7 +641,7 @@ function CreateSessionForm({ draft, setDraft, onCancel, onSave, onStart }: { dra
       <div className="grid min-w-0 gap-2">
         <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="상담 제목" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} />
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_48px] gap-1.5">
-          <input className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-[11px]" type="date" value={draft.date} onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))} />
+          <input className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-[11px]" type="datetime-local" value={draft.date} onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))} />
           <button type="button" onClick={onCancel} className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">취소</button>
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-1.5">

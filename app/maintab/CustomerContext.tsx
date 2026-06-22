@@ -1217,6 +1217,7 @@ export async function saveProductSelections(customerId: CustomerId, selectedIds:
 
 // ── Context ────────────────────────────────────────────────────────────────
 export type CustomerContextValue = {
+  appMode: "pb" | "customer";
   formData: AppState;
   selectedCustomerProfile: CustomerProfile;
   customerProfiles: CustomerProfile[];
@@ -1252,6 +1253,8 @@ export type CustomerContextValue = {
   resumeLatestConsultation: () => void;
   activeConsultation: unknown;
   activeConsultationElapsedSeconds: number;
+  isConsultationReadOnly: boolean;
+  requestConsultationResume: () => void;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   // ── 포트폴리오 전역 상태 (탭 이동 시에도 메모리에서 유지됨) ──────────────
   portfolioAssets: PortfolioAsset[];

@@ -42,6 +42,7 @@ export default function Tab3Page() {
     saveTaxSummary,
     portfolioAssets,
     analysisResult,
+    appMode,
   } = useCustomerContext();
 
   useEffect(() => {
@@ -201,6 +202,23 @@ export default function Tab3Page() {
       setIsAnalyzing(false);
     }
   }, [rebalancingBuyAssets, tMarginal, formData.rrttllu, confirmRebalancingBuy, setNewPortfolioAnalysisResult, rebalancingSellAssets, portfolioAssets, analysisResult]);
+
+  if (appMode === "customer") {
+    return (
+      <RebalancingPortfolioInput
+        assets={rebalancingBuyAssets}
+        seedAssets={rebalancingSellAssets}
+        onAssetsChange={setRebalancingBuyAssets}
+        onConfirm={handleConfirmBuy}
+        onReset={resetRebalancingBuySummary}
+        isConfirming={isAnalyzing}
+        sectionTitle="?먯궛 ?낅젰 諛??앹꽦 ?ㅽ뻾"
+        sectionBadge="由щ갭?곗떛 ?몄엯 愿由?"
+        noticeBanner="TAB2 由щ갭?곗떛?먯꽌 ?몄텧 寃곗젙???ы듃?대━?ㅻ? 遺덈윭?붿뒿?덈떎. ?몄엯(留ㅼ닔)??醫낅ぉ??異붽??섏꽭?? ???섏씠吏??蹂寃쎌궗??? TAB2 由щ갭?곗떛 ?먮뒗 蹂댁쑀 ?꾪솴 諛?吏꾨떒 ?섏씠吏??諛섏쁺?섏? ?딆뒿?덈떎."
+        confirmSuccessMessage="?좉퇋 ?ы듃?대━???앹꽦???꾨즺?섏뿀?듬땲?? TAB4 ?ы듃?대━??鍮꾧탳 ?섏씠吏?먯꽌 寃곌낵瑜??뺤씤?섏꽭??"
+      />
+    );
+  }
 
   return (
     <>

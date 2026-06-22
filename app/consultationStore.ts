@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { AppState, ConsultationSessionRecord, CustomerId } from "./maintab/CustomerContext";
 
@@ -18,10 +18,20 @@ export const activeConsultationStorageKey = "samsung-vvip-active-consultation-se
 export const consultationTimerEventName = "samsung-vvip-consultation-timer";
 export const maxConsultationSeconds = 2 * 60 * 60;
 export const autoEndedMessage =
-  "상담 종료 버튼을 누르지 않아 최대 시간(2시간)으로 기록되었습니다. 실제 상담 시간을 입력해주세요.";
+  "?곷떞 醫낅즺 踰꾪듉???꾨Ⅴ吏 ?딆븘 理쒕? ?쒓컙(2?쒓컙)?쇰줈 湲곕줉?섏뿀?듬땲?? ?ㅼ젣 ?곷떞 ?쒓컙???낅젰?댁＜?몄슂.";
 
 export function todayDate() {
   return new Date().toISOString().slice(0, 10);
+}
+
+export function currentDateTimeLocal() {
+  const date = new Date();
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
 export function createSessionId() {
@@ -35,7 +45,7 @@ export function createConsultationSession(customerId: CustomerId): ConsultationS
     id: createSessionId(),
     customerId,
     title: "",
-    date: todayDate(),
+    date: currentDateTimeLocal(),
     duration: "",
     durationSeconds: 0,
     status: "draft",
@@ -80,14 +90,14 @@ export function sortSessionsNewest(a: ConsultationSession, b: ConsultationSessio
 }
 
 export function displaySessionTitle(title: string) {
-  return title.trim() || "제목을 입력해주세요.";
+  return title.trim() || "?쒕ぉ???낅젰?댁＜?몄슂.";
 }
 
 export function displayKoreanDate(value: string) {
   if (!value) return "날짜 미입력";
-  const date = new Date(`${value}T00:00:00`);
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  return new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 export function readActiveConsultation(): ActiveConsultation | null {
@@ -150,3 +160,4 @@ export function finishSession(session: ConsultationSession, seconds: number, aut
     updatedAt: new Date().toISOString(),
   };
 }
+

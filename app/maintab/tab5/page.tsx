@@ -582,7 +582,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation } = useCustomerContext();
+  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, requestConsultationResume, activeConsultation } = useCustomerContext();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
   const [bucketOffset, setBucketOffset] = useState<Partial<Record<BucketType,number>>>({});
@@ -1078,6 +1078,7 @@ const additionalInvestmentAmount = (() => {
           })()}
         </section>
       )}
+      {appMode === "pb" ? (
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -1089,13 +1090,14 @@ const additionalInvestmentAmount = (() => {
         </button>
         <button
           type="button"
-          onClick={resumeLatestConsultation}
+          onClick={requestConsultationResume}
           disabled={Boolean(activeConsultation)}
           className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-extrabold text-blue-700 shadow-soft transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
         >
           상담 재개
         </button>
       </div>
+      ) : null}
     </>
   );
 }

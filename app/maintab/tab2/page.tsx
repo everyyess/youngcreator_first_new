@@ -12,6 +12,7 @@ import {
 import TechnicalAnalysisTab from "./TechnicalAnalysisTab";
 import OptionAnalysisTab from "./OptionAnalysisTab";
 import SellSimulatorTab from "../SellSimulatorTab";
+import { useCustomerContext } from "../CustomerContext";
 
 // ─── Sub-tab 정의 ─────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ const TAB2_SUBTAB_KEY = "tab2-active-subtab";
 export default function Tab2Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
   const data = usePortfolioResult();
+  const { appMode } = useCustomerContext();
 
   useEffect(() => {
     const stored = window.localStorage.getItem(TAB2_SUBTAB_KEY);
@@ -44,6 +46,10 @@ export default function Tab2Page() {
     setActiveInnerTab(tab);
     localStorage.setItem(TAB2_SUBTAB_KEY, tab);
   };
+
+  if (appMode === "customer") {
+    return <SellSimulatorTab />;
+  }
 
   return (
     <>
