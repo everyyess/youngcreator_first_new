@@ -18,21 +18,25 @@ import type { FinancialIncomeSummary } from "./tab1/FinancialIncomeGauge";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const CLASS_COLORS: Record<string, string> = {
-  국내주식:    "#3B82F6",
-  해외주식:    "#10B981",
-  국내채권:    "#F59E0B",
-  해외채권:    "#EF4444",
-  금:          "#F97316",  // 대안자산 / 원자재
-  리츠:        "#8B5CF6",  // 부동산 / 대안자산
-  현금:        "#64748B",
-  달러:        "#06B6D4",  // 현금성자산 / 외환
-  암호화폐:    "#EC4899",  // 초고위험 대안자산
+  국내주식:    "#3B82F6",   // blue-500
+  국내ETF:     "#93C5FD",   // blue-300 — 연블루 (국내주식 계열, 더 밝음)
+  해외주식:    "#10B981",   // emerald-500
+  해외ETF:     "#6EE7B7",   // emerald-300 — 연그린 (해외주식 계열, 더 밝음)
+  국내채권:    "#F59E0B",   // amber-400
+  해외채권:    "#EF4444",   // red-500
+  금:          "#F97316",   // orange-500
+  리츠:        "#8B5CF6",   // violet-500
+  현금:        "#64748B",   // slate-500
+  달러:        "#06B6D4",   // cyan-500
+  암호화폐:    "#EC4899",   // pink-500
 };
 
 // 도넛 차트용 표시 레이블 (내부 asset_class → 사용자 표시명)
 export const CLASS_DISPLAY_LABELS: Record<string, string> = {
   국내주식: "국내주식",
+  국내ETF:  "국내ETF",
   해외주식: "해외주식",
+  해외ETF:  "해외ETF",
   국내채권: "국내채권",
   해외채권: "해외채권",
   금:       "금·원자재",
@@ -48,8 +52,8 @@ const ASSET_CLASS_ALIAS: Record<string, string> = {
   외화: "달러", usd: "달러", 달러화: "달러",
   부동산: "리츠", 리츠etf: "리츠", reits: "리츠",
   해외채권etf: "해외채권", 미국채: "해외채권", 달러채권: "해외채권",
-  // 신규 통합 상품유형 → 내부 asset_class 정규화
-  국내etf: "국내주식", 해외etf: "해외주식",
+  // 국내ETF·해외ETF는 CLASS_COLORS/DISPLAY_LABELS에 독립 항목으로 정의되어 있으므로
+  // 주식과 병합하지 않고 productType 그대로 유지 — 도넛 슬라이스 클릭 격리 필터링 보장
   "예적금/현금": "현금", 예적금: "현금",
 };
 
@@ -396,10 +400,14 @@ export function DonutChart({
     if (!Number.isFinite(value) || value <= 0) continue;
     const pct = totalValue > 0 ? (value / totalValue) * 100 : (a.weight ?? 0) * 100;
     if (!Number.isFinite(pct) || pct <= 0) continue;
-    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    const cls = a.productType ?? a.asset_class ?? "기타";
     byClass[cls] = (byClass[cls] ?? 0) + pct;
   }
   const segments = Object.entries(byClass).filter(([, pct]) => pct > 0.5).sort(([, a], [, b]) => b - a);
+  const uniqueProductTypeCount = new Set(
+    assets.filter(a => getAssetValue(a) > 0).map(a => a.productType ?? a.asset_class ?? "기타")
+  ).size;
+  const PAD_PCT = 0.8;
   const r = 15.9155;
   let cumulative = 0;
   const activeCls = hoveredCls ?? selectedClass;
@@ -411,7 +419,8 @@ export function DonutChart({
           <circle cx="18" cy="18" r={r} fill="none" stroke="#f1f5f9" strokeWidth="3.5" />
           {segments.map(([cls, pct], i) => {
             const offset = -cumulative;
-            const dash = `${pct.toFixed(2)} ${(100 - pct).toFixed(2)}`;
+            const visiblePct = Math.max(pct - PAD_PCT, 0.5);
+            const dash = `${visiblePct.toFixed(2)} ${(100 - visiblePct).toFixed(2)}`;
             cumulative += pct;
             const isActive = hoveredCls === cls || selectedClass === cls;
             return (
@@ -436,7 +445,7 @@ export function DonutChart({
             <div className="text-center leading-tight">
               <p className="text-sm text-slate-400">자산군별 비중</p>
               <p className="text-xs font-bold text-slate-500">
-                {segments.length}개 자산유형
+                {uniqueProductTypeCount}개 자산유형
               </p>
             </div>
           )}
@@ -478,11 +487,11 @@ export function AssetClassTable({
   rebalancingInfos?: Map<string, RebalancingStatusInfo>;
   onBadgeClick?: (info: RebalancingStatusInfo) => void;
 }) {
-  // 전체 자산 기준 자산군 합산 (필터 여부와 무관하게 비중 분모로 사용)
+  // 전체 자산 기준 자산군 합산 — 도넛 차트와 동일한 키(productType 우선)로 집계
   const classTotals = useMemo(() => {
     const totals: Record<string, number> = {};
     for (const a of assets) {
-      const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+      const cls = a.productType ?? a.asset_class ?? "기타";
       totals[cls] = (totals[cls] ?? 0) + getAssetValueGeneric(a);
     }
     return totals;
@@ -496,19 +505,21 @@ export function AssetClassTable({
       .filter((info): info is RebalancingStatusInfo => info?.status === "매도");
   }, [rebalancingInfos, initialAssets]);
 
+  // 도넛 차트 클릭 시 filteredClass === productType 이므로 === 엄격 비교로 격리
   const displayedActive = filteredClass
-    ? assets.filter((a) => normalizeAssetClass(a.asset_class ?? a.productType ?? "기타") === filteredClass)
+    ? assets.filter((a) => (a.productType ?? a.asset_class ?? "기타") === filteredClass)
     : assets;
-  // 선택된 자산군에 속하는 완전 매도 종목만 노출 (info.assetClass는 이미 normalizeAssetClass 적용값)
+  // 매도 종목 필터 — assetClass는 computeRebalancingInfo에서 normalizeAssetClass로 계산됨
+  // normalizeAssetClass는 "해외주식"/"해외ETF" 별칭 없음 → 직접 비교 안전
   const displayedSold = filteredClass
-    ? soldInfos.filter((info) => info.assetClass === filteredClass)
+    ? soldInfos.filter((info) => (info.productType || info.assetClass) === filteredClass)
     : soldInfos;
 
   const hasRebalancing = !!rebalancingInfos;
   const colCount = hasRebalancing ? 5 : 4;
 
   const renderRow = (a: PortfolioAsset) => {
-    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    const cls = a.productType ?? a.asset_class ?? "기타";
     const val = getAssetValueGeneric(a);
     const classTotal = classTotals[cls] ?? 0;
     // 자산군 내 비중 = 해당 종목 평가액 / 해당 자산군 총합산 평가액
@@ -1125,7 +1136,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
   if (!healthResult) return null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { badge, badgeKo = "", totalScore, items = [] as any[] } = healthResult;
+  const { badge, badgeKo = "", items = [] as any[] } = healthResult;
 
   // badgeKo: "매도/재구성 권고 (Sell) – 포트폴리오 전면 재검토가 필요합니다."
   const dashIdx = (badgeKo as string).indexOf(" – ");
@@ -1165,21 +1176,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
 
       <div className="flex flex-col flex-1 gap-4 p-5">
 
-        {/* ── 1단: 스코어링 ── */}
-        <div className="flex items-center gap-3 rounded-lg bg-slate-50 px-4 py-3">
-          <BarChart3 size={20} className={`shrink-0 ${bs.score}`} />
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-1">
-              <span className={`text-2xl font-black ${bs.score}`}>{totalScore}</span>
-              <span className="text-sm font-semibold text-slate-500">/ 14점</span>
-            </div>
-            {actionMessage && (
-              <p className="mt-0.5 text-xs font-semibold leading-snug text-slate-600">{actionMessage}</p>
-            )}
-          </div>
-        </div>
-
-        {/* ── 2단: 리스크 항목 칩 ── */}
+        {/* ── 1단: 리스크 항목 칩 ── */}
         {(problemItems.length > 0 || cautionItems.length > 0) && (
           <div className="space-y-3">
             {problemItems.length > 0 && (

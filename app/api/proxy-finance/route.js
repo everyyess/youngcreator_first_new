@@ -14,23 +14,6 @@ import { resolveTickerWithGemini } from '@/utils/geminiTicker';
 
 export const runtime = 'nodejs';
 
-// ── 포괄적 검색어 차단 사전 (UX 가드 — 티커 매핑 아님) ─────────────────────
-const AMBIGUOUS_KEYWORDS = new Map([
-  ['삼성',  "'삼성전자', '삼성SDI', '삼성바이오로직스'"],
-  ['현대',  "'현대차', '현대모비스', '현대건설'"],
-  ['sk',    "'SK하이닉스', 'SK이노베이션', 'SK텔레콤'"],
-  ['lg',    "'LG전자', 'LG에너지솔루션', 'LG화학'"],
-  ['한화',  "'한화에어로스페이스', '한화솔루션', '한화오션'"],
-  ['롯데',  "'롯데쇼핑', '롯데케미칼', '롯데칠성'"],
-  ['cj',    "'CJ제일제당', 'CJ CGV', 'CJ ENM'"],
-  ['gs',    "'GS리테일', 'GS건설'"],
-  ['두산',  "'두산에너빌리티', '두산밥캣', '두산로보틱스'"],
-  ['포스코', "'POSCO홀딩스', '포스코퓨처엠', '포스코DX'"],
-  ['코오롱', "'코오롱인더', '코오롱글로벌'"],
-  ['신한',  "'신한지주', '신한라이프'"],
-  ['하나',  "'하나금융지주', '하나은행'"],
-  ['kb',    "'KB금융', 'KB증권'"],
-]);
 
 // ── 티커 패턴 기반 메타데이터 추론 ────────────────────────────────────────
 function inferMetaFromTicker(ticker) {
@@ -406,31 +389,27 @@ export async function GET(request) {
     : US_TYPES.has(userProductType) ? 'US'
     : null;
 
-  // 정규화: 소문자 + 공백 제거 (UX 가드 조회 전용)
-  const normalizedInput = assetName.toLowerCase().replace(/\s+/g, '');
-
-  // ── 포괄적 검색어 조기 차단 ────────────────────────────────────────────
-  const ambiguousExamples = AMBIGUOUS_KEYWORDS.get(normalizedInput);
-  if (ambiguousExamples) {
-    return Response.json(
-      { error: `입력하신 '${assetName}'은(는) 여러 계열사가 존재합니다. ${ambiguousExamples}처럼 정확한 종목명을 입력해주세요.`, assetName },
-      { status: 400 }
-    );
-  }
-
   // ── [KR 경로] Gemini → krCode 직접 조립 → Yahoo v7 AC 폴백 ──────────────
   let ticker = null;
 
   if (forcedMarket === 'KR') {
+    // [0순위] assetName이 이미 유효한 KRX 티커 형식이면 해석 체인 전체 생략
+    // 예: "143460.KS" → Gemini·Yahoo AC 실패 위험 없이 즉시 사용
+    const KR_TICKER_DIRECT_RE = /^\d{6}\.(KS|KQ)$/;
+    if (KR_TICKER_DIRECT_RE.test(assetName)) {
+      ticker = assetName;
+      console.log(`[proxy-finance] KR 직접 티커 확정: '${assetName}'`);
+    }
+
     // [1순위] Gemini: 6자리 krCode + market → 티커 직접 조립 (Yahoo AC 완전 우회)
     let geminiMetaKR = null;
-    try {
+    if (!ticker) try {
       geminiMetaKR = await resolveTickerWithGemini(assetName, userProductType);
     } catch (geminiErr) {
       console.warn('[proxy-finance] Gemini 예외 (KR), Yahoo AC 폴백:', geminiErr?.message);
     }
 
-    if (geminiMetaKR?.krCode && (geminiMetaKR.market === 'KOSPI' || geminiMetaKR.market === 'KOSDAQ')) {
+    if (!ticker && geminiMetaKR?.krCode && (geminiMetaKR.market === 'KOSPI' || geminiMetaKR.market === 'KOSDAQ')) {
       const paddedCode = String(geminiMetaKR.krCode).padStart(6, '0');
       const suffix = geminiMetaKR.market === 'KOSDAQ' ? '.KQ' : '.KS';
       ticker = `${paddedCode}${suffix}`;
