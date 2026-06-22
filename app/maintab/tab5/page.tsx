@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
 import {
   Sparkles, ShieldCheck, TrendingUp, Landmark, PiggyBank,
   FileText, BarChart3, AlertCircle,
   ChevronRight, CheckCircle2, X, Info, BadgeCheck, AlertTriangle, AlertOctagon
 } from "lucide-react";
-import { useCustomerContext } from "../CustomerContext";
+import { useCustomerContext, loadTaxSummaries } from "../CustomerContext";
 import { usePortfolioResult } from "../PortfolioResultComponents";
 import { parseLiquidityEntries, type LiquidityKind } from "../liquidityFields";
 
@@ -31,6 +32,8 @@ interface Client {
   monthlyIncome: number; investableAssets: number;
   lumpSumTimepoint: number;
   liquidityNeeds: LiquidityNeed[];
+  taxExcessAmount: number;
+  hasTab4TaxData: boolean;
 }
 
 type LiquidityNeed = {
@@ -228,7 +231,7 @@ function calcWeights(c: Client) {
   const uG = Math.max(c.targetReturn * (6 - c.riskAppetite) + c.investmentPeriod * 2, 1);
   const uI = Math.max((c.age / 100) * 50 + (6 - c.riskAppetite) * 5, 1);
   const uH = Math.max(c.riskAppetite * 15, 1);
-  const uT = c.isTaxTarget ? 100 : 5;
+  const uT = c.taxExcessAmount > 50_000_000 ? 150 : c.taxExcessAmount > 0 ? 100 : 5;
   const uL = calcLiquidityPriorityScore(c);
   const total = uG + uI + uH + uL + uT;
   const arr: { bucket: BucketType; w: number }[] = [
@@ -246,12 +249,20 @@ function calcScore(p: Product, c: Client, w: ReturnType<typeof calcWeights>, all
   const stabilityScore = (p.riskGrade-1)*20;
   const liquidityScore = p.isInstantRedeem ? 100 : 10;
   let taxScore = 50;
-  if (c.isTaxTarget) {
+  if (c.taxExcessAmount > 50_000_000) {
+    // 종소세 고초과 구간 — 절세 상품 쏠림을 강하게, 비절세 상품은 더 강한 페널티
     if (p.taxType==="비과세연금"||p.taxType==="분리과세") taxScore=100;
+    else if (p.taxType==="국내주식형") taxScore=65;
+    else if (p.taxType==="소득공제") taxScore=c.isHighIncomeWorker?85:15;
+    else taxScore=5;
+  } else if (c.taxExcessAmount > 0) {
+    // 종소세 저초과 구간 — 절세 효과는 있되 완만하게 반영
+    if (p.taxType==="비과세연금"||p.taxType==="분리과세") taxScore=85;
     else if (p.taxType==="국내주식형") taxScore=70;
-    else if (p.taxType==="소득공제") taxScore=c.isHighIncomeWorker?90:20;
-    else taxScore=10;
+    else if (p.taxType==="소득공제") taxScore=c.isHighIncomeWorker?75:30;
+    else taxScore=25;
   }
+  // taxExcessAmount === 0 (비대상)인 경우 taxScore=50 그대로 유지 — 세금이 상품 선택에 영향 없음
   const base = w.G*returnScore + w.I*(returnScore*0.5+stabilityScore*0.5) + w.H*stabilityScore + w.L*liquidityScore + w.T*taxScore;
   return base*0.9 + (p.bucket===w.topBucket?10:0);
 }
@@ -494,6 +505,14 @@ function fmtWon(n: number): string {
   if (eok>0) return `${eok}억원`;
   return `${Math.round(n/1e4).toLocaleString()}만원`;
 }
+function buildTaxAlertMessage(hasTab4Data: boolean, excessAmount: number, fallbackText: string): string {
+  // TAB4 정밀 데이터가 없으면 정확한 초과액을 알 수 없으므로 TAB1 원문 텍스트로 안전하게 폴백
+  if (!hasTab4Data) return fallbackText;
+  if (excessAmount > 50_000_000) {
+    return `금융소득종합과세 기준(2천만원)을 ${fmtWon(excessAmount)} 초과했습니다. 초과 폭이 커 절세 비중이 크게 확대 적용됩니다.`;
+  }
+  return `금융소득종합과세 기준(2천만원)을 ${fmtWon(excessAmount)} 초과했습니다. 절세 상품을 우선 검토해주세요.`;
+}
 function hasRrttllu(f: { rrttllu: { returnObjective: string; timeHorizon: string; riskAttitude: string } }): boolean {
   return !!(f.rrttllu.returnObjective||f.rrttllu.timeHorizon||f.rrttllu.riskAttitude);
 }
@@ -582,23 +601,38 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation } = useCustomerContext();
+  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation, selectedCustomer } = useCustomerContext();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
   const [bucketOffset, setBucketOffset] = useState<Partial<Record<BucketType,number>>>({});
   const [modalProduct, setModalProduct] = useState<Product|null>(null);
   const [activeEffectId, setActiveEffectId] = useState<string|null>(null);
   const [unsuitableWarning, setUnsuitableWarning] = useState<Product|null>(null);
+  const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
 
-  const client: Client = useMemo(() => {
-    if (!rrttlluReady) return {
-      riskAppetite:3, targetReturn:8, investmentPeriod:3, liquidityRatio:0.2,
-      isTaxTarget:false, isHighIncomeWorker:false, age:50,
-      monthlyIncome:0, investableAssets:0,
-      lumpSumTimepoint:5,
-      liquidityNeeds: [],
-    };
-    const isTaxTarget = internalJsonPayload.rrttllu.tax.financial_income_tax_alert.includes("초과");
+useEffect(() => {
+  if (!selectedCustomer) return;
+  loadTaxSummaries(selectedCustomer).then(({ newSummary }) => {
+    setNewSummary((newSummary as FinancialIncomeSummary | null) ?? null);
+  });
+}, [selectedCustomer]);
+
+const client: Client = useMemo(() => {
+  if (!rrttlluReady) return {
+    riskAppetite:3, targetReturn:8, investmentPeriod:3, liquidityRatio:0.2,
+    isTaxTarget:false, isHighIncomeWorker:false, age:50,
+    monthlyIncome:0, investableAssets:0,
+    lumpSumTimepoint:5,
+    liquidityNeeds: [],
+    taxExcessAmount: 0,
+    hasTab4TaxData: false,
+  };
+  const hasTab4TaxData = newSummary != null;
+    const taxExcessAmount = Math.max(0, (newSummary?.totalFinancialIncome ?? 0) - 20_000_000);
+    // TAB4 데이터가 있으면 정밀 계산, 없으면 TAB1 설문 판단으로 안전하게 폴백
+    const isTaxTarget = hasTab4TaxData
+      ? taxExcessAmount > 0
+      : internalJsonPayload.rrttllu.tax.financial_income_tax_alert?.includes("초과") ?? false;
     const age = parseInt(selectedCustomerProfile.age||"50");
     const fa = parseFloat(formData.financial.financialAssets.replace(/[^0-9.]/g,""))||0;
     const ta = parseFloat(formData.financial.totalAssets.replace(/[^0-9.]/g,""))||0;
@@ -630,8 +664,10 @@ const additionalInvestmentAmount = (() => {
       monthlyIncome, investableAssets: additionalInvestmentAmount,
       lumpSumTimepoint: representativeLumpSumYears(liquidityNeeds),
       liquidityNeeds,
+      taxExcessAmount,
+      hasTab4TaxData,
     };
-  }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady]);
+  }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady,newSummary]);
 
   const weights = useMemo(() => rrttlluReady ? calcWeights(client) : null, [client,rrttlluReady]);
 
@@ -785,7 +821,9 @@ const additionalInvestmentAmount = (() => {
         {rrttlluReady&&client.isTaxTarget&&(
           <div className="mt-5 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
             <p className="text-xs font-bold text-orange-700">⚠️ 금융소득종합과세 대상 고객</p>
-            <p className="mt-1 text-xs font-semibold text-orange-800">{internalJsonPayload.rrttllu.tax.financial_income_tax_alert}</p>
+            <p className="mt-1 text-xs font-semibold text-orange-800">
+              {buildTaxAlertMessage(client.hasTab4TaxData, client.taxExcessAmount, internalJsonPayload.rrttllu.tax.financial_income_tax_alert)}
+            </p>
             <p className="mt-1 text-xs text-orange-600">절세 버킷 {(weights!.T*100).toFixed(1)}% 적용 — 연금보험·분리과세채권 우선 추천</p>
           </div>
         )}
