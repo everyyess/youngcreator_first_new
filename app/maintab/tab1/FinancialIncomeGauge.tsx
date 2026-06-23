@@ -139,8 +139,8 @@ function CapitalGainsRow({ item }: { item: CapitalGainsBreakdownItem }) {
         {item.ticker && (
           <span className="text-[10px] text-slate-400 font-mono shrink-0">({item.ticker})</span>
         )}
-        <span className={`text-[10px] shrink-0 font-semibold ${item.gain >= 0 ? "text-blue-600" : "text-red-500"}`}>
-          차익 {fmtWon(item.gain)}
+        <span className={`text-[10px] shrink-0 font-semibold ${item.gain > 0 ? "text-blue-600" : item.gain < 0 ? "text-red-500" : "text-slate-400"}`}>
+          {item.gain > 0 ? `차익 ${fmtWon(item.gain)}` : item.gain < 0 ? `손실 ${fmtWon(Math.abs(item.gain))}` : "손익 없음"}
         </span>
         <span className="rounded-full bg-orange-50 px-1.5 py-0.5 text-[9px] font-bold text-orange-600 shrink-0">
           {item.category}
@@ -234,7 +234,8 @@ export function FinancialIncomeGauge({
 
   const dividendItems = (summary?.breakdown ?? []).filter(b => b.incomeType.startsWith("배당"));
   const interestItems = (summary?.breakdown ?? []).filter(b => b.incomeType === "이자");
-  const visibleGainsItems = (summary?.capitalGainsBreakdown ?? []).filter(item => item.gain !== 0);
+  // gain === 0이어도 양도소득세 대상 종목(해외주식·ETF)이면 표시
+  const visibleGainsItems = summary?.capitalGainsBreakdown ?? [];
 
 
   return (
