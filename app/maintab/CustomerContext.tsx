@@ -1355,6 +1355,7 @@ export type CustomerContextValue = {
   resetRebalancingSellSummary: () => void;
   confirmRebalancingBuy: () => void;
   resetRebalancingBuySummary: () => void;
+  addBuyCost: (cost: number) => void;
   setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
   setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
   updateTab3AnalysisState: (patch: Partial<Tab3AnalysisState>, options?: { allowReadOnlyViewState?: boolean }) => void;

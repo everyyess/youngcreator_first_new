@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exec } from "child_process";
-import { promisify } from "util";
-import path from "path";
-
-const execAsync = promisify(exec);
 
 // ── Cache ─────────────────────────────────────────────────────────────────
 
 const cache = new Map<string, { data: unknown; ts: number }>();
-const CACHE_TTL = 30 * 60 * 1000; // 30분
+const CACHE_TTL = 30 * 60 * 1000;
 
 function getCached(key: string) {
   const e = cache.get(key);
@@ -18,59 +13,137 @@ function setCache(key: string, data: unknown) {
   cache.set(key, { data, ts: Date.now() });
 }
 
-// ── pykrx 실행 ─────────────────────────────────────────────────────────────
+// ── KRX constants ──────────────────────────────────────────────────────────
 
-const SCRIPT = path.join(process.cwd(), "scripts", "pykrx_investor.py");
+const MARKET_ID: Record<string, string> = { KOSPI: "STK", KOSDAQ: "KSQ" };
 
-async function runPykrx(params: Record<string, unknown>): Promise<unknown> {
-  // 파라미터를 환경 변수로 전달 (Windows 따옴표 호환성)
-  const { stdout, stderr } = await execAsync(
-    `python "${SCRIPT}"`,
-    {
-      timeout: 60000,
-      env: {
-        ...process.env,
-        PYTHONIOENCODING: "utf-8",
-        KRX_ID:        process.env.KRX_ID ?? "",
-        KRX_PW:        process.env.KRX_PW ?? "",
-        PYKRX_PARAMS:  JSON.stringify(params),
-      },
+// pykrx 호환 투자자 코드 (MDCSTAT02203 기준)
+const INVESTOR_CODE: Record<string, string> = {
+  "외국인":  "2",
+  "개인":    "1",
+  "기관합계": "9000",
+  "금융투자": "1000",
+  "보험":    "2000",
+  "투신":    "3000",
+  "사모":    "4000",
+  "은행":    "5000",
+  "기타금융": "6000",
+  "연기금":  "7000",
+  "기타법인": "8000",
+};
+
+function recentTradingDate(): string {
+  const kst = new Date(Date.now() + 9 * 3600 * 1000);
+  let d = new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate()));
+  if (kst.getUTCHours() < 16) d.setUTCDate(d.getUTCDate() - 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}${m}${day}`;
+}
+
+// ── KRX 데이터 조회 ────────────────────────────────────────────────────────
+
+type KrxRow = { ticker: string; name: string; net_qty: number; net_amt: number };
+
+function parseKrxRows(rows: Record<string, string>[]): KrxRow[] {
+  return rows
+    .map((r) => ({
+      // ISU_SRT_CD = 6자리 단축코드, ISU_CD = 전체 표준코드(KR7...)
+      ticker:  (r.ISU_SRT_CD ?? "").trim() || (r.ISU_CD ?? "").trim().slice(-6),
+      name:    (r.ISU_ABBRV ?? r.ISU_NM ?? "").trim(),
+      net_qty: parseInt((r.NETBID_TRDVOL ?? "0").replace(/,/g, ""), 10) || 0,
+      net_amt: parseInt((r.NETBID_TRDVAL ?? "0").replace(/,/g, ""), 10) || 0,
+    }))
+    .filter((r) => /^\d{6}$/.test(r.ticker) && r.name.length > 0);
+}
+
+async function fetchKrxNetPurchases(market: string, investor: string, date: string): Promise<KrxRow[]> {
+  const mktId     = MARKET_ID[market] ?? "STK";
+  const invstTpCd = INVESTOR_CODE[investor] ?? "2";
+  const bldParams = {
+    bld:       "dbms/MDC/STAT/standard/MDCSTAT02203",
+    trdDd:     date,
+    mktId,
+    invstTpCd,
+  };
+
+  const authKey = process.env.KRX_AUTH_KEY;
+
+  // ① KRX OpenAPI (인증키 있을 때 우선 사용)
+  if (authKey) {
+    try {
+      const otpRes = await fetch("https://openapi.krx.co.kr/contents/COM/GenerateOTP.cmd", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          auth:    authKey,
+          baseUrl: "http://openapi.krx.co.kr/contents/COM/GetJsonData.cmd",
+          ...bldParams,
+        }).toString(),
+      });
+      const otp = (await otpRes.text()).trim();
+
+      const dataRes = await fetch("http://openapi.krx.co.kr/contents/COM/GetJsonData.cmd", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ code: otp }).toString(),
+      });
+      const json = await dataRes.json() as Record<string, unknown>;
+      const rows = ((json.output ?? json.OutBlock_1 ?? []) as Record<string, string>[]);
+      const parsed = parseKrxRows(rows);
+      if (parsed.length > 0) return parsed;
+    } catch {
+      // OpenAPI 실패 시 공개 포털로 폴백
     }
-  );
-  if (stderr && stderr.trim() && !stderr.toLowerCase().includes("krx")) {
-    console.warn("[pykrx stderr]", stderr.trim().slice(0, 300));
   }
-  // pykrx 로그인 메시지가 stdout에 섞이므로 마지막 JSON 라인만 추출
-  const jsonLine = stdout
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith("{"))
-    .pop();
-  if (!jsonLine) throw new Error(`pykrx 출력 없음: ${stdout.slice(0, 200)}`);
-  const parsed = JSON.parse(jsonLine);
-  if (!parsed.ok) throw new Error(parsed.error ?? "pykrx 오류");
-  return parsed;
+
+  // ② 공개 KRX 데이터 포털 (OTP 2-step 방식)
+  const otpRes = await fetch("https://data.krx.co.kr/contents/COM/GenerateOTP.cmd", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Referer":    "https://data.krx.co.kr",
+    },
+    body: new URLSearchParams(bldParams).toString(),
+  });
+  const otp = (await otpRes.text()).trim();
+  if (!otp) throw new Error("KRX OTP 발급 실패");
+
+  const dataRes = await fetch("https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Referer":    "https://data.krx.co.kr",
+    },
+    body: new URLSearchParams({ code: otp }).toString(),
+  });
+  if (!dataRes.ok) throw new Error(`KRX 서버 오류: ${dataRes.status}`);
+
+  const json = await dataRes.json() as { OutBlock_1?: Record<string, string>[] };
+  return parseKrxRows(json.OutBlock_1 ?? []);
 }
 
 // ── Route ──────────────────────────────────────────────────────────────────
 
+type Row    = KrxRow;
+type Result = { ok: boolean; date: string; buy_top?: Row[]; sell_top?: Row[]; error?: string };
+
 export async function GET(req: NextRequest) {
   const sp       = req.nextUrl.searchParams;
-  const type     = sp.get("type") ?? "ranking";       // ranking | orgsubtype
-  const market   = sp.get("market")   ?? "KOSPI";    // KOSPI | KOSDAQ
-  const investor = sp.get("investor") ?? "외국인";   // 외국인 | 기관합계 | 개인 | 연기금 | 금융투자 | 사모 | 보험 | 투신
+  const type     = sp.get("type")     ?? "ranking";
+  const market   = sp.get("market")   ?? "KOSPI";
+  const investor = sp.get("investor") ?? "외국인";
   const topN     = parseInt(sp.get("top_n") ?? "10");
   const nocache  = sp.get("nocache") === "1";
+  const smart    = sp.get("smart")   === "1";
 
-  // 스마트머니: 외국인+기관 동시 순매수 교집합
-  const smart = sp.get("smart") === "1";
+  const date = recentTradingDate();
 
-  if (!process.env.KRX_ID || !process.env.KRX_PW) {
-    return NextResponse.json({ ok: false, error: "KRX_ID / KRX_PW 환경 변수 미설정" }, { status: 500 });
-  }
-
-  // type=orgsubtype: 세부 기관별 종목 순매수 조회 (시총상위 탭용)
-  // ?type=orgsubtype&market=KOSPI&investor=연기금&top_n=999
+  // type=orgsubtype: 세부 기관별 종목 순매수 tickerMap 반환 (시총상위 탭용)
   if (type === "orgsubtype") {
     const ck = `orgsubtype-${market}-${investor}`;
     if (!nocache) {
@@ -78,12 +151,9 @@ export async function GET(req: NextRequest) {
       if (cached) return NextResponse.json({ ...(cached as object), _cached: true });
     }
     try {
-      const data = await runPykrx({ market, investor, top_n: 999 }) as { buy_top?: { ticker: string; net_amt: number; net_qty: number }[] };
-      // ticker → {net_amt, net_qty} 맵 형태로 반환
+      const rows = await fetchKrxNetPurchases(market, investor, date);
       const tickerMap: Record<string, { net_amt: number; net_qty: number }> = {};
-      for (const r of data.buy_top ?? []) {
-        tickerMap[r.ticker] = { net_amt: r.net_amt, net_qty: r.net_qty };
-      }
+      for (const r of rows) tickerMap[r.ticker] = { net_amt: r.net_amt, net_qty: r.net_qty };
       const payload = { ok: true, tickerMap };
       setCache(ck, payload);
       return NextResponse.json(payload);
@@ -93,10 +163,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const cacheKey = smart
-    ? `smart-${market}-${topN}`
-    : `${market}-${investor}-${topN}`;
-
+  const cacheKey = smart ? `smart-${market}-${topN}` : `${market}-${investor}-${topN}`;
   if (!nocache) {
     const cached = getCached(cacheKey);
     if (cached) return NextResponse.json({ ...(cached as object), _cached: true });
@@ -104,36 +171,38 @@ export async function GET(req: NextRequest) {
 
   try {
     if (smart) {
-      // 외국인·기관 동시 순매수 교집합
-      const [frgnRes, orgnRes] = await Promise.all([
-        runPykrx({ market, investor: "외국인",  top_n: 50 }) as Promise<PykrxResult>,
-        runPykrx({ market, investor: "기관합계", top_n: 50 }) as Promise<PykrxResult>,
+      const [frgnRows, orgnRows] = await Promise.all([
+        fetchKrxNetPurchases(market, "외국인",  date),
+        fetchKrxNetPurchases(market, "기관합계", date),
       ]);
-      const frgnTickers = new Set((frgnRes.buy_top ?? []).map((r: Row) => r.ticker));
-      const smartList = (orgnRes.buy_top ?? [])
-        .filter((r: Row) => frgnTickers.has(r.ticker))
+      const frgnMap = new Map(frgnRows.map((r) => [r.ticker, r.net_amt]));
+      const smartList = orgnRows
+        .filter((r) => r.net_amt > 0 && (frgnMap.get(r.ticker) ?? 0) > 0)
+        .sort((a, b) => b.net_amt - a.net_amt)
         .slice(0, topN)
-        .map((r: Row) => ({
-          ...r,
-          frgn_amt: (frgnRes.buy_top ?? []).find((f: Row) => f.ticker === r.ticker)?.net_amt ?? 0,
-          orgn_amt: r.net_amt,
-        }));
-      const result = { ok: true, date: frgnRes.date, market, data: smartList };
+        .map((r) => ({ ...r, frgn_amt: frgnMap.get(r.ticker) ?? 0, orgn_amt: r.net_amt }));
+      const result = { ok: true, date, market, data: smartList };
       setCache(cacheKey, result);
       return NextResponse.json(result);
     }
 
-    const data = await runPykrx({ market, investor, top_n: topN });
-    setCache(cacheKey, data);
-    return NextResponse.json(data);
+    const rows = await fetchKrxNetPurchases(market, investor, date);
+    const byDesc = [...rows].sort((a, b) => b.net_amt - a.net_amt);
+    const byAsc  = [...rows].sort((a, b) => a.net_amt - b.net_amt);
+    const result: Result & { market: string; investor: string; count: number } = {
+      ok:       true,
+      date,
+      market,
+      investor,
+      count:    rows.length,
+      buy_top:  byDesc.slice(0, topN),
+      sell_top: byAsc.slice(0, topN),
+    };
+    setCache(cacheKey, result);
+    return NextResponse.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[pykrx]", msg);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
-
-// ── Types (내부용) ─────────────────────────────────────────────────────────
-
-type Row = { ticker: string; name: string; net_qty: number; net_amt: number };
-type PykrxResult = { ok: boolean; date: string; buy_top?: Row[]; sell_top?: Row[]; error?: string };

@@ -141,6 +141,7 @@ function makeStyles(easy: boolean) {
     recRow: { flexDirection: "row", marginBottom: 8, alignItems: "flex-start" },
     recLabel: { fontSize: fs(7.8), fontWeight: "bold" },
     recDetail: { fontSize: fs(7.3), color: GRAY, lineHeight: 1.5, marginTop: 1 },
+    recComment: { fontSize: fs(7), color: GREENC, lineHeight: 1.5, marginTop: 2 },
     table: { borderWidth: 1, borderColor: BORDER, borderRadius: 3, overflow: "hidden" },
     tableRowHeader: { flexDirection: "row", backgroundColor: NAVY },
     tableRow: { flexDirection: "row", borderTopWidth: 1, borderTopColor: BORDER },
@@ -355,6 +356,22 @@ function buildDivInsight(la: AnyResult[] | undefined, ra: AnyResult[] | undefine
 
 type HealthItem = { key: string; label: string; score: number; detail: string };
 
+// 위험/주의 항목별 안심 코멘트
+const RISK_COMMENTS: Record<string, string> = {
+  "단일 종목 집중도": "특정 종목 집중은 단기 수익 기회가 될 수 있으며, 분산 편입을 병행하면 리스크를 효과적으로 관리할 수 있습니다.",
+  "단일 섹터 집중도": "섹터 집중도가 높으나, 해당 섹터의 성장성이 유효한 구간에서는 수익 극대화에 유리할 수 있습니다.",
+  "변동성": "변동성이 높으나 장기 보유 시 변동성은 수익 기회로 전환될 수 있으며, 방어 자산 편입으로 완충 가능합니다.",
+  "최대낙폭": "최대 낙폭은 과거 최악 시나리오 기준으로, 실제 운용 환경에서는 분산 효과로 손실 폭이 축소될 수 있습니다.",
+  "분산도": "분산 효과 개선을 위해 자산군 추가 편입을 검토해 드릴 수 있습니다.",
+  "샤프": "샤프 비율 개선을 위한 포트폴리오 재편을 담당 PB와 함께 검토해 드립니다.",
+  "세금": "세후 수익 구조 최적화를 위한 절세 전략을 별도로 안내해 드립니다.",
+};
+
+function getRiskComment(label: string): string {
+  const matched = Object.entries(RISK_COMMENTS).find(([k]) => label.includes(k));
+  return matched ? matched[1] : "담당 PB와 상담을 통해 포트폴리오 조정 방안을 검토해 드립니다.";
+}
+
 function cleanDetail(text: string | undefined): string {
   if (!text) return "";
   let t = text
@@ -373,10 +390,9 @@ function cleanDetail(text: string | undefined): string {
     /단일\s*종목\s*([\d.]+)%\s*\(([^)]+)\)[^.]*/g,
     (_: string, pct: string, name: string) => {
       const p = parseFloat(pct);
-      const expr =
-        p >= 70 ? "포트폴리오 대부분이 단일 종목에 집중되어 있어" :
+      const expr = p >= 70 ? "포트폴리오 대부분이 단일 종목에 집중되어 있어" :
         p >= 40 ? "포트폴리오 상당 부분이 단일 종목에 집중되어 있어" :
-                  "특정 단일 종목 비중이 두드러지게 높아";
+          "특정 단일 종목 비중이 두드러지게 높아";
       return `${expr} 분산 편입을 권고드립니다. (집중 종목: ${name.trim()})`;
     }
   );
@@ -385,10 +401,9 @@ function cleanDetail(text: string | undefined): string {
     /섹터\(([^)]+)\)\s*비중\s*([\d.]+)%[^.]*/g,
     (_: string, sector: string, pct: string) => {
       const p = parseFloat(pct);
-      const expr =
-        p >= 80 ? "포트폴리오 대부분이 해당 섹터에 편중되어 있어" :
+      const expr = p >= 80 ? "포트폴리오 대부분이 해당 섹터에 편중되어 있어" :
         p >= 55 ? "포트폴리오 상당 비중이 해당 섹터에 집중되어 있어" :
-                  "섹터 비중이 다소 높아";
+          "섹터 비중이 다소 높아";
       return `${sector} 섹터 ${expr} 분산 조정을 권고드립니다.`;
     }
   );
@@ -433,16 +448,6 @@ function PBRecommendationPair({ left, right, styles }: {
     ...rightItems.filter(it => !leftKeys.includes(it.key)),
   ];
 
-  const RISK_COMMENTS: Record<string, string> = {
-    "단일 종목 집중도": "특정 종목 비중이 높아 해당 종목 하락 시 포트폴리오 전체에 영향을 줄 수 있으나, 분산 편입을 통해 리스크를 조절할 수 있습니다.",
-    "단일 섹터 집중도": "특정 섹터에 편중되어 있어 섹터 조정 시 변동성이 커질 수 있으나, 타 섹터 자산 편입으로 완충 가능합니다.",
-    "변동성": "포트폴리오 변동성이 높은 수준이나, 장기 보유 시 변동성은 수익 기회로 전환될 수 있습니다.",
-    "최대낙폭(MDD)": "최대 낙폭이 다소 높으나, 방어 자산 편입을 통해 점진적으로 낮출 수 있습니다.",
-    "분산도": "자산 간 상관관계가 낮아 분산 효과가 우수한 상태입니다.",
-    "샤프 지수": "위험 대비 수익 효율이 양호한 수준입니다.",
-    "세금 효율성": "세후 기준으로도 양호한 수익 구조를 유지하고 있습니다.",
-  };
-
   const renderItems = (items: HealthItem[]) => {
     if (!items.length) return <Text style={styles.small}>항목 없음</Text>;
     return (
@@ -466,11 +471,6 @@ function PBRecommendationPair({ left, right, styles }: {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.recLabel, { color: badge.color }]}>{it.label}</Text>
                 {it.detail ? <Text style={styles.recDetail}>{cleanDetail(it.detail)}</Text> : null}
-                {(it.score === 0 || it.score === 1) && (
-                  <Text style={{ fontSize: (styles.recDetail as AnyResult).fontSize, color: "#0F766E", lineHeight: 1.5, marginTop: 2 }}>
-                    {Object.entries(RISK_COMMENTS).find(([k]) => it.label.includes(k))?.[1] ?? "담당 PB와 상담을 통해 포트폴리오 조정을 검토해 드립니다."}
-                  </Text>
-                )}  
               </View>
             </View>
           );
@@ -479,18 +479,33 @@ function PBRecommendationPair({ left, right, styles }: {
     );
   };
 
+  const riskItems = rightSorted.filter(it => it.score === 0 || it.score === 1);
+
   return (
-    <View style={styles.twoCol}>
-      {left?.healthResult && (
-        <View style={styles.col}>
-          <Text style={styles.colLabel}>{left.label}</Text>
-          {renderItems(leftItems)}
-        </View>
-      )}
-      {right?.healthResult && (
-        <View style={styles.colNew}>
-          <Text style={styles.colLabelNew}>{right.label}</Text>
-          {renderItems(rightSorted)}
+    <View>
+      <View style={styles.twoCol}>
+        {left?.healthResult && (
+          <View style={styles.col}>
+            <Text style={styles.colLabel}>{left.label}</Text>
+            {renderItems(leftItems)}
+          </View>
+        )}
+        {right?.healthResult && (
+          <View style={styles.colNew}>
+            <Text style={styles.colLabelNew}>{right.label}</Text>
+            {renderItems(rightSorted)}
+          </View>
+        )}
+      </View>
+      {right?.healthResult && riskItems.length > 0 && (
+        <View style={{ marginTop: 10, padding: 8, borderRadius: 3, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0" }} wrap={false}>
+          <Text style={{ fontSize: 6.5, fontWeight: "bold", color: GREENC, marginBottom: 4 }}>▪ 신규 포트폴리오 리스크 관리 코멘트</Text>
+          {riskItems.map((it, i) => (
+            <View key={i} style={{ flexDirection: "row", marginBottom: 3 }}>
+              <Text style={{ fontSize: 6.5, fontWeight: "bold", color: GREENC, width: 70, flexShrink: 0 }}>{it.label}</Text>
+              <Text style={{ fontSize: 6.5, color: BLACK, flex: 1, lineHeight: 1.5 }}>{getRiskComment(it.label)}</Text>
+            </View>
+          ))}
         </View>
       )}
     </View>
@@ -691,7 +706,6 @@ export function PortfolioReportPdf({
           )}
         </View>
 
-        {/* AI PB 코멘트 — 핵심 지표 요약 바로 아래 */}
         {aiComment && (
           <View style={styles.aiCommentBox} wrap={false}>
             <Text style={styles.aiCommentLabel}>▪ PB 코멘트</Text>

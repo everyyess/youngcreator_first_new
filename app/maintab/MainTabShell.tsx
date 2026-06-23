@@ -841,6 +841,15 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null }));
   }, [updateHeaderAssetSummary]);
 
+  const addBuyCost = useCallback((cost: number) => {
+    if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
+    const cid = selectedCustomerRef.current;
+    updateHeaderAssetSummary(cid, (current) => ({
+      ...current,
+      confirmedBuyAmount: (current.confirmedBuyAmount ?? 0) + cost,
+    }));
+  }, [updateHeaderAssetSummary]);
+
   const setNewPortfolioAnalysisResult = useCallback((result: PortfolioAnalysisResult | null) => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
@@ -961,22 +970,23 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
-  // Buying Power = b + cashFromSales (기획서 표준 수식)
+  // Buying Power = b + cashFromSales - confirmedBuyAmount (기획서 표준 수식)
   // b = TAB1 investableAssets | cashFromSales = a - c (매도 대금)
   // a = 최초 포트폴리오 평가총액 | c = 매도 확정 후 잔여자산 총액
   const availableInvestmentFunds = useMemo(() => {
     const b = parseKrwAmount(formData.financial.investableAssets) ?? 0;
     const c = formData.headerAssetSummary?.confirmedOperatingAssetsAfterSell ?? null;
+    const buySpent = formData.headerAssetSummary?.confirmedBuyAmount ?? 0;
 
-    // 매도 시뮬레이션 미진행: cashFromSales = 0 → Buying Power = b (investableAssets)
-    if (c === null) return b > 0 ? b : null;
+    // 매도 시뮬레이션 미진행: cashFromSales = 0 → Buying Power = b - buySpent
+    if (c === null) return b > 0 ? b - buySpent : null;
 
-    // 매도 시뮬레이션 완료: Buying Power = b + (a - c)
-    // 포트폴리오 미로드 시 a = 0 → cashFromSales 음수 오염 방지 — b만 반환
-    if (!isPortfolioLoaded) return b > 0 ? b : null;
+    // 매도 시뮬레이션 완료: Buying Power = b + (a - c) - buySpent
+    // 포트폴리오 미로드 시 a = 0 → cashFromSales 음수 오염 방지 — b - buySpent만 반환
+    if (!isPortfolioLoaded) return b > 0 ? b - buySpent : null;
     const a = sumPortfolioCurrentValue(portfolioAssets);
-    if (!Number.isFinite(a) || a <= 0) return b > 0 ? b : null;
-    const d = b + (a - c);
+    if (!Number.isFinite(a) || a <= 0) return b > 0 ? b - buySpent : null;
+    const d = b + (a - c) - buySpent;
     return Number.isFinite(d) ? d : null;
   }, [formData.headerAssetSummary, formData.financial.investableAssets, portfolioAssets, isPortfolioLoaded]);
 
@@ -1352,7 +1362,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     // 리밸런싱 파이프라인
     rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
-    confirmRebalancingBuy, resetRebalancingBuySummary, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
+    confirmRebalancingBuy, resetRebalancingBuySummary, addBuyCost, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
     // Tab 5 상품 선택 (고객별 Supabase 영속)
     productSelectedIds, setProductSelectedIds,
     // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)
