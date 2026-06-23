@@ -565,6 +565,7 @@ export default function BuySimulatorTab() {
     setBuySimPersistedState,
     pbOrderRows,
     setPbOrderRows,
+    addSellRecord,
   } = useCustomerContext();
 
   // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
@@ -591,10 +592,12 @@ export default function BuySimulatorTab() {
       if (k.startsWith("해외")) return 1;
       return 2;
     };
-    return [...baseAssets].sort((a, b) => {
-      const d = marketGroup(a) - marketGroup(b);
-      return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
-    });
+    return [...baseAssets]
+      .filter((a) => !(a.amount_type === "quantity" && a.amount <= 0))
+      .sort((a, b) => {
+        const d = marketGroup(a) - marketGroup(b);
+        return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
+      });
   }, [baseAssets]);
 
   const groupedAssetCards = useMemo(() => {
@@ -660,6 +663,10 @@ export default function BuySimulatorTab() {
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmDone, setConfirmDone] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // 보유 자산 카드 인라인 매도
+  const [sellCardKey, setSellCardKey] = useState<string | null>(null);
+  const [inlineSellQtyStr, setInlineSellQtyStr] = useState("");
 
   // USD/KRW 실시간 환율 (야후 파이낸스 USDKRW=X — 마운트 시 1회 조회, 기본값 1380)
   const [usdKrwRate, setUsdKrwRate] = useState<number>(1380);
@@ -864,8 +871,6 @@ export default function BuySimulatorTab() {
     return result;
   }, [globalData]);
 
-  // ── 최소 예치 잔고 입력 상태 ─────────────────────────────────────────────
-  const [minDepositManStr, setMinDepositManStr] = useState("");
 
   // ── 예산 계산 ────────────────────────────────────────────────────────────
 
@@ -904,22 +909,15 @@ export default function BuySimulatorTab() {
     }, 0);
   }, [rebalancingSellAssets, portfolioAssets]);
 
-  const minDeposit = useMemo(() => {
-    const v = parseFloat(minDepositManStr);
-    return Number.isFinite(v) && v >= 0 ? Math.floor(v) * 10_000 : 0;
-  }, [minDepositManStr]);
-
   const { totalAllocated, remaining, isOverBudget } = useMemo(() => {
-    // 세션 누적형: 확정 금액(이전 매수 확정 누계) + 현재 입력창 대기 금액
     const total = confirmedPbAmount + pbTotalAmount;
     const avail = availableInvestmentFunds ?? 0;
-    const effective = avail - minDeposit;
     return {
       totalAllocated: total,
-      remaining: effective - total,
-      isOverBudget: avail > 0 && total > effective,
+      remaining: avail - total,
+      isOverBudget: avail > 0 && total > avail,
     };
-  }, [availableInvestmentFunds, confirmedPbAmount, pbTotalAmount, minDeposit]);
+  }, [availableInvestmentFunds, confirmedPbAmount, pbTotalAmount]);
 
   // ── 섹터 카테고리별 정렬 (렌더 전 그룹화) ────────────────────────────────
 
@@ -1105,6 +1103,35 @@ export default function BuySimulatorTab() {
   const cancelDeletePbRow = useCallback(() => {
     setDeleteConfirmId(null);
   }, []);
+
+  // 보유 자산 카드 매도 핸들러
+  const handleSellCard = useCallback((assetKey: string) => {
+    setSellCardKey(assetKey);
+    setInlineSellQtyStr("");
+  }, []);
+
+  const confirmSellCard = useCallback(() => {
+    if (!sellCardKey) return;
+    const asset = baseAssets.find((a) => makeAssetKey(a) === sellCardKey);
+    if (!asset) { setSellCardKey(null); return; }
+    const price = getEffectiveAssetPrice(asset);
+    if (price <= 0 || asset.amount_type !== "quantity" || asset.amount <= 0) { setSellCardKey(null); return; }
+    const qty = Math.min(parseFloat(inlineSellQtyStr), asset.amount);
+    if (!Number.isFinite(qty) || qty <= 0) { setSellCardKey(null); return; }
+    const bp = asset.buy_price;
+    const gain = bp != null ? (price - bp) * qty : 0;
+    addSellRecord({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name: asset.name,
+      productType: asset.productType ?? asset.asset_class ?? "",
+      sellPrice: price,
+      sellQty: qty,
+      buyPrice: bp,
+      realizedGain: gain,
+    });
+    setSellCardKey(null);
+    setInlineSellQtyStr("");
+  }, [sellCardKey, inlineSellQtyStr, baseAssets, addSellRecord]);
 
   const updatePbRow = useCallback((id: string, patch: Partial<PbOrderRow>) => {
     // productType 변경 시 현재가 초기화 (통화 불일치 방지)
@@ -1651,8 +1678,8 @@ export default function BuySimulatorTab() {
   return (
     <div className="flex flex-col gap-5">
 
-      {/* ── 레이어 1: 가용 자금 전광판 ───────────────────────────── */}
-      <div className="rounded-xl border border-slate-200 bg-gradient-to-br from-[#2f2f9d] to-[#4a4ab8] p-4 text-white shadow-soft">
+      {/* ── 레이어 1: 가용 자금 전광판 (클라이언트 숨김) ─────────── */}
+      <div className="hidden rounded-xl border border-slate-200 bg-gradient-to-br from-[#2f2f9d] to-[#4a4ab8] p-4 text-white shadow-soft">
         <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-white/60">
           <DollarSign size={13} />
           Buying Power — 가용 투자 자금
@@ -1674,21 +1701,12 @@ export default function BuySimulatorTab() {
             </div>
             <div className="text-[10px] text-white/40">ETF + 직접 매수 합계</div>
           </div>
-          {/* 최소 예치 잔고 입력 */}
           <div className="rounded-lg bg-white/10 p-3">
-            <div className="mb-1 text-[10px] text-white/60">최소 예치 잔고</div>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                min="0"
-                value={minDepositManStr}
-                onChange={(e) => setMinDepositManStr(e.target.value)}
-                placeholder="0"
-                className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-right text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-white/50"
-              />
-              <span className="flex-shrink-0 text-[10px] text-white/50">만원</span>
+            <div className="text-[10px] text-white/60">가용 추가 자금</div>
+            <div className="mt-1 truncate text-base font-bold">
+              {fmtKrwMan(remaining)}
             </div>
-            <div className="mt-0.5 text-[10px] text-white/40">투입하지 않을 금액</div>
+            <div className="text-[10px] text-white/40">미배분 잔액</div>
           </div>
           <div
             className={`rounded-lg p-3 ${isOverBudget ? "bg-red-500/30" : "bg-white/10"}`}
@@ -1798,6 +1816,15 @@ export default function BuySimulatorTab() {
                             : `${a.amount.toLocaleString()}주`
                           : "평가액 기준"}
                       </span>
+                      {!isSoldOut && a.amount_type === "quantity" && a.amount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleSellCard(makeAssetKey(a))}
+                          className="mt-1 w-full rounded border border-red-200 bg-red-50 py-0.5 text-[10px] font-bold text-red-500 hover:bg-red-100"
+                        >
+                          매도
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -1931,6 +1958,56 @@ export default function BuySimulatorTab() {
           </div>
         </div>
       )}
+
+      {/* ── 보유 자산 카드 매도 모달 ────────────────────────────────────── */}
+      {sellCardKey && (() => {
+        const asset = baseAssets.find((a) => makeAssetKey(a) === sellCardKey);
+        const maxQty = asset?.amount ?? 0;
+        const price = asset ? getEffectiveAssetPrice(asset) : 0;
+        const sellQtyNum = Math.min(parseFloat(inlineSellQtyStr) || 0, maxQty);
+        const estGain = asset?.buy_price != null && price > 0
+          ? (price - asset.buy_price) * sellQtyNum
+          : null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSellCardKey(null)}>
+            <div className="w-80 rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <p className="mb-1 text-center text-sm font-bold text-slate-800">보유 자산 매도</p>
+              <p className="mb-3 text-center text-xs font-semibold text-slate-600">
+                {asset?.name ?? "—"} (최대 {maxQty.toLocaleString()}주)
+              </p>
+              <div className="mb-4 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={maxQty}
+                  value={inlineSellQtyStr}
+                  onChange={(e) => setInlineSellQtyStr(e.target.value)}
+                  placeholder="매도 수량"
+                  className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-center text-sm font-bold text-navy outline-none focus:border-red-400"
+                  autoFocus
+                />
+                <span className="text-xs text-slate-500">주</span>
+              </div>
+              {estGain !== null && sellQtyNum > 0 && (
+                <p className={`mb-3 text-center text-xs font-semibold ${estGain >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  예상 손익 {estGain >= 0 ? "+" : ""}{formatKrwAmount(estGain)}
+                </p>
+              )}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setSellCardKey(null)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                  취소
+                </button>
+                <button type="button" onClick={confirmSellCard}
+                  disabled={sellQtyNum <= 0}
+                  className="flex-1 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-40">
+                  매도 확정
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── PB 직접 추가 매수 패널 ──────────────────────────────────────── */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-soft">
