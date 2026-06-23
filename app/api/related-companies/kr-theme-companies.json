@@ -1,0 +1,218 @@
+{
+  "방산": [
+    { "ticker": "012450.KS", "name": "한화에어로스페이스" },
+    { "ticker": "047810.KS", "name": "한국항공우주" },
+    { "ticker": "064350.KS", "name": "현대로템" },
+    { "ticker": "079550.KS", "name": "LIG넥스원" },
+    { "ticker": "097590.KS", "name": "한화시스템" },
+    { "ticker": "033240.KS", "name": "풍산" },
+    { "ticker": "042660.KS", "name": "한화오션" },
+    { "ticker": "000880.KS", "name": "한화" },
+    { "ticker": "204320.KS", "name": "SNT모티브" },
+    { "ticker": "065450.KQ", "name": "빅텍" }
+  ],
+  "반도체": [
+    { "ticker": "005930.KS", "name": "삼성전자" },
+    { "ticker": "000660.KS", "name": "SK하이닉스" },
+    { "ticker": "042700.KQ", "name": "한미반도체" },
+    { "ticker": "058470.KQ", "name": "리노공업" },
+    { "ticker": "336370.KQ", "name": "솔브레인" },
+    { "ticker": "240810.KS", "name": "원익IPS" },
+    { "ticker": "009150.KS", "name": "삼성전기" },
+    { "ticker": "000990.KS", "name": "DB하이텍" }
+  ],
+  "2차전지": [
+    { "ticker": "006400.KS", "name": "삼성SDI" },
+    { "ticker": "051910.KS", "name": "LG화학" },
+    { "ticker": "373220.KS", "name": "LG에너지솔루션" },
+    { "ticker": "096770.KS", "name": "SK이노베이션" },
+    { "ticker": "003670.KS", "name": "포스코퓨처엠" },
+    { "ticker": "247540.KQ", "name": "에코프로비엠" },
+    { "ticker": "086520.KS", "name": "에코프로" }
+  ],
+  "바이오": [
+    { "ticker": "068270.KS", "name": "셀트리온" },
+    { "ticker": "207940.KS", "name": "삼성바이오로직스" },
+    { "ticker": "128940.KS", "name": "한미약품" },
+    { "ticker": "145020.KQ", "name": "휴젤" },
+    { "ticker": "196170.KQ", "name": "알테오젠" },
+    { "ticker": "000100.KS", "name": "유한양행" },
+    { "ticker": "214450.KQ", "name": "파마리서치" }
+  ],
+  "자동차": [
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "000270.KS", "name": "기아" },
+    { "ticker": "012330.KS", "name": "현대모비스" },
+    { "ticker": "011210.KS", "name": "현대위아" },
+    { "ticker": "161390.KS", "name": "한국타이어앤테크놀로지" }
+  ],
+  "조선": [
+    { "ticker": "009540.KS", "name": "HD한국조선해양" },
+    { "ticker": "329180.KS", "name": "HD현대중공업" },
+    { "ticker": "010140.KS", "name": "삼성중공업" },
+    { "ticker": "042660.KS", "name": "한화오션" },
+    { "ticker": "010620.KS", "name": "HD현대미포조선" },
+    { "ticker": "267250.KS", "name": "HD현대" }
+  ],
+  "원자력": [
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "036490.KS", "name": "한전KPS" },
+    { "ticker": "015760.KS", "name": "한국전력" },
+    { "ticker": "267260.KS", "name": "한전기술" }
+  ],
+  "금융": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "032830.KS", "name": "삼성생명" },
+    { "ticker": "088350.KS", "name": "한화생명" },
+    { "ticker": "000810.KS", "name": "삼성화재" },
+    { "ticker": "016360.KS", "name": "삼성증권" }
+  ],
+  "철강": [
+    { "ticker": "005490.KS", "name": "POSCO홀딩스" },
+    { "ticker": "004020.KS", "name": "현대제철" },
+    { "ticker": "001230.KS", "name": "동국제강" },
+    { "ticker": "010130.KS", "name": "고려아연" }
+  ],
+  "에너지화학": [
+    { "ticker": "051910.KS", "name": "LG화학" },
+    { "ticker": "011170.KS", "name": "롯데케미칼" },
+    { "ticker": "096770.KS", "name": "SK이노베이션" },
+    { "ticker": "010950.KS", "name": "S-Oil" },
+    { "ticker": "078930.KS", "name": "GS" }
+  ],
+  "건설": [
+    { "ticker": "000720.KS", "name": "현대건설" },
+    { "ticker": "028260.KS", "name": "삼성물산" },
+    { "ticker": "006360.KS", "name": "GS건설" },
+    { "ticker": "047040.KS", "name": "대우건설" }
+  ],
+  "자율주행차": [
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "000270.KS", "name": "기아" },
+    { "ticker": "012330.KS", "name": "현대모비스" },
+    { "ticker": "011210.KS", "name": "현대위아" }
+  ],
+
+  "주식시장": [
+    { "ticker": "005930.KS", "name": "삼성전자" },
+    { "ticker": "000660.KS", "name": "SK하이닉스" },
+    { "ticker": "207940.KS", "name": "삼성바이오로직스" },
+    { "ticker": "373220.KS", "name": "LG에너지솔루션" },
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "051910.KS", "name": "LG화학" },
+    { "ticker": "068270.KS", "name": "셀트리온" },
+    { "ticker": "035420.KS", "name": "NAVER" }
+  ],
+  "로보틱스": [
+    { "ticker": "454910.KS", "name": "두산로보틱스" },
+    { "ticker": "277810.KQ", "name": "레인보우로보틱스" },
+    { "ticker": "090360.KQ", "name": "로보스타" },
+    { "ticker": "348340.KQ", "name": "뉴로메카" },
+    { "ticker": "005930.KS", "name": "삼성전자" },
+    { "ticker": "012450.KS", "name": "한화에어로스페이스" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" }
+  ],
+  "AI전력": [
+    { "ticker": "010120.KS", "name": "LS일렉트릭" },
+    { "ticker": "298040.KS", "name": "효성중공업" },
+    { "ticker": "015760.KS", "name": "한국전력" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "000720.KS", "name": "현대건설" },
+    { "ticker": "267260.KS", "name": "한전기술" },
+    { "ticker": "036490.KS", "name": "한전KPS" }
+  ],
+  "신재생에너지": [
+    { "ticker": "009830.KS", "name": "한화솔루션" },
+    { "ticker": "112610.KS", "name": "씨에스윈드" },
+    { "ticker": "010060.KS", "name": "OCI" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "015760.KS", "name": "한국전력" },
+    { "ticker": "100090.KS", "name": "삼강엠앤티" },
+    { "ticker": "000880.KS", "name": "한화" }
+  ],
+  "경기소비재": [
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "000270.KS", "name": "기아" },
+    { "ticker": "090430.KS", "name": "아모레퍼시픽" },
+    { "ticker": "051900.KS", "name": "LG생활건강" },
+    { "ticker": "023530.KS", "name": "롯데쇼핑" },
+    { "ticker": "004370.KS", "name": "농심" },
+    { "ticker": "011780.KS", "name": "금호석유" }
+  ],
+  "기계장비": [
+    { "ticker": "241560.KS", "name": "두산밥캣" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "042660.KS", "name": "한화오션" },
+    { "ticker": "012450.KS", "name": "한화에어로스페이스" },
+    { "ticker": "010120.KS", "name": "LS일렉트릭" },
+    { "ticker": "267250.KS", "name": "HD현대" }
+  ],
+  "운송": [
+    { "ticker": "003490.KS", "name": "대한항공" },
+    { "ticker": "011200.KS", "name": "HMM" },
+    { "ticker": "028670.KS", "name": "팬오션" },
+    { "ticker": "086280.KS", "name": "현대글로비스" },
+    { "ticker": "000120.KS", "name": "CJ대한통운" },
+    { "ticker": "020560.KS", "name": "아시아나항공" }
+  ],
+  "필수소비재": [
+    { "ticker": "004370.KS", "name": "농심" },
+    { "ticker": "097950.KS", "name": "CJ제일제당" },
+    { "ticker": "271560.KS", "name": "오리온" },
+    { "ticker": "051900.KS", "name": "LG생활건강" },
+    { "ticker": "007310.KS", "name": "오뚜기" },
+    { "ticker": "000080.KS", "name": "하이트진로" }
+  ],
+  "은행": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "032830.KS", "name": "삼성생명" },
+    { "ticker": "000810.KS", "name": "삼성화재" }
+  ],
+  "증권": [
+    { "ticker": "016360.KS", "name": "삼성증권" },
+    { "ticker": "039490.KS", "name": "키움증권" },
+    { "ticker": "006800.KS", "name": "미래에셋증권" },
+    { "ticker": "088350.KS", "name": "한화생명" },
+    { "ticker": "055550.KS", "name": "신한지주" }
+  ],
+  "비철금속": [
+    { "ticker": "010130.KS", "name": "고려아연" },
+    { "ticker": "000670.KS", "name": "영풍" },
+    { "ticker": "033240.KS", "name": "풍산" },
+    { "ticker": "005490.KS", "name": "POSCO홀딩스" },
+    { "ticker": "004020.KS", "name": "현대제철" }
+  ],
+  "원자재금속": [
+    { "ticker": "010130.KS", "name": "고려아연" },
+    { "ticker": "033240.KS", "name": "풍산" },
+    { "ticker": "000670.KS", "name": "영풍" },
+    { "ticker": "005490.KS", "name": "POSCO홀딩스" }
+  ],
+  "정유": [
+    { "ticker": "096770.KS", "name": "SK이노베이션" },
+    { "ticker": "010950.KS", "name": "S-Oil" },
+    { "ticker": "078930.KS", "name": "GS" },
+    { "ticker": "267250.KS", "name": "HD현대" },
+    { "ticker": "011170.KS", "name": "롯데케미칼" }
+  ],
+  "현금성": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "016360.KS", "name": "삼성증권" }
+  ],
+  "해외채권": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "016360.KS", "name": "삼성증권" },
+    { "ticker": "039490.KS", "name": "키움증권" },
+    { "ticker": "006800.KS", "name": "미래에셋증권" }
+  ]
+}

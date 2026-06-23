@@ -455,6 +455,38 @@ function notifyHeight(){
   window.parent.postMessage({type:'iframe-height',height:document.documentElement.scrollHeight},'*');
 }
 new ResizeObserver(notifyHeight).observe(document.body);
+window.addEventListener('message',function(e){
+  if(!e.data||e.data.type!=='request-confirm')return;
+  var pd=PERIOD_DATA[curPeriod];
+  var CORR=pd.corr_matrix;
+  var optimal=greedyOptimal(CORR,TICKERS,K_VAL,lockedTicker);
+  var prices=pd.prices;
+  var vols={};
+  optimal.forEach(function(t){
+    var p=prices[t],rets=[];
+    for(var i=1;i<p.length;i++)rets.push(p[i]/p[i-1]-1);
+    var mean=rets.reduce(function(a,b){return a+b;},0)/(rets.length||1);
+    var variance=rets.reduce(function(a,b){return a+Math.pow(b-mean,2);},0)/(rets.length||1);
+    vols[t]=Math.sqrt(variance)||0.0001;
+  });
+  var invVolSum=optimal.reduce(function(s,t){return s+1/vols[t];},0);
+  var weights={};
+  optimal.forEach(function(t){weights[t]=(1/vols[t])/invVolSum;});
+  for(var iter=0;iter<10;iter++){
+    var overCapped=optimal.filter(function(t){return weights[t]>0.4;});
+    if(!overCapped.length)break;
+    var totalOver=0.4*overCapped.length;
+    var underCapped=optimal.filter(function(t){return weights[t]<=0.4;});
+    overCapped.forEach(function(t){weights[t]=0.4;});
+    var underSum=underCapped.reduce(function(s,t){return s+weights[t];},0);
+    if(underSum>0){var rem=1.0-totalOver;underCapped.forEach(function(t){weights[t]=(weights[t]/underSum)*rem;});}
+  }
+  var sectorMap={};
+  optimal.forEach(function(t){sectorMap[t]=(SECTORS[t]&&SECTORS[t].sector)?SECTORS[t].sector:t;});
+  if(window.parent&&window.parent!==window){
+    window.parent.postMessage({type:'confirm-response',optimal:optimal,weights:weights,sectorMap:sectorMap},'*');
+  }
+});
 </script>
 </body>
 </html>

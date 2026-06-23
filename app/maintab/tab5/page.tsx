@@ -1,17 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
+import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
 import {
   Sparkles, ShieldCheck, TrendingUp, Landmark, PiggyBank,
   FileText, BarChart3, AlertCircle,
   ChevronRight, CheckCircle2, X, Info, BadgeCheck, AlertTriangle, AlertOctagon
 } from "lucide-react";
-import { useCustomerContext } from "../CustomerContext";
+import { useCustomerContext, loadTaxSummaries } from "../CustomerContext";
 import { usePortfolioResult } from "../PortfolioResultComponents";
+import { parseLiquidityEntries, type LiquidityKind } from "../liquidityFields";
 
 type BucketType = "자본증식" | "인컴창출" | "위험헷지" | "유동성" | "절세";
 type TaxType = "국내주식형" | "해외주식형" | "채권형" | "비과세연금" | "분리과세" | "소득공제";
-type ProductType = "펀드" | "랩어카운트";
+type ProductType = "펀드" | "랩어카운트" | "보험" | "채권" | "ETF";
 
 interface Product {
   id: string; name: string; type: ProductType; riskGrade: number;
@@ -27,10 +29,19 @@ interface Product {
 interface Client {
   riskAppetite: number; targetReturn: number; investmentPeriod: number;
   liquidityRatio: number; isTaxTarget: boolean; isHighIncomeWorker: boolean; age: number;
-  monthlyIncome: number; monthlyCashflow: number;
-  lumpSumAmount: number; lumpSumTimepoint: number;
-  emergencyAmount: number; investableAssets: number;
+  monthlyIncome: number; investableAssets: number;
+  lumpSumTimepoint: number;
+  liquidityNeeds: LiquidityNeed[];
+  taxExcessAmount: number;
+  hasTab4TaxData: boolean;
 }
+
+type LiquidityNeed = {
+  kind: LiquidityKind;
+  priority: 1 | 2 | 3;
+  amount: number;
+  timing: string;
+};
 
 const PRODUCT_DOCS: Record<string, string> = {
   r1: "/docs/wrap-plainvanilla-macro.pdf",
@@ -71,11 +82,11 @@ const PRODUCTS: Product[] = [
   { id:"f5", name:"삼성밸류라이프플랜65증권전환형자투자신탁[주식]-A", type:"펀드", riskGrade:3, return1Y:149.82, return3Y:182.58, bucket:"인컴창출", isInstantRedeem:true, taxType:"국내주식형", desc:"국내 우량주 장기 가치투자, 은퇴 설계형", aum:"8.91억", manager:"삼성자산운용", inception:"2002-11", stars:4, strategy:"국내 우량주에 장기 투자하는 은퇴 설계형 펀드입니다. 65세 은퇴를 목표로 안정적인 가치주 중심으로 운용되며, 국내 대형 우량주의 배당과 성장을 동시에 추구합니다.", taxBenefit:"국내주식 매매차익은 비과세 적용됩니다. 배당소득은 15.4% 원천징수이며, 종소세 대상 고객에게 절세 효과가 있습니다.", topHoldings:["삼성전자","SK하이닉스","SK스퀘어","LG에너지솔루션","현대차"] },
   { id:"f6", name:"삼성달러표시단기채권증권자투자신탁UH[채권]-A", type:"펀드", riskGrade:4, return1Y:15.99, return3Y:34.16, bucket:"위험헷지", isInstantRedeem:true, taxType:"채권형", desc:"달러 단기채권, 환율 헷지 + 금리 방어", aum:"916억", manager:"삼성자산운용", inception:"2016-01", stars:4, strategy:"달러 표시 단기채권에 투자합니다. 환헤지를 적용하지 않아 달러 강세 시 환차익도 기대할 수 있습니다. 주식시장 하락 시 방어 역할과 동시에 달러 분산 효과를 제공합니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 채권 이자수익이 금융소득에 합산되며, 달러 환차익은 별도 과세됩니다.", topHoldings:["HYUELE 5 1/2 01/16/27","HYUCAP 5 1/4 01/22/28","POHANG 4 7/8 01/23/27","T3 3/4 04/30/27","HYUSEC 2 1/8 11/01/26"] },
   { id:"f7", name:"삼성밸류라이프플랜35증권전환형자투자신탁[채권혼합]-A", type:"펀드", riskGrade:4, return1Y:21.78, return3Y:32.49, bucket:"위험헷지", isInstantRedeem:true, taxType:"해외주식형", desc:"채권 65% 혼합, 주식 하락 시 완충", aum:"4.81억", manager:"삼성자산운용", inception:"2002-11", strategy:"채권 65%, 주식 35%로 구성된 혼합형 펀드입니다. 주식 하락기에 채권이 완충 역할을 하며 포트폴리오 전체의 변동성을 낮춥니다. 안정성과 수익성의 균형을 추구합니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 채권 비중이 높아 금융소득 발생 규모가 상대적으로 낮습니다.", topHoldings:["삼성전자","SK하이닉스","SK스퀘어","LG에너지솔루션","현대차"] },
-  { id:"f8", name:"KODEX 골드선물(H) ETF", type:"펀드", riskGrade:3, return1Y:24.5, return3Y:48.2, bucket:"위험헷지", isInstantRedeem:true, taxType:"해외주식형", desc:"금 선물 추종 ETF, 대체자산 분산 효과", manager:"삼성자산운용", strategy:"S&P GSCI Gold Index를 추종하며 환헤지(H)가 적용된 금 선물 ETF입니다. 주식과 낮은 상관관계를 가져 포트폴리오 분산 효과가 뛰어나고, 인플레이션 및 지정학적 리스크 헷지에 활용됩니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 금 ETF 특성상 현물 금과 동일한 세금 구조를 가집니다.", topHoldings:["COMEX Gold Futures","USD Cash"] },
+  { id:"f8", name:"KODEX 골드선물(H) ETF", type:"ETF", riskGrade:3, return1Y:24.5, return3Y:48.2, bucket:"위험헷지", isInstantRedeem:true, taxType:"해외주식형", desc:"금 선물 추종 ETF, 대체자산 분산 효과", manager:"삼성자산운용", strategy:"S&P GSCI Gold Index를 추종하며 환헤지(H)가 적용된 금 선물 ETF입니다. 주식과 낮은 상관관계를 가져 포트폴리오 분산 효과가 뛰어나고, 인플레이션 및 지정학적 리스크 헷지에 활용됩니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 금 ETF 특성상 현물 금과 동일한 세금 구조를 가집니다.", topHoldings:["COMEX Gold Futures","USD Cash"] },
   { id:"f9", name:"삼성배당플러스30증권자투자신탁Ⅱ[채권혼합]-A", type:"펀드", riskGrade:5, return1Y:35.05, return3Y:45.67, bucket:"유동성", isInstantRedeem:true, taxType:"국내주식형", desc:"채권 70% + 배당주 30%, 낮은위험 수익형", aum:"18.78억", manager:"삼성자산운용", inception:"2005-01", stars:4, strategy:"채권 70%에 배당주 30%를 혼합한 안정형 펀드입니다. 낮은 변동성으로 안정적인 수익을 추구하며, 배당주에서 정기적인 인컴도 기대할 수 있습니다. 즉시환매가 가능해 유동성도 확보됩니다.", taxBenefit:"국내주식 매매차익은 비과세이며, 채권 이자소득과 배당소득은 15.4% 원천징수됩니다.", topHoldings:["삼성전자","SK하이닉스","삼성전자우","현대차","SK스퀘어"] },
   { id:"f10", name:"삼성코리아초단기우량채권증권자투자신탁[채권]-C", type:"펀드", riskGrade:6, return1Y:1.75, return3Y:9.81, bucket:"유동성", isInstantRedeem:true, taxType:"채권형", desc:"AAA 단기채권, 즉시환매 가능 안전 주차", aum:"1,116억", manager:"삼성자산운용", inception:"2016-05", strategy:"국내 AAA 등급 초단기 우량채권에만 투자합니다. 원금 손실 위험이 극히 낮고 즉시환매가 가능해 단기 여유 자금 주차에 최적입니다. 예금보다 높은 유동성을 제공합니다.", taxBenefit:"이자소득에 15.4% 원천징수가 적용됩니다. 단기 운용 특성상 금융소득 발생 규모가 제한적입니다.", topHoldings:["한국전력 1448","국민은행 4411","하나금융지주 69-1","기업은행 2508","우리금융지주 15-1"] },
-  { id:"f11", name:"삼성 플래티넘행복연금보험", type:"펀드", riskGrade:5, return1Y:2.58, return3Y:null, bucket:"절세", isInstantRedeem:false, taxType:"비과세연금", desc:"10년 유지 시 보험차익 완전 비과세 (소득세법 16조)", manager:"삼성생명(방카슈랑스)", strategy:"공시이율에 연동되는 일시납 연금보험입니다. 5년 유지 시 최저적립액이 보증되고, 장기 유지할수록 보너스 이율이 적립됩니다. 안정적인 이율과 비과세 효과를 동시에 누릴 수 있습니다.", taxBenefit:"소득세법 16조에 따라 1억원 이하 10년 유지 시 보험차익이 완전 비과세됩니다. 금융소득종합과세에서 완전히 제외되어 종소세 대상 고객에게 최우선 절세 수단입니다.", topHoldings:["공시이율 연동 계정","채권형 운용 자산"] },
-  { id:"f12", name:"개인투자용 국채 5년/10년물", type:"펀드", riskGrade:6, return1Y:3.5, return3Y:null, bucket:"절세", isInstantRedeem:false, taxType:"분리과세", desc:"2억 한도 15.4% 분리과세, 종합과세 완전 차단", manager:"기획재정부", strategy:"정부가 발행하는 개인투자용 국채입니다. 만기까지 보유하면 복리이자에 가산금리까지 받을 수 있습니다. 2억원 한도 내에서 원금 손실이 없고 세금도 분리 처리됩니다.", taxBenefit:"조세특례제한법에 따라 매입액 2억원 한도로 15.4% 분리과세가 적용됩니다. 금융소득종합과세에 합산되지 않아 종소세 대상 고객의 세 부담을 직접적으로 차단합니다.", topHoldings:["대한민국 국채 5년물","대한민국 국채 10년물"] },
+  { id:"f11", name:"삼성 플래티넘행복연금보험", type:"보험", riskGrade:5, return1Y:2.58, return3Y:null, bucket:"절세", isInstantRedeem:false, taxType:"비과세연금", desc:"10년 유지 시 보험차익 완전 비과세 (소득세법 16조)", manager:"삼성생명(방카슈랑스)", strategy:"공시이율에 연동되는 일시납 연금보험입니다. 5년 유지 시 최저적립액이 보증되고, 장기 유지할수록 보너스 이율이 적립됩니다. 안정적인 이율과 비과세 효과를 동시에 누릴 수 있습니다.", taxBenefit:"소득세법 16조에 따라 1억원 이하 10년 유지 시 보험차익이 완전 비과세됩니다. 금융소득종합과세에서 완전히 제외되어 종소세 대상 고객에게 최우선 절세 수단입니다.", topHoldings:["공시이율 연동 계정","채권형 운용 자산"] },
+  { id:"f12", name:"개인투자용 국채 5년/10년물", type:"채권", riskGrade:6, return1Y:3.5, return3Y:null, bucket:"절세", isInstantRedeem:false, taxType:"분리과세", desc:"2억 한도 15.4% 분리과세, 종합과세 완전 차단", manager:"기획재정부", strategy:"정부가 발행하는 개인투자용 국채입니다. 만기까지 보유하면 복리이자에 가산금리까지 받을 수 있습니다. 2억원 한도 내에서 원금 손실이 없고 세금도 분리 처리됩니다.", taxBenefit:"조세특례제한법에 따라 매입액 2억원 한도로 15.4% 분리과세가 적용됩니다. 금융소득종합과세에 합산되지 않아 종소세 대상 고객의 세 부담을 직접적으로 차단합니다.", topHoldings:["대한민국 국채 5년물","대한민국 국채 10년물"] },
   { id:"f13", name:"삼성우량주장기증권자투자신탁[주식]-A", type:"펀드", riskGrade:2, return1Y:210.92, return3Y:258.76, bucket:"절세", isInstantRedeem:false, taxType:"국내주식형", desc:"국내 주식 매매차익 비과세, 종소세 절감", aum:"163억", manager:"삼성자산운용", stars:4, strategy:"삼성전자, SK하이닉스 등 국내 대형 우량주에 장기 투자합니다. 국내주식 매매차익 비과세 특성을 활용해 금융소득을 줄이면서 동시에 성장 수익도 추구합니다.", taxBenefit:"국내주식 매매차익이 비과세되어 금융소득에 합산되지 않습니다. 종소세 대상 고객이 금융소득을 줄이면서 수익을 추구할 수 있는 핵심 절세 상품입니다.", topHoldings:["삼성전자","SK하이닉스","SK스퀘어","현대차","LG에너지솔루션"] },
   { id:"f14", name:"삼성코스닥벤처플러스증권투자신탁[주식]-A", type:"펀드", riskGrade:1, return1Y:32.09, return3Y:25.31, bucket:"절세", isInstantRedeem:false, taxType:"소득공제", desc:"투자금 10% 소득공제 최대 300만원 (조특법 16조)", aum:"19.36억", manager:"삼성액티브자산운용", inception:"2018-04", isHighIncomeOnly:true, strategy:"코스닥 벤처기업의 신주, IPO, CB, BW에 투자합니다. 3년 보유 조건이 있으며, 벤처 생태계 성장 수혜를 기대할 수 있습니다. 2028년까지 세제 혜택이 연장되어 있습니다.", taxBenefit:"조세특례제한법 16조에 따라 투자금의 10%를 소득공제(최대 300만원)받을 수 있습니다. 근로소득·사업소득이 있는 고소득자에게 직접적인 세금 환급 효과가 있습니다.", topHoldings:["로킷헬스케어","액트로","알지노믹스","노타","큐리오시스"] },
 ];
@@ -88,27 +99,128 @@ const GENERIC_HOLDINGS = new Set([
 ]);
 function isRealHolding(h: string): boolean { return !GENERIC_HOLDINGS.has(h); }
 
-function parseAmount(text: string): number {
+function parseSingleAmount(text: string): number {
   if (!text) return 0;
   const t = text.replace(/,/g, "").replace(/\s/g, "");
-  const m = t.match(/(\d+(?:\.\d+)?)\s*(억|천만|백만|만)?/);
-  if (!m) return 0;
-  const n = parseFloat(m[1]);
-  if (m[2] === "억") return n * 1e8;
-  if (m[2] === "천만") return n * 1e7;
-  if (m[2] === "백만") return n * 1e6;
-  if (m[2] === "만") return n * 1e4;
-  return n;
+  const matches = Array.from(t.matchAll(/(\d+(?:\.\d+)?)(억|천만|백만|만원|만)?/g));
+  if (!matches.length) return 0;
+  const total = matches.reduce((sum, m) => {
+    const n = parseFloat(m[1]);
+    if (m[2] === "억") return sum + n * 1e8;
+    if (m[2] === "천만") return sum + n * 1e7;
+    if (m[2] === "백만") return sum + n * 1e6;
+    if (m[2] === "만원" || m[2] === "만") return sum + n * 1e4;
+    return sum + n;
+  }, 0);
+  return total;
 }
 
-function parseTimepoint(text: string): number {
-  if (!text) return 5;
-  if (/즉시|당장|6개월|올해|1년\s*이내/.test(text)) return 0.5;
-  if (/1~?2년|1년/.test(text)) return 1.5;
-  if (/2~?3년|2년/.test(text)) return 2.5;
-  if (/3~?5년|3년|4년/.test(text)) return 4;
-  if (/5년\s*이상|5년|10년|장기/.test(text)) return 7;
-  return 3;
+function parseAmount(text: string): number {
+  if (!text) return 0;
+  const parts = text.split(/\s*(?:~|～|〜)\s*/).filter(Boolean);
+  if (parts.length >= 2) {
+    const left = parseSingleAmount(parts[0]);
+    const right = parseSingleAmount(parts[1]);
+    if (left > 0 && right > 0) return (left + right) / 2;
+  }
+  return parseSingleAmount(text);
+}
+
+function parseRegularPeriodMonths(text: string): number {
+  const t = text.replace(/\s+/g, "").replace(/마다$/, "");
+  if (!t) return 0;
+  if (/^(매월|월|1개월)$/.test(t)) return 1;
+  if (/^(격월|2개월)$/.test(t)) return 2;
+  if (/^(분기|3개월)$/.test(t)) return 3;
+  if (/^(반기|6개월)$/.test(t)) return 6;
+  if (/^(매년|연|1년|12개월)$/.test(t)) return 12;
+  const month = t.match(/^(\d+(?:\.\d+)?)개월$/);
+  if (month) return parseFloat(month[1]);
+  const year = t.match(/^(\d+(?:\.\d+)?)년$/);
+  if (year) return parseFloat(year[1]) * 12;
+  return 0;
+}
+
+function parseFutureMonths(text: string): number {
+  const t = text.replace(/\s+/g, "").replace(/(?:뒤|후|이내)$/, "");
+  if (!t) return 0;
+  const range = t.match(/^(\d+(?:\.\d+)?)~(\d+(?:\.\d+)?)(개월|년)$/);
+  if (range) {
+    const midpoint = (parseFloat(range[1]) + parseFloat(range[2])) / 2;
+    return range[3] === "년" ? midpoint * 12 : midpoint;
+  }
+  const month = t.match(/^(\d+(?:\.\d+)?)개월$/);
+  if (month) return parseFloat(month[1]);
+  const year = t.match(/^(\d+(?:\.\d+)?)년$/);
+  if (year) return parseFloat(year[1]) * 12;
+  return 0;
+}
+
+function calcLiquidityNeedScore(need: LiquidityNeed, c: Client): number | null {
+  if (need.amount <= 0) return null;
+  if (need.kind === "regular") {
+    const months = parseRegularPeriodMonths(need.timing);
+    if (months <= 0 || c.monthlyIncome <= 0) return null;
+    return (need.amount / months / c.monthlyIncome) * 100;
+  }
+  if (need.kind === "lumpSum") {
+    const months = parseFutureMonths(need.timing);
+    if (months <= 0 || c.investableAssets <= 0) return null;
+    const years = months / 12;
+    const base = years <= 1 ? 80 : years <= 3 ? 60 : years <= 5 ? 40 : 20;
+    const weight = years <= 1 ? 1.0 : years <= 3 ? 0.8 : years <= 5 ? 0.5 : 0.2;
+    return base + (need.amount / c.investableAssets) * 100 * weight * 0.5;
+  }
+  if (c.investableAssets <= 0) return null;
+  return 50 + (need.amount / c.investableAssets) * 50;
+}
+
+function calcLiquidityPriorityScore(c: Client) {
+  const priorityWeights: Record<1 | 2 | 3, number> = { 1: 0.5, 2: 0.3, 3: 0.2 };
+  const scored = ([1, 2, 3] as const)
+    .map((priority) => {
+      const need = c.liquidityNeeds.find((item) => item.priority === priority);
+      if (!need) return null;
+      const score = calcLiquidityNeedScore(need, c);
+      if (score == null || score <= 0) return null;
+      return { priority, score: Math.min(100, score), weight: priorityWeights[priority] };
+    })
+    .filter((item): item is { priority: 1 | 2 | 3; score: number; weight: number } => item !== null);
+  const weightSum = scored.reduce((sum, item) => sum + item.weight, 0);
+  if (weightSum <= 0) return 1;
+  return Math.max(scored.reduce((sum, item) => sum + item.score * (item.weight / weightSum), 0), 1);
+}
+
+function collectLiquidityNeeds(rrttllu: {
+  regularCashflowNeed: string;
+  lumpSumPlan: string;
+  emergencyReservePlan: string;
+}): LiquidityNeed[] {
+  const entries = [
+    ...parseLiquidityEntries(rrttllu.regularCashflowNeed, "regular").map((entry) => ({ entry, kind: "regular" as const })),
+    ...parseLiquidityEntries(rrttllu.lumpSumPlan, "lumpSum").map((entry) => ({ entry, kind: "lumpSum" as const })),
+    ...parseLiquidityEntries(rrttllu.emergencyReservePlan, "emergency").map((entry) => ({ entry, kind: "emergency" as const })),
+  ];
+  return entries
+    .map(({ entry, kind }) => {
+      const priority = Number(entry.priority);
+      if (priority !== 1 && priority !== 2 && priority !== 3) return null;
+      return {
+        kind,
+        priority,
+        amount: parseAmount(entry.amount),
+        timing: entry.timing,
+      };
+    })
+    .filter((item): item is LiquidityNeed => item !== null);
+}
+
+function representativeLumpSumYears(needs: LiquidityNeed[]) {
+  const rankedLump = needs
+    .filter((need) => need.kind === "lumpSum")
+    .sort((a, b) => a.priority - b.priority)[0];
+  const months = rankedLump ? parseFutureMonths(rankedLump.timing) : 0;
+  return months > 0 ? months / 12 : 5;
 }
 
 function getBlended(p: Product) {
@@ -119,17 +231,8 @@ function calcWeights(c: Client) {
   const uG = Math.max(c.targetReturn * (6 - c.riskAppetite) + c.investmentPeriod * 2, 1);
   const uI = Math.max((c.age / 100) * 50 + (6 - c.riskAppetite) * 5, 1);
   const uH = Math.max(c.riskAppetite * 15, 1);
-  const uT = c.isTaxTarget ? 100 : 5;
-  const cashflowRatio = c.monthlyIncome > 0 ? c.monthlyCashflow / c.monthlyIncome : 0.5;
-  const cashflowScore = Math.max(cashflowRatio * 100, 1);
-  const lumpRatio = c.investableAssets > 0 ? c.lumpSumAmount / c.investableAssets : 0;
-  const tp = c.lumpSumTimepoint;
-  const tpBase = tp <= 1 ? 80 : tp <= 3 ? 60 : tp <= 5 ? 40 : 20;
-  const tpWeight = tp <= 1 ? 1.0 : tp <= 3 ? 0.8 : tp <= 5 ? 0.5 : 0.2;
-  const lumpScore = Math.max(tpBase + lumpRatio * 100 * tpWeight * 0.5, 1);
-  const emergencyRatio = c.investableAssets > 0 ? c.emergencyAmount / c.investableAssets : 0;
-  const emergencyScore = Math.max(50 + emergencyRatio * 50, 1);
-  const uL = Math.max(cashflowScore * 0.30 + lumpScore * 0.50 + emergencyScore * 0.20, 1);
+  const uT = c.taxExcessAmount > 50_000_000 ? 150 : c.taxExcessAmount > 0 ? 100 : 5;
+  const uL = calcLiquidityPriorityScore(c);
   const total = uG + uI + uH + uL + uT;
   const arr: { bucket: BucketType; w: number }[] = [
     { bucket:"자본증식", w:uG/total }, { bucket:"인컴창출", w:uI/total },
@@ -146,12 +249,20 @@ function calcScore(p: Product, c: Client, w: ReturnType<typeof calcWeights>, all
   const stabilityScore = (p.riskGrade-1)*20;
   const liquidityScore = p.isInstantRedeem ? 100 : 10;
   let taxScore = 50;
-  if (c.isTaxTarget) {
+  if (c.taxExcessAmount > 50_000_000) {
+    // 종소세 고초과 구간 — 절세 상품 쏠림을 강하게, 비절세 상품은 더 강한 페널티
     if (p.taxType==="비과세연금"||p.taxType==="분리과세") taxScore=100;
+    else if (p.taxType==="국내주식형") taxScore=65;
+    else if (p.taxType==="소득공제") taxScore=c.isHighIncomeWorker?85:15;
+    else taxScore=5;
+  } else if (c.taxExcessAmount > 0) {
+    // 종소세 저초과 구간 — 절세 효과는 있되 완만하게 반영
+    if (p.taxType==="비과세연금"||p.taxType==="분리과세") taxScore=85;
     else if (p.taxType==="국내주식형") taxScore=70;
-    else if (p.taxType==="소득공제") taxScore=c.isHighIncomeWorker?90:20;
-    else taxScore=10;
+    else if (p.taxType==="소득공제") taxScore=c.isHighIncomeWorker?75:30;
+    else taxScore=25;
   }
+  // taxExcessAmount === 0 (비대상)인 경우 taxScore=50 그대로 유지 — 세금이 상품 선택에 영향 없음
   const base = w.G*returnScore + w.I*(returnScore*0.5+stabilityScore*0.5) + w.H*stabilityScore + w.L*liquidityScore + w.T*taxScore;
   return base*0.9 + (p.bucket===w.topBucket?10:0);
 }
@@ -394,6 +505,14 @@ function fmtWon(n: number): string {
   if (eok>0) return `${eok}억원`;
   return `${Math.round(n/1e4).toLocaleString()}만원`;
 }
+function buildTaxAlertMessage(hasTab4Data: boolean, excessAmount: number, fallbackText: string): string {
+  // TAB4 정밀 데이터가 없으면 정확한 초과액을 알 수 없으므로 TAB1 원문 텍스트로 안전하게 폴백
+  if (!hasTab4Data) return fallbackText;
+  if (excessAmount > 50_000_000) {
+    return `금융소득종합과세 기준(2천만원)을 ${fmtWon(excessAmount)} 초과했습니다. 초과 폭이 커 절세 비중이 크게 확대 적용됩니다.`;
+  }
+  return `금융소득종합과세 기준(2천만원)을 ${fmtWon(excessAmount)} 초과했습니다. 절세 상품을 우선 검토해주세요.`;
+}
 function hasRrttllu(f: { rrttllu: { returnObjective: string; timeHorizon: string; riskAttitude: string } }): boolean {
   return !!(f.rrttllu.returnObjective||f.rrttllu.timeHorizon||f.rrttllu.riskAttitude);
 }
@@ -482,29 +601,43 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets } = useCustomerContext();
+  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation, selectedCustomer } = useCustomerContext();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
   const [bucketOffset, setBucketOffset] = useState<Partial<Record<BucketType,number>>>({});
   const [modalProduct, setModalProduct] = useState<Product|null>(null);
   const [activeEffectId, setActiveEffectId] = useState<string|null>(null);
   const [unsuitableWarning, setUnsuitableWarning] = useState<Product|null>(null);
+  const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
 
-  const client: Client = useMemo(() => {
-    if (!rrttlluReady) return {
-      riskAppetite:3, targetReturn:8, investmentPeriod:3, liquidityRatio:0.2,
-      isTaxTarget:false, isHighIncomeWorker:false, age:50,
-      monthlyIncome:0, monthlyCashflow:0,
-      lumpSumAmount:0, lumpSumTimepoint:5,
-      emergencyAmount:0, investableAssets:0,
-    };
-    const isTaxTarget = internalJsonPayload.rrttllu.tax.financial_income_tax_alert.includes("초과");
+useEffect(() => {
+  if (!selectedCustomer) return;
+  loadTaxSummaries(selectedCustomer).then(({ newSummary }) => {
+    setNewSummary((newSummary as FinancialIncomeSummary | null) ?? null);
+  });
+}, [selectedCustomer]);
+
+const client: Client = useMemo(() => {
+  if (!rrttlluReady) return {
+    riskAppetite:3, targetReturn:8, investmentPeriod:3, liquidityRatio:0.2,
+    isTaxTarget:false, isHighIncomeWorker:false, age:50,
+    monthlyIncome:0, investableAssets:0,
+    lumpSumTimepoint:5,
+    liquidityNeeds: [],
+    taxExcessAmount: 0,
+    hasTab4TaxData: false,
+  };
+  const hasTab4TaxData = newSummary != null;
+    const taxExcessAmount = Math.max(0, (newSummary?.totalFinancialIncome ?? 0) - 20_000_000);
+    // TAB4 데이터가 있으면 정밀 계산, 없으면 TAB1 설문 판단으로 안전하게 폴백
+    const isTaxTarget = hasTab4TaxData
+      ? taxExcessAmount > 0
+      : internalJsonPayload.rrttllu.tax.financial_income_tax_alert?.includes("초과") ?? false;
     const age = parseInt(selectedCustomerProfile.age||"50");
     const fa = parseFloat(formData.financial.financialAssets.replace(/[^0-9.]/g,""))||0;
     const ta = parseFloat(formData.financial.totalAssets.replace(/[^0-9.]/g,""))||0;
     const annualIncome = parseAmount(formData.financial.annualFixedIncome);
     const monthlyIncome = annualIncome / 12;
-    const monthlyCashflow = parseAmount(formData.financial.monthlyFixedExpense);
     const investableAssets = parseAmount(formData.financial.investableAssets);
 
 // TAB2·TAB3 리밸런싱 반영 추가투자자금 (헤더와 동일 로직)
@@ -520,9 +653,7 @@ const additionalInvestmentAmount = (() => {
   if (confirmedOperatingAssetsAfterBuy == null) return additionalAfterSell;
   return additionalAfterSell - (confirmedOperatingAssetsAfterBuy - confirmedOperatingAssetsAfterSell);
 })();
-    const lumpSumAmount = parseAmount(formData.rrttllu.lumpSumPlan);
-    const lumpSumTimepoint = parseTimepoint(formData.rrttllu.lumpSumPlan);
-    const emergencyAmount = parseAmount(formData.rrttllu.emergencyReservePlan);
+    const liquidityNeeds = collectLiquidityNeeds(formData.rrttllu);
     return {
       riskAppetite: riskLevelToAppetite(riskResult.level),
       targetReturn: returnObjectiveToPercent(formData.rrttllu.returnObjective),
@@ -530,11 +661,13 @@ const additionalInvestmentAmount = (() => {
       liquidityRatio: fa&&ta ? Math.min(fa/ta,1) : 0.2,
       isTaxTarget, isHighIncomeWorker:false,
       age: isNaN(age)?50:age,
-      monthlyIncome, monthlyCashflow,
-      lumpSumAmount, lumpSumTimepoint,
-      emergencyAmount, investableAssets: additionalInvestmentAmount,
+      monthlyIncome, investableAssets: additionalInvestmentAmount,
+      lumpSumTimepoint: representativeLumpSumYears(liquidityNeeds),
+      liquidityNeeds,
+      taxExcessAmount,
+      hasTab4TaxData,
     };
-  }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady]);
+  }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady,newSummary]);
 
   const weights = useMemo(() => rrttlluReady ? calcWeights(client) : null, [client,rrttlluReady]);
 
@@ -688,7 +821,9 @@ const additionalInvestmentAmount = (() => {
         {rrttlluReady&&client.isTaxTarget&&(
           <div className="mt-5 rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
             <p className="text-xs font-bold text-orange-700">⚠️ 금융소득종합과세 대상 고객</p>
-            <p className="mt-1 text-xs font-semibold text-orange-800">{internalJsonPayload.rrttllu.tax.financial_income_tax_alert}</p>
+            <p className="mt-1 text-xs font-semibold text-orange-800">
+              {buildTaxAlertMessage(client.hasTab4TaxData, client.taxExcessAmount, internalJsonPayload.rrttllu.tax.financial_income_tax_alert)}
+            </p>
             <p className="mt-1 text-xs text-orange-600">절세 버킷 {(weights!.T*100).toFixed(1)}% 적용 — 연금보험·분리과세채권 우선 추천</p>
           </div>
         )}
@@ -981,6 +1116,24 @@ const additionalInvestmentAmount = (() => {
           })()}
         </section>
       )}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => finishActiveConsultation(false)}
+          disabled={!activeConsultation}
+          className="rounded-xl bg-red-600 px-5 py-3 text-sm font-extrabold text-white shadow-soft transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+        >
+          상담 종료
+        </button>
+        <button
+          type="button"
+          onClick={resumeLatestConsultation}
+          disabled={Boolean(activeConsultation)}
+          className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-extrabold text-blue-700 shadow-soft transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          상담 재개
+        </button>
+      </div>
     </>
   );
 }

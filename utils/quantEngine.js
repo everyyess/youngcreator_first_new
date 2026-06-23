@@ -14,7 +14,7 @@ import { getBenchmarkTicker, getRiskCoefficients, getProductTypeStressShock } fr
 // 1. 글로벌 상수
 // ============================================================
 
-const RISK_FREE_RATE = 0.035;           // 무위험수익률 3.5%
+const RISK_FREE_RATE = 0.04;            // 무위험수익률 4.0%
 const FEE_RATE = 0.0025;                // 수수료 0.25%
 const TAX_RATE_GENERAL = 0.154;         // 일반 금융소득세 15.4%
 const TAX_RATE_ISA_EXCESS = 0.099;      // ISA 초과분 세율 9.9%
@@ -238,7 +238,7 @@ export async function fetchYahooFinanceHistory(assetNameOrTicker) {
 
     return { ticker, dates: pairs.map(p => p.date), closes: pairs.map(p => p.close), returns };
   } catch (err) {
-    console.warn(`[quantEngine] Yahoo Finance 연동 실패 (${assetName}):`, err?.message);
+    console.warn(`[quantEngine] Yahoo Finance 연동 실패 (${assetNameOrTicker}):`, err?.message);
     return null;
   }
 }
@@ -1136,7 +1136,7 @@ export function getPriceAt(history, targetDate) {
 }
 
 // ============================================================
-// 14. 스트레스 테스트 – 4대 시나리오 충격 행렬
+// 14. 스트레스 테스트 – 3대 역사적 레짐 쇼크
 // ============================================================
 
 /**
@@ -1183,6 +1183,102 @@ function resolveAssetMeta(asset) {
   };
 }
 
+// ── 채권 자산 판별 헬퍼 ───────────────────────────────────────────
+// 스트레스 테스트 연산 루프에서 채권을 완전 제외하기 위해 사용
+function isBondAsset(asset) {
+  const meta = resolveAssetMeta(asset);
+  return (
+    meta.productType === '국내채권' ||
+    meta.productType === '해외채권' ||
+    meta.assetClass  === ASSET_CLASS.DOMESTIC_BOND ||
+    meta.assetClass  === ASSET_CLASS.FOREIGN_BOND
+  );
+}
+
+// ── 역사적 기간별 시계열 fetch (스트레스 테스트 전용) ───────────────
+// 날짜 지정 조건 코드 위치: 아래 STRESS_PERIODS 상수 + fetchHistoricalPeriodData()
+
+/** 3대 역사적 레짐 기간 정의 */
+const STRESS_PERIODS = Object.freeze({
+  S1: { start: '2018-01-01', end: '2018-12-31' }, // 연준 양적긴축(QT) 및 금리 인상 쇼크
+  S2: { start: '2022-02-24', end: '2022-06-30' }, // 러-우 전쟁 발 원자재 공급망 위기
+  S3: { start: '2020-02-20', end: '2020-04-30' }, // 팬데믹 블랙스완 쇼크
+});
+
+/**
+ * 지정된 기간의 Yahoo Finance 일별 시계열 취득 (proxy-finance 내부 API 경유)
+ * - 라우트에서 interval=1d 로 요청 → 단기 기간(70일)도 40~60개 데이터 점 확보
+ * - 신생 종목이 해당 기간에 상장 전이면 route 가 404 반환 → res.ok = false → null
+ *
+ * @param {string} ticker      야후 파이낸스 티커
+ * @param {string} startDate   YYYY-MM-DD
+ * @param {string} endDate     YYYY-MM-DD
+ * @returns {Promise<{dates:string[], closes:number[], returns:number[]}|null>}
+ */
+async function fetchHistoricalPeriodData(ticker, startDate, endDate) {
+  if (!ticker?.trim()) return null;
+  const url =
+    `/api/proxy-finance?ticker=${encodeURIComponent(ticker.trim())}` +
+    `&startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`;
+  try {
+    const res = await fetch(url);
+    // 404(신생 종목), 502(야후 오류), 504(타임아웃) 등 비정상 응답 → null 반환
+    if (!res.ok) return null;
+    const json = await res.json();
+    const result = json?.chart?.result?.[0];
+    if (!result) return null;
+
+    const timestamps = result.timestamp ?? [];
+    // adjclose 우선, 없으면 quote.close 사용
+    const rawCloses =
+      result.indicators?.adjclose?.[0]?.adjclose ??
+      result.indicators?.quote?.[0]?.close ?? [];
+
+    // null · NaN · undefined close 값 필터링
+    const pairs = timestamps
+      .map((ts, i) => ({
+        date:  new Date(ts * 1000).toISOString().slice(0, 10),
+        close: rawCloses[i],
+      }))
+      .filter(p => typeof p.close === 'number' && Number.isFinite(p.close) && p.close > 0);
+
+    // 일별 데이터: 최소 5 영업일(1주) 이상 있어야 의미 있는 MDD 계산 가능
+    if (pairs.length < 5) return null;
+
+    const returns = pairs.slice(1).map((p, i) => (p.close - pairs[i].close) / pairs[i].close);
+    // 수익률 배열에서 NaN/Infinity 제거 (연속 동일 가격 등 엣지 케이스 방어)
+    const safeReturns = returns.filter(r => Number.isFinite(r));
+    if (safeReturns.length < 4) return null;
+
+    return { dates: pairs.map(p => p.date), closes: pairs.map(p => p.close), returns: safeReturns };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 특정 기간의 실측 MDD 역산
+ * - 데이터 없음 / NaN / 0(데이터 부족으로 낙폭 미포착) → null 반환 → 폴백 강제 트리거
+ * - MDD > 0 이고 유한한 실수일 때만 유효값으로 반환
+ *
+ * @returns {Promise<number|null>} 실측 MDD (0~1 양수), 유효하지 않으면 null
+ */
+async function computePeriodMDD(ticker, startDate, endDate) {
+  if (!ticker) return null;
+  const data = await fetchHistoricalPeriodData(ticker, startDate, endDate);
+  if (!data?.returns?.length) return null;
+
+  const finite = filterFinite(data.returns);
+  if (finite.length < 4) return null;  // 데이터 점이 너무 적으면 신뢰 불가 → 폴백
+
+  const mdd = maximumDrawdown(finite);
+
+  // MDD = 0(데이터는 있으나 해당 기간 낙폭 미포착) · NaN · Infinity → 폴백 위임
+  if (!mdd || !Number.isFinite(mdd) || mdd <= 0) return null;
+
+  return mdd;
+}
+
 /** 채권 Modified Duration 추정 (이름 키워드 기반) */
 function estimateBondDuration(name = '') {
   const u = name.toUpperCase();
@@ -1196,114 +1292,141 @@ function estimateBondDuration(name = '') {
   return 5; // 기본 duration
 }
 
-// ── 시나리오 1: 금리 100bp 인상 ───────────────────────────────
-// 기술주/반도체 -18%(국내)/-15%(해외), 금융주 +5%(국내)/+3%(해외)
-// 채권 -Duration*1%, 리츠 -10%
-function getScenario1Shock(asset) {
-  const { assetClass, theme, country, is_hedged, name, productType } = resolveAssetMeta(asset);
+// ── 시나리오 1 폴백: 연준 긴축 쇼크 (2018) ───────────────────────
+// 역사적 MDD 데이터 없는 자산에만 적용되는 하드코딩 폴백.
+// 채권은 isBondAsset 가드로 이미 제외되므로 채권 분기 삭제.
+function _fallbackS1Shock(asset) {
+  const { assetClass, theme, country, productType } = resolveAssetMeta(asset);
   const isForeign = country !== '한국' ||
     [ASSET_CLASS.FOREIGN_STOCK, ASSET_CLASS.FOREIGN_BOND, ASSET_CLASS.GOLD].includes(assetClass);
 
-  // 상품유형 우선 충격값 조회 (암호화폐 등)
+  // financialRules 스트레스 충격 테이블 우선 조회 (암호화폐 등 특수 상품)
   const ptShock = getProductTypeStressShock(productType, 'rateHike');
   if (ptShock !== null) return ptShock;
 
-  if (theme === THEME.TECH || theme === THEME.SEMICONDUCTOR)
-    return isForeign ? -0.15 : -0.18;
-  if (theme === THEME.FINANCIAL)
-    return isForeign ? +0.03 : +0.05;
-  if (assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.FOREIGN_BOND) {
-    const rawMaturity = asset._meta?.bond_maturity;
-    const maturity = (rawMaturity != null && rawMaturity > 0) ? rawMaturity : estimateBondDuration(name);
-    const rawYield = asset._meta?.bond_yield;
-    const yld = (rawYield != null && rawYield > 0) ? rawYield / 100 : 0.035;
-    return -(maturity * 0.01) / (1 + yld / 2);
-  }
-  if (assetClass === ASSET_CLASS.REITS)   return -0.10;
-  if (assetClass === ASSET_CLASS.GOLD)    return -0.05;  // 실질금리 상승 시 금 하락
-  if (assetClass === ASSET_CLASS.CASH)    return +0.01;  // 단기 예금 수혜
-  if (assetClass === ASSET_CLASS.DOLLAR)  return +0.04;  // 달러 강세
-  if (theme === THEME.HEALTHCARE)         return -0.07;
-  if (theme === THEME.ETF)                return isForeign ? -0.12 : -0.10;
-  return isForeign ? -0.08 : -0.10;                      // 기타 주식 기본값
+  // productType 우선 분기 — portfolioLogic.ts 통합 상품유형 대응
+  if (productType === '국내주식')  return -0.15;
+  if (productType === '해외주식')  return -0.12;
+  if (productType === '국내ETF')   return -0.10;
+  if (productType === '해외ETF')   return -0.12;
+  if (productType === '금')        return -0.05;
+  if (productType === '리츠')      return -0.10;
+  if (productType === '외화')      return +0.04;
+  if (productType === '예적금/현금') return +0.01;
+
+  // assetClass/theme 보조 분기
+  if (theme === THEME.TECH || theme === THEME.SEMICONDUCTOR) return isForeign ? -0.15 : -0.18;
+  if (theme === THEME.FINANCIAL)  return isForeign ? +0.03 : +0.05;
+  if (assetClass === ASSET_CLASS.REITS)  return -0.10;
+  if (assetClass === ASSET_CLASS.GOLD)   return -0.05;
+  if (assetClass === ASSET_CLASS.CASH)   return +0.01;
+  if (assetClass === ASSET_CLASS.DOLLAR) return +0.04;
+  if (theme === THEME.HEALTHCARE)        return -0.07;
+  if (theme === THEME.ETF)               return isForeign ? -0.12 : -0.10;
+  return isForeign ? -0.08 : -0.10;
 }
 
-// ── 시나리오 2: 원자재 쇼크 ───────────────────────────────────
-// 원자재/금 +12%(국내)/+15%(해외), 기술주 -12%, 경기민감주 -15%, 채권 -4%
-function getScenario2Shock(asset) {
+// ── 시나리오 2 폴백: 러-우 원자재 공급망 위기 (2022) ──────────────
+function _fallbackS2Shock(asset) {
   const { assetClass, theme, country, productType } = resolveAssetMeta(asset);
-  const isForeign    = country !== '한국' ||
+  const isForeign  = country !== '한국' ||
     [ASSET_CLASS.FOREIGN_STOCK, ASSET_CLASS.FOREIGN_BOND, ASSET_CLASS.GOLD].includes(assetClass);
-  const isCyclical   = [THEME.ENERGY, THEME.INDUSTRIALS, THEME.CONSUMER].includes(theme);
+  const isCyclical = [THEME.ENERGY, THEME.INDUSTRIALS, THEME.CONSUMER].includes(theme);
 
-  // 상품유형 우선 충격값 조회
   const ptShock = getProductTypeStressShock(productType, 'commodity');
   if (ptShock !== null) return ptShock;
 
-  if (assetClass === ASSET_CLASS.GOLD)   return isForeign ? +0.15 : +0.12;
-  if (theme === THEME.TECH || theme === THEME.SEMICONDUCTOR) return -0.12;
-  if (isCyclical)                         return -0.15;
-  if (assetClass === ASSET_CLASS.DOMESTIC_BOND || assetClass === ASSET_CLASS.FOREIGN_BOND)
-                                          return -0.04;
-  if (assetClass === ASSET_CLASS.REITS)   return -0.06;  // 비용 상승
-  if (theme === THEME.FINANCIAL)          return -0.05;
-  if (assetClass === ASSET_CLASS.CASH)    return 0;
-  if (assetClass === ASSET_CLASS.DOLLAR)  return +0.03;  // 원자재 달러 거래 수혜
-  if (theme === THEME.HEALTHCARE)         return -0.03;
-  if (theme === THEME.ETF)               return isForeign ? -0.07 : -0.05;
+  // productType 우선 분기
+  if (productType === '금')                                    return isForeign ? +0.15 : +0.12;
+  if (productType === '국내주식' || productType === '국내ETF') return -0.10;
+  if (productType === '해외주식' || productType === '해외ETF') return -0.10;
+  if (productType === '리츠')                                  return -0.06;
+  if (productType === '외화')                                  return +0.03;
+  if (productType === '예적금/현금')                           return 0;
+
+  // assetClass/theme 보조 분기
+  if (assetClass === ASSET_CLASS.GOLD)                               return isForeign ? +0.15 : +0.12;
+  if (theme === THEME.TECH || theme === THEME.SEMICONDUCTOR)         return -0.12;
+  if (isCyclical)                                                    return -0.15;
+  if (assetClass === ASSET_CLASS.REITS)                              return -0.06;
+  if (theme === THEME.FINANCIAL)                                     return -0.05;
+  if (assetClass === ASSET_CLASS.CASH)                               return 0;
+  if (assetClass === ASSET_CLASS.DOLLAR)                             return +0.03;
+  if (theme === THEME.HEALTHCARE)                                    return -0.03;
+  if (theme === THEME.ETF)                                           return isForeign ? -0.07 : -0.05;
   return isForeign ? -0.06 : -0.05;
 }
 
-// ── 시나리오 3: 환율 +200원 ───────────────────────────────────
-// 해외/환노출 +12%, 환헤지 -2%, 국내수출주 +4%, 국내내수/금융 -10%~-12%
-function getScenario3Shock(asset) {
-  const { assetClass, theme, country, isHedging, is_hedged, productType } = resolveAssetMeta(asset);
-  const hedged = isHedging || is_hedged;  // 신/구 필드 모두 확인
-  const isForeign    = country !== '한국' ||
-    [ASSET_CLASS.FOREIGN_STOCK, ASSET_CLASS.FOREIGN_BOND, ASSET_CLASS.GOLD, ASSET_CLASS.DOLLAR].includes(assetClass);
-  const isDomestic   = !isForeign && assetClass === ASSET_CLASS.DOMESTIC_STOCK;
-  const isExport     = isDomestic && (theme === THEME.SEMICONDUCTOR || theme === THEME.TECH || theme === THEME.INDUSTRIALS);
-  const isDomesticConsumer = isDomestic &&
-    (theme === THEME.CONSUMER || theme === THEME.OTHER || theme === THEME.HEALTHCARE);
+// ── 시나리오 3 폴백: 팬데믹 블랙스완 쇼크 (2020) ────────────────────
+// 6대 상품유형 기준 폴백 수치 (실측 MDD 부재 시 강제 대입)
+//   국내주식/국내ETF : -30%   해외주식/해외ETF : -25%
+//   암호화폐 : -50%           리츠 : -40%
+//   금 : -8%                 현금/달러 : 0% / +5%
+//
+// [productType 우선 분기] → portfolioLogic.ts가 주입하는 통합 상품유형
+// (예: '국내주식', '해외ETF' 등)을 assetClass보다 먼저 체크하여
+// LG에너지솔루션 등 신생 종목의 분류 오류를 방지
+function _fallbackS3Shock(asset) {
+  const { assetClass, theme, country, productType } = resolveAssetMeta(asset);
+  const isForeign = country !== '한국' ||
+    [ASSET_CLASS.FOREIGN_STOCK, ASSET_CLASS.FOREIGN_BOND, ASSET_CLASS.GOLD].includes(assetClass);
 
-  // 상품유형 우선 충격값 (암호화폐 등, 환헤지 미적용 시에만)
-  const ptShock = getProductTypeStressShock(productType, 'fxUp200');
-  if (ptShock !== null && !hedged) return ptShock;
+  // ── productType 우선 분기 (portfolioLogic.ts 통합 상품유형) ──────
+  if (productType === '암호화폐')                          return -0.50;
+  if (productType === '국내주식' || productType === '국내ETF') return -0.30;
+  if (productType === '해외주식' || productType === '해외ETF') return -0.25;
+  if (productType === '금')                                return -0.08;
+  if (productType === '리츠')                              return -0.40;
+  if (productType === '외화')                              return +0.05;
+  if (productType === '예적금/현금')                       return 0;
 
-  if (isForeign  && !hedged)    return +0.12;   // 환차익
-  if (isForeign  &&  hedged)    return -0.02;   // 헤지 비용
-  if (assetClass === ASSET_CLASS.DOLLAR) return +0.12;  // 달러 직접 보유
-  if (isExport)                          return +0.04;  // 수출주 수혜
-  if (theme === THEME.FINANCIAL)         return -0.10;  // 금융주 내수 타격
-  if (isDomesticConsumer)                return -0.12;  // 내수주 타격
-  if (assetClass === ASSET_CLASS.DOMESTIC_BOND) return -0.01;
-  if (assetClass === ASSET_CLASS.CASH)   return 0;
-  return 0;
+  // ── assetClass 보조 분기 (productType 미설정 자산 방어) ──────────
+  if (assetClass === ASSET_CLASS.DOMESTIC_STOCK) return -0.30;
+  if (assetClass === ASSET_CLASS.FOREIGN_STOCK)  return -0.25;
+  if (assetClass === ASSET_CLASS.REITS)          return -0.40;
+  if (assetClass === ASSET_CLASS.GOLD)           return -0.08;
+  if (assetClass === ASSET_CLASS.CASH)           return 0;
+  if (assetClass === ASSET_CLASS.DOLLAR)         return +0.05;
+
+  // ── theme 보조 분기 ──────────────────────────────────────────────
+  if (theme === THEME.TECH || theme === THEME.SEMICONDUCTOR) return isForeign ? -0.25 : -0.30;
+  if (theme === THEME.ETF)                                   return isForeign ? -0.25 : -0.30;
+
+  return isForeign ? -0.25 : -0.30;  // 최종 기본값
 }
 
-// ── 시나리오 4: 복합위기 (Stagflation) ───────────────────────
-// 시나리오 1+2+3 동시 발생, -80% 하한 적용
-function getScenario4Shock(asset) {
-  const combined = getScenario1Shock(asset) + getScenario2Shock(asset) + getScenario3Shock(asset);
-  return Math.max(combined, -0.80);
-}
-
-/** Expected Loss = Sum(w_i × Shock_i) */
+/**
+ * Expected Loss = Sum(w_i × Shock_i)
+ * 채권 자산(국내채권·해외채권)은 연산 루프에서 완전 제외 (lossRate 기여 0, details 미노출)
+ * @param {Array} assets
+ * @param {(asset:object, idx:number)=>number} shockFn  per-asset 충격률 반환 콜백
+ * @param {number} portfolioValue
+ * @returns {{ lossRate:number, lossAmount:number, details:Array }}
+ */
 function computeExpectedLoss(assets, shockFn, portfolioValue) {
-  // 채권은 asset.name = "" 이므로 productType / _meta 체인으로 표시명 해결
   const getDisplayName = (asset) =>
-    asset.name        ||
-    asset.productType ||
-    asset.asset_class ||
+    asset.name              ||
+    asset.productType       ||
+    asset.asset_class       ||
     asset._meta?.productType ||
     asset._meta?.asset_class ||
     '자산';
 
-  const details = assets.map(asset => {
-    const { weight } = resolveAssetMeta(asset);
-    const shock = shockFn(asset);
-    return { name: getDisplayName(asset), shock, contribution: weight * shock };
-  });
+  const details = [];
+  for (let i = 0; i < assets.length; i++) {
+    const asset = assets[i];
+    // 채권 자산 완전 제외 — contribution 0으로 고정, details 리스트에도 미포함
+    if (isBondAsset(asset)) continue;
+    const meta = resolveAssetMeta(asset);
+    const shock = shockFn(asset, i);
+    details.push({
+      name:         getDisplayName(asset),
+      shock,
+      contribution: meta.weight * shock,
+      productType:  meta.productType,
+    });
+  }
+
   const lossRate   = details.reduce((s, d) => s + d.contribution, 0);
   const lossAmount = portfolioValue * lossRate;
   return {
@@ -1313,23 +1436,21 @@ function computeExpectedLoss(assets, shockFn, portfolioValue) {
   };
 }
 
-/** 리스크 진단 유형 상수 */
+/** 리스크 진단 유형 상수 (3대 레짐 기준) */
 export const RISK_TYPE = Object.freeze({
-  RATE_SENSITIVE:    '금리 충격 취약형',
-  COMMODITY_EXPOSED: '인플레이션 취약형',
-  FX_EXPOSED:        '환율 변동 취약형',
-  STAGFLATION_RISK:  '복합위기(스태그플레이션) 취약형',
+  RATE_SENSITIVE:    '금리 긴축 취약형',
+  COMMODITY_EXPOSED: '원자재 공급망 취약형',
+  BLACKSWAN_RISK:    '블랙스완 위기 취약형',
   BALANCED:          '상대적 균형형',
   DEFENSIVE:         '방어 우위형',
 });
 
-/** 시나리오 결과 → 리스크 진단 유형 배열 결정 */
-function diagnosisRiskTypes(s1, s2, s3, s4) {
+/** 시나리오 결과 → 리스크 진단 유형 배열 결정 (3대 레짐) */
+function diagnosisRiskTypes(s1, s2, s3) {
   const types = [];
   if (s1.lossRate < -0.10) types.push(RISK_TYPE.RATE_SENSITIVE);
   if (s2.lossRate < -0.10) types.push(RISK_TYPE.COMMODITY_EXPOSED);
-  if (s3.lossRate < -0.10) types.push(RISK_TYPE.FX_EXPOSED);
-  if (s4.lossRate < -0.20) types.push(RISK_TYPE.STAGFLATION_RISK);
+  if (s3.lossRate < -0.20) types.push(RISK_TYPE.BLACKSWAN_RISK);
   if (!types.length) {
     const worst = Math.min(s1.lossRate, s2.lossRate, s3.lossRate);
     return worst > -0.05 ? [RISK_TYPE.DEFENSIVE] : [RISK_TYPE.BALANCED];
@@ -1338,60 +1459,88 @@ function diagnosisRiskTypes(s1, s2, s3, s4) {
 }
 
 /**
- * 4대 시나리오 스트레스 테스트 실행
- * Expected Loss = Sum(w_i × Shock_i)
+ * 3대 역사적 레짐 스트레스 테스트 (비동기)
  *
- * @param {Array<{name:string, weight:number, value:number, assetClass?:string, theme?:string, _meta?:object}>} assets
+ * 각 자산의 티커로 yfinance 실측 MDD를 먼저 역산하고,
+ * 데이터 미존재(신생 자산·조회 실패) 시에만 financialRules 하드코딩 폴백 적용.
+ * 채권 자산(국내채권·해외채권)은 모든 시나리오에서 충격 0%로 고정 및 결과 제외.
+ *
+ * @param {Array<{name:string, weight:number, value:number, _meta?:object}>} assets
  * @param {number} portfolioValue  포트폴리오 총 금액 (원)
- * @returns {{
- *   scenario1: ScenarioResult,
- *   scenario2: ScenarioResult,
- *   scenario3: ScenarioResult,
- *   scenario4: ScenarioResult,
- *   riskTypes:  string[],
- *   diagnosis:  string,
- * }}
+ * @returns {Promise<{scenario1, scenario2, scenario3, riskTypes, diagnosis}>}
  */
-export function runStressTest(assets, portfolioValue) {
-  const s1 = computeExpectedLoss(assets, getScenario1Shock, portfolioValue);
-  const s2 = computeExpectedLoss(assets, getScenario2Shock, portfolioValue);
-  const s3 = computeExpectedLoss(assets, getScenario3Shock, portfolioValue);
-  const s4 = computeExpectedLoss(assets, getScenario4Shock, portfolioValue);
+export async function runStressTest(assets, portfolioValue) {
+  // ── Step 1: 자산별 티커 추출 ────────────────────────────────────
+  const assetTickers = assets.map(asset => {
+    const ticker = (asset._meta?.ticker || asset.ticker || '').trim();
+    return (ticker && TICKER_VALID_RE.test(ticker)) ? ticker : null;
+  });
 
-  const riskTypes = diagnosisRiskTypes(s1, s2, s3, s4);
+  // ── Step 2: 유니크 티커 목록 수집 ──────────────────────────────
+  const uniqueTickers = [...new Set(assetTickers.filter(Boolean))];
 
-  // 동적 진단 문장 생성
+  // ── Step 3: 3대 역사적 기간 MDD 병렬 프리페치 ──────────────────
+  // 날짜 지정 조건 코드 위치: STRESS_PERIODS 상수 (위 섹션 14 도입부) 참조
+  const mddCache = {};   // { ticker: { s1: number|null, s2: number|null, s3: number|null } }
+
+  await Promise.all(uniqueTickers.map(async (ticker) => {
+    const [mddS1, mddS2, mddS3] = await Promise.all([
+      computePeriodMDD(ticker, STRESS_PERIODS.S1.start, STRESS_PERIODS.S1.end),
+      computePeriodMDD(ticker, STRESS_PERIODS.S2.start, STRESS_PERIODS.S2.end),
+      computePeriodMDD(ticker, STRESS_PERIODS.S3.start, STRESS_PERIODS.S3.end),
+    ]);
+    mddCache[ticker] = { s1: mddS1, s2: mddS2, s3: mddS3 };
+  }));
+
+  // ── Step 4: 시나리오별 충격 결정 헬퍼 ──────────────────────────
+  // 실측 MDD → 음수 충격으로 변환.  데이터 없으면 하드코딩 폴백.
+  // 채권 자산은 isBondAsset 가드에서 computeExpectedLoss 진입 전 차단.
+  //
+  // [가드 조건 강화]
+  //   - mdd !== null : 데이터 조회 성공 여부 (null = 조회 실패·신생 종목)
+  //   - Number.isFinite(mdd) : NaN/Infinity 제거
+  //   - mdd > 0 : MDD=0(회복 구간만 포착된 부정확한 데이터) 방어 → 폴백 위임
+  const makeShockFn = (mddKey, fallbackFn) => (asset, idx) => {
+    const ticker = assetTickers[idx];
+    const mdd    = ticker ? (mddCache[ticker]?.[mddKey] ?? null) : null;
+    if (mdd !== null && Number.isFinite(mdd) && mdd > 0) return -mdd;  // 유효 실측값만 채택
+    return fallbackFn(asset);   // null·0·NaN·신생 종목 → 폴백 강제 적용
+  };
+
+  // ── Step 5: 시나리오별 손실 연산 (채권 자동 제외) ───────────────
+  const s1 = computeExpectedLoss(assets, makeShockFn('s1', _fallbackS1Shock), portfolioValue);
+  const s2 = computeExpectedLoss(assets, makeShockFn('s2', _fallbackS2Shock), portfolioValue);
+  const s3 = computeExpectedLoss(assets, makeShockFn('s3', _fallbackS3Shock), portfolioValue);
+
+  const riskTypes = diagnosisRiskTypes(s1, s2, s3);
+
+  // ── Step 6: 동적 진단 문장 생성 ────────────────────────────────
   const sentenceMap = {
     [RISK_TYPE.RATE_SENSITIVE]:
-      `금리 100bp 인상 시 약 ${Math.abs(s1.lossRate * 100).toFixed(1)}% ` +
+      `2018년 연준 긴축 쇼크 유사 상황 발생 시 약 ${Math.abs(s1.lossRate * 100).toFixed(1)}% ` +
       `(${Math.abs(s1.lossAmount / 1e8).toFixed(2)}억 원) 손실 예상. ` +
-      `성장주·장기채 비중 축소 및 금융주·단기채 확대를 권고합니다.`,
+      `성장주 비중 축소 및 금융주·단기채 확대를 권고합니다.`,
     [RISK_TYPE.COMMODITY_EXPOSED]:
-      `원자재 쇼크 시 약 ${Math.abs(s2.lossRate * 100).toFixed(1)}% ` +
+      `2022년 러-우 원자재 위기 유사 상황 발생 시 약 ${Math.abs(s2.lossRate * 100).toFixed(1)}% ` +
       `(${Math.abs(s2.lossAmount / 1e8).toFixed(2)}억 원) 손실 예상. ` +
-      `금·원자재 ETF 편입으로 인플레이션 헤지를 강화하세요.`,
-    [RISK_TYPE.FX_EXPOSED]:
-      `환율 +200원 충격 시 약 ${Math.abs(s3.lossRate * 100).toFixed(1)}% ` +
+      `금·원자재 ETF 편입으로 공급망 리스크 헤지를 강화하세요.`,
+    [RISK_TYPE.BLACKSWAN_RISK]:
+      `2020년 팬데믹 쇼크 유사 상황 발생 시 약 ${Math.abs(s3.lossRate * 100).toFixed(1)}% ` +
       `(${Math.abs(s3.lossAmount / 1e8).toFixed(2)}억 원) 손실 예상. ` +
-      `환헤지 상품 전환 또는 달러 자산·국내 수출주 편입을 검토하세요.`,
-    [RISK_TYPE.STAGFLATION_RISK]:
-      `복합위기(스태그플레이션) 발생 시 약 ${Math.abs(s4.lossRate * 100).toFixed(1)}% ` +
-      `(${Math.abs(s4.lossAmount / 1e8).toFixed(2)}억 원) 손실 예상. ` +
-      `포트폴리오 전면 재구성이 시급합니다.`,
+      `현금성 자산 및 방어주 비중 확대로 블랙스완 완충재를 확보하세요.`,
     [RISK_TYPE.BALANCED]:
-      `4대 시나리오 전반에서 중간 수준의 손실 내성을 보입니다. ` +
+      `3대 역사적 레짐 시나리오 전반에서 중간 수준의 손실 내성을 보입니다. ` +
       `소규모 리밸런싱으로 방어력을 추가 강화하세요.`,
     [RISK_TYPE.DEFENSIVE]:
-      `4대 충격 시나리오 모두에서 손실이 5% 미만으로 방어 우위 포트폴리오입니다.`,
+      `3대 역사적 충격 시나리오 모두에서 손실이 5% 미만으로 방어 우위 포트폴리오입니다.`,
   };
 
   const diagnosis = riskTypes.map(t => sentenceMap[t] ?? t).join(' / ');
 
   return {
-    scenario1: { label: '금리 100bp 인상',        ...s1 },
-    scenario2: { label: '원자재 쇼크',             ...s2 },
-    scenario3: { label: '환율 +200원',             ...s3 },
-    scenario4: { label: '복합위기(스태그플레이션)', ...s4 },
+    scenario1: { label: '연준 양적긴축 쇼크 (2018)',       ...s1 },
+    scenario2: { label: '러-우 원자재 공급망 위기 (2022)', ...s2 },
+    scenario3: { label: '팬데믹 블랙스완 쇼크 (2020)',     ...s3 },
     riskTypes,
     diagnosis,
   };
@@ -1457,14 +1606,129 @@ function scoreMDD(mdd) {
   return                  { score: 0, grade: '문제', detail: `실측 최대낙폭(MDD) ${pct}% – 20% 초과 고낙폭. 방어 자산 편입 권고.` };
 }
 
-function scoreTaxEfficiency(financialIncomeTax) {
-  if (!financialIncomeTax) return { score: 2, grade: '양호', detail: '세금 데이터 미제공 – 평가 생략.' };
-  const totalMan = (financialIncomeTax.total / 10_000).toFixed(0);
-  if (!financialIncomeTax.warning && financialIncomeTax.total <= 15_000_000)
-    return { score: 2, grade: '양호', detail: `금융소득 합계 ${totalMan}만 원 – 종합과세 기준 충분히 이하.` };
-  if (!financialIncomeTax.warning)
-    return { score: 1, grade: '주의', detail: `금융소득 합계 ${totalMan}만 원 – 2,000만 원 접근. ISA·절세 상품 전환 검토.` };
-  return { score: 0, grade: '문제', detail: `금융소득 합계 ${totalMan}만 원 – 종합과세 대상. 즉시 절세 전략 수립 필요.` };
+/**
+ * 세금 효율성 100점 만점 감점·가점 하이브리드 산출기
+ *
+ * [감점 요인]
+ *   P1 금융소득종합과세 초과 규모 비례 감점 (최대 -40점)
+ *     · 2,000만 원 초과 시: ceil(초과액 / 2,000만) × 40, 최대 40점
+ *     · 75~100% 접근 구간 (1,500만~2,000만): -10점
+ *     · 50~75% 구간 (1,000만~1,500만):       -5점
+ *   P2 해외주식 양도소득세 세액 비례 감점 (최대 -30점)
+ *     · max(0, 손익통산 차익 - 250만) × 22% = 해외양도세액
+ *     · 세액 100만 원당 3점 감점
+ *   P3 국내 대주주 양도소득세 (50억 이상 국내주식, 최대 -20점)
+ *     · 과세표준 ≤ 3억: × 22%  / 초과분: × 27.5%
+ *     · 세액 100만 원당 2점 감점
+ *
+ * [가점 요인]
+ *   B  TLH(Tax Loss Harvesting) 절세 방어 비율 (최대 +15점)
+ *     · 해외직접주식 손실 종목 손익 상계 후 세액 절감액 / 원래 세액 비율 × 15
+ *
+ * [최종 가드]
+ *   taxScore = Math.max(0, Math.min(100, round(100 - P1 - P2 - P3 + B)))
+ *   0/1/2 매핑: taxScore ≥ 75 → 2(양호) / ≥ 40 → 1(주의) / else → 0(문제)
+ */
+function scoreTaxEfficiency(financialIncomeTax, assets, _t_marginal) {
+  // 세금 데이터가 전혀 없는 경우
+  if (!financialIncomeTax && (!assets || assets.length === 0)) {
+    return { score: 2, grade: '양호', detail: '세금 데이터 미제공 – 평가 생략.' };
+  }
+
+  const assetList = assets ?? [];
+
+  // ── Penalty 1: 금융소득종합과세 ────────────────────────────────────────────────
+  const totalFI   = financialIncomeTax?.total ?? 0;
+  const excessFI  = Math.max(totalFI - FINANCIAL_INCOME_THRESHOLD, 0);
+  let p1 = 0;
+  if (totalFI > FINANCIAL_INCOME_THRESHOLD) {
+    // 초과액이 기준액의 N배 → 40 × N (최대 40점)
+    p1 = Math.min(40, Math.ceil((excessFI / FINANCIAL_INCOME_THRESHOLD) * 40));
+  } else if (totalFI >= FINANCIAL_INCOME_THRESHOLD * 0.75) {
+    p1 = 10; // 종합과세 임박 구간
+  } else if (totalFI >= FINANCIAL_INCOME_THRESHOLD * 0.50) {
+    p1 = 5;  // 주의 구간
+  }
+
+  // ── Penalty 2: 해외주식 직접 양도소득세 ────────────────────────────────────────
+  const foreignNetGain = assetList
+    .filter(a => a.taxType === TAX_TYPE.DIRECT_STOCK && a.assetClass === ASSET_CLASS.FOREIGN_STOCK)
+    .reduce((s, a) => s + (a.gain ?? 0), 0);
+  const foreignTax = foreignStockCapitalGainsTax(foreignNetGain).tax;
+  // 세액 100만 원당 3점 감점, 최대 30점
+  const p2 = Math.min(30, Math.round((foreignTax / 1_000_000) * 3));
+
+  // ── Penalty 3: 국내 대주주 양도소득세 (보유액 50억 이상 국내주식) ─────────────
+  let majorTax = 0;
+  for (const a of assetList) {
+    const val  = a.value ?? 0;
+    const gain = a.gain  ?? 0;
+    if (
+      a.taxType   === TAX_TYPE.DIRECT_STOCK &&
+      a.assetClass === ASSET_CLASS.DOMESTIC_STOCK &&
+      val >= 5_000_000_000 &&
+      gain > 0
+    ) {
+      // 기본공제 250만 원 (해외주식 그룹과 별도)
+      const taxable = Math.max(0, gain - FOREIGN_STOCK_DEDUCTION);
+      majorTax += taxable <= 300_000_000
+        ? taxable * 0.22
+        : 300_000_000 * 0.22 + (taxable - 300_000_000) * 0.275;
+    }
+  }
+  // 세액 100만 원당 2점 감점, 최대 20점
+  const p3 = Math.min(20, Math.round((majorTax / 1_000_000) * 2));
+
+  // ── Bonus: TLH 절세 방어 (해외직접주식 손실 종목 상계, 최대 +15점) ────────────
+  const foreignLossGain = assetList
+    .filter(a =>
+      a.taxType    === TAX_TYPE.DIRECT_STOCK &&
+      a.assetClass === ASSET_CLASS.FOREIGN_STOCK &&
+      (a.gain ?? 0) < 0
+    )
+    .reduce((s, a) => s + (a.gain ?? 0), 0);
+
+  let bonus = 0;
+  if (foreignTax > 0 && foreignLossGain < 0) {
+    const newNetGain  = Math.max(0, foreignNetGain + foreignLossGain); // 손실 상계
+    const newTax      = foreignStockCapitalGainsTax(newNetGain).tax;
+    const tlhSaving   = foreignTax - newTax;
+    if (tlhSaving > 0) {
+      // 절세 방어 비율 × 15점
+      bonus = Math.min(15, Math.round((tlhSaving / foreignTax) * 15));
+    }
+  }
+
+  // ── 최종 점수 산출 및 클램핑 ─────────────────────────────────────────────────
+  const taxScore = Math.max(0, Math.min(100, Math.round(100 - p1 - p2 - p3 + bonus)));
+
+  // ── 0/1/2 매핑 ──────────────────────────────────────────────────────────────
+  const itemScore = taxScore >= 75 ? 2 : taxScore >= 40 ? 1 : 0;
+  const grade     = taxScore >= 75 ? '양호' : taxScore >= 40 ? '주의' : '문제';
+
+  // ── 상세 텍스트 조립 (PB 자문 보고서 서식) ──────────────────────────────────
+  const fmtMan = n => Math.round(n / 10_000).toLocaleString('ko-KR');
+  const parts  = [`세금효율 점수 ${taxScore}/100점.`];
+
+  if (financialIncomeTax?.warning) {
+    parts.push(`금융소득 합계 ${fmtMan(totalFI)}만 원으로 종합과세 대상에 해당합니다. 즉시 금융소득 분산 및 명의 분산 전략이 필요합니다.`);
+  } else if (p1 > 0) {
+    parts.push(`금융소득 합계 ${fmtMan(totalFI)}만 원으로 종합과세 기준(2,000만 원) 임박 구간입니다. 절세 계좌(ISA 등) 활용을 권장합니다.`);
+  }
+  if (foreignTax > 0) {
+    parts.push(`해외 자산 손익통산 세액은 약 ${fmtMan(foreignTax)}만 원 수준입니다.`);
+  }
+  if (majorTax > 0) {
+    parts.push(`국내 직접투자 대주주 양도세는 약 ${fmtMan(majorTax)}만 원 수준입니다.`);
+  }
+  if (bonus > 0) {
+    parts.push('손실 종목 상계를 통한 TLH 절세 방어 전략이 유효합니다.');
+  }
+  if (p1 === 0 && p2 === 0 && p3 === 0 && bonus === 0) {
+    parts.push('세금 부담 없음 – 현 포트폴리오 세후 효율 우수.');
+  }
+
+  return { score: itemScore, grade, detail: parts.join('\n') };
 }
 
 /**
@@ -1506,7 +1770,7 @@ export function portfolioHealthCheck(metrics, assets, t_marginal) {
     { key: 'volatility',      label: '변동성',           ...scoreVolatility(volatility) },
     { key: 'sharpe',          label: '샤프 지수',         ...scoreSharpeRatio(sharpeRatio) },
     { key: 'mdd',             label: '최대낙폭(MDD)',     ...scoreMDD(mdd) },
-    { key: 'tax_efficiency',  label: '세금 효율성',       ...scoreTaxEfficiency(financialIncomeTax) },
+    { key: 'tax_efficiency',  label: '세금 효율성',       ...scoreTaxEfficiency(financialIncomeTax, assets, t_marginal) },
   ];
 
   const totalScore = items.reduce((s, i) => s + (i.score ?? 0), 0);

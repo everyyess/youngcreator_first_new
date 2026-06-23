@@ -164,7 +164,25 @@ function greedyOptimal(
   return selected.slice(0, k);
 }
 
-// ── 몬테카를로 비중 최적화 (역변동성 대체) ────────────────────────────────────
+// ── 광의 자산군 분류 (섹터명 키워드 기반 — 티커 미참조) ────────────────────────
+
+function broadClass(sector: string): string {
+  if (sector.includes('채권')) return '채권';
+  if (
+    sector.includes('원자재') ||
+    sector.includes('귀금속') ||
+    sector.includes('희토류') ||
+    sector.includes('농산물')
+  ) return '원자재';
+  if (sector.includes('암호화폐')) return '암호화폐';
+  if (sector.includes('시장전체') || sector.includes('주식시장')) return '시장전체';
+  return '성장주식';
+}
+
+// ── 몬테카를로 비중 최적화 ─────────────────────────────────────────────────────
+// 개선사항:
+//   ① 전략별 단일 자산군 최대 비중 상한(MAX_CLASS_W) 위반 시 즉시 탈락
+//   ② HHI 집중도 감점 + 25% 초과 종목 추가 감점 → 분산 유도
 
 function monteCarloWeights(
   assets: string[],
@@ -172,13 +190,25 @@ function monteCarloWeights(
   annVols: Record<string, number>,
   corrMatrix: Record<string, Record<string, number>>,
   strategy: Strategy,
+  sectorMap: Record<string, string> = {},
   iterations = 20000,
 ): Record<string, number> {
   const k = assets.length;
-  const MAX_W = 0.45;
   const MIN_W = 0.05;
 
-  // 연환산 공분산 행렬 사전 계산: cov(i,j) = corr(i,j) * annVol_i * annVol_j
+  // 전략별 단일 자산군 최대 비중 상한 (제약 미주입 시 단일 종목에도 동일 적용)
+  const MAX_CLASS_W =
+    strategy === 'conservative' ? 0.35 :
+    strategy === 'balanced'     ? 0.50 : 0.65;
+
+  // 개별 종목 상한 = min(0.45, 자산군 상한) — 자산군 상한이 더 엄격하면 동기화
+  const MAX_W = Math.min(0.45, MAX_CLASS_W);
+
+  // 루프 전 사전 계산 — 이터레이션마다 재계산 방지
+  const assetClasses = assets.map((t) => broadClass(sectorMap[t] ?? '성장주식'));
+  const hasMultipleClasses = new Set(assetClasses).size > 1; // 복수 자산군일 때만 클래스 상한 적용
+
+  // 연환산 공분산 행렬
   const cov: number[][] = [];
   for (let i = 0; i < k; i++) {
     cov.push([]);
@@ -191,7 +221,7 @@ function monteCarloWeights(
 
   const annRetsArr = assets.map((t) => annRets[t]);
 
-  // 등비중 초기값 (제약 미충족 시 폴백)
+  // 등비중 초기값 (유효 샘플 미발견 시 폴백)
   let bestW: number[] = Array(k).fill(1 / k);
   let bestScore = -Infinity;
 
@@ -200,7 +230,18 @@ function monteCarloWeights(
     const total = raw.reduce((a, b) => a + b, 0);
     const w = raw.map((v) => v / total);
 
+    // 개별 종목 상·하한 가드
     if (w.some((v) => v > MAX_W || v < MIN_W)) continue;
+
+    // ① 자산군 집중도 상한 가드 (복수 자산군 포트폴리오에만 적용)
+    if (hasMultipleClasses) {
+      const classWeights: Record<string, number> = {};
+      for (let i = 0; i < k; i++) {
+        const cls = assetClasses[i];
+        classWeights[cls] = (classWeights[cls] ?? 0) + w[i];
+      }
+      if (Object.values(classWeights).some((cw) => cw > MAX_CLASS_W)) continue;
+    }
 
     let pRet = 0;
     for (let i = 0; i < k; i++) pRet += w[i] * annRetsArr[i];
@@ -211,7 +252,16 @@ function monteCarloWeights(
     }
     const pVol = Math.sqrt(Math.max(pVar, 0));
 
-    const score = (pRet - RF_RATE) / (pVol || 0.0001);
+    const rawScore = (pRet - RF_RATE) / (pVol || 0.0001);
+
+    // ② HHI 집중도 페널티 + 25% 초과 종목 추가 감점
+    let hhi = 0;
+    let concentrationPenalty = 0;
+    for (let i = 0; i < k; i++) {
+      hhi += w[i] * w[i];
+      if (w[i] > 0.25) concentrationPenalty += (w[i] - 0.25) * 2;
+    }
+    const score = rawScore - hhi * 0.5 - concentrationPenalty;
 
     if (score > bestScore) {
       bestScore = score;
@@ -362,7 +412,7 @@ function computePeriodData(
 
     // ── 몬테카를로 비중 최적화 ─────────────────────────────────────────────
     const cappedWeights = monteCarloWeights(
-      optimal, sliceAnnRets, sliceAnnVols, cm, strategy,
+      optimal, sliceAnnRets, sliceAnnVols, cm, strategy, SECTOR_MAP,
     );
 
     result[pname] = {
@@ -394,6 +444,9 @@ export async function GET(request: Request): Promise<Response> {
     ? url.searchParams.get('strategy')
     : 'balanced') as Strategy;
   const k = Math.min(8, Math.max(3, parseInt(url.searchParams.get('k') ?? '3', 10)));
+  const lockedTicker = TICKERS_ORDERED.includes(url.searchParams.get('lockedTicker') ?? '')
+    ? url.searchParams.get('lockedTicker')
+    : null;
 
   const cacheKey = `${strategy}-${k}`;
   const dataDir = path.join(process.cwd(), 'data');
@@ -410,6 +463,12 @@ export async function GET(request: Request): Promise<Response> {
       dataCache.set(cacheKey, { data: periodData, ts: Date.now() });
     }
 
+    if (url.searchParams.get('format') === 'json') {
+      const periodKey = url.searchParams.get('period') ?? '1Y';
+      const period = (periodData as Record<string, unknown>)[periodKey] ?? null;
+      return Response.json({ period, sectorMap: SECTOR_MAP });
+    }
+
     const tmpl = fs.readFileSync(path.join(dataDir, 'template.html'), 'utf-8');
 
     const strategyTexts: Record<Strategy, string> = {
@@ -422,6 +481,7 @@ export async function GET(request: Request): Promise<Response> {
       .replace('##PERIOD_DATA_JS##', JSON.stringify(periodData))
       .replace('##K_VAL_JS##', String(k))
       .replace('##STRATEGY_TYPE##', strategy)
+      .replace('##INITIAL_LOCKED_TICKER##', lockedTicker ?? '')
       .replace('##STRATEGY_TXT##', strategyTexts[strategy]);
 
     return new Response(html, {

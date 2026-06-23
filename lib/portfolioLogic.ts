@@ -110,7 +110,9 @@ export const runAnalysis = async (
           a.ticker?.trim() && TICKER_RE.test(a.ticker.trim())
             ? a.ticker.trim()
             : a.name;
-        const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(queryParam)}`);
+        const qp = new URLSearchParams({ assetName: queryParam });
+        if (a.productType) qp.set('productType', a.productType);
+        const res = await fetch(`/api/proxy-finance?${qp}`);
         if (!res.ok) return a;
         const json = await res.json();
         const result = json?.chart?.result?.[0];
@@ -174,13 +176,12 @@ export const runAnalysis = async (
     return a;
   });
 
-  // ── Step 0-d: ETF cost-basis 폴백 ──
-  // 신규·레버리지 ETF(TSLL, SOXL 등)는 Yahoo Finance 시세 조회가 실패하거나
-  // 데이터가 부족할 수 있다. 이 경우 current_value가 0이 되어 weight=0 → 스트레스
-  // 테스트 기여도 0%로 뭉개지는 버그를 매수단가 × 수량으로 방어한다.
+  // ── Step 0-d: buy_price cost-basis 폴백 (전체 quantity 자산) ──
+  // 최근 상장·거래정지·차트 데이터 공백으로 current_price가 0인 자산에 적용.
+  // 매수단가(buy_price)가 입력된 경우 이를 현재가 대용으로 사용하여
+  // totalCheck=0 → 분석 불가 상태를 방지한다.
   const enrichedFinal = enrichedWithBonds.map((a) => {
     if (
-      (a.productType === '국내ETF' || a.productType === '해외ETF') &&
       a.amount_type === 'quantity' &&
       (a.current_price == null || a.current_price === 0) &&
       a.buy_price != null && a.buy_price > 0
@@ -268,14 +269,39 @@ export const runAnalysis = async (
 
   // ── Step 4: quantEngine 호출 ──
   const qr = await runQuantAnalysis(quantInput, tMarginal);
-  const sr = runStressTest(quantInput, totalValue);
+  const sr = await runStressTest(quantInput, totalValue);
 
   const userInterest = parseKoreanNumber(expectedInterestIncome);
   const userDividend = parseKoreanNumber(expectedDividendIncome);
+
+  // ── 실소득 기반 금융소득 산출 (FinancialIncomeGauge.tsx 동일 수식) ─────────────
+  // qr.tax.financialIncome 은 gain(자본 차익)을 이자·배당 대리값으로 사용하여
+  // 자본 차익이 크면 금융소득을 대폭 과대 계상한다.
+  // 대신 실제 수익률 데이터(dividendYield, bond_yield)에서 연간 소득을 직접 산출한다.
+  const actualInterestIncome = assetsWithWeights.reduce((s, a) => {
+    const isBond = a.productType === '국내채권' || a.productType === '해외채권';
+    if (!isBond) return s;
+    // 채권 원금: 수량 기준이면 매수단가 × 수량, 금액 기준이면 amount 그대로
+    const principal = a.amount_type === 'quantity'
+      ? (a.buy_price ?? 0) * a.amount
+      : a.amount;
+    // bond_yield 는 %(예: 5.0) 단위 → 소수 변환
+    return s + principal * ((a.bond_yield ?? 0) / 100);
+  }, 0);
+
+  const actualDividendIncome = assetsWithWeights.reduce((s, a) => {
+    const isBond = a.productType === '국내채권' || a.productType === '해외채권';
+    if (isBond) return s;
+    // dividendYield 는 Yahoo Finance 제공 소수값(예: 0.02 = 2%)
+    const value = a.current_value
+      ?? (a.amount_type === 'quantity' ? (a.current_price ?? 0) * a.amount : a.amount);
+    return s + value * (a.dividendYield ?? 0);
+  }, 0);
+
   const financialIncomeTaxForHealth =
     userInterest > 0 || userDividend > 0
       ? financialIncomeTaxCalculation(userInterest, userDividend, tMarginal)
-      : qr.tax.financialIncome;
+      : financialIncomeTaxCalculation(actualInterestIncome, actualDividendIncome, tMarginal);
 
   const hr = portfolioHealthCheck(
     {

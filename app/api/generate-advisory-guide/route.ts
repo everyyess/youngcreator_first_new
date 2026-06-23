@@ -61,6 +61,92 @@ function text(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+const liquidityStoragePrefix = "__liquidity_entries_v1__";
+
+function ensureWonSuffix(value: string) {
+  const trimmed = value.trim();
+  return trimmed && !trimmed.endsWith("원") ? `${trimmed} 원` : trimmed;
+}
+
+function formatStoredLiquidityValue(value: string, kind: "regular" | "lumpSum" | "emergency") {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith(liquidityStoragePrefix)) return trimmed;
+  try {
+    const entries = JSON.parse(trimmed.slice(liquidityStoragePrefix.length));
+    if (!Array.isArray(entries)) return "";
+    return entries
+      .map((entry) => {
+        const record = entry && typeof entry === "object" ? entry as Record<string, unknown> : {};
+        const purpose = text(record.purpose);
+        const timing = text(record.timing === "기타" ? record.customTiming : record.timing);
+        const amount = ensureWonSuffix(text(record.amount));
+        if (!purpose && !timing && !amount) return "";
+        if (kind === "regular") {
+          const period = timing ? (timing.includes("매") ? timing : `${timing}마다`) : "";
+          return [purpose ? `${purpose} 목적으로` : "", period, amount ? `${amount}의 정기 현금흐름 필요가 있음` : "정기 현금흐름 필요가 있음"].filter(Boolean).join(" ");
+        }
+        if (kind === "lumpSum") {
+          const when = timing ? `${timing.replace(/(?:후|뒤|내)$/, "")} 내` : "";
+          return [when, purpose ? `${purpose} 목적으로` : "", amount ? `${amount}의 목돈 사용 계획이 있음` : "목돈 사용 계획이 있음"].filter(Boolean).join(" ");
+        }
+        return [purpose ? `${purpose} 목적으로` : "", amount ? `${amount}의 비상예비자금 확보 계획이 있음` : "비상예비자금 확보 계획이 있음"].filter(Boolean).join(" ");
+      })
+      .filter(Boolean)
+      .join(", ");
+  } catch {
+    return "";
+  }
+}
+
+function sanitizeInternalMetadataText(value: string) {
+  return value
+    .replace(/__liquidity_entries_v1__\s*\[[^\r\n]*/g, "")
+    .replace(/__liquidity_entries_v1__/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function sanitizeAdvisoryPayload(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeAdvisoryPayload);
+  if (!value || typeof value !== "object") {
+    return typeof value === "string" ? sanitizeInternalMetadataText(value) : value;
+  }
+  const source = value as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  Object.entries(source).forEach(([key, item]) => {
+    if (["preferredAssets", "avoidedAssets", "reflectedPreferredAssets", "reflectedAvoidedAssets", "preferred_assets", "avoided_assets"].includes(key)) return;
+    if (typeof item === "string") {
+      if (key === "regularCashflowNeed") next[key] = formatStoredLiquidityValue(item, "regular");
+      else if (key === "lumpSumPlan") next[key] = formatStoredLiquidityValue(item, "lumpSum");
+      else if (key === "emergencyReservePlan") next[key] = formatStoredLiquidityValue(item, "emergency");
+      else next[key] = sanitizeInternalMetadataText(item);
+      return;
+    }
+    next[key] = sanitizeAdvisoryPayload(item);
+  });
+  return next;
+}
+
+function sanitizeGuideLine(line: GuideLine): GuideLine | null {
+  const cleanText = sanitizeInternalMetadataText(line.text);
+  if (!cleanText) return null;
+  return {
+    ...line,
+    text: cleanText,
+    highlights: line.highlights?.map(sanitizeInternalMetadataText).filter(Boolean),
+    memoItems: line.memoItems?.map(sanitizeInternalMetadataText).filter(Boolean),
+  };
+}
+
+function sanitizeAdvisoryGuide(guide: AdvisoryGuide): AdvisoryGuide {
+  const cleanLines = (lines: GuideLine[]) => lines.map(sanitizeGuideLine).filter((line): line is GuideLine => Boolean(line));
+  return {
+    conflicts: { lines: cleanLines(guide.conflicts.lines) },
+    followUps: { ...guide.followUps, lines: cleanLines(guide.followUps.lines) },
+    explanation: { lines: cleanLines(guide.explanation.lines) },
+  };
+}
+
 function parseKoreanAmount(value: unknown): number | null {
   const raw = text(value).replace(/,/g, "");
   if (!raw) return null;
@@ -163,6 +249,47 @@ function uniqueLines(lines: GuideLine[]) {
 
 function mergeGuideLines(base: GuideLine[], extra: GuideLine[]) {
   return uniqueLines([...base, ...extra]);
+}
+
+function requiredFinancialIncomeTaxLine(payload?: any): GuideLine | null {
+  const rrttllu = payload?.formData?.rrttllu && typeof payload.formData.rrttllu === "object" ? payload.formData.rrttllu : {};
+  const globalTaxImportance = text(rrttllu.globalTaxImportance);
+  const recentGlobalTaxSubject = text(rrttllu.recentGlobalTaxSubject);
+  const isVeryImportant = globalTaxImportance === "매우 중요";
+  const wasRecentSubject = recentGlobalTaxSubject === "예";
+  if (!isVeryImportant && !wasRecentSubject) return null;
+
+  if (isVeryImportant && wasRecentSubject) {
+    return {
+      text: "금융소득종합과세 절감이 매우 중요하다고 응답했으며 최근 3년 내 금융소득종합과세 대상에도 해당되므로 금융소득 절세 측면을 중시해야 합니다.",
+      highlights: ["금융소득종합과세 절감", "최근 3년 내 금융소득종합과세 대상", "금융소득 절세"],
+    };
+  }
+
+  if (isVeryImportant) {
+    return {
+      text: "금융소득종합과세 절감이 매우 중요한 고객이므로 금융소득 절세 측면으로 접근해야 합니다.",
+      highlights: ["금융소득종합과세 절감", "금융소득 절세"],
+    };
+  }
+
+  return {
+    text: "최근 3년 내 금융소득종합과세 대상에 해당되는 고객이므로 금융소득 절세 측면으로 접근해야 합니다.",
+    highlights: ["최근 3년 내 금융소득종합과세 대상", "금융소득 절세"],
+  };
+}
+
+function ensureFinancialIncomeTaxExplanation(guide: AdvisoryGuide, payload?: any): AdvisoryGuide {
+  const taxLine = requiredFinancialIncomeTaxLine(payload);
+  if (!taxLine) return guide;
+  const nonTaxExplanation = guide.explanation.lines.filter((line) => {
+    const body = line.text;
+    return lineTopic(body) !== "tax-strategy" && !/금융소득종합과세|금융소득\s*절세|종합과세|세후수익률|절세/.test(body);
+  });
+  return {
+    ...guide,
+    explanation: { lines: uniqueLines([taxLine, ...nonTaxExplanation]) },
+  };
 }
 
 function lineTopic(value: string) {
@@ -471,11 +598,11 @@ function buildRuleInsights(payload: any): AdvisoryGuide {
     });
     checkpoints.push({ id: "return-risk-alignment", title: "기대수익률과 위험 감내 수준" });
   }
-  const highRiskAssetCue = /레버리지|암호화폐|가상자산|급등주|고위험|파생|선물|옵션/.test(`${rrttllu.preferredAssets}\n${rrttllu.existingAssetPlan}\n${allQualitative}`);
+  const highRiskAssetCue = /레버리지|암호화폐|가상자산|급등주|고위험|파생|선물|옵션/.test(`${rrttllu.existingAssetPlan}\n${allQualitative}`);
   const lowRiskCue = /초저위험|저위험|원금\s*보존|손실.*원하지|손실.*감내.*못|전액\s*환매/.test(`${risk.level}\n${rrttllu.returnObjective}\n${rrttllu.riskAttitude}\n${rrttllu.lossResponse}`);
   if (lowRiskCue && highRiskAssetCue) {
     conflicts.push({
-      text: `고객 응답에는 원금 보전 또는 낮은 위험 선호 신호가 있으나, Smart Input 또는 Unique에는 레버리지·가상자산·고위험 자산 관련 단서가 함께 나타납니다. 실제 손실 감내 수준과 선호 자산의 위험도가 양립 가능한지 확인하는 것이 좋습니다.`,
+      text: `고객 응답에는 원금 보전 또는 낮은 위험 선호 신호가 있으나, Smart Input 또는 Unique에는 레버리지·가상자산·고위험 자산 관련 단서가 함께 나타납니다. 실제 손실 감내 수준과 고위험 자산 단서가 양립 가능한지 확인하는 것이 좋습니다.`,
       highlights: ["낮은 위험 선호", "고위험 자산"],
     });
   }
@@ -508,7 +635,7 @@ function buildRuleInsights(payload: any): AdvisoryGuide {
       highlights: [rrttllu.timeHorizon, rrttllu.expectedReturn],
     });
   }
-  if (text(rrttllu.lumpSumPlan) && /레버리지|인버스|고위험/.test(`${rrttllu.preferredAssets}\n${allQualitative}`)) {
+  if (text(rrttllu.lumpSumPlan) && /레버리지|인버스|고위험/.test(`${allQualitative}`)) {
     conflicts.push({
       text: `고객은 목돈 사용 계획 '${rrttllu.lumpSumPlan}'을 보유하면서 레버리지 또는 고위험 자산 선호도 함께 보입니다. 자금 사용 시점과 손실 가능성이 함께 관리 가능한지 확인하는 것이 좋습니다.`,
       highlights: ["목돈 사용 계획", "레버리지 또는 고위험 자산"],
@@ -588,28 +715,21 @@ function buildRuleInsights(payload: any): AdvisoryGuide {
       memoItems: ["매매 제한 대상 및 가능 범위"],
     });
   }
-  if (/배당\s*ETF|배당주|income ETF/i.test(`${rrttllu.preferredAssets}\n${allQualitative}`) && rrttllu.globalTaxImportance === "매우 중요") {
+  if (/배당\s*ETF|배당주|income ETF/i.test(`${allQualitative}`) && rrttllu.globalTaxImportance === "매우 중요") {
     followUps.push({
       text: `고객은 배당형 자산 선호와 금융소득종합과세 절감 중요도를 함께 보입니다. 배당소득 규모에 따라 세후수익률과 종합과세 영향이 달라질 수 있습니다.`,
       highlights: ["배당형 자산", "금융소득종합과세"],
       memoItems: ["예상 배당소득 규모 및 종합과세 영향"],
     });
   }
-  if (/미국\s*성장주|나스닥|QQQ|SPY|미국.*ETF|해외주식/i.test(`${rrttllu.preferredAssets}\n${allQualitative}`) && rrttllu.foreignStockTaxImportance === "매우 중요") {
+  if (/미국\s*성장주|나스닥|QQQ|SPY|미국.*ETF|해외주식/i.test(`${allQualitative}`) && rrttllu.foreignStockTaxImportance === "매우 중요") {
     followUps.push({
       text: `고객은 미국 성장주 또는 해외주식형 자산 선호와 해외주식 양도소득세 절감 니즈를 함께 보입니다. 투자 규모와 매매 계획에 따라 절세 전략이 달라질 수 있습니다.`,
       highlights: ["미국 성장주", "해외주식 절세"],
       memoItems: ["해외주식 투자 규모 및 절세 니즈"],
     });
   }
-  if (/예금|단기채|MMF|CMA/.test(text(rrttllu.avoidedAssets)) && text(`${rrttllu.regularCashflowNeed}\n${rrttllu.lumpSumPlan}\n${rrttllu.emergencyReservePlan}`)) {
-    followUps.push({
-      text: `고객은 예금·단기채 등 유동성 자산을 피하고 싶어 하지만 유동성 관련 니즈도 함께 입력했습니다. 단기 자금 수요를 어떤 방식으로 충족할지 확인하는 것이 좋습니다.`,
-      highlights: ["유동성 자산 회피", "유동성 니즈"],
-      memoItems: ["단기 자금 수요 충족 방안"],
-    });
-  }
-  if (/암호화폐|가상자산|코인|비트코인|이더리움/.test(`${rrttllu.preferredAssets}\n${allQualitative}`)) {
+  if (/암호화폐|가상자산|코인|비트코인|이더리움/.test(`${allQualitative}`)) {
     followUps.push({
       text: `고객은 암호화폐 또는 가상자산에 관심을 보입니다. 포트폴리오 내 허용 비중과 투자 목적을 확인해야 전체 위험 한도를 정하기 쉽습니다.`,
       highlights: ["암호화폐", "포트폴리오 내 허용 비중"],
@@ -649,19 +769,13 @@ function buildRuleInsights(payload: any): AdvisoryGuide {
       highlights: ["금융상품 이해도", "주요 위험요인", "투자전략"],
     });
   }
-  if (/레버리지|인버스/.test(`${rrttllu.preferredAssets}\n${allQualitative}`)) {
+  if (/레버리지|인버스/.test(`${allQualitative}`)) {
     explanation.push({
       text: `고객은 레버리지형 자산에 관심을 보입니다. 수익 기회보다 복리 효과, 변동성 확대, 장기 보유 시 성과 왜곡 가능성을 먼저 설명하는 것이 투자 판단에 도움이 될 수 있습니다.`,
       highlights: ["레버리지형 자산", "장기 보유 위험"],
     });
   }
-  if (/국채|우량\s*회사채|채권/.test(text(rrttllu.preferredAssets))) {
-    explanation.push({
-      text: `고객은 국채나 우량 회사채 성격의 자산을 선호합니다. 상품 설명 시 쿠폰수익만이 아니라 금리 변동에 따른 가격 변동과 현금흐름 안정성을 함께 설명하는 방식이 효과적일 수 있습니다.`,
-      highlights: ["금리 변동", "현금흐름 안정성"],
-    });
-  }
-  if (/달러\s*MMF|외화\s*MMF|USD\s*MMF/i.test(`${rrttllu.preferredAssets}\n${allQualitative}`)) {
+  if (/달러\s*MMF|외화\s*MMF|USD\s*MMF/i.test(`${allQualitative}`)) {
     explanation.push({
       text: `고객은 달러 MMF 또는 외화 유동성 자산에 관심을 보입니다. 환율 변동, 단기 유동성, 원화 환산 수익률을 함께 설명하면 상품의 역할을 더 명확히 이해할 수 있습니다.`,
       highlights: ["환율 변동", "단기 유동성"],
@@ -732,7 +846,7 @@ function mergeGuides(ruleGuide: AdvisoryGuide, aiGuide: AdvisoryGuide, payload?:
   const sectionedLines = mergeSectionedLines(ruleGuide, aiGuide);
   const realConflictLines = sectionedLines.conflicts.filter((line) => line.text.trim() !== noConflictLine);
   const conflictLines = realConflictLines.length ? realConflictLines : [{ text: noConflictLine }];
-  return sanitizeGuideMemoItems({
+  const guide = sanitizeGuideMemoItems({
     conflicts: { lines: conflictLines },
     followUps: {
       lines: sectionedLines.followUps,
@@ -740,6 +854,7 @@ function mergeGuides(ruleGuide: AdvisoryGuide, aiGuide: AdvisoryGuide, payload?:
     },
     explanation: { lines: sectionedLines.explanation },
   }, payload);
+  return ensureFinancialIncomeTaxExplanation(guide, payload);
 }
 
 function normalizeGuide(value: unknown): AdvisoryGuide {
@@ -756,10 +871,12 @@ function normalizeGuide(value: unknown): AdvisoryGuide {
         if (!line || typeof line !== "object") return null;
         const item = line as Partial<GuideLine>;
         if (typeof item.text !== "string" || !item.text.trim()) return null;
+        const cleanText = sanitizeInternalMetadataText(item.text);
+        if (!cleanText) return null;
         return {
-          text: item.text.trim(),
-          highlights: Array.isArray(item.highlights) ? item.highlights.filter((h): h is string => typeof h === "string" && h.trim().length > 0) : [],
-          memoItems: Array.isArray(item.memoItems) ? item.memoItems.filter((m): m is string => typeof m === "string" && m.trim().length > 0) : [],
+          text: cleanText,
+          highlights: Array.isArray(item.highlights) ? item.highlights.map(sanitizeInternalMetadataText).filter((h): h is string => h.length > 0) : [],
+          memoItems: Array.isArray(item.memoItems) ? item.memoItems.map(sanitizeInternalMetadataText).filter((m): m is string => m.length > 0) : [],
         };
       })
       .filter((line): line is GuideLine => Boolean(line))
@@ -811,7 +928,7 @@ function buildPrompt(payload: unknown, ruleGuide: AdvisoryGuide) {
     "Do NOT classify as conflicts merely because different information exists. These are NOT conflicts by themselves: aggressive investment preference + high expected return + high/very-high risk grade; 5+ year horizon + housing purchase in 5-10 years; 2-3 year horizon + cash need at the same or later timing; future spending that is not large relative to total assets; existence of gifting, retirement, study-abroad, housing purchase, bonus, stock option, irregular income, or large financial assets.",
     "Conflicts should be created only when the customer's goal, investment horizon, risk preference, liquidity plan, asset scale, or likely behavior are practically difficult to satisfy together. If unclear, prefer followUps instead of conflicts.",
     `If no actual conflict rule is detected, conflicts must contain ONLY this exact sentence and no extra explanation: "${noConflictLine}"`,
-    "For conflicts, do not select only one representative case. If multiple conflicts have different causes, rules, or counseling points, output all of them. Merge only identical or very similar conflicts. For example, high expected return vs stable return preference and low-risk preference vs leverage/crypto/high-risk asset preference are different conflicts and must both remain.",
+    "For conflicts, do not select only one representative case. If multiple conflicts have different causes, rules, or counseling points, output all of them. Merge only identical or very similar conflicts. For example, high expected return vs stable return preference and low-risk preference vs current high-risk behavior signals are different conflicts and must both remain.",
     "Good conflict examples: principal preservation first + expected return 15% or higher; very-low-risk preference + leverage/crypto/high-risk asset desire; 10+ year horizon + using most assets within 1-2 years; retirement funding purpose + aggressive short-term trading plan; liquidity needs taking most investable assets; low loss tolerance + high-risk product preference.",
     "followUps: each item must contain one evidence-rich text and exactly ONE memoItems label derived ONLY from that same text. Do not create memoItems for anything not mentioned in followUps.text.",
     "followUps are for additional questions, not contradictions. Prefer followUps for housing timing, child education/study-abroad funding, retirement preparation, gifting details, emergency-reserve management, bonus/stock-option usage, financial-asset allocation, company trading restrictions, tax planning, and spouse/family decision participation.",
@@ -823,7 +940,7 @@ function buildPrompt(payload: unknown, ruleGuide: AdvisoryGuide) {
     "For each followUps item, choose only the single most important PB memo label. The server will display PB memo as a 1:1 counterpart to followUps.",
     "Integrate similar detected rules into one PB-ready insight. Do not list raw rules. Preserve information diversity across Tax, Risk, Time Horizon, Liquidity, Legal, and Unique instead of repeating one theme.",
     "Use semantic equivalence when applying rules. Job titles, ticker names, ETF names, product names, or informal descriptions may differ from the Word-file wording; if the meaning is the same, apply the same rule.",
-    "Use Unique only when it adds distinct customer traits, counseling strategy, or behavior patterns. Do not repeat asset preference alone when Risk already explains aggression; keep Unique insights when they affect counseling style, such as spouse influence, limited monitoring time, market-news sensitivity, many questions, portfolio dissatisfaction, or tax-sensitive dividend preferences.",
+    "Use Unique only when it adds distinct customer traits, counseling strategy, or behavior patterns. Do not infer from removed asset-preference fields; keep Unique insights only when they affect counseling style, such as spouse influence, limited monitoring time, market-news sensitivity, many questions, portfolio dissatisfaction, or tax sensitivity.",
     "Additional follow-up rules: if the input clearly shows aggressive investing caused past large losses, create a followUps item about checking the current investment strategy and risk-management method. If existing portfolio returns are low or the client is dissatisfied with the current portfolio, create a followUps item about identifying the cause of weak returns and explaining improvement direction. If asset monitoring time is limited, create a followUps item about after-service needs and management method.",
     "In explanation, do not list raw keywords such as '시장 뉴스, 민감, 망가진'. Interpret qualitative notes from Unique 기타 and Smart Input into a counseling strategy.",
     "Unique 기타 is a core input for explanation. Review every qualitative item and translate it into how the PB should explain, pace, frame risk, handle family influence, or reduce impulsive decisions.",
@@ -838,7 +955,7 @@ function buildPrompt(payload: unknown, ruleGuide: AdvisoryGuide) {
     "For each line, include highlights containing only the short key phrases that should be red bold in the UI.",
     "For followUps.memoItems, return compact PB memo labels only when they are directly supported by that followUps.text.",
     "Do not generate customer-visible promises or definitive investment recommendations.",
-    "Prefer specific statements over generic ones. Use the exact customer facts where possible: expected return, risk grade, investment period, large cash needs, emergency reserve, irregular income, preferred assets, avoided assets, spouse/family influence, market-news sensitivity, fast decision style, many questions, tax importance, or portfolio dissatisfaction.",
+    "Prefer specific statements over generic ones. Use the exact customer facts where possible: expected return, risk grade, investment period, large cash needs, emergency reserve, irregular income, spouse/family influence, market-news sensitivity, fast decision style, many questions, tax importance, or portfolio dissatisfaction.",
     "If a customer's stated risk appetite and behavioral signals differ, describe the gap carefully and cite both sides.",
     "If Smart Input mentions market sensitivity, impatience, spouse influence, many questions, or family issues, use those as interpretation evidence rather than ignoring them. Express it as a counseling strategy, not a keyword list.",
     "The following rule-based insights were calculated before Gemini. They are mandatory context. You may refine, merge, or expand them, but do not ignore them when relevant.",
@@ -861,7 +978,7 @@ function fallbackGuide(payload: any): AdvisoryGuide {
   const totalAssets = parseKoreanAmount(financial.totalAssets);
   const maxExpectedReturn = extractMaxPercent(rrttllu.expectedReturn);
   const conservativeObjective = rrttllu.returnObjective === "원금 보존 투자" || text(rrttllu.returnObjective).includes("안정적");
-  const highRiskAssetCue = /레버리지|암호화폐|가상자산|급등주|고위험|파생|선물|옵션/.test(`${rrttllu.preferredAssets}\n${rrttllu.existingAssetPlan}\n${qualitative}`);
+  const highRiskAssetCue = /레버리지|암호화폐|가상자산|급등주|고위험|파생|선물|옵션/.test(`${rrttllu.existingAssetPlan}\n${qualitative}`);
   const lowRiskCue = /초저위험|저위험|원금\s*보존|손실.*원하지|손실.*감내.*못|전액\s*환매/.test(`${risk.level}\n${rrttllu.returnObjective}\n${rrttllu.riskAttitude}\n${rrttllu.lossResponse}`);
 
   if (rrttllu.returnObjective === "원금 보존 투자" && maxExpectedReturn !== null && maxExpectedReturn >= 15) {
@@ -877,7 +994,7 @@ function fallbackGuide(payload: any): AdvisoryGuide {
   }
   if (lowRiskCue && highRiskAssetCue) {
     conflicts.push({
-      text: `고객 응답에는 원금 보전 또는 낮은 위험 선호 신호가 있으나, Smart Input 또는 Unique에는 레버리지·가상자산·고위험 자산 관련 단서가 함께 나타납니다. 실제 손실 감내 수준과 선호 자산의 위험도가 양립 가능한지 확인하는 것이 좋습니다.`,
+      text: `고객 응답에는 원금 보전 또는 낮은 위험 선호 신호가 있으나, Smart Input 또는 Unique에는 레버리지·가상자산·고위험 자산 관련 단서가 함께 나타납니다. 실제 손실 감내 수준과 고위험 자산 단서가 양립 가능한지 확인하는 것이 좋습니다.`,
       highlights: ["낮은 위험 선호", "고위험 자산"],
     });
   }
@@ -936,12 +1053,6 @@ function fallbackGuide(payload: any): AdvisoryGuide {
     explanation.push({
       text: `세금 관련 응답은 종합과세 절감 중요도 '${rrttllu.globalTaxImportance || "미입력"}', 사전증여 계획 '${rrttllu.giftingPlan || "미입력"}'입니다. 세전수익률보다 세후수익률과 절세 구조 중심으로 설명하는 것이 더 효과적일 수 있습니다.`,
       highlights: ["세후수익률", "절세 구조"],
-    });
-  }
-  if (rrttllu.preferredAssets || rrttllu.avoidedAssets) {
-    explanation.push({
-      text: `고객은 선호 자산 '${rrttllu.preferredAssets || "미입력"}', 기피 자산 '${rrttllu.avoidedAssets || "미입력"}'을 입력했습니다. 추천 포트폴리오가 이 선호·기피 조건을 어떻게 반영하는지 먼저 설명하면 수용도가 높아질 수 있습니다.`,
-      highlights: ["선호 자산", "기피 자산"],
     });
   }
   if (hasNegatedTrait(qualitative, marketSensitivityPatterns)) {
@@ -1008,13 +1119,14 @@ function fallbackGuide(payload: any): AdvisoryGuide {
 }
 
 async function callGemini(payload: unknown) {
-  const ruleGuide = buildRuleInsights(payload);
+  const sanitizedPayload = sanitizeAdvisoryPayload(payload);
+  const ruleGuide = buildRuleInsights(sanitizedPayload);
   const apiKey = getGeminiApiKey();
-  if (!apiKey) return { source: "mock", geminiUsed: false, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+  if (!apiKey) return { source: "mock", geminiUsed: false, data: sanitizeAdvisoryGuide(mergeGuides(ruleGuide, fallbackGuide(sanitizedPayload), sanitizedPayload)) };
 
   try {
-    const prompt = buildPrompt(payload, ruleGuide);
-    const requestPayload = payload as {
+    const prompt = buildPrompt(sanitizedPayload, ruleGuide);
+    const requestPayload = sanitizedPayload as {
       customerId?: string;
       smartInputNote?: string;
       uniqueOther?: string;
@@ -1045,10 +1157,12 @@ async function callGemini(payload: unknown) {
     const result = await response.json();
     const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string") throw new Error("Gemini response did not include JSON text.");
-    return { source: "gemini", geminiUsed: true, data: mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), payload) };
+    return { source: "gemini", geminiUsed: true, data: sanitizeAdvisoryGuide(mergeGuides(ruleGuide, normalizeGuide(JSON.parse(text)), sanitizedPayload)) };
   } catch (error) {
     console.error("AI advisory guide generation failed. Falling back to mock.", { error });
-    return { source: "mock", geminiUsed: false, fallback: true, data: mergeGuides(ruleGuide, fallbackGuide(payload), payload) };
+    const errorText = error instanceof Error ? error.message : JSON.stringify(error);
+    const fallbackReason = /RESOURCE_EXHAUSTED|429|quota|rate_limit/i.test(errorText) ? "rate_limit" : "api_request_failed";
+    return { source: "mock", geminiUsed: false, fallback: true, fallbackReason, data: sanitizeAdvisoryGuide(mergeGuides(ruleGuide, fallbackGuide(sanitizedPayload), sanitizedPayload)) };
   }
 }
 

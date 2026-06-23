@@ -1,0 +1,215 @@
+{
+  "Gold Silver Mining": [
+    { "ticker": "NEM",  "name": "Newmont" },
+    { "ticker": "GOLD", "name": "Barrick Gold" },
+    { "ticker": "AEM",  "name": "Agnico Eagle Mines" },
+    { "ticker": "WPM",  "name": "Wheaton Precious Metals" },
+    { "ticker": "FNV",  "name": "Franco-Nevada" },
+    { "ticker": "KGC",  "name": "Kinross Gold" },
+    { "ticker": "AU",   "name": "AngloGold Ashanti" },
+    { "ticker": "PAAS", "name": "Pan American Silver" },
+    { "ticker": "HL",   "name": "Hecla Mining" },
+    { "ticker": "GFI",  "name": "Gold Fields" }
+  ],
+  "Semiconductor Chip Manufacturer": [
+    { "ticker": "NVDA", "name": "NVIDIA" },
+    { "ticker": "AMD",  "name": "Advanced Micro Devices" },
+    { "ticker": "AVGO", "name": "Broadcom" },
+    { "ticker": "QCOM", "name": "Qualcomm" },
+    { "ticker": "INTC", "name": "Intel" },
+    { "ticker": "TSM",  "name": "Taiwan Semiconductor" },
+    { "ticker": "ASML", "name": "ASML Holding" },
+    { "ticker": "MU",   "name": "Micron Technology" },
+    { "ticker": "LRCX", "name": "Lam Research" },
+    { "ticker": "AMAT", "name": "Applied Materials" }
+  ],
+  "Healthcare Biotech Pharma": [
+    { "ticker": "LLY",  "name": "Eli Lilly" },
+    { "ticker": "UNH",  "name": "UnitedHealth Group" },
+    { "ticker": "JNJ",  "name": "Johnson & Johnson" },
+    { "ticker": "ABBV", "name": "AbbVie" },
+    { "ticker": "MRK",  "name": "Merck" },
+    { "ticker": "PFE",  "name": "Pfizer" },
+    { "ticker": "AMGN", "name": "Amgen" },
+    { "ticker": "MRNA", "name": "Moderna" },
+    { "ticker": "GILD", "name": "Gilead Sciences" },
+    { "ticker": "BMY",  "name": "Bristol Myers Squibb" }
+  ],
+  "Lithium Battery Electric Vehicle": [
+    { "ticker": "TSLA", "name": "Tesla" },
+    { "ticker": "RIVN", "name": "Rivian Automotive" },
+    { "ticker": "NIO",  "name": "NIO" },
+    { "ticker": "LI",   "name": "Li Auto" },
+    { "ticker": "ALB",  "name": "Albemarle" },
+    { "ticker": "SQM",  "name": "Sociedad Química y Minera" },
+    { "ticker": "LAC",  "name": "Lithium Americas" },
+    { "ticker": "QS",   "name": "QuantumScape" }
+  ],
+  "Clean Energy Solar Wind": [
+    { "ticker": "ENPH", "name": "Enphase Energy" },
+    { "ticker": "FSLR", "name": "First Solar" },
+    { "ticker": "SEDG", "name": "SolarEdge Technologies" },
+    { "ticker": "NEE",  "name": "NextEra Energy" },
+    { "ticker": "BEP",  "name": "Brookfield Renewable Partners" },
+    { "ticker": "CWEN", "name": "Clearway Energy" },
+    { "ticker": "ARRY", "name": "Array Technologies" },
+    { "ticker": "RUN",  "name": "Sunrun" }
+  ],
+  "Real Estate REIT": [
+    { "ticker": "PLD",  "name": "Prologis" },
+    { "ticker": "AMT",  "name": "American Tower" },
+    { "ticker": "EQIX", "name": "Equinix" },
+    { "ticker": "O",    "name": "Realty Income" },
+    { "ticker": "PSA",  "name": "Public Storage" },
+    { "ticker": "SPG",  "name": "Simon Property Group" },
+    { "ticker": "VICI", "name": "VICI Properties" }
+  ],
+  "Oil Gas Exploration": [
+    { "ticker": "XOM",  "name": "ExxonMobil" },
+    { "ticker": "CVX",  "name": "Chevron" },
+    { "ticker": "COP",  "name": "ConocoPhillips" },
+    { "ticker": "EOG",  "name": "EOG Resources" },
+    { "ticker": "SLB",  "name": "Schlumberger" },
+    { "ticker": "MPC",  "name": "Marathon Petroleum" },
+    { "ticker": "VLO",  "name": "Valero Energy" },
+    { "ticker": "HAL",  "name": "Halliburton" },
+    { "ticker": "DVN",  "name": "Devon Energy" },
+    { "ticker": "OXY",  "name": "Occidental Petroleum" }
+  ],
+  "Agriculture Fertilizer": [
+    { "ticker": "MOS",  "name": "Mosaic" },
+    { "ticker": "NTR",  "name": "Nutrien" },
+    { "ticker": "CF",   "name": "CF Industries" },
+    { "ticker": "ADM",  "name": "Archer-Daniels-Midland" },
+    { "ticker": "BG",   "name": "Bunge" },
+    { "ticker": "TSN",  "name": "Tyson Foods" },
+    { "ticker": "DE",   "name": "Deere & Company" },
+    { "ticker": "FMC",  "name": "FMC Corporation" }
+  ],
+  "Global Banking": [
+    { "ticker": "JPM",  "name": "JPMorgan Chase" },
+    { "ticker": "GS",   "name": "Goldman Sachs" },
+    { "ticker": "MS",   "name": "Morgan Stanley" },
+    { "ticker": "BAC",  "name": "Bank of America" },
+    { "ticker": "C",    "name": "Citigroup" },
+    { "ticker": "WFC",  "name": "Wells Fargo" },
+    { "ticker": "BLK",  "name": "BlackRock" },
+    { "ticker": "UBS",  "name": "UBS Group" }
+  ],
+  "Autonomous Driving": [
+    { "ticker": "TSLA", "name": "Tesla" },
+    { "ticker": "MBLY", "name": "Mobileye Global" },
+    { "ticker": "GOOGL","name": "Alphabet (Waymo)" },
+    { "ticker": "GM",   "name": "General Motors" },
+    { "ticker": "F",    "name": "Ford Motor" },
+    { "ticker": "LAZR", "name": "Luminar Technologies" },
+    { "ticker": "UBER", "name": "Uber Technologies" }
+  ],
+  "Infrastructure Engineering": [
+    { "ticker": "CAT",  "name": "Caterpillar" },
+    { "ticker": "PWR",  "name": "Quanta Services" },
+    { "ticker": "URI",  "name": "United Rentals" },
+    { "ticker": "DE",   "name": "Deere & Company" },
+    { "ticker": "EMR",  "name": "Emerson Electric" },
+    { "ticker": "VMC",  "name": "Vulcan Materials" },
+    { "ticker": "MLM",  "name": "Martin Marietta Materials" }
+  ],
+  "Mega Cap Stocks": [
+    { "ticker": "AAPL",  "name": "Apple" },
+    { "ticker": "MSFT",  "name": "Microsoft" },
+    { "ticker": "NVDA",  "name": "NVIDIA" },
+    { "ticker": "AMZN",  "name": "Amazon" },
+    { "ticker": "GOOGL", "name": "Alphabet" },
+    { "ticker": "META",  "name": "Meta Platforms" },
+    { "ticker": "TSLA",  "name": "Tesla" },
+    { "ticker": "BRK.B", "name": "Berkshire Hathaway" }
+  ],
+  "Cryptocurrency Blockchain": [
+    { "ticker": "MSTR", "name": "MicroStrategy" },
+    { "ticker": "COIN", "name": "Coinbase Global" },
+    { "ticker": "MARA", "name": "Marathon Digital Holdings" },
+    { "ticker": "RIOT", "name": "Riot Platforms" },
+    { "ticker": "CLSK", "name": "CleanSpark" },
+    { "ticker": "HIVE", "name": "HIVE Digital Technologies" }
+  ],
+  "AI Power Infrastructure": [
+    { "ticker": "VST",  "name": "Vistra Energy" },
+    { "ticker": "CEG",  "name": "Constellation Energy" },
+    { "ticker": "GEV",  "name": "GE Vernova" },
+    { "ticker": "ETN",  "name": "Eaton Corporation" },
+    { "ticker": "PWR",  "name": "Quanta Services" },
+    { "ticker": "ETR",  "name": "Entergy" },
+    { "ticker": "SO",   "name": "Southern Company" },
+    { "ticker": "EMR",  "name": "Emerson Electric" }
+  ],
+  "Artificial Intelligence Big Data": [
+    { "ticker": "MSFT", "name": "Microsoft" },
+    { "ticker": "GOOGL","name": "Alphabet" },
+    { "ticker": "AMZN", "name": "Amazon" },
+    { "ticker": "META", "name": "Meta Platforms" },
+    { "ticker": "IBM",  "name": "IBM" },
+    { "ticker": "SNOW", "name": "Snowflake" },
+    { "ticker": "PLTR", "name": "Palantir Technologies" },
+    { "ticker": "CRM",  "name": "Salesforce" }
+  ],
+  "Uranium Nuclear Energy": [
+    { "ticker": "CCJ",  "name": "Cameco" },
+    { "ticker": "NXE",  "name": "NexGen Energy" },
+    { "ticker": "DNN",  "name": "Denison Mines" },
+    { "ticker": "UEC",  "name": "Uranium Energy" },
+    { "ticker": "UUUU", "name": "Energy Fuels" },
+    { "ticker": "VST",  "name": "Vistra Energy" },
+    { "ticker": "CEG",  "name": "Constellation Energy" },
+    { "ticker": "SMR",  "name": "NuScale Power" }
+  ],
+  "Cybersecurity Technology": [
+    { "ticker": "CRWD", "name": "CrowdStrike" },
+    { "ticker": "PANW", "name": "Palo Alto Networks" },
+    { "ticker": "FTNT", "name": "Fortinet" },
+    { "ticker": "ZS",   "name": "Zscaler" },
+    { "ticker": "OKTA", "name": "Okta" },
+    { "ticker": "S",    "name": "SentinelOne" },
+    { "ticker": "CYBR", "name": "CyberArk" },
+    { "ticker": "QLYS", "name": "Qualys" }
+  ],
+  "Quantum Computing Technology": [
+    { "ticker": "IBM",  "name": "IBM" },
+    { "ticker": "GOOGL","name": "Alphabet" },
+    { "ticker": "MSFT", "name": "Microsoft" },
+    { "ticker": "IONQ", "name": "IonQ" },
+    { "ticker": "RGTI", "name": "Rigetti Computing" },
+    { "ticker": "QUBT", "name": "Quantum Computing Inc" },
+    { "ticker": "QBTS", "name": "D-Wave Quantum" },
+    { "ticker": "AMZN", "name": "Amazon" }
+  ],
+  "Rare Earth Strategic Materials": [
+    { "ticker": "MP",   "name": "MP Materials" },
+    { "ticker": "ALB",  "name": "Albemarle" },
+    { "ticker": "SQM",  "name": "Sociedad Química y Minera" },
+    { "ticker": "FCX",  "name": "Freeport-McMoRan" },
+    { "ticker": "VALE", "name": "Vale" },
+    { "ticker": "NEM",  "name": "Newmont" },
+    { "ticker": "BHP",  "name": "BHP Group" },
+    { "ticker": "RIO",  "name": "Rio Tinto" }
+  ],
+  "Data Center Infrastructure": [
+    { "ticker": "EQIX", "name": "Equinix" },
+    { "ticker": "DLR",  "name": "Digital Realty" },
+    { "ticker": "VRT",  "name": "Vertiv Holdings" },
+    { "ticker": "SMCI", "name": "Super Micro Computer" },
+    { "ticker": "IRM",  "name": "Iron Mountain" },
+    { "ticker": "NVDA", "name": "NVIDIA" },
+    { "ticker": "AMD",  "name": "Advanced Micro Devices" },
+    { "ticker": "AVGO", "name": "Broadcom" }
+  ],
+  "Robotics Automation": [
+    { "ticker": "ISRG", "name": "Intuitive Surgical" },
+    { "ticker": "ROK",  "name": "Rockwell Automation" },
+    { "ticker": "TER",  "name": "Teradyne" },
+    { "ticker": "NVDA", "name": "NVIDIA" },
+    { "ticker": "EMR",  "name": "Emerson Electric" },
+    { "ticker": "ABB",  "name": "ABB Ltd" },
+    { "ticker": "FANUY","name": "Fanuc" },
+    { "ticker": "IRBT", "name": "iRobot" }
+  ]
+}

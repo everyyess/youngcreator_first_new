@@ -1377,11 +1377,11 @@ export default function ExistingPortfolioTab({
 
           {/* Stress Test */}
           {stressResult && (
-            <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 4대 위기 시나리오" accent="red">
+            <ResultCard icon={<AlertTriangle size={18} />} title="스트레스 테스트 – 3대 위기 시나리오" accent="red">
               <div className="space-y-4">
                 {/* Scenario selector */}
                 <div className="flex flex-wrap gap-2">
-                  {(["scenario1", "scenario2", "scenario3", "scenario4"] as const).map((key, idx) => {
+                  {(["scenario1", "scenario2", "scenario3"] as const).map((key, idx) => {
                     const sc = stressResult[key];
                     return (
                       <button
@@ -1405,7 +1405,7 @@ export default function ExistingPortfolioTab({
 
                 {/* Selected scenario details */}
                 {(() => {
-                  const keys = ["scenario1", "scenario2", "scenario3", "scenario4"];
+                  const keys = ["scenario1", "scenario2", "scenario3"];
                   const sc = stressResult[keys[selectedScenario]];
                   if (!sc) return null;
                   return <StressScenarioBar scenario={sc} />;

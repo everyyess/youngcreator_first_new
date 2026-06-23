@@ -39,16 +39,16 @@ const PORTFOLIO_INPUT_KEY = "portfolio-input-assets-v1";
 
 const EMPTY_ASSET: PortfolioAsset = {
   name: "",
-  asset_class: "해외주식",
+  asset_class: "국내주식",
   theme: "기타",
-  country: "미국",
+  country: "한국",
   buy_price: null,
   amount: 0,
   amount_type: "quantity",
   is_hedged: false,
   needs_review: false,
   ticker: "",
-  productType: "ETF",
+  productType: "국내주식",
 };
 
 // AssetRow 에서 채권 여부 판별에 사용 (기존 로직 유지)
@@ -147,6 +147,7 @@ export default function ExistingPortfolioTab() {
     setAnalysisResult,
     setPortfolioDirty,
     pushToRebalancingSell,
+    clearSellHistory,
     saveTaxSummary,
   } = useCustomerContext();
 
@@ -245,6 +246,8 @@ export default function ExistingPortfolioTab() {
   const triggerAnalysis = useCallback(
     async (assets: PortfolioAsset[]) => {
       if (!assets.length) return;
+      // 새 분석 시작 시 TAB 2-5 확정 매도 현황을 공집합으로 초기화
+      clearSellHistory();
       setPortfolioIsRunning(true);
       setPortfolioErrorMsg("");
       setPortfolioStatusMsg("환율 조회 중...");
@@ -321,7 +324,7 @@ export default function ExistingPortfolioTab() {
         setPortfolioIsRunning(false);
       }
     },
-    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty, pushToRebalancingSell]
+    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty, pushToRebalancingSell, clearSellHistory]
   );
 
   // ── 토스트 ────────────────────────────────────────────────────────────────
@@ -546,7 +549,7 @@ export default function ExistingPortfolioTab() {
   // ── 지능형 추론 (Gemini AI + 배당 데이터) ────────────────────────────────
 
   const handleSmartInference = useCallback(
-    async (idx: number, name: string) => {
+    async (idx: number, name: string, productType?: string) => {
       if (!name.trim()) return;
       setInferringIdx(idx);
       showToast(`'${name}' 분석 중...`);
@@ -557,7 +560,9 @@ export default function ExistingPortfolioTab() {
       try {
         let res: Response;
         try {
-          res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`, {
+          const qp = new URLSearchParams({ assetName: name });
+          if (productType) qp.set('productType', productType);
+          res = await fetch(`/api/proxy-finance?${qp}`, {
             signal: controller.signal,
           });
         } catch (fetchErr) {
@@ -605,16 +610,20 @@ export default function ExistingPortfolioTab() {
 
         const geminiAssetClass  = typeof data.assetClass  === "string" ? data.assetClass  : "";
         const geminiProductType = typeof data.productType === "string" ? data.productType : "";
-        const unifiedType = geminiAssetClass
+        // API 응답에서 추론한 유형 — productType(유저 선택)이 없을 때만 폴백으로 사용
+        const apiType = geminiAssetClass
           ? toUnifiedProductType(geminiAssetClass, geminiProductType)
           : undefined;
+        // [0순위] 유저가 드롭다운으로 선택한 productType 완전 고정
+        // API 응답이 어떤 값을 반환해도 productType만큼은 절대 덮어쓰지 않음
+        const resolvedType = productType ?? apiType;
 
         const rawPrice: number | null =
           (data?.chart as Record<string, unknown>)?.result
             ? ((data.chart as { result?: Array<{ meta?: { regularMarketPrice?: number } }> })
                 ?.result?.[0]?.meta?.regularMarketPrice ?? null)
             : null;
-        const isBondAsset = BOND_TYPES.has(unifiedType ?? "");
+        const isBondAsset = BOND_TYPES.has(resolvedType ?? "");
 
         let currentPriceKRW: number | null = null;
         if (typeof rawPrice === "number" && rawPrice > 0 && !isBondAsset) {
@@ -643,12 +652,12 @@ export default function ExistingPortfolioTab() {
           ticker,
           // 한국어명 → 영문 공식명 → 입력값 순으로 이름 보정
           ...(resolvedName ? { name: resolvedName } : {}),
-          ...(unifiedType ? {
-            productType: unifiedType,
-            asset_class: deriveAssetClass(unifiedType),
-            country:     deriveCountry(unifiedType),
+          ...(resolvedType ? {
+            productType: resolvedType,          // 유저 선택 우선 → API 응답 폴백 순
+            asset_class: deriveAssetClass(resolvedType),
+            country:     deriveCountry(resolvedType),
           } : {}),
-          ...(!unifiedType && data.country ? { country: data.country as string } : {}),
+          ...(!resolvedType && data.country ? { country: data.country as string } : {}),
           ...(currentPriceKRW !== null ? { current_price: currentPriceKRW } : {}),
           is_hedged: false,
           ...(dividendYield != null ? { dividendYield } : {}),
@@ -900,9 +909,9 @@ export default function ExistingPortfolioTab() {
               <thead className="border-b border-slate-200 bg-slate-50">
                 <tr>
                   {[
+                    "상품유형",
                     "종목명",
                     "티커",
-                    "상품유형",
                     "수량(주/개)",
                     "매수단가(원화)",
                     "현재가",
@@ -980,7 +989,7 @@ interface AssetRowProps {
   editingTicker: boolean;
   onUpdate: (i: number, patch: Partial<PortfolioAsset>) => void;
   onRemove: (i: number) => void;
-  onInfer: (idx: number, name: string) => void;
+  onInfer: (idx: number, name: string, productType?: string) => void;
   onStartEditTicker: () => void;
   onEndEditTicker: () => void;
 }
@@ -1016,7 +1025,19 @@ function AssetRow({
   return (
     <tr className="bg-white hover:bg-slate-50">
 
-      {/* 종목명 + Gemini 자동완성 버튼 */}
+      {/* 0순위: 통합 상품유형 — 먼저 선택 후 종목명 입력 유도 */}
+      <td className="px-3 py-2">
+        <select
+          className="h-9 rounded border border-slate-200 px-2 text-xs text-navy"
+          value={a.productType ?? ""}
+          onChange={(e) => handleProductTypeChange(e.target.value)}
+        >
+          <option value="">선택</option>
+          {UNIFIED_PRODUCT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </td>
+
+      {/* 종목명 + 티커 확인 버튼 */}
       <td className="px-3 py-2">
         <div className="flex items-center gap-1">
           <input
@@ -1031,14 +1052,14 @@ function AssetRow({
             disabled={isBond}
             onChange={(e) => onUpdate(idx, { name: e.target.value })}
             onBlur={(e) => {
-              if (!isBond && e.target.value.trim()) onInfer(idx, e.target.value.trim());
+              if (!isBond && e.target.value.trim()) onInfer(idx, e.target.value.trim(), a.productType ?? undefined);
             }}
           />
           <button
             type="button"
-            title="Gemini AI 자동 완성"
+            title="티커 확인"
             disabled={isBond || isInferring || !a.name.trim()}
-            onClick={() => onInfer(idx, a.name)}
+            onClick={() => onInfer(idx, a.name, a.productType ?? undefined)}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-violet-200 bg-violet-50 text-violet-500 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {isInferring
@@ -1072,18 +1093,6 @@ function AssetRow({
             {a.ticker || <span className="text-slate-300">—</span>}
           </span>
         )}
-      </td>
-
-      {/* 통합 상품유형 */}
-      <td className="px-3 py-2">
-        <select
-          className="h-9 rounded border border-slate-200 px-2 text-xs text-navy"
-          value={a.productType ?? ""}
-          onChange={(e) => handleProductTypeChange(e.target.value)}
-        >
-          <option value="">선택</option>
-          {UNIFIED_PRODUCT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
       </td>
 
       {/* 수량(주/개) — 채권 유형일 때 잠금 */}

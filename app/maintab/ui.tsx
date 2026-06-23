@@ -202,12 +202,12 @@ export function ExpectedReturnField({ value, unknownSelected, onChange, onToggle
     </div>
   );
 }
-export function ChoiceGroup({ label, description, options, value, onChange, tone, cardClassName, missing = false }: { label: string; description?: string; options: string[]; value: string; onChange: (value: string) => void; tone?: "blue" | "gray"; cardClassName?: string; missing?: boolean }) {
+export function ChoiceGroup({ label, description, options, value, onChange, tone, cardClassName, optionGridClassName, missing = false }: { label: string; description?: string; options: string[]; value: string; onChange: (value: string) => void; tone?: "blue" | "gray"; cardClassName?: string; optionGridClassName?: string; missing?: boolean }) {
   return (
     <div className={`question-card ${tone ? `question-card-${tone}` : ""} ${cardClassName ?? ""} rounded-lg border border-slate-200 p-4`}>
       <QuestionTitle label={label} missing={missing} className="text-[15px] font-bold leading-6 text-slate-800" />
       {description ? <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p> : null}
-      <div className={`mt-3 grid max-w-5xl gap-2.5 ${optionGridClass(options.length)}`}>
+      <div className={`mt-3 grid max-w-5xl gap-2.5 ${optionGridClassName ?? optionGridClass(options.length)}`}>
         {options.map((option) => (
           <button key={option} type="button" onClick={() => onChange(option)} className={`${optionButtonClass} ${value === option ? optionSelectedClass : optionIdleClass}`}>{option}</button>
         ))}

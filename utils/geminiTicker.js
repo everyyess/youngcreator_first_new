@@ -1,141 +1,110 @@
 /**
- * utils/geminiTicker.js
+ * utils/geminiTicker.js — 금융 메타데이터 추출기
  *
- * 한글 종목명·약어를 Yahoo Finance 티커 + 자산 메타데이터로 변환하는 Gemini AI 유틸리티.
- * 서버 전용 (route.js 에서만 import) — 클라이언트 번들에 포함되지 않음.
+ * Gemini API로 종목명에서 상장 여부·KRX 코드·시장·영문 사명을 추출합니다.
+ * route.js 서버 전용 (클라이언트 번들에 포함되지 않음).
  *
  * 환경변수 우선순위:
  *   1. GEMINI_API_KEY          (서버 전용, 권장)
- *   2. NEXT_PUBLIC_GEMINI_API_KEY (서버·클라이언트 공용, 차선)
+ *   2. NEXT_PUBLIC_GEMINI_API_KEY
  *
  * 반환 타입:
  *   {
- *     ticker:      string | null,   // Yahoo Finance 티커. UNKNOWN이면 null
- *     englishName: string | null,   // Yahoo Search용 영문 종목명 (티커 불명 시 징검다리)
- *     assetClass:  string | null,
- *     productType: string | null,
- *     country:     string | null,
- *   } | null                        // Gemini 완전 실패 시 null
+ *     isListed:    boolean,                          // 거래소 상장 여부
+ *     krCode:      string | null,                    // 6자리 KRX 코드 (선행 0 포함)
+ *     market:      "KOSPI" | "KOSDAQ" | "US" | null,
+ *     englishName: string | null,                    // Yahoo Search용 공식 영문 사명
+ *   } | null  // Gemini 완전 실패 시 null
  */
 
 const GEMINI_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-const VALID_TICKER_RE = /^[\w.\-=^]+$/;
+const KRCODE_RE  = /^\d{6}$/;
+const MARKET_SET = new Set(['KOSPI', 'KOSDAQ', 'US']);
 
-const ASSET_CLASS_SET  = new Set(['국내주식','해외주식','국내채권','해외채권','금','리츠','현금','달러']);
-const PRODUCT_TYPE_SET = new Set(['개별주식','ETF','채권','리츠','펀드','현금','외화','암호화폐']);
-const COUNTRY_SET      = new Set(['한국','미국','일본','중국','유럽','기타']);
+const SYSTEM_INSTRUCTION =
+  '너는 주식 종목의 상장 여부와 거래소 메타데이터를 추출하는 금융 정보 봇이야. ' +
+  '사용자가 입력한 종목명을 분석하여 반드시 아래 JSON 형식 한 줄로만 응답해야 한다. 설명·마크다운·코드블록 금지.\n' +
+  '{"isListed":true/false,"krCode":"6자리숫자또는null","market":"KOSPI또는KOSDAQ또는US또는null","englishName":"영문사명또는null","koreanName":"한국어종목명또는null"}\n\n' +
+
+  '━━━ 필드 규칙 ━━━\n' +
+  '[isListed] 해당 기업이 어느 거래소에든 정식 상장된 퍼블릭 기업인지 여부.\n' +
+  '  true  : 국내(KOSPI/KOSDAQ) 또는 해외(NYSE/NASDAQ 등) 거래소 상장 기업.\n' +
+  '  false : 비상장 기업 (스타트업·사모기업·국가기관·비영리단체 등).\n' +
+  '          SpaceX·Stripe·OpenAI처럼 유명해도 미상장이면 반드시 false.\n\n' +
+
+  '[krCode] 대한민국 KOSPI/KOSDAQ 상장 종목의 6자리 KRX 종목 코드 (선행 0 포함 문자열).\n' +
+  '  KOSPI/KOSDAQ 종목이 아니면 반드시 null.\n' +
+  '  예: 삼성전자 → "005930", 알테오젠 → "196170", KODEX 200 → "069500"\n\n' +
+
+  '[market] 해당 종목의 주요 상장 거래소 시장.\n' +
+  '  "KOSPI"  : 한국거래소 유가증권시장 상장 종목.\n' +
+  '  "KOSDAQ" : 한국거래소 코스닥시장 상장 종목.\n' +
+  '  "US"     : 미국·유럽·기타 해외 거래소 상장 종목.\n' +
+  '  null     : isListed=false 또는 시장 불명.\n\n' +
+
+  '[englishName] Yahoo Finance 검색을 위한 공식 영문 사명.\n' +
+  '  한국 기업도 정확한 영문 사명 출력. 모르면 합리적으로 추론.\n' +
+  '  SK스퀘어·LG에너지솔루션·HD현대 등 혼용어는 그룹 브랜드 영문 + 한국어 부분 음차/번역.\n\n' +
+
+  '[koreanName] 해당 종목의 한국어 공식 명칭 (국내 투자자에게 통용되는 이름).\n' +
+  '  해외 종목: 국내에서 통용되는 한국어 명칭. 없으면 영문 사명을 한국어로 음차.\n' +
+  '  국내 종목: 한국어 공식 종목명 (법인 표기 "(주)" 제외).\n' +
+  '  비상장·불명: null.\n\n' +
+
+  '━━━ 절대 규칙 ━━━\n' +
+  '[규칙 1] 영문+국문 혼합 입력(SK스퀘어·LG에너지솔루션·HD현대·KT&G 등)은 한국 상장 종목 최우선 탐색.\n' +
+  '[규칙 2] SpaceX·Stripe·OpenAI 같은 유명 비상장 기업은 isListed=false 반드시 출력.\n' +
+  '[규칙 3] krCode는 선행 0 포함 정확히 6자리 숫자 문자열. 비KR 종목은 반드시 null.\n' +
+  '[규칙 4] JSON 이외 텍스트 절대 금지.\n' +
+  '[규칙 5] KOSPI·KOSDAQ 상장 종목은 대형주·중소형주 구분 없이 훈련 데이터를 최대한 활용하여 krCode를 제공하라.\n' +
+  '  few-shot 예시에 없는 종목이어도 한국 거래소 상장이 확실하면 추론값을 출력.\n' +
+  '  null은 해당 기업의 상장 여부 자체가 불확실하거나 코드를 전혀 알 수 없는 경우에만 사용.\n\n' +
+
+  '━━━ 정답 예시 ━━━\n' +
+  '삼성전자 → {"isListed":true,"krCode":"005930","market":"KOSPI","englishName":"Samsung Electronics","koreanName":"삼성전자"}\n' +
+  'SK하이닉스 → {"isListed":true,"krCode":"000660","market":"KOSPI","englishName":"SK Hynix","koreanName":"SK하이닉스"}\n' +
+  'SK스퀘어 → {"isListed":true,"krCode":"402340","market":"KOSPI","englishName":"SK Square","koreanName":"SK스퀘어"}\n' +
+  'LG에너지솔루션 → {"isListed":true,"krCode":"373220","market":"KOSPI","englishName":"LG Energy Solution","koreanName":"LG에너지솔루션"}\n' +
+  'HD현대 → {"isListed":true,"krCode":"267250","market":"KOSPI","englishName":"HD Hyundai","koreanName":"HD현대"}\n' +
+  '한화에어로스페이스 → {"isListed":true,"krCode":"012450","market":"KOSPI","englishName":"Hanwha Aerospace","koreanName":"한화에어로스페이스"}\n' +
+  '알테오젠 → {"isListed":true,"krCode":"196170","market":"KOSDAQ","englishName":"Alteogen","koreanName":"알테오젠"}\n' +
+  '에코프로비엠 → {"isListed":true,"krCode":"247540","market":"KOSDAQ","englishName":"EcoPro BM","koreanName":"에코프로비엠"}\n' +
+  'KODEX 200 → {"isListed":true,"krCode":"069500","market":"KOSPI","englishName":"KODEX 200 ETF","koreanName":"KODEX 200"}\n' +
+  'TIGER 미국나스닥100 → {"isListed":true,"krCode":"133690","market":"KOSPI","englishName":"TIGER US Nasdaq 100 ETF","koreanName":"TIGER 미국나스닥100"}\n' +
+  '애플 → {"isListed":true,"krCode":null,"market":"US","englishName":"Apple Inc.","koreanName":"애플"}\n' +
+  '엔비디아 → {"isListed":true,"krCode":null,"market":"US","englishName":"Nvidia Corporation","koreanName":"엔비디아"}\n' +
+  'NVDA → {"isListed":true,"krCode":null,"market":"US","englishName":"Nvidia Corporation","koreanName":"엔비디아"}\n' +
+  'RKLB → {"isListed":true,"krCode":null,"market":"US","englishName":"Rocket Lab USA","koreanName":"로켓랩"}\n' +
+  'PLTR → {"isListed":true,"krCode":null,"market":"US","englishName":"Palantir Technologies","koreanName":"팔란티어"}\n' +
+  'TSLA → {"isListed":true,"krCode":null,"market":"US","englishName":"Tesla Inc.","koreanName":"테슬라"}\n' +
+  'AAPL → {"isListed":true,"krCode":null,"market":"US","englishName":"Apple Inc.","koreanName":"애플"}\n' +
+  'SPY → {"isListed":true,"krCode":null,"market":"US","englishName":"SPDR S&P 500 ETF Trust","koreanName":"SPDR S&P500 ETF"}\n' +
+  'QQQ → {"isListed":true,"krCode":null,"market":"US","englishName":"Invesco QQQ Trust","koreanName":"인베스코 QQQ ETF"}\n' +
+  'SOXL → {"isListed":true,"krCode":null,"market":"US","englishName":"Direxion Daily Semiconductor Bull 3X ETF","koreanName":"디렉시온 반도체 3배 레버리지 ETF"}\n' +
+  'SpaceX → {"isListed":false,"krCode":null,"market":null,"englishName":"Space Exploration Technologies Corp.","koreanName":null}\n' +
+  'OpenAI → {"isListed":false,"krCode":null,"market":null,"englishName":"OpenAI","koreanName":null}\n' +
+  'Stripe → {"isListed":false,"krCode":null,"market":null,"englishName":"Stripe Inc.","koreanName":null}';
 
 /**
- * Gemini AI에 종목명 분석을 요청하여 티커 + 자산 메타데이터를 반환합니다.
- *
- * 티커가 UNKNOWN이어도 englishName이 있으면 null 대신 객체를 반환합니다.
- * 라우트는 englishName을 Yahoo Search의 검색어로 사용해 한글 400 오류를 우회합니다.
+ * Gemini AI에 종목명 분석을 요청하여 금융 메타데이터를 반환합니다.
+ * - KR 경로: krCode + market → route.js가 직접 티커 조립
+ * - US 경로: isListed(비상장 차단) + englishName(Yahoo Search 정확도 향상)
  */
-export async function resolveTickerWithGemini(assetName) {
+export async function resolveTickerWithGemini(assetName, productType = null) {
   const apiKey =
     process.env.GEMINI_API_KEY ??
     process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 
   if (!apiKey) {
-    console.warn('[geminiTicker] API 키 미설정 — Gemini 티커 변환 건너뜀');
+    console.warn('[geminiTicker] API 키 미설정 — Gemini 메타데이터 추출 건너뜀');
     return null;
   }
 
-  const prompt =
-    '너는 금융 자산 분류 전문가야. 입력된 종목명을 분석해서 반드시 아래 JSON 형식으로만 응답해줘.\n' +
-    '{"ticker":"티커","englishName":"영문명","assetClass":"자산군","productType":"상품유형","country":"국가"}\n\n' +
+  if (!assetName?.trim()) return null;
 
-    '━━━ [최우선 필수 규칙 — 위반 시 전체 시스템 오작동] ━━━\n' +
-    '입력된 자산 이름(국문/영문)에 매칭되는 가장 정확한 Yahoo Finance 티커 코드를 ticker 필드에 출력해라.\n' +
-    '설명이나 부가 텍스트 없이 JSON 한 줄만 반환해라.\n\n' +
-
-    '[KOSPI 종목] 대한민국 코스피(KOSPI) 상장 종목은 반드시 숫자 코드 뒤에 ".KS"를 붙일 것.\n' +
-    '  ✓ 삼성전자 → 005930.KS\n' +
-    '  ✓ 삼성전기 → 009150.KS  (※ 삼성전자와 다른 별개 종목, 코드 반드시 009150.KS)\n' +
-    '  ✓ LG에너지솔루션 → 373220.KS\n' +
-    '  ✓ SK하이닉스 → 000660.KS\n' +
-    '  ✓ LG전자 → 066570.KS\n' +
-    '  ✓ LG화학 → 051910.KS\n' +
-    '  ✓ 삼성SDI → 006400.KS\n' +
-    '  ✓ 현대차 → 005380.KS\n' +
-    '  ✓ 기아 → 000270.KS\n' +
-    '  ✓ 네이버(NAVER) → 035420.KS\n' +
-    '  ✓ 삼성바이오로직스 → 207940.KS\n' +
-    '  ✓ 셀트리온 → 068270.KS\n' +
-    '  ✓ 신한지주 → 055550.KS\n' +
-    '  ✓ KB금융 → 105560.KS\n' +
-    '  ✓ 하나금융지주 → 086790.KS\n' +
-    '  ✓ 현대모비스 → 012330.KS\n' +
-    '  ✓ POSCO홀딩스 → 005490.KS\n' +
-    '  ✓ 한화에어로스페이스 → 012450.KS\n' +
-    '  ✓ KODEX 200 → 069500.KS\n' +
-    '  ✓ KODEX 레버리지 → 122630.KS\n' +
-    '  ✓ TIGER 미국나스닥100 → 133690.KS\n' +
-    '  ".KS" 없이 숫자만 출력하면 yfinance 조회가 완전히 불가능하다.\n\n' +
-
-    '[KOSDAQ 종목] 대한민국 코스닥(KOSDAQ) 상장 종목은 반드시 숫자 코드 뒤에 ".KQ"를 붙일 것.\n' +
-    '  ✓ 카카오 → 035720.KS\n' +
-    '  ✓ 카카오게임즈 → 293490.KQ\n' +
-    '  ✓ 셀트리온헬스케어 → 091990.KQ\n' +
-    '  ✓ 에코프로비엠 → 247540.KQ\n' +
-    '  ✓ 에코프로 → 086520.KQ\n' +
-    '  ".KQ" 없이 숫자만 출력하면 yfinance 조회가 완전히 불가능하다.\n\n' +
-
-    '기타 규칙:\n' +
-    '- ticker: Yahoo Finance(yfinance) 호환 티커. 확실하지 않으면 "UNKNOWN"\n' +
-    '- englishName: Yahoo Finance 검색 API에 전달할 최적 영문 종목명.\n' +
-    '  티커를 모르더라도 영문명은 반드시 추론할 것.\n' +
-    '  (예: 테슬라 → "Tesla", 엔비디아 → "Nvidia", 삼전 → "Samsung Electronics",\n' +
-    '       삼성전기 → "Samsung Electro-Mechanics", LG에너지솔루션 → "LG Energy Solution",\n' +
-    '       애플 → "Apple", 아마존 → "Amazon", 구글 → "Alphabet",\n' +
-    '       인텔 → "Intel", 마이크로소프트 → "Microsoft", 넷플릭스 → "Netflix",\n' +
-    '       메타 → "Meta Platforms", 팔란티어 → "Palantir")\n' +
-    '- assetClass: "국내주식","해외주식","국내채권","해외채권","금","리츠","현금","달러" 중 하나\n' +
-    '- productType: "개별주식","ETF","채권","리츠","펀드","현금","외화","암호화폐" 중 하나\n' +
-    '  ★★★ [ETF vs 주식 구분 핵심 규칙] ★★★\n' +
-    '  거래소에 상장된 펀드(Fund of funds)는 무조건 productType="ETF"로 분류한다.\n' +
-    '  레버리지 ETF(TSLL, SOXL, TQQQ, FNGU 등), 인버스 ETF(SQQQ, SDOW 등),\n' +
-    '  섹터 ETF(XLK, SMH 등), 채권형 ETF(TLT, AGG, BND, IEF, SHY, LQD, HYG)도\n' +
-    '  모두 productType="ETF"이다. "ETF"가 이름에 없더라도 티커가 ETF이면 "ETF"를 반환한다.\n' +
-    '  개별 기업 주식(Apple, Tesla, Intel, Nvidia 등)은 productType="개별주식"이다.\n' +
-    '  절대로 ETF를 "개별주식"으로, 개별주식을 "ETF"로 혼동하면 안 된다.\n' +
-    '  국내 채권형 ETF(114260.KS KODEX국고채10년, 148070.KS KOSEF국고채 등)도 "ETF".\n' +
-    '- country: "한국","미국","일본","중국","유럽","기타" 중 하나\n\n' +
-
-    '예시 (국내주식 — .KS/.KQ 접미사 필수):\n' +
-    '삼성전자 → {"ticker":"005930.KS","englishName":"Samsung Electronics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
-    '삼전 → {"ticker":"005930.KS","englishName":"Samsung Electronics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
-    '삼성전기 → {"ticker":"009150.KS","englishName":"Samsung Electro-Mechanics","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
-    'LG에너지솔루션 → {"ticker":"373220.KS","englishName":"LG Energy Solution","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
-    '카카오 → {"ticker":"035720.KS","englishName":"Kakao Corp","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
-    '네이버 → {"ticker":"035420.KS","englishName":"NAVER Corp","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
-    '셀트리온 → {"ticker":"068270.KS","englishName":"Celltrion","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n' +
-    '에코프로비엠 → {"ticker":"247540.KQ","englishName":"EcoPro BM","assetClass":"국내주식","productType":"개별주식","country":"한국"}\n\n' +
-
-    '예시 (국내 ETF — .KS 필수):\n' +
-    'KODEX 200 → {"ticker":"069500.KS","englishName":"KODEX 200 ETF","assetClass":"국내주식","productType":"ETF","country":"한국"}\n' +
-    'KODEX 레버리지 → {"ticker":"122630.KS","englishName":"KODEX Leverage ETF","assetClass":"국내주식","productType":"ETF","country":"한국"}\n' +
-    'TIGER 미국나스닥100 → {"ticker":"133690.KS","englishName":"TIGER US Nasdaq 100","assetClass":"해외주식","productType":"ETF","country":"한국"}\n\n' +
-
-    '예시 (해외주식/ETF):\n' +
-    '인텔 → {"ticker":"INTC","englishName":"Intel","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
-    '마이크로소프트 → {"ticker":"MSFT","englishName":"Microsoft","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
-    '넷플릭스 → {"ticker":"NFLX","englishName":"Netflix","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
-    '아마존 → {"ticker":"AMZN","englishName":"Amazon","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
-    '메타 → {"ticker":"META","englishName":"Meta Platforms","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
-    '테슬라 → {"ticker":"TSLA","englishName":"Tesla","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
-    '엔비디아 → {"ticker":"NVDA","englishName":"Nvidia","assetClass":"해외주식","productType":"개별주식","country":"미국"}\n' +
-    'TSLL → {"ticker":"TSLL","englishName":"Direxion Daily TSLA Bull 2X ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
-    'SOXL → {"ticker":"SOXL","englishName":"Direxion Daily Semiconductor Bull 3X ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
-    'SPY → {"ticker":"SPY","englishName":"SPDR S&P 500 ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
-    'QQQ → {"ticker":"QQQ","englishName":"Invesco QQQ Nasdaq 100 ETF","assetClass":"해외주식","productType":"ETF","country":"미국"}\n' +
-    'TLT → {"ticker":"TLT","englishName":"iShares 20+ Year Treasury Bond ETF","assetClass":"해외채권","productType":"ETF","country":"미국"}\n' +
-    '미국 국채 10년 → {"ticker":"^TNX","englishName":"10-Year Treasury Yield","assetClass":"해외채권","productType":"채권","country":"미국"}\n\n' +
-
-    '마크다운·설명 없이 JSON 한 줄만 출력해줘.\n\n' +
-    `입력: ${assetName}`;
+  const userPrompt = `분석 대상: ${assetName.trim()}`;
 
   const controller = new AbortController();
   const timeoutId  = setTimeout(() => controller.abort(), 6_000);
@@ -146,17 +115,18 @@ export async function resolveTickerWithGemini(assetName) {
       headers: { 'Content-Type': 'application/json' },
       signal:  controller.signal,
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
         generationConfig: {
           temperature:     0,
-          maxOutputTokens: 160,
+          maxOutputTokens: 150,
         },
       }),
     });
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      console.warn(`[geminiTicker] HTTP ${res.status} — '${assetName}' 변환 실패`);
+      console.warn(`[geminiTicker] HTTP ${res.status} — '${assetName}' 추출 실패`);
       return null;
     }
 
@@ -164,50 +134,41 @@ export async function resolveTickerWithGemini(assetName) {
     const raw  = (json?.candidates?.[0]?.content?.parts?.[0]?.text ?? '').trim();
     if (!raw) return null;
 
-    // 마크다운 코드블록 방어적 제거
     const cleaned = raw.replace(/```[\w]*\n?/g, '').replace(/```/g, '').trim();
 
     let parsed;
     try {
       parsed = JSON.parse(cleaned);
     } catch {
-      // JSON 파싱 실패 — 단순 티커 문자열로 간주하여 마지막 폴백
-      console.warn(`[geminiTicker] JSON 파싱 실패, raw: '${raw}'`);
-      const fallbackTicker = cleaned.trim();
-      if (!fallbackTicker || fallbackTicker.toUpperCase() === 'UNKNOWN') return null;
-      if (!VALID_TICKER_RE.test(fallbackTicker)) return null;
-      console.log(`[geminiTicker] '${assetName}' → '${fallbackTicker}' (단순 티커 폴백)`);
-      return { ticker: fallbackTicker, englishName: null, assetClass: null, productType: null, country: null };
+      console.warn(`[geminiTicker] JSON 파싱 실패 — '${assetName}', raw: '${raw}'`);
+      return null;
     }
 
-    const rawTicker   = (parsed.ticker ?? '').trim();
+    const isListed = parsed.isListed === true;
+
+    const rawKrCode = typeof parsed.krCode === 'string'
+      ? parsed.krCode.trim().padStart(6, '0')
+      : (typeof parsed.krCode === 'number' ? String(parsed.krCode).padStart(6, '0') : null);
+    const krCode = rawKrCode && KRCODE_RE.test(rawKrCode) ? rawKrCode : null;
+
+    const market = MARKET_SET.has(parsed.market) ? parsed.market : null;
+
     const englishName = typeof parsed.englishName === 'string' && parsed.englishName.trim()
       ? parsed.englishName.trim()
       : null;
 
-    const assetClass  = ASSET_CLASS_SET.has(parsed.assetClass)   ? parsed.assetClass  : null;
-    const productType = PRODUCT_TYPE_SET.has(parsed.productType) ? parsed.productType : null;
-    const country     = COUNTRY_SET.has(parsed.country)          ? parsed.country     : null;
+    const koreanName = typeof parsed.koreanName === 'string' && parsed.koreanName.trim()
+      ? parsed.koreanName.trim()
+      : null;
 
-    const isUnknown = !rawTicker || rawTicker.toUpperCase() === 'UNKNOWN' || !VALID_TICKER_RE.test(rawTicker);
-
-    if (isUnknown) {
-      // 티커 불명 — englishName이 있으면 Yahoo Search 징검다리로 활용 가능하므로 객체 반환
-      if (englishName) {
-        console.log(`[geminiTicker] '${assetName}' → UNKNOWN 티커, englishName: '${englishName}' (Yahoo 징검다리)`);
-        return { ticker: null, englishName, assetClass, productType, country };
-      }
-      console.log(`[geminiTicker] '${assetName}' → UNKNOWN 및 영문명 없음`);
-      return null;
-    }
-
-    console.log(`[geminiTicker] '${assetName}' → ${JSON.stringify({ ticker: rawTicker, englishName, assetClass, productType, country })}`);
-    return { ticker: rawTicker, englishName, assetClass, productType, country };
+    const result = { isListed, krCode, market, englishName, koreanName };
+    console.log(`[geminiTicker] '${assetName}' → ${JSON.stringify(result)}`);
+    return result;
 
   } catch (err) {
     clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      console.warn(`[geminiTicker] 타임아웃 (6 s) — '${assetName}', Yahoo Search 로 폴백`);
+      console.warn(`[geminiTicker] 타임아웃 (6s) — '${assetName}'`);
       return null;
     }
     console.warn(`[geminiTicker] 예외 — '${assetName}':`, err?.message);
