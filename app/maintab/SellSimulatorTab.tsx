@@ -752,7 +752,8 @@ export default function SellSimulatorTab() {
                     value={buyQtyStr}
                     onChange={(e) => setBuyQtyStr(e.target.value)}
                     placeholder="0"
-                    className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    disabled={isCustomerView}
+                    className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <span className="text-sm font-semibold text-slate-500">주 추가 매수</span>
                 </div>
@@ -778,7 +779,7 @@ export default function SellSimulatorTab() {
                 <button
                   type="button"
                   onClick={handleConfirmBuy}
-                  disabled={buyQty <= 0}
+                  disabled={buyQty <= 0 || isCustomerView}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CheckCircle2 size={16} />

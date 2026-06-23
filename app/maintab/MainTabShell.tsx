@@ -5,7 +5,7 @@ import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Home, Trash2 } from "lucide-react";
 import {
   CustomerContext,
-  type AppState, type ChangeEntry, type CustomerId, type CustomerProfile,
+  type AppState, type ChangeEntry, type CustomerId, type CustomerProfile, type CustomerRow,
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
@@ -25,6 +25,7 @@ import {
   noLegalConstraint, noneExperience, nullableText, parseKrwAmount, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
+  supabase,
 } from "./CustomerContext";
 import { FINANCIAL_INCOME_STORAGE_KEY, NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
 import { CustomerViewContext, CONSULTATION_ENDED_STORAGE_KEY } from "./CustomerViewContext";
@@ -376,6 +377,116 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     window.addEventListener("storage", syncEnded);
     return () => window.removeEventListener("storage", syncEnded);
   }, []);
+
+  // ── Supabase Realtime 실시간 동기화 (고객 뷰 전용) ──────────────────────────
+  useEffect(() => {
+    if (appMode !== "customer" || !supabase) return;
+
+    // 포트폴리오·리밸런싱 데이터 재로드 (세금 요약 제외 — tax_summaries 별도 구독)
+    const reloadRebalancingForCustomer = (customerId: CustomerId) => {
+      Promise.all([
+        loadPortfolioAssets(customerId),
+        loadRebalancingState(customerId),
+        loadNewAnalysisResult(customerId),
+        loadTab3AnalysisState(customerId),
+        loadSellHistory(customerId),
+      ]).then(([assets, rebalancing, newResult, tab3State, sellHistoryRows]) => {
+        setPortfolioAssetsMap(prev => ({ ...prev, [customerId]: assets }));
+        setRebalancingSellMap(prev => ({ ...prev, [customerId]: rebalancing.sellAssets }));
+        setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
+        setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
+        setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
+        setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
+        if (typeof window !== "undefined") {
+          const buyAssets = rebalancing.buyAssets as unknown[];
+          try {
+            if (buyAssets?.length > 0) localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(buyAssets));
+            else localStorage.removeItem("new-portfolio-assets-v1");
+          } catch {}
+        }
+      });
+    };
+
+    // 세금 요약 재로드 → localStorage 갱신 → CustomEvent → Tab4 자동 반영
+    // 탭2-1 "분석 실행" 또는 탭3-3 "리밸런싱 확정" 후 tax_summaries 저장 완료 시점에만 실행
+    const reloadTaxForCustomer = (customerId: CustomerId) => {
+      loadTaxSummaries(customerId).then(({ currentSummary, newSummary }) => {
+        if (typeof window === "undefined") return;
+        if (currentSummary) {
+          try { localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(currentSummary)); window.dispatchEvent(new CustomEvent("financial-income-updated")); } catch {}
+        } else {
+          try { localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY); window.dispatchEvent(new CustomEvent("financial-income-updated")); } catch {}
+        }
+        if (newSummary) {
+          try { localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newSummary)); window.dispatchEvent(new CustomEvent("new-financial-income-updated")); } catch {}
+        } else {
+          try { localStorage.removeItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY); window.dispatchEvent(new CustomEvent("new-financial-income-updated")); } catch {}
+        }
+      });
+    };
+
+    const getCustomerId = (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) =>
+      ((payload.new ?? payload.old)?.customer_id) as CustomerId | undefined;
+
+    const channel = supabase
+      .channel("customer-view-realtime")
+      .on(
+        "postgres_changes" as any,
+        { event: "UPDATE", schema: "public", table: "customers" },
+        (payload: { new: Record<string, unknown> }) => {
+          const row = payload.new as CustomerRow;
+          if (!row.id) return;
+          const customerId = row.id as CustomerId;
+          const singleState = customerRowsToStoredState([row]);
+          if (singleState.customerProfiles.length > 0) {
+            setCustomerProfiles(prev => prev.map(p => p.id === customerId ? singleState.customerProfiles[0] : p));
+            setCustomerData(prev => ({ ...prev, [customerId]: singleState.customerData[customerId] }));
+            setCustomerUpdatedAt(prev => ({
+              ...prev,
+              [customerId]: row.updated_at ? new Date(row.updated_at as string).getTime() : Date.now(),
+            }));
+          }
+        },
+      )
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "rebalancing_state" },
+        (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+          const cid = getCustomerId(payload);
+          if (cid) reloadRebalancingForCustomer(cid);
+        },
+      )
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "new_analysis_results" },
+        (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+          const cid = getCustomerId(payload);
+          if (cid) reloadRebalancingForCustomer(cid);
+        },
+      )
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "tax_summaries" },
+        (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+          const cid = getCustomerId(payload);
+          if (cid) reloadTaxForCustomer(cid);
+        },
+      )
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "product_selections" },
+        (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+          const cid = getCustomerId(payload);
+          if (!cid) return;
+          loadProductSelections(cid).then(productIds => {
+            setProductSelectionsMap(prev => ({ ...prev, [cid]: productIds }));
+          });
+        },
+      )
+      .subscribe();
+
+    return () => { supabase!.removeChannel(channel); };
+  }, [appMode]);
 
   useEffect(() => {
     if (!activeConsultation) return;

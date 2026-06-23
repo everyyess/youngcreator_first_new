@@ -1821,8 +1821,9 @@ export default function BuySimulatorTab() {
                       {!isSoldOut && a.amount_type === "quantity" && a.amount > 0 && (
                         <button
                           type="button"
-                          onClick={() => handleSellCard(makeAssetKey(a))}
-                          className="mt-1 w-full rounded border border-red-200 bg-red-50 py-0.5 text-[10px] font-bold text-red-500 hover:bg-red-100"
+                          onClick={() => !isCustomerView && handleSellCard(makeAssetKey(a))}
+                          disabled={isCustomerView}
+                          className="mt-1 w-full rounded border border-red-200 bg-red-50 py-0.5 text-[10px] font-bold text-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           매도
                         </button>
