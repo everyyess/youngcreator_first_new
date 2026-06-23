@@ -519,21 +519,29 @@ export async function GET(request) {
     }
   }
 
-  // ── [US·미지정 경로] Gemini isListed 검사 → Yahoo Finance Search ────────
+  // ── [US·미지정 경로] Gemini → KR 판별 우선, 아니면 Yahoo Search ──────────
   if (!ticker) {
     let searchQuery = assetName;
 
-    if (forcedMarket === 'US') {
-      // Gemini: 상장 여부 + 영문 사명 추출
-      let geminiMetaUS = null;
-      try {
-        geminiMetaUS = await resolveTickerWithGemini(assetName, userProductType);
-      } catch (geminiErr) {
-        console.warn('[proxy-finance] Gemini 예외 (US):', geminiErr?.message);
-      }
+    // forcedMarket이 US이거나 미지정(null)인 경우 모두 Gemini 호출
+    // — 미지정 경로에서도 Gemini로 KR/US 자동 판별하여 한국 종목을 올바르게 처리
+    let geminiMeta = null;
+    try {
+      geminiMeta = await resolveTickerWithGemini(assetName, userProductType);
+    } catch (geminiErr) {
+      console.warn('[proxy-finance] Gemini 예외 (US/미지정):', geminiErr?.message);
+    }
 
-      // 비상장 기업 즉시 차단 — Yahoo에 넘기지 않음
-      if (geminiMetaUS?.isListed === false) {
+    // Gemini가 KR 종목으로 확인한 경우 → KR 티커 직접 조립 (US Yahoo 우회)
+    if (geminiMeta?.krCode && (geminiMeta.market === 'KOSPI' || geminiMeta.market === 'KOSDAQ')) {
+      const paddedCode = String(geminiMeta.krCode).padStart(6, '0');
+      const suffix = geminiMeta.market === 'KOSDAQ' ? '.KQ' : '.KS';
+      ticker = `${paddedCode}${suffix}`;
+      if (geminiMeta.koreanName) resolvedKoreanName = geminiMeta.koreanName;
+      console.log(`[proxy-finance] Gemini 미지정→KR 확정: '${assetName}' → '${ticker}'`);
+    } else {
+      // 비상장 기업 차단
+      if (geminiMeta?.isListed === false) {
         return Response.json(
           { error: `'${assetName}'은(는) 주식 시장에 상장되지 않은 기업입니다. 상장 종목명을 입력해주세요.`, assetName },
           { status: 404 }
@@ -541,26 +549,26 @@ export async function GET(request) {
       }
 
       // 영문 사명이 있으면 Yahoo Search 정확도 향상
-      if (geminiMetaUS?.englishName) searchQuery = geminiMetaUS.englishName;
-      if (geminiMetaUS?.koreanName)  resolvedKoreanName = geminiMetaUS.koreanName;
-    }
+      if (geminiMeta?.englishName) searchQuery = geminiMeta.englishName;
+      if (geminiMeta?.koreanName)  resolvedKoreanName = geminiMeta.koreanName;
 
-    try {
-      ticker = await fetchTickerFromYahoo(searchQuery, userProductType);
-    } catch (searchErr) {
-      if (searchErr.isTimeout)
-        return Response.json({ error: searchErr.message, assetName }, { status: 504 });
-      if (searchErr.isRateLimit)
-        return Response.json({ error: searchErr.message, assetName }, { status: 429 });
-      console.warn('[proxy-finance] Yahoo Search 예외:', searchErr?.message);
-      return Response.json({ error: '티커 검색 중 오류가 발생했습니다.', assetName }, { status: 500 });
-    }
+      try {
+        ticker = await fetchTickerFromYahoo(searchQuery, userProductType);
+      } catch (searchErr) {
+        if (searchErr.isTimeout)
+          return Response.json({ error: searchErr.message, assetName }, { status: 504 });
+        if (searchErr.isRateLimit)
+          return Response.json({ error: searchErr.message, assetName }, { status: 429 });
+        console.warn('[proxy-finance] Yahoo Search 예외:', searchErr?.message);
+        return Response.json({ error: '티커 검색 중 오류가 발생했습니다.', assetName }, { status: 500 });
+      }
 
-    if (!ticker) {
-      return Response.json(
-        { error: `'${assetName}'에 해당하는 티커를 찾을 수 없습니다.`, assetName },
-        { status: 404 }
-      );
+      if (!ticker) {
+        return Response.json(
+          { error: `'${assetName}'에 해당하는 티커를 찾을 수 없습니다.`, assetName },
+          { status: 404 }
+        );
+      }
     }
   }
 

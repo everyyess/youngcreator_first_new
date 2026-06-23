@@ -55,6 +55,7 @@ const SYSTEM_INSTRUCTION =
 
   '━━━ 절대 규칙 ━━━\n' +
   '[규칙 1] 영문+국문 혼합 입력(SK스퀘어·LG에너지솔루션·HD현대·KT&G 등)은 한국 상장 종목 최우선 탐색.\n' +
+  '  HD로 시작하는 입력에 한글이 포함된 경우(HD현대·HD현대중공업·HD현대마린솔루션 등)는 반드시 KR 종목으로 처리. HD(홈디포) 혼동 금지.\n' +
   '[규칙 2] SpaceX·Stripe·OpenAI 같은 유명 비상장 기업은 isListed=false 반드시 출력.\n' +
   '[규칙 3] krCode는 선행 0 포함 정확히 6자리 숫자 문자열. 비KR 종목은 반드시 null.\n' +
   '[규칙 4] JSON 이외 텍스트 절대 금지.\n' +
@@ -68,9 +69,17 @@ const SYSTEM_INSTRUCTION =
   'SK스퀘어 → {"isListed":true,"krCode":"402340","market":"KOSPI","englishName":"SK Square","koreanName":"SK스퀘어"}\n' +
   'LG에너지솔루션 → {"isListed":true,"krCode":"373220","market":"KOSPI","englishName":"LG Energy Solution","koreanName":"LG에너지솔루션"}\n' +
   'HD현대 → {"isListed":true,"krCode":"267250","market":"KOSPI","englishName":"HD Hyundai","koreanName":"HD현대"}\n' +
+  'HD현대중공업 → {"isListed":true,"krCode":"329180","market":"KOSPI","englishName":"HD Hyundai Heavy Industries","koreanName":"HD현대중공업"}\n' +
+  'HD현대마린솔루션 → {"isListed":true,"krCode":"443060","market":"KOSPI","englishName":"HD Hyundai Marine Solution","koreanName":"HD현대마린솔루션"}\n' +
+  'HD현대일렉트릭 → {"isListed":true,"krCode":"267260","market":"KOSPI","englishName":"HD Hyundai Electric","koreanName":"HD현대일렉트릭"}\n' +
   '한화에어로스페이스 → {"isListed":true,"krCode":"012450","market":"KOSPI","englishName":"Hanwha Aerospace","koreanName":"한화에어로스페이스"}\n' +
+  '기아 → {"isListed":true,"krCode":"000270","market":"KOSPI","englishName":"Kia Corporation","koreanName":"기아"}\n' +
+  '두산에너빌리티 → {"isListed":true,"krCode":"034020","market":"KOSPI","englishName":"Doosan Enerbility","koreanName":"두산에너빌리티"}\n' +
+  '셀트리온 → {"isListed":true,"krCode":"068270","market":"KOSPI","englishName":"Celltrion","koreanName":"셀트리온"}\n' +
+  '삼성바이오로직스 → {"isListed":true,"krCode":"207940","market":"KOSPI","englishName":"Samsung Biologics","koreanName":"삼성바이오로직스"}\n' +
   '알테오젠 → {"isListed":true,"krCode":"196170","market":"KOSDAQ","englishName":"Alteogen","koreanName":"알테오젠"}\n' +
   '에코프로비엠 → {"isListed":true,"krCode":"247540","market":"KOSDAQ","englishName":"EcoPro BM","koreanName":"에코프로비엠"}\n' +
+  'HLB이노베이션 → {"isListed":true,"krCode":"067830","market":"KOSDAQ","englishName":"HLB Innovation","koreanName":"HLB이노베이션"}\n' +
   'KODEX 200 → {"isListed":true,"krCode":"069500","market":"KOSPI","englishName":"KODEX 200 ETF","koreanName":"KODEX 200"}\n' +
   'TIGER 미국나스닥100 → {"isListed":true,"krCode":"133690","market":"KOSPI","englishName":"TIGER US Nasdaq 100 ETF","koreanName":"TIGER 미국나스닥100"}\n' +
   '애플 → {"isListed":true,"krCode":null,"market":"US","englishName":"Apple Inc.","koreanName":"애플"}\n' +
