@@ -170,6 +170,10 @@ export function FinancialIncomeGauge({
   const [activeTab, setActiveTab] = useState<"배당" | "이자" | "양도">("배당");
   const [taxDetailExpanded, setTaxDetailExpanded] = useState(false);
   const [yangdoSubTab, setYangdoSubTab] = useState<"양도소득세" | "TLH">("양도소득세");
+  const [showAllDividends, setShowAllDividends] = useState(false);
+  const [showAllInterest, setShowAllInterest] = useState(false);
+
+  const ITEM_LIMIT = 7;
 
   // TLH 탭 표시 여부 및 기초 데이터 (B패널에만 tlhData가 전달됨)
   const tlhComputed = useMemo(() => {
@@ -348,9 +352,20 @@ export function FinancialIncomeGauge({
             <div className="space-y-0">
               {dividendItems.length > 0 ? (
                 <>
-                  {dividendItems.map((item, i) => (
+                  {(showAllDividends ? dividendItems : dividendItems.slice(0, ITEM_LIMIT)).map((item, i) => (
                     <IncomeRow key={i} item={item} />
                   ))}
+                  {dividendItems.length > ITEM_LIMIT && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllDividends(v => !v)}
+                      className="w-full mt-1 py-1 text-xs text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded transition"
+                    >
+                      {showAllDividends
+                        ? "▲ 접기"
+                        : `▼ ${dividendItems.length - ITEM_LIMIT}개 더보기`}
+                    </button>
+                  )}
                   <div className="mt-2 pt-2 border-t border-slate-100">
                     <div className="flex justify-between text-xs font-bold text-navy">
                       <span>배당소득 합계 (세전)</span>
@@ -433,7 +448,18 @@ export function FinancialIncomeGauge({
             <div className="space-y-0">
               {interestItems.length > 0 ? (
                 <>
-                  {interestItems.map((item, i) => <IncomeRow key={i} item={item} />)}
+                  {(showAllInterest ? interestItems : interestItems.slice(0, ITEM_LIMIT)).map((item, i) => <IncomeRow key={i} item={item} />)}
+                  {interestItems.length > ITEM_LIMIT && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllInterest(v => !v)}
+                      className="w-full mt-1 py-1 text-xs text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded transition"
+                    >
+                      {showAllInterest
+                        ? "▲ 접기"
+                        : `▼ ${interestItems.length - ITEM_LIMIT}개 더보기`}
+                    </button>
+                  )}
                   <div className="mt-2 pt-2 border-t border-slate-100">
                     <div className="flex justify-between text-xs font-bold text-navy">
                       <span>이자소득 합계 (세전)</span>

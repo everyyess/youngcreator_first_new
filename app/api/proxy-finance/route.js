@@ -340,6 +340,59 @@ async function fetchTickerByWebScraping(assetName) {
   return ticker;
 }
 
+// ── Naver Finance 배당수익률 조회 (국내 종목 전용) ───────────────────────────
+// 1차: api.finance.naver.com JSON API (가장 빠름)
+// 2차: finance.naver.com/item/main.naver HTML 스크래핑 (폴백)
+// 반환: 연간 배당수익률 소수 (예: 0.025 = 2.5%), 실패 시 0
+async function fetchNaverDividend(krCode) {
+  if (!krCode || !/^\d{6}$/.test(krCode)) return 0;
+
+  const NAVER_HEADERS = {
+    'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':          'text/html,application/xhtml+xml,application/json,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'Referer':         'https://finance.naver.com/',
+  };
+
+  // 1차: Naver Finance JSON API
+  try {
+    const apiUrl = `https://api.finance.naver.com/service/itemSummary.nhn?itemcode=${krCode}`;
+    const res = await fetchWithTimeout(apiUrl, { headers: NAVER_HEADERS }, 5_000);
+    if (res.ok) {
+      const data = await safeJson(res);
+      const pct = parseFloat(data?.dividend ?? 0);
+      if (pct > 0 && pct < 50) {
+        console.log(`[proxy-finance] Naver JSON 배당수익률 (${krCode}): ${pct}%`);
+        return pct / 100;
+      }
+    }
+  } catch { /* 2차로 폴백 */ }
+
+  // 2차: Naver Finance HTML 스크래핑
+  try {
+    const htmlUrl = `https://finance.naver.com/item/main.naver?code=${krCode}`;
+    const res = await fetchWithTimeout(htmlUrl, { headers: NAVER_HEADERS }, 8_000);
+    if (!res.ok) return 0;
+    const html = await res.text();
+
+    // 패턴 A: <th scope="row">배당수익률</th><td ...>2.58</td>
+    const matchA = /배당수익률[^<]*<\/[^>]+>\s*<td[^>]*>\s*([0-9]+\.?[0-9]*)\s*<\/td>/i.exec(html);
+    // 패턴 B: 배당수익률 뒤 숫자+% 형식 (어떤 태그든)
+    const matchB = /배당수익률[^0-9]*([0-9]+\.?[0-9]*)\s*%/i.exec(html);
+    const raw = matchA ?? matchB;
+    if (raw) {
+      const pct = parseFloat(raw[1]);
+      if (pct > 0 && pct < 50) {
+        console.log(`[proxy-finance] Naver HTML 배당수익률 (${krCode}): ${pct}%`);
+        return pct / 100;
+      }
+    }
+  } catch { /* 실패 무시 */ }
+
+  return 0;
+}
+
+
 // ── Route Handler ──────────────────────────────────────────────────────────
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -599,23 +652,26 @@ export async function GET(request) {
       }, { status: 200 });
     }
 
-    // ── 배당수익률 계산 (events.dividends) ────────────────────────────────
+    // ── 배당수익률 계산 (주기 감지 → 연간화) ───────────────────────────────
     const regularMarketPrice =
       typeof chartMeta?.regularMarketPrice === 'number' ? chartMeta.regularMarketPrice : 0;
 
-    const rawDividends = yahooJson?.chart?.result?.[0]?.events?.dividends ?? {};
-    const oneYearAgo   = Math.floor(Date.now() / 1000) - 365 * 24 * 3600;
+    const rawDividends  = yahooJson?.chart?.result?.[0]?.events?.dividends ?? {};
+    const nowTs      = Math.floor(Date.now() / 1000);
+    const oneYearAgo = nowTs - 365 * 24 * 3600;
 
-    const eventsTrailingRate = Object.values(rawDividends ?? {}).reduce((sum, entry) => {
-      const ts  = typeof entry?.date   === 'number' ? entry.date   : 0;
-      const amt = typeof entry?.amount === 'number' ? entry.amount : 0;
-      return ts >= oneYearAgo ? sum + amt : sum;
-    }, 0);
+    // 지난 12개월 실제 지급 합산 (trailing 12-month)
+    // date = ex-dividend date (Yahoo 기준). 미래 예정 배당 제외(e.date <= nowTs).
+    // 분기/연간 여부와 무관하게 실제 지급된 배당금만 더함 — 추정·연간화 없음
+    const recentEvents = Object.values(rawDividends)
+      .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= oneYearAgo && e.date <= nowTs);
+    const annualDividendPerShare = recentEvents.reduce((s, e) => s + e.amount, 0);
 
     const eventsDividendYield =
-      eventsTrailingRate > 0 && regularMarketPrice > 0
-        ? eventsTrailingRate / regularMarketPrice
+      annualDividendPerShare > 0 && regularMarketPrice > 0
+        ? annualDividendPerShare / regularMarketPrice
         : 0;
+    const eventsTrailingRate = annualDividendPerShare;
 
     // ── quoteSummary API로 더 정확한 배당 데이터 조회 ───────────────────
     const quoteSummaryUrls = [
@@ -634,6 +690,16 @@ export async function GET(request) {
         const summaryJson = await summaryRes.json();
         const detail = summaryJson?.quoteSummary?.result?.[0]?.summaryDetail;
         if (!detail) continue;
+        // 실제 응답 필드 확인용 — 배포 전 제거 예정
+        console.log(`[proxy-finance] summaryDetail keys (${ticker}):`, Object.keys(detail));
+        console.log(`[proxy-finance] summaryDetail dividend fields (${ticker}):`, JSON.stringify({
+          dividendYield:              detail?.dividendYield,
+          trailingAnnualDividendYield: detail?.trailingAnnualDividendYield,
+          dividendRate:               detail?.dividendRate,
+          trailingAnnualDividendRate: detail?.trailingAnnualDividendRate,
+        }));
+        // dividendYield.raw = trailingAnnualDividendYield (TTM, 연간 소수)
+        // trailingAnnualDividendRate.raw = TTM 주당 배당금 합산
         const dy   = detail?.dividendYield?.raw;
         const tadr = detail?.trailingAnnualDividendRate?.raw;
         if (typeof dy   === 'number') summaryDividendYield = dy;
@@ -644,8 +710,24 @@ export async function GET(request) {
       }
     }
 
-    const dividendYield              = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
-    const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
+    // ── Naver Finance 배당수익률 (국내 종목 폴백) ────────────────────────
+    // Yahoo 배당 데이터가 없거나 0인 KR 종목에 한해 Naver에서 추가 조회
+    const isKrTicker = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
+    const krCode = isKrTicker ? ticker.split('.')[0] : null;
+    let naverDividendYield = 0;
+    if (isKrTicker && krCode) {
+      const yahooBest = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
+      if (yahooBest === 0) {
+        naverDividendYield = await fetchNaverDividend(krCode);
+      }
+    }
+
+    // 최종 배당수익률: quoteSummary > events 연간화 > Naver Finance
+    const dividendYield =
+      summaryDividendYield > 0 ? summaryDividendYield
+      : eventsDividendYield  > 0 ? eventsDividendYield
+      : naverDividendYield;
+    const trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
 
     // officialName 결정 우선순위:
     //   KR 종목 → kr-asset-master.json 우선 → Yahoo meta.shortName → longName 폴백

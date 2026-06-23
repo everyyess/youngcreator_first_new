@@ -129,6 +129,38 @@ export default function Tab4Page() {
     };
   }, []);
 
+  // 같은 ticker가 양쪽 모두 있을 때 기존 포트폴리오 배당률을 신규 포트폴리오 기준으로 통일
+  // 이유: 두 포트폴리오는 서로 다른 시점에 Yahoo Finance를 조회하여 주가 변동만큼 수익률이 미세하게 달라짐
+  const normalizedSummary = useMemo<FinancialIncomeSummary | null>(() => {
+    if (!summary || !newSummary) return summary;
+    // 신규 포트폴리오의 ticker → yieldRate 맵 구성
+    const yieldMap = new Map<string, number>();
+    for (const item of newSummary.breakdown) {
+      if (item.ticker && item.yieldRate > 0 && item.incomeType.startsWith("배당")) {
+        yieldMap.set(item.ticker, item.yieldRate);
+      }
+    }
+    if (yieldMap.size === 0) return summary;
+    // 기존 포트폴리오 breakdown에서 매칭 ticker의 yieldRate + income 조정
+    let dividendDiff = 0;
+    const adjustedBreakdown = summary.breakdown.map(item => {
+      if (!item.ticker || !item.incomeType.startsWith("배당")) return item;
+      const newRate = yieldMap.get(item.ticker);
+      if (newRate == null || Math.abs(newRate - item.yieldRate) < 0.00005) return item;
+      const newAnnual = Math.round(item.value * newRate);
+      const withholdingFactor = item.annualIncome > 0 ? item.netIncome / item.annualIncome : 1;
+      dividendDiff += newAnnual - item.annualIncome;
+      return { ...item, yieldRate: newRate, annualIncome: newAnnual, netIncome: Math.round(newAnnual * withholdingFactor) };
+    });
+    if (dividendDiff === 0) return summary;
+    return {
+      ...summary,
+      breakdown: adjustedBreakdown,
+      dividendIncome: summary.dividendIncome + dividendDiff,
+      totalFinancialIncome: summary.totalFinancialIncome + dividendDiff,
+    };
+  }, [summary, newSummary]);
+
   const leftData = data;
   const rightData = newPortfolioAnalysisResult;
 
@@ -203,7 +235,7 @@ export default function Tab4Page() {
 {showPensionPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowPensionPanel(false)}>
           <div
-            className="relative w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            className="relative w-full max-w-6xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             {/* 모달 헤더 */}
@@ -402,7 +434,7 @@ export default function Tab4Page() {
                     <span className="flex h-5 w-5 items-center justify-center rounded-full bg-samsung text-[10px] font-bold text-white">A</span>
                     <span className="text-xs font-bold text-navy">기존 포트폴리오 세금 점검</span>
                   </div>
-                  <FinancialIncomeGauge summary={summary} hideCapitalGains={true} />
+                  <FinancialIncomeGauge summary={normalizedSummary} hideCapitalGains={true} />
                 </>
               )}
             </div>

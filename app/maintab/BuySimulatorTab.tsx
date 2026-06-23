@@ -1361,6 +1361,26 @@ export default function BuySimulatorTab() {
       if (result) {
         confirmRebalancingBuy();
         setNewPortfolioAnalysisResult(result);
+
+        // enrichedAssets의 dividendYield를 mergedAssets에 반영 → PensionTaxPanel 연동
+        const enrichedArr = result.enrichedAssets ?? [];
+        const mergedWithDividends = mergedAssets.map((a, i) => {
+          const ea = enrichedArr[i] as unknown as Record<string, unknown>;
+          if (!ea) return a;
+          const aExt = a as unknown as Record<string, unknown>;
+          const patch: Record<string, unknown> = {};
+          if (ea.dividendYield != null && aExt.dividendYield == null) patch.dividendYield = ea.dividendYield;
+          if (ea.trailingAnnualDividendRate != null && aExt.trailingAnnualDividendRate == null) patch.trailingAnnualDividendRate = ea.trailingAnnualDividendRate;
+          return Object.keys(patch).length ? { ...a, ...patch } : a;
+        });
+        try {
+          localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(mergedWithDividends));
+          window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
+        } catch {}
+        if (mergedWithDividends.some((a, i) => a !== mergedAssets[i])) {
+          setRebalancingBuyAssets(mergedWithDividends as typeof mergedAssets);
+        }
+
         // 보유 자산 카드 그리드를 병합 결과로 즉시 동기화
         // (재분석 시 clearSellHistory가 portfolioAssets로 롤백하여 원본 보존)
         setRebalancingSellAssets(mergedAssets);
