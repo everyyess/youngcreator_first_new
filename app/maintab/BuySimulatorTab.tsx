@@ -443,39 +443,49 @@ function mergeBuyIntoBase(
   const merged = base.map((a) => ({ ...a }));
 
   for (const row of pbRows) {
+    const isBond = isBondProductType(row.productType);
+    const krwTotal = computeKrwAmount(row, usdKrwRate);
+    if (isBond) {
+      // 채권: amountManStr(총 투자금액)이 있어야 유효
+      if (krwTotal <= 0) continue;
+    } else {
+      const qty = parseFloat(row.quantity);
+      if (!Number.isFinite(qty) || qty <= 0 || (row.currentPrice ?? 0) <= 0) continue;
+    }
     const qty = parseFloat(row.quantity);
-    if (!Number.isFinite(qty) || qty <= 0 || (row.currentPrice ?? 0) <= 0) continue;
     const idx = merged.findIndex((a) => isSameAsset(a, row.name, row.ticker));
     if (idx !== -1) {
       const ex = merged[idx];
       if (ex.amount_type === "quantity") {
-        merged[idx] = { ...ex, amount: ex.amount + qty };
+        merged[idx] = { ...ex, amount: ex.amount + (Number.isFinite(qty) && qty > 0 ? qty : 0) };
       } else {
-        merged[idx] = { ...ex, amount: ex.amount + computeKrwAmount(row, usdKrwRate) };
+        merged[idx] = { ...ex, amount: ex.amount + krwTotal };
       }
     } else {
       const bondYieldVal = parseFloat(row.bondYield);
       const maturityVal = parseFloat(row.maturityYears);
       // current_price는 항상 KRW로 정규화 (portfolioLogic.ts 컨벤션 동일)
-      const priceKrw = row.priceCurrency === "USD" && row.currentPrice != null
-        ? row.currentPrice * usdKrwRate
-        : (row.currentPrice ?? null);
+      const priceKrw = isBond
+        ? (Number.isFinite(qty) && qty > 0 ? krwTotal / qty : null)
+        : (row.priceCurrency === "USD" && row.currentPrice != null
+            ? row.currentPrice * usdKrwRate
+            : (row.currentPrice ?? null));
       const newRow: PortfolioAsset = {
-        name: row.name || row.ticker || "직접매수종목",
+        name: row.name || row.ticker || row.productType || "직접매수종목",
         ticker: row.ticker || "",
         asset_class: row.productType,
         productType: row.productType,
         theme: "기타",
         country: row.productType.includes("해외") ? "미국" : "한국",
         buy_price: priceKrw,
-        amount: qty,
+        amount: Number.isFinite(qty) && qty > 0 ? qty : 1,
         amount_type: "quantity",
         is_hedged: false,
         needs_review: false,
         bond_yield: Number.isFinite(bondYieldVal) && bondYieldVal > 0 ? bondYieldVal : null,
         bond_maturity: Number.isFinite(maturityVal) && maturityVal > 0 ? maturityVal : null,
         current_price: priceKrw ?? undefined,
-        current_value: computeKrwAmount(row, usdKrwRate) || undefined,
+        current_value: krwTotal || undefined,
       };
       merged.push(newRow);
     }
@@ -532,10 +542,17 @@ function getEffectiveAssetValue(a: PortfolioAsset): number {
   return a.amount ?? 0;
 }
 
-// ── PB 행 원화 환산 (priceCurrency 기준 — 종목유형 불문) ───────────────────────
-// 국내(KRW): price × quantity
-// 해외(USD): price × quantity × usdKrwRate
+// ── PB 행 원화 환산 ───────────────────────────────────────────────────────────
+// 채권: amountManStr(총 투자금액) 직접 사용
+// 비채권 국내(KRW): price × quantity / 해외(USD): price × quantity × usdKrwRate
+function isBondProductType(productType: string): boolean {
+  return productType === "국내채권" || productType === "해외채권";
+}
 function computeKrwAmount(row: PbOrderRow, usdKrwRate: number): number {
+  if (isBondProductType(row.productType)) {
+    const amt = parseKoreanNumber(row.amountManStr);
+    return Number.isFinite(amt) && amt > 0 ? Math.round(amt) : 0;
+  }
   const qty = parseFloat(row.quantity);
   const price = row.currentPrice;
   if (!Number.isFinite(qty) || qty <= 0 || price === null || !Number.isFinite(price) || price <= 0) return 0;
@@ -566,6 +583,7 @@ export default function BuySimulatorTab() {
     pbOrderRows,
     setPbOrderRows,
     addSellRecord,
+    addBuyCost,
   } = useCustomerContext();
 
   // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
@@ -1174,15 +1192,26 @@ export default function BuySimulatorTab() {
   }, [sellCardKey, inlineSellQtyStr, baseAssets, addSellRecord]);
 
   const updatePbRow = useCallback((id: string, patch: Partial<PbOrderRow>) => {
-    // productType 변경 시 현재가 초기화 (통화 불일치 방지)
+    const newType = "productType" in patch ? (patch.productType ?? "") : null;
+    const switchingToBond = newType !== null && isBondProductType(newType);
+    const switchingFromBond = newType !== null && !isBondProductType(newType);
     const fullPatch: Partial<PbOrderRow> = "productType" in patch
-      ? { ...patch, currentPrice: null, priceCurrency: patch.productType?.includes("해외") ? "USD" : "KRW" }
+      ? {
+          ...patch,
+          currentPrice: null,
+          priceCurrency: newType?.includes("해외") ? "USD" : "KRW",
+          // 채권 선택 시: 종목명 = 상품유형명, 티커 클리어
+          ...(switchingToBond ? { name: newType ?? "", ticker: "", amountManStr: "" } : {}),
+          // 비채권 전환 시: 채권 전용 필드 클리어
+          ...(switchingFromBond ? { bondYield: "", maturityYears: "", amountManStr: "" } : {}),
+        }
       : patch;
     const updated = pbOrderRowsRef.current.map((r) => r.id === id ? { ...r, ...fullPatch } : r);
     setPbOrderRows(updated);
-    if ("name" in patch || "productType" in patch) {
+    // 채권 유형은 시장 가격 조회 불필요 — 검색 생략
+    if (("name" in patch || "productType" in patch) && !switchingToBond) {
       const target = updated.find((r) => r.id === id);
-      if (target) triggerPbSearch(id, target.name, target.productType);
+      if (target && !isBondProductType(target.productType)) triggerPbSearch(id, target.name, target.productType);
     }
   }, [setPbOrderRows, triggerPbSearch]);
 
@@ -2144,6 +2173,7 @@ export default function BuySimulatorTab() {
                         updated = [...rebalancingSellAssets, newAsset];
                       }
                       setRebalancingSellAssets(updated);
+                      addBuyCost(dropCost);
                     } else if (existingAsset) {
                       addSellRecord({
                         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -2178,9 +2208,10 @@ export default function BuySimulatorTab() {
         const estGain = asset?.buy_price != null && price > 0
           ? (price - asset.buy_price) * sellQtyNum
           : null;
-        // 기존 매수 취소 버튼 표시 조건: 추가 매수 이력 있는 종목
+        // 취소 버튼 표시 조건
         const origAsset = asset ? portfolioAssets.find((pa) => isSameAsset(pa, asset.name, asset.ticker)) : null;
         const hasAdditionalBuy = !!(origAsset && asset && asset.amount_type === "quantity" && asset.amount > origAsset.amount);
+        const isNewBuy = !!(asset && !origAsset && asset.amount_type === "quantity" && asset.amount > 0);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSellCardKey(null)}>
             <div className="w-80 rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -2230,16 +2261,36 @@ export default function BuySimulatorTab() {
                   <button
                     type="button"
                     onClick={() => {
+                      const deltaQty = asset!.amount - origAsset.amount;
+                      const refund = price * deltaQty;
                       const rolledBack = rebalancingSellAssets.map((a) => {
                         if (!isSameAsset(a, asset!.name, asset!.ticker)) return a;
                         return { ...a, amount: origAsset.amount, current_value: undefined };
                       });
                       setRebalancingSellAssets(rolledBack);
+                      if (refund > 0) addBuyCost(-refund);
                       setSellCardKey(null);
                     }}
                     className="w-full rounded-xl border border-orange-300 bg-orange-50 px-4 py-2.5 text-sm font-bold text-orange-700 hover:bg-orange-100"
                   >
                     기존 매수 취소 (+{(asset!.amount - origAsset.amount).toLocaleString()}주 롤백)
+                  </button>
+                )}
+                {isNewBuy && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cost = price * asset!.amount;
+                      const rolledBack = rebalancingSellAssets.filter(
+                        (a) => !isSameAsset(a, asset!.name, asset!.ticker),
+                      );
+                      setRebalancingSellAssets(rolledBack);
+                      if (cost > 0) addBuyCost(-cost);
+                      setSellCardKey(null);
+                    }}
+                    className="w-full rounded-xl border border-orange-300 bg-orange-50 px-4 py-2.5 text-sm font-bold text-orange-700 hover:bg-orange-100"
+                  >
+                    신규 매수 취소 (종목 제거)
                   </button>
                 )}
               </div>
@@ -2310,25 +2361,30 @@ export default function BuySimulatorTab() {
                             <option>예적금/현금</option>
                           </select>
                         </td>
-                        {/* 종목명 */}
+                        {/* 종목명 — 채권 선택 시 입력 불가 */}
                         <td className="px-2 py-1.5">
                           <div className="relative">
                             <input
                               type="text"
                               value={row.name}
+                              disabled={isBond}
                               onChange={(e) =>
                                 updatePbRow(row.id, { name: e.target.value, ticker: "" })
                               }
-                              placeholder="종목명 입력"
-                              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d]"
+                              placeholder={isBond ? "채권(직접입력불가)" : "종목명 입력"}
+                              className={`w-full rounded border px-2 py-1 text-xs outline-none ${
+                                isBond
+                                  ? "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400 placeholder:text-slate-300"
+                                  : "border-slate-200 bg-white text-navy placeholder:text-slate-300 focus:border-[#2f2f9d]"
+                              }`}
                             />
-                            {pbState.loading && (
+                            {pbState.loading && !isBond && (
                               <Loader2
                                 size={11}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-slate-400"
                               />
                             )}
-                            {pbState.error && (
+                            {pbState.error && !isBond && (
                               <p className="mt-0.5 text-[10px] leading-tight text-red-500">
                                 {pbState.error}
                               </p>
@@ -2366,15 +2422,31 @@ export default function BuySimulatorTab() {
                             className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d]"
                           />
                         </td>
-                        {/* 매수단가(원화) — read-only 자동 연산 */}
+                        {/* 매수단가(원화) — 채권: 직접 입력 / 비채권: read-only 자동 연산 */}
                         <td className="px-2 py-1.5 text-right">
-                          <span className={`text-xs font-bold ${krwAmount > 0 ? "text-navy" : "text-slate-300"}`}>
-                            {krwAmount > 0 ? fmtKrwMan(krwAmount) : "—"}
-                          </span>
-                          {isForeignPrice && krwAmount > 0 && (
-                            <div className="text-[9px] text-slate-400">
-                              @{usdKrwRate.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}원
-                            </div>
+                          {isBond ? (
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              value={row.amountManStr}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/,/g, "");
+                                updatePbRow(row.id, { amountManStr: raw });
+                              }}
+                              placeholder="투자금액(원)"
+                              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d]"
+                            />
+                          ) : (
+                            <>
+                              <span className={`text-xs font-bold ${krwAmount > 0 ? "text-navy" : "text-slate-300"}`}>
+                                {krwAmount > 0 ? fmtKrwMan(krwAmount) : "—"}
+                              </span>
+                              {isForeignPrice && krwAmount > 0 && (
+                                <div className="text-[9px] text-slate-400">
+                                  @{usdKrwRate.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}원
+                                </div>
+                              )}
+                            </>
                           )}
                         </td>
                         {/* 채권수익률(%) — 채권 유형만 활성 */}

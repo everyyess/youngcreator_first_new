@@ -100,7 +100,7 @@ export default function SellSimulatorTab() {
     portfolioAssets, analysisResult,
     rebalancingSellAssets,           // 확정 매도 후 잔여 수량이 실시간 반영된 배열
     setRebalancingSellAssets,
-    sellHistory, addSellRecord, availableInvestmentFunds,
+    sellHistory, addSellRecord, availableInvestmentFunds, addBuyCost,
   } = useCustomerContext();
 
   // 원본 포트폴리오 맵 — 추가 매수 배지 계산용
@@ -324,20 +324,22 @@ export default function SellSimulatorTab() {
     return { pct, amt };
   }, [selectedAsset]);
 
-  // 매수 확정 — rebalancingSellAssets에 수량 증가 반영
+  // 매수 확정 — rebalancingSellAssets에 수량 증가 반영 + 가용 자금 영구 차감
   const handleConfirmBuy = useCallback(() => {
     if (!selectedAsset || buyQty <= 0) return;
     const price = getEffectivePrice(selectedAsset);
     if (price <= 0) return;
+    const cost = buyQty * price;
     const updated = baseAssets.map((a) => {
       if (makeKey(a) !== selectedKey) return a;
       const newAmt = a.amount + buyQty;
       return { ...a, amount: newAmt, current_value: newAmt * price };
     });
     setRebalancingSellAssets(updated);
+    addBuyCost(cost);
     setBuyQtyStr("");
     setSelectedKey(null);
-  }, [selectedAsset, buyQty, baseAssets, selectedKey, setRebalancingSellAssets]);
+  }, [selectedAsset, buyQty, baseAssets, selectedKey, setRebalancingSellAssets, addBuyCost]);
 
   // 매도 확정 — 전역 Context에 누적 (탭 이동 후 복귀 시에도 유지)
   const handleConfirmSell = () => {
