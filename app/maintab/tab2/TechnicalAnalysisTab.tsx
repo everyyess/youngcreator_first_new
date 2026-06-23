@@ -27,6 +27,7 @@ import { computeTA, lv, type TAIndicators, type TAResult } from "../../../utils/
 import type { OhlcvResponse } from "../../api/ta-ohlcv/route";
 import { usePortfolioResult } from "../PortfolioResultComponents";
 import type { PortfolioAsset } from "../CustomerContext";
+import StockSearchBox from "./StockSearchBox";
 
 ChartJS.register(
   CategoryScale, LinearScale, PointElement, LineElement,
@@ -847,14 +848,39 @@ export default function TechnicalAnalysisTab() {
   // ticker 있는 자산만 필터링
   const tickerableAssets = useMemo<PortfolioAsset[]>(() => {
     if (!portfolioData) return [];
-    return (portfolioData.enrichedAssets ?? []).filter(
+    const assets = (portfolioData.enrichedAssets ?? []).filter(
       (a) => a.ticker && a.ticker.trim() !== "",
     );
+    const isKorean = (ticker: string) => /^\d{6}(\.(KS|KQ|KN))?$/i.test(ticker);
+    return [...assets].sort((a, b) => {
+      const aK = isKorean(a.ticker!);
+      const bK = isKorean(b.ticker!);
+      if (aK && !bK) return -1;
+      if (!aK && bK) return 1;
+      return 0;
+    });
   }, [portfolioData]);
 
   const [selectedTicker, setSelectedTicker] = useState<string>("");
   const [selectedName, setSelectedName] = useState<string>("");
   const [activeTab, setActiveTab] = useState<TaTab>("conclusion");
+
+  const [koreanNames, setKoreanNames] = useState<Record<string, string>>({});
+  const fetchedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const a of tickerableAssets) {
+      if (!a.ticker || fetchedRef.current.has(a.ticker)) continue;
+      fetchedRef.current.add(a.ticker);
+      fetch(`/api/korean-name?ticker=${encodeURIComponent(a.ticker)}`)
+        .then(r => r.json())
+        .then((d: { name?: string }) => {
+          if (d.name && a.ticker)
+            setKoreanNames(prev => ({ ...prev, [a.ticker!]: d.name! }));
+        })
+        .catch(() => {});
+    }
+  }, [tickerableAssets]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taResult, setTaResult] = useState<TAResult | null>(null);
@@ -902,57 +928,38 @@ export default function TechnicalAnalysisTab() {
     setActiveTab("conclusion");
   };
 
-  // 포트폴리오 데이터 없음
-  if (!portfolioData) {
-    return (
-      <section className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
-        <GitBranch size={32} className="mx-auto mb-3 text-slate-300" />
-        <p className="text-[16px] font-bold text-navy">기술적 분석</p>
-        <p className="mt-2 text-sm text-slate-400">
-          &lsquo;보유 현황 및 진단&rsquo; 탭에서 자산을 입력하고 분석 실행을 눌러주세요.
-        </p>
-      </section>
-    );
-  }
-
-  // ticker 가능 자산 없음
-  if (tickerableAssets.length === 0) {
-    return (
-      <section className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
-        <AlertTriangle size={32} className="mx-auto mb-3 text-amber-400" />
-        <p className="text-[16px] font-bold text-slate-700">분석 가능한 종목 없음</p>
-        <p className="mt-2 text-sm text-slate-400">
-          보유 자산 중 기술적 분석이 가능한 주식·ETF 종목이 없습니다.
-          <br />채권, 현금, 예금 등은 기술적 분석 대상이 아닙니다.
-        </p>
-      </section>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {/* 종목 선택 바 */}
-      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="mb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">분석 종목 선택</div>
-        <div className="flex flex-wrap gap-2">
-          {tickerableAssets.map((a) => (
-            <button
-              key={a.ticker}
-              onClick={() => selectAsset(a.ticker!, a.name)}
-              className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
-                selectedTicker === a.ticker
-                  ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
-                  : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
-              }`}
-            >
-              {a.name}
-              <span className={`ml-1.5 text-[10px] font-normal ${selectedTicker === a.ticker ? "text-blue-200" : "text-slate-400"}`}>
-                {a.ticker}
-              </span>
-            </button>
-          ))}
+      {tickerableAssets.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">분석 종목 선택</div>
+          <div className="flex flex-wrap gap-2">
+            {tickerableAssets.map((a) => (
+              <button
+                key={a.ticker}
+                onClick={() => selectAsset(a.ticker!, a.name)}
+                className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
+                  selectedTicker === a.ticker
+                    ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
+                    : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                }`}
+              >
+                {koreanNames[a.ticker!] || a.name}
+                <span className={`ml-1.5 text-[10px] font-normal ${selectedTicker === a.ticker ? "text-blue-200" : "text-slate-400"}`}>
+                  {a.ticker}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 비보유 종목 검색 */}
+      <StockSearchBox
+        market="all"
+        onSelect={(item) => selectAsset(item.ticker, item.name)}
+      />
 
       {/* 선택 종목 분석 영역 */}
       {selectedTicker && (
@@ -960,7 +967,7 @@ export default function TechnicalAnalysisTab() {
           {/* 헤더 */}
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <div className="text-[15px] font-bold text-slate-800">{selectedName}</div>
+              <div className="text-[15px] font-bold text-slate-800">{koreanNames[selectedTicker] || selectedName}</div>
               <div className="text-[12px] text-slate-400">{selectedTicker} · 2022.01.01 이후 일봉 기준</div>
             </div>
             {taResult && (
@@ -996,7 +1003,7 @@ export default function TechnicalAnalysisTab() {
           {loading && (
             <div className="flex items-center justify-center gap-2 py-16 text-slate-400">
               <Loader2 size={22} className="animate-spin" />
-              <span className="text-[14px]">{selectedName} 데이터 불러오는 중...</span>
+              <span className="text-[14px]">{koreanNames[selectedTicker] || selectedName} 데이터 불러오는 중...</span>
             </div>
           )}
 

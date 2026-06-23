@@ -46,7 +46,7 @@ const BUCKET_PROXY = {
   taxLiq:  { annVol: 0.02, mdd: 0.03 }, // 단기채·MMF 평균
 };
 
-const RISK_FREE_RATE = 0.035; // 곽준호 quantEngine 동일 무위험수익률 3.5%
+const RISK_FREE_RATE = 0.04; // quantEngine 동일 무위험수익률 4.0%
 
 function getMetrics(alloc: ReturnType<typeof calcAllocation>, rTarget: number) {
   const w = {

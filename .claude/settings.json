@@ -10,7 +10,9 @@
       "Bash(git rm *)",
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/maintab/tab2)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/maintab/tab2)",
+      "PowerShell(npm run dev)",
+      "PowerShell(npm run dev -- --webpack)"
     ],
     "additionalDirectories": [
       "c:\\Users\\�̼ҿ�\\Desktop\\���ΰ����ڷ�\\AI Study\\youngcreator_first_new\\app"

@@ -1,7 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { CheckCircle2, Receipt, TrendingDown, TrendingUp } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Loader2, Receipt, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useCustomerContext } from "./CustomerContext";
 import type { PortfolioAsset, SellRecord } from "./CustomerContext";
 import {
@@ -10,6 +19,7 @@ import {
   formatKrwAmount,
   normalizeAssetClass,
 } from "./PortfolioResultComponents";
+import { formatLocalTickerName } from "./tickerUtils";
 
 // ─── Pure Helpers ─────────────────────────────────────────────────────────────
 
@@ -34,6 +44,52 @@ function isTaxable(productType: string): boolean {
 
 function makeKey(a: PortfolioAsset): string {
   return `${a.name}::${a.ticker ?? ""}`;
+}
+
+// ─── 종목 펀더멘털 타입 (stock-metrics 응답 형상) ─────────────────────────────
+
+interface StockDetail {
+  price: number | null;
+  per: number | null;
+  pbr: number | null;
+  psr: number | null;
+  ebitda: number | null;
+  revenue: number | null;
+  currency: string;
+  dataNote?: string;
+}
+
+// ─── 포맷 헬퍼 ─────────────────────────────────────────────────────────────────
+
+function fmtDetailPrice(price: number | null, currency: string): string {
+  if (price === null || !Number.isFinite(price)) return "N/A";
+  if (currency === "KRW")
+    return `${Math.round(price).toLocaleString("ko-KR")}원`;
+  return `$${price.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function fmtDetailLarge(v: number | null, currency: string): string {
+  if (v === null || !Number.isFinite(v) || v === 0) return "N/A";
+  const abs = Math.abs(v);
+  if (currency === "KRW") {
+    if (abs >= 1e12) return `${(v / 1e12).toFixed(1)}조`;
+    if (abs >= 1e8)  return `${(v / 1e8).toFixed(0)}억`;
+    if (abs >= 1e4)  return `${(v / 1e4).toFixed(0)}만`;
+    return v.toLocaleString("ko-KR");
+  }
+  if (abs >= 1e12) return `${(v / 1e12).toFixed(1)}T`;
+  if (abs >= 1e9)  return `${(v / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6)  return `${(v / 1e6).toFixed(0)}M`;
+  return v.toLocaleString();
+}
+
+function fmtMultiple(v: number | null, digits: number, dataNote?: string): string {
+  if (v === null || !Number.isFinite(v))
+    return dataNote === "krx-partial" ? "공시없음" : "N/A";
+  return v.toFixed(digits);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -74,18 +130,85 @@ export default function SellSimulatorTab() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [sellQtyStr, setSellQtyStr] = useState<string>("");
 
+  // ── 선택 종목 상세 (펀더멘털 + 1Y 차트) ────────────────────────────────────
+  const [stockDetail, setStockDetail] = useState<StockDetail | null>(null);
+  const [chartData, setChartData] = useState<{ date: string; price: number | null }[]>([]);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+
   const selectedAsset = useMemo(
     () => (selectedKey ? baseAssets.find((a) => makeKey(a) === selectedKey) ?? null : null),
     [baseAssets, selectedKey],
   );
 
-  // 상단 카드 그리드 렌더링용 — productType 기준 오름차순 정렬 (원본 baseAssets 불변)
-  const sortedCards = useMemo(
-    () => [...baseAssets].sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? "")),
-    [baseAssets],
-  );
+  // 상단 카드 그리드 렌더링용 — 국내(파란) → 해외(에메랄드) → 기타 순 시장 속성 그룹 정렬
+  const sortedCards = useMemo(() => {
+    const marketGroup = (x: PortfolioAsset): number => {
+      const k = (x.productType ?? x.asset_class ?? "").trim();
+      if (k.startsWith("국내")) return 0;
+      if (k.startsWith("해외")) return 1;
+      return 2;
+    };
+    return [...baseAssets].sort((a, b) => {
+      const d = marketGroup(a) - marketGroup(b);
+      return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
+    });
+  }, [baseAssets]);
 
   const maxQty = selectedAsset?.amount_type === "quantity" ? (selectedAsset.amount ?? 0) : 0;
+
+  // 선택 종목 변경 시 펀더멘털 + 1Y 차트 데이터 로드
+  useEffect(() => {
+    const ticker = selectedAsset?.ticker;
+    if (!ticker) {
+      setStockDetail(null);
+      setChartData([]);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingDetail(true);
+    setStockDetail(null);
+    setChartData([]);
+
+    const productType = selectedAsset.productType ?? "해외주식";
+
+    Promise.all([
+      fetch(`/api/stock-metrics?ticker=${encodeURIComponent(ticker)}`).then((r) =>
+        r.ok ? (r.json() as Promise<StockDetail>) : null,
+      ),
+      fetch(
+        `/api/proxy-finance?assetName=${encodeURIComponent(ticker)}&productType=${encodeURIComponent(productType)}`,
+      ).then((r) => r.ok ? (r.json() as Promise<Record<string, unknown>>) : null),
+    ])
+      .then(([metrics, raw]) => {
+        if (cancelled) return;
+        if (metrics) setStockDetail(metrics);
+        if (raw) {
+          const chartResult = (raw.chart as Record<string, unknown> | undefined)
+            ?.result as Record<string, unknown>[] | undefined;
+          const r0 = chartResult?.[0];
+          const timestamps = (r0?.timestamp as number[] | undefined) ?? [];
+          const closes =
+            (
+              (r0?.indicators as Record<string, unknown> | undefined)
+                ?.quote as Record<string, unknown>[] | undefined
+            )?.[0]?.close as (number | null)[] | undefined ?? [];
+          const points = timestamps
+            .map((ts, i) => ({
+              date: new Date(ts * 1000).toLocaleDateString("ko-KR", {
+                month: "short",
+                day: "numeric",
+              }),
+              price: closes[i] ?? null,
+            }))
+            .filter((p) => p.price !== null && Number.isFinite(p.price));
+          setChartData(points);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setIsLoadingDetail(false); });
+
+    return () => { cancelled = true; };
+  }, [selectedAsset?.ticker, selectedAsset?.productType]);
 
   const sellQty = useMemo(() => {
     const n = parseFloat(sellQtyStr);
@@ -167,20 +290,18 @@ export default function SellSimulatorTab() {
     return { totalGain, taxableNet, tax };
   }, [sellHistory]);
 
-  if (!baseAssets.length) {
-    return (
-      <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50">
-        <p className="text-sm font-semibold text-slate-400">
-          TAB 2-1에서 자산을 입력하고 분석 실행 후 이 화면으로 돌아오세요.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
 
       {/* ── [1] 상단: 보유 자산 카드 그리드 ───────────────────────────────── */}
+      {/* 자산 미로드 시에도 sellHistory 섹션은 유지 — early return 제거 */}
+      {baseAssets.length === 0 ? (
+        <div className="flex min-h-[320px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50">
+          <p className="text-sm font-semibold text-slate-400">
+            TAB 2-1에서 자산을 입력하고 분석 실행 후 이 화면으로 돌아오세요.
+          </p>
+        </div>
+      ) : (
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
         <p className="mb-3 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
           보유 자산 선택 — 매도 시뮬레이션할 종목을 클릭하세요
@@ -230,7 +351,7 @@ export default function SellSimulatorTab() {
                   </span>
                 )}
                 <span className={`mt-1 max-w-[148px] truncate text-sm font-bold leading-tight ${isSoldOut ? "text-slate-400 line-through" : "text-navy"}`}>
-                  {a.name}
+                  {formatLocalTickerName(a.name, a.ticker, portfolioAssets)}
                 </span>
                 <span className="text-[10px] text-slate-500">
                   현재가 {cp > 0 ? formatKrwAmount(cp) : "—"}
@@ -255,13 +376,14 @@ export default function SellSimulatorTab() {
           })}
         </div>
       </section>
+      )} {/* baseAssets.length > 0 조건부 블록 끝 */}
 
       {/* ── [2] 중간: 실시간 매도 조율 ──────────────────────────────────────── */}
       {selectedAsset && selectedAsset.amount > 0 && (
         <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
-          {/* 좌측: 선택 종목 명세 */}
-          <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
+          {/* 좌측: 선택 종목 명세 + 펀더멘털 + 1Y 차트 */}
+          <div className="space-y-4 overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
             <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">선택 종목 명세</p>
             <div className="flex items-start gap-3">
               <span
@@ -273,7 +395,12 @@ export default function SellSimulatorTab() {
                 }}
               />
               <div>
-                <p className="text-xl font-black leading-tight text-navy">{selectedAsset.name}</p>
+                <p className="text-xl font-black leading-tight text-navy">
+                  {formatLocalTickerName(selectedAsset.name, selectedAsset.ticker, portfolioAssets)}
+                </p>
+                {selectedAsset.ticker && (
+                  <p className="mt-0.5 font-mono text-[10px] text-slate-400">{selectedAsset.ticker}</p>
+                )}
                 <p className="mt-0.5 text-xs text-slate-500">
                   {selectedAsset.productType ?? selectedAsset.asset_class}
                 </p>
@@ -347,6 +474,113 @@ export default function SellSimulatorTab() {
                   {pnlInfo.amt >= 0 ? "+" : ""}
                   {formatKrwAmount(pnlInfo.amt)}
                 </span>
+              </div>
+            )}
+
+            {/* ── 펀더멘털 지표 전광판 ── */}
+            {isLoadingDetail && !stockDetail && (
+              <div className="flex items-center gap-2 py-1 text-xs text-slate-400">
+                <Loader2 size={12} className="animate-spin" />
+                실무 지표 로드 중…
+              </div>
+            )}
+            {stockDetail && (
+              <div>
+                <p className="mb-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                  실무 핵심 지표
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    {
+                      label: "현재가",
+                      value: fmtDetailPrice(stockDetail.price, stockDetail.currency),
+                    },
+                    {
+                      label: "PER",
+                      value: fmtMultiple(stockDetail.per, 1, stockDetail.dataNote),
+                    },
+                    {
+                      label: "PBR",
+                      value: fmtMultiple(stockDetail.pbr, 2, stockDetail.dataNote),
+                    },
+                    {
+                      label: "PSR",
+                      value: fmtMultiple(stockDetail.psr, 2, stockDetail.dataNote),
+                    },
+                    {
+                      label: "EBITDA",
+                      value:
+                        fmtDetailLarge(stockDetail.ebitda, stockDetail.currency) === "N/A" &&
+                        stockDetail.dataNote === "krx-partial"
+                          ? "공시없음"
+                          : fmtDetailLarge(stockDetail.ebitda, stockDetail.currency),
+                    },
+                    {
+                      label: "직전매출",
+                      value:
+                        fmtDetailLarge(stockDetail.revenue, stockDetail.currency) === "N/A" &&
+                        stockDetail.dataNote === "krx-partial"
+                          ? "공시없음"
+                          : fmtDetailLarge(stockDetail.revenue, stockDetail.currency),
+                    },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="rounded-lg bg-slate-50 p-2">
+                      <div className="text-[9px] font-bold text-slate-400">{label}</div>
+                      <div className="mt-0.5 text-xs font-bold text-navy">{value}</div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[9px] text-slate-400">
+                  * Yahoo Finance 실시간 데이터 기준
+                </p>
+              </div>
+            )}
+
+            {/* ── 1Y 주가 추이 차트 ── */}
+            {chartData.length > 1 && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                  1Y 주가 추이
+                </p>
+                <ResponsiveContainer width="100%" height={148}>
+                  <LineChart
+                    data={chartData}
+                    margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fontSize: 8 }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 8 }}
+                      width={52}
+                      tickFormatter={(v: number) =>
+                        v.toLocaleString("ko-KR", { maximumFractionDigits: 0 })
+                      }
+                    />
+                    <Tooltip
+                      contentStyle={{ fontSize: 10 }}
+                      formatter={(v: unknown) => {
+                        const n = typeof v === "number" ? v : NaN;
+                        return [
+                          Number.isFinite(n)
+                            ? n.toLocaleString("ko-KR", { maximumFractionDigits: 2 })
+                            : "-",
+                          "가격",
+                        ] as [string, string];
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="price"
+                      stroke="#2f2f9d"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             )}
           </div>

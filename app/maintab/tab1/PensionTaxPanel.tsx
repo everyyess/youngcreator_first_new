@@ -109,6 +109,7 @@ interface AllocResult {
 }
 interface IRPResult extends AllocResult {
   riskRatio: number;
+  safeRatio: number;
 }
 
 // ─────────────────────────────────────────────
@@ -195,7 +196,9 @@ function allocateIRP(pool: SimAsset[], target: number): IRPResult {
     picks,
     totalAmount,
     totalIncome: picks.reduce((s, p) => s + p.amount * p.rate, 0),
-    riskRatio: totalAmount > 0 ? riskUsed / totalAmount : 0,
+    // target 기준 비율 (안전자산 부족으로 미배분된 30%가 위험자산으로 보이지 않도록)
+    riskRatio: target > 0 ? riskUsed / target : 0,
+    safeRatio: target > 0 ? (totalAmount - riskUsed) / target : 0,
   };
 }
 
@@ -203,7 +206,7 @@ function allocateIRP(pool: SimAsset[], target: number): IRPResult {
 // Formatting
 // ─────────────────────────────────────────────
 const man = (n: number) => `${Math.round(n / 10000).toLocaleString("ko-KR")}만원`;
-const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 
 // ─────────────────────────────────────────────
 // Sub-components
@@ -550,16 +553,27 @@ export default function PensionTaxPanel({
               )}
             </div>
 
-            {/* Not over threshold notice */}
-            {!isOverThreshold && baseFinancialIncome > 0 && (
-              <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
-                <AlertCircle size={15} style={{ color: C.green, flexShrink: 0, marginTop: 2 }} />
-                <div>
-                  <strong style={{ color: C.green }}>종합과세 구간 절감 효과는 해당없음.</strong>{" "}
-                  금융소득이 2,000만원 미만이라 초과분이 없습니다. 대신{" "}
-                  <strong>세액공제 + ISA 비과세·저율과세</strong>를 중심으로 제안하세요.
+            {/* 종합과세 해당/미해당 배너 */}
+            {baseFinancialIncome > 0 && (
+              isOverThreshold ? (
+                <div style={{ background: C.terracottaSoft, border: `1px solid ${C.terracotta}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <AlertCircle size={15} style={{ color: C.terracotta, flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <strong style={{ color: C.terracotta }}>금융소득 종합과세 대상.</strong>{" "}
+                    금융소득이 2,000만원을 초과해 초과분에 최고세율이 적용됩니다.{" "}
+                    <strong>연금저축·IRP·ISA 절세 계좌</strong>를 최대한 활용해 과세 소득을 줄이세요.
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <AlertCircle size={15} style={{ color: C.green, flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <strong style={{ color: C.green }}>종합과세 구간 절감 효과는 해당없음.</strong>{" "}
+                    금융소득이 2,000만원 미만이라 초과분이 없습니다. 대신{" "}
+                    <strong>세액공제 + ISA 비과세·저율과세</strong>를 중심으로 제안하세요.
+                  </div>
+                </div>
+              )
             )}
 
             {/* IRP extra benefit notice */}
@@ -748,11 +762,12 @@ export default function PensionTaxPanel({
                     <div style={{ height: 24, marginBottom: 10, visibility: irpResult.totalAmount > 0 ? "visible" : "hidden" }}>
                       <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", border: `1px solid ${C.line}` }}>
                         <div style={{ width: `${irpResult.riskRatio * 100}%`, background: C.gold }} />
-                        <div style={{ width: `${(1 - irpResult.riskRatio) * 100}%`, background: C.green }} />
+                        <div style={{ width: `${irpResult.safeRatio * 100}%`, background: C.green }} />
+                        <div style={{ width: `${(1 - irpResult.riskRatio - irpResult.safeRatio) * 100}%`, background: "#e2e8f0" }} />
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.slate, marginTop: 3 }}>
                         <span>위험자산 {pct(irpResult.riskRatio)} (상한 70%)</span>
-                        <span>안전자산 {pct(1 - irpResult.riskRatio)}</span>
+                        <span>안전자산 {pct(irpResult.safeRatio)}</span>
                       </div>
                     </div>
                     <div style={{ marginTop: "auto" }}>
