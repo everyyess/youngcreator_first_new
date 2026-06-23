@@ -553,16 +553,27 @@ export default function PensionTaxPanel({
               )}
             </div>
 
-            {/* Not over threshold notice */}
-            {!isOverThreshold && baseFinancialIncome > 0 && (
-              <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
-                <AlertCircle size={15} style={{ color: C.green, flexShrink: 0, marginTop: 2 }} />
-                <div>
-                  <strong style={{ color: C.green }}>종합과세 구간 절감 효과는 해당없음.</strong>{" "}
-                  금융소득이 2,000만원 미만이라 초과분이 없습니다. 대신{" "}
-                  <strong>세액공제 + ISA 비과세·저율과세</strong>를 중심으로 제안하세요.
+            {/* 종합과세 해당/미해당 배너 */}
+            {baseFinancialIncome > 0 && (
+              isOverThreshold ? (
+                <div style={{ background: C.terracottaSoft, border: `1px solid ${C.terracotta}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <AlertCircle size={15} style={{ color: C.terracotta, flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <strong style={{ color: C.terracotta }}>금융소득 종합과세 대상.</strong>{" "}
+                    금융소득이 2,000만원을 초과해 초과분에 최고세율이 적용됩니다.{" "}
+                    <strong>연금저축·IRP·ISA 절세 계좌</strong>를 최대한 활용해 과세 소득을 줄이세요.
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ background: C.greenSoft, border: `1px solid ${C.green}`, borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <AlertCircle size={15} style={{ color: C.green, flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <strong style={{ color: C.green }}>종합과세 구간 절감 효과는 해당없음.</strong>{" "}
+                    금융소득이 2,000만원 미만이라 초과분이 없습니다. 대신{" "}
+                    <strong>세액공제 + ISA 비과세·저율과세</strong>를 중심으로 제안하세요.
+                  </div>
+                </div>
+              )
             )}
 
             {/* IRP extra benefit notice */}
