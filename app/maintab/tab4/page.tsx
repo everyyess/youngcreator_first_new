@@ -25,7 +25,7 @@ import {
   FINANCIAL_INCOME_RESET_KEY,
   calcAfterTaxReturn,
 } from "../tab1/FinancialIncomeGauge";
-import type { FinancialIncomeSummary, TLHData } from "../tab1/FinancialIncomeGauge";
+import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
 import { PortfolioReportPdf, OPTIONAL_SECTIONS, type ReportSectionToggles, type ReportMode } from "./PortfolioReportPdf";
 
 // 시계열 연대기 순 키 배열 — STRESS_SCENARIO_ORDER 에서 파생 (2018→2020→2022)
@@ -192,23 +192,6 @@ export default function Tab4Page() {
     return enrichedRemainingAssets.filter(a => a.amount > 0);
   }, [rightData, enrichedRemainingAssets]);
 
-  // B패널 TLH용 데이터 — 신규 포트폴리오 자산 + 현재 세금 요약
-  const tlhData = useMemo<TLHData | undefined>(() => {
-    if (!rightAssets.length) return undefined;
-    return {
-      assets: rightAssets.map((a) => ({
-        name: a.name ?? "",
-        ticker: a.ticker ?? "",
-        buy_price: a.buy_price,
-        current_price: a.current_price,
-        amount: a.amount,
-        amount_type: a.amount_type ?? "quantity",
-        productType: a.productType,
-      })),
-      netCapitalGains: newSummary?.netCapitalGains ?? 0,
-      capitalGainsTax: newSummary?.foreignCapitalGainsTax ?? 0,
-    };
-  }, [rightAssets, newSummary]); // eslint-disable-line react-hooks/exhaustive-deps
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leftStressResult = (leftData as any)?.stressResult;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -454,7 +437,7 @@ export default function Tab4Page() {
                 </button>
               </div>
               {newSummary ? (
-                <FinancialIncomeGauge summary={newSummary} tlhData={tlhData} />
+                <FinancialIncomeGauge summary={newSummary} />
               ) : (
                 <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
                   <p className="text-xs font-semibold text-slate-400">

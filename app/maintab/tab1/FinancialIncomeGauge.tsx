@@ -560,7 +560,7 @@ export function FinancialIncomeGauge({
 }
 
 // ─── TLHTabContent ─────────────────────────────────────────────────────────────
-function TLHTabContent({
+export function TLHTabContent({
   baseCandidates,
   isYearEnd,
   daysLeft,

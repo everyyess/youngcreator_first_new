@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { useCustomerContext } from "./CustomerContext";
 import type { PortfolioAsset, SellRecord } from "./CustomerContext";
+import { TLHTabContent } from "./tab1/FinancialIncomeGauge";
 import {
   CLASS_COLORS,
   DonutChart,
@@ -289,6 +290,40 @@ export default function SellSimulatorTab() {
     const tax = Math.max(0, taxableNet - 2_500_000) * 0.22;
     return { totalGain, taxableNet, tax };
   }, [sellHistory]);
+
+  // TLH 후보 계산 — 확정 매도로 양도소득세가 발생할 때 기존 포트폴리오에서 손실 종목 탐색
+  const tlhInfo = useMemo(() => {
+    if (!taxInfo || taxInfo.tax <= 0) return null;
+    const today = new Date();
+    const isYearEnd = today.getMonth() === 11 && today.getDate() >= 21 && today.getDate() <= 26;
+    const dec26 = new Date(today.getFullYear(), 11, 26);
+    const daysLeft = isYearEnd
+      ? Math.max(0, Math.ceil((dec26.getTime() - today.getTime()) / 86400000))
+      : null;
+    const baseCandidates = baseAssets
+      .filter(
+        (a) =>
+          (a.productType === "해외주식" || a.productType === "해외ETF") &&
+          a.buy_price != null && a.buy_price > 0 &&
+          a.current_price != null && (a.current_price as number) > 0 &&
+          a.amount_type === "quantity" && a.amount > 0,
+      )
+      .map((a) => {
+        const cp = a.current_price as number;
+        const unrealizedGain = (cp - a.buy_price!) * a.amount;
+        const lossRate = (cp - a.buy_price!) / a.buy_price!;
+        const newNetGains = taxInfo.taxableNet + unrealizedGain;
+        const newTax = newNetGains > 2_500_000 ? Math.round((newNetGains - 2_500_000) * 0.22) : 0;
+        const taxSaving = Math.max(0, Math.round(taxInfo.tax) - newTax);
+        return { name: a.name, ticker: a.ticker ?? "", unrealizedGain, lossRate, taxSaving };
+      })
+      .filter((c) => c.unrealizedGain < 0);
+    const hasAny = isYearEnd
+      ? baseCandidates.length > 0
+      : baseCandidates.some((c) => c.taxSaving >= 1_000_000 || c.lossRate <= -0.15);
+    if (!hasAny) return null;
+    return { baseCandidates, isYearEnd, daysLeft, netCapitalGains: taxInfo.taxableNet, capitalGainsTax: Math.round(taxInfo.tax) };
+  }, [taxInfo, baseAssets]);
 
   return (
     <div className="space-y-6">
@@ -784,6 +819,27 @@ export default function SellSimulatorTab() {
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {/* ── [4] TLH 절세 전략 — 양도소득세 발생 시 기존 포트폴리오 손실 종목 제안 ── */}
+      {tlhInfo && (
+        <section className="rounded-xl border border-blue-200 bg-white p-5 shadow-soft">
+          <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-3">
+            <span className="text-[10px] font-extrabold uppercase tracking-widest text-blue-600">
+              절세 전략 TLH
+            </span>
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+              기존 포트폴리오 손실 종목 활용
+            </span>
+          </div>
+          <TLHTabContent
+            baseCandidates={tlhInfo.baseCandidates}
+            isYearEnd={tlhInfo.isYearEnd}
+            daysLeft={tlhInfo.daysLeft}
+            netCapitalGains={tlhInfo.netCapitalGains}
+            capitalGainsTax={tlhInfo.capitalGainsTax}
+          />
         </section>
       )}
     </div>
