@@ -273,10 +273,35 @@ export const runAnalysis = async (
 
   const userInterest = parseKoreanNumber(expectedInterestIncome);
   const userDividend = parseKoreanNumber(expectedDividendIncome);
+
+  // ── 실소득 기반 금융소득 산출 (FinancialIncomeGauge.tsx 동일 수식) ─────────────
+  // qr.tax.financialIncome 은 gain(자본 차익)을 이자·배당 대리값으로 사용하여
+  // 자본 차익이 크면 금융소득을 대폭 과대 계상한다.
+  // 대신 실제 수익률 데이터(dividendYield, bond_yield)에서 연간 소득을 직접 산출한다.
+  const actualInterestIncome = assetsWithWeights.reduce((s, a) => {
+    const isBond = a.productType === '국내채권' || a.productType === '해외채권';
+    if (!isBond) return s;
+    // 채권 원금: 수량 기준이면 매수단가 × 수량, 금액 기준이면 amount 그대로
+    const principal = a.amount_type === 'quantity'
+      ? (a.buy_price ?? 0) * a.amount
+      : a.amount;
+    // bond_yield 는 %(예: 5.0) 단위 → 소수 변환
+    return s + principal * ((a.bond_yield ?? 0) / 100);
+  }, 0);
+
+  const actualDividendIncome = assetsWithWeights.reduce((s, a) => {
+    const isBond = a.productType === '국내채권' || a.productType === '해외채권';
+    if (isBond) return s;
+    // dividendYield 는 Yahoo Finance 제공 소수값(예: 0.02 = 2%)
+    const value = a.current_value
+      ?? (a.amount_type === 'quantity' ? (a.current_price ?? 0) * a.amount : a.amount);
+    return s + value * (a.dividendYield ?? 0);
+  }, 0);
+
   const financialIncomeTaxForHealth =
     userInterest > 0 || userDividend > 0
       ? financialIncomeTaxCalculation(userInterest, userDividend, tMarginal)
-      : qr.tax.financialIncome;
+      : financialIncomeTaxCalculation(actualInterestIncome, actualDividendIncome, tMarginal);
 
   const hr = portfolioHealthCheck(
     {

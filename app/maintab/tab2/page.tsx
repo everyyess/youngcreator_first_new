@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Activity, BarChart2, FolderOpen, GitBranch, RefreshCcw } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
@@ -29,16 +29,17 @@ const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
 
 const TAB2_SUBTAB_KEY = "tab2-active-subtab";
 
-export default function Tab2Page() {
-  const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
-  const data = usePortfolioResult();
+const VALID_TABS: InnerTab[] = ["holding", "risk", "technical", "options", "rebalancing"];
 
-  useEffect(() => {
+export default function Tab2Page() {
+  // 레이지 이니셜라이저로 localStorage를 첫 렌더부터 동기 읽기
+  // → "holding" 초기값 후 useEffect 복원 시 SellSimulatorTab이 불필요하게 언마운트/리마운트되는 플래시 제거
+  const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>(() => {
+    if (typeof window === "undefined") return "holding";
     const stored = window.localStorage.getItem(TAB2_SUBTAB_KEY);
-    if (stored === "holding" || stored === "risk" || stored === "technical" || stored === "options" || stored === "rebalancing") {
-      setActiveInnerTab(stored as InnerTab);
-    }
-  }, []);
+    return (VALID_TABS as string[]).includes(stored ?? "") ? (stored as InnerTab) : "holding";
+  });
+  const data = usePortfolioResult();
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);

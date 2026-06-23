@@ -11,26 +11,10 @@
  */
 
 import { resolveTickerWithGemini } from '@/utils/geminiTicker';
+import krAssetMaster from './kr-asset-master.json';
 
 export const runtime = 'nodejs';
 
-// ── 포괄적 검색어 차단 사전 (UX 가드 — 티커 매핑 아님) ─────────────────────
-const AMBIGUOUS_KEYWORDS = new Map([
-  ['삼성',  "'삼성전자', '삼성SDI', '삼성바이오로직스'"],
-  ['현대',  "'현대차', '현대모비스', '현대건설'"],
-  ['sk',    "'SK하이닉스', 'SK이노베이션', 'SK텔레콤'"],
-  ['lg',    "'LG전자', 'LG에너지솔루션', 'LG화학'"],
-  ['한화',  "'한화에어로스페이스', '한화솔루션', '한화오션'"],
-  ['롯데',  "'롯데쇼핑', '롯데케미칼', '롯데칠성'"],
-  ['cj',    "'CJ제일제당', 'CJ CGV', 'CJ ENM'"],
-  ['gs',    "'GS리테일', 'GS건설'"],
-  ['두산',  "'두산에너빌리티', '두산밥캣', '두산로보틱스'"],
-  ['포스코', "'POSCO홀딩스', '포스코퓨처엠', '포스코DX'"],
-  ['코오롱', "'코오롱인더', '코오롱글로벌'"],
-  ['신한',  "'신한지주', '신한라이프'"],
-  ['하나',  "'하나금융지주', '하나은행'"],
-  ['kb',    "'KB금융', 'KB증권'"],
-]);
 
 // ── 티커 패턴 기반 메타데이터 추론 ────────────────────────────────────────
 function inferMetaFromTicker(ticker) {
@@ -51,6 +35,19 @@ function inferMetaFromTicker(ticker) {
   if (t.endsWith('.HK') || t.endsWith('.SS') || t.endsWith('.SZ'))
     return { assetClass: '해외주식', productType: '주식형', country: '중국' };
   return { assetClass: '해외주식', productType: '주식형', country: '미국' };
+}
+
+// ── officialName 결정 — 마스터 데이터셋(Single Source of Truth) 우선 참조 ─────
+// 1순위: kr-asset-master.json에 티커가 존재하면 외부 API 응답값을 무시하고 공식 명칭 반환
+// 2순위: 미등재 티커(해외 자산 등)는 Yahoo chartMeta.shortName → longName 순 폴백
+function resolveOfficialName(ticker, chartMeta) {
+  const masterName = (krAssetMaster)[ticker];
+  if (masterName) return masterName;
+  if (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim())
+    return chartMeta.shortName.trim();
+  if (typeof chartMeta?.longName === 'string' && chartMeta.longName.trim())
+    return chartMeta.longName.trim();
+  return null;
 }
 
 // ── 공통 브라우저 헤더 ─────────────────────────────────────────────────────
@@ -459,32 +456,28 @@ export async function GET(request) {
     : US_TYPES.has(userProductType) ? 'US'
     : null;
 
-  // 정규화: 소문자 + 공백 제거 (UX 가드 조회 전용)
-  const normalizedInput = assetName.toLowerCase().replace(/\s+/g, '');
-
-  // ── 포괄적 검색어 조기 차단 ────────────────────────────────────────────
-  const ambiguousExamples = AMBIGUOUS_KEYWORDS.get(normalizedInput);
-  if (ambiguousExamples) {
-    return Response.json(
-      { error: `입력하신 '${assetName}'은(는) 여러 계열사가 존재합니다. ${ambiguousExamples}처럼 정확한 종목명을 입력해주세요.`, assetName },
-      { status: 400 }
-    );
-  }
-
   // ── [KR 경로] Gemini → krCode 직접 조립 → Yahoo v7 AC 폴백 ──────────────
   let ticker = null;
   let resolvedKoreanName = null; // Gemini에서 얻은 한국어 종목명
 
   if (forcedMarket === 'KR') {
+    // [0순위] assetName이 이미 유효한 KRX 티커 형식이면 해석 체인 전체 생략
+    // 예: "143460.KS" → Gemini·Yahoo AC 실패 위험 없이 즉시 사용
+    const KR_TICKER_DIRECT_RE = /^\d{6}\.(KS|KQ)$/;
+    if (KR_TICKER_DIRECT_RE.test(assetName)) {
+      ticker = assetName;
+      console.log(`[proxy-finance] KR 직접 티커 확정: '${assetName}'`);
+    }
+
     // [1순위] Gemini: 6자리 krCode + market → 티커 직접 조립 (Yahoo AC 완전 우회)
     let geminiMetaKR = null;
-    try {
+    if (!ticker) try {
       geminiMetaKR = await resolveTickerWithGemini(assetName, userProductType);
     } catch (geminiErr) {
       console.warn('[proxy-finance] Gemini 예외 (KR), Yahoo AC 폴백:', geminiErr?.message);
     }
 
-    if (geminiMetaKR?.krCode && (geminiMetaKR.market === 'KOSPI' || geminiMetaKR.market === 'KOSDAQ')) {
+    if (!ticker && geminiMetaKR?.krCode && (geminiMetaKR.market === 'KOSPI' || geminiMetaKR.market === 'KOSDAQ')) {
       const paddedCode = String(geminiMetaKR.krCode).padStart(6, '0');
       const suffix = geminiMetaKR.market === 'KOSDAQ' ? '.KQ' : '.KS';
       ticker = `${paddedCode}${suffix}`;
@@ -649,10 +642,7 @@ export async function GET(request) {
     // 빈 시계열 → regularMarketPrice(현재가)는 chartMeta에 남아 있으므로 yahooJson 포함 반환
     if (closes.length === 0) {
       console.warn(`[proxy-finance] 빈 시계열 (${ticker}) — 현재가 포함 200 OK 반환`);
-      const partialName =
-        (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim()) ? chartMeta.shortName.trim()
-        : (typeof chartMeta?.longName  === 'string' && chartMeta.longName.trim())  ? chartMeta.longName.trim()
-        : null;
+      const partialName = resolveOfficialName(ticker, chartMeta);
       return Response.json({
         ...EMPTY_RESULT,
         officialName: partialName,
@@ -739,16 +729,12 @@ export async function GET(request) {
       : naverDividendYield;
     const trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
 
-    // officialName: Gemini 한국어명 우선 → Yahoo shortName → longName 폴백
-    // 해외 종목(US): "한국어명(TICKER)" 포맷 (예: "로켓랩(RKLB)")
-    // 국내 종목(KR): Yahoo가 이미 한국어로 반환하므로 그대로 사용
-    const yahooName =
-      (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim()) ? chartMeta.shortName.trim()
-      : (typeof chartMeta?.longName  === 'string' && chartMeta.longName.trim())  ? chartMeta.longName.trim()
-      : null;
-    let officialName = yahooName;
+    // officialName 결정 우선순위:
+    //   KR 종목 → kr-asset-master.json 우선 → Yahoo meta.shortName → longName 폴백
+    //   US 종목 → Gemini 한국어명 있으면 "한국어명(TICKER)" 포맷 → 없으면 Yahoo meta 폴백
+    let officialName = resolveOfficialName(ticker, chartMeta);
     if (resolvedKoreanName && forcedMarket === 'US') {
-      const baseTicker = ticker.split('.')[0]; // "RKLB" (접미사 제거)
+      const baseTicker = ticker.split('.')[0];
       officialName = `${resolvedKoreanName}(${baseTicker})`;
     }
 

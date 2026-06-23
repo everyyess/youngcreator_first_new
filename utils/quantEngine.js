@@ -14,7 +14,7 @@ import { getBenchmarkTicker, getRiskCoefficients, getProductTypeStressShock } fr
 // 1. 글로벌 상수
 // ============================================================
 
-const RISK_FREE_RATE = 0.035;           // 무위험수익률 3.5%
+const RISK_FREE_RATE = 0.04;            // 무위험수익률 4.0%
 const FEE_RATE = 0.0025;                // 수수료 0.25%
 const TAX_RATE_GENERAL = 0.154;         // 일반 금융소득세 15.4%
 const TAX_RATE_ISA_EXCESS = 0.099;      // ISA 초과분 세율 9.9%
@@ -1606,14 +1606,129 @@ function scoreMDD(mdd) {
   return                  { score: 0, grade: '문제', detail: `실측 최대낙폭(MDD) ${pct}% – 20% 초과 고낙폭. 방어 자산 편입 권고.` };
 }
 
-function scoreTaxEfficiency(financialIncomeTax) {
-  if (!financialIncomeTax) return { score: 2, grade: '양호', detail: '세금 데이터 미제공 – 평가 생략.' };
-  const totalMan = (financialIncomeTax.total / 10_000).toFixed(0);
-  if (!financialIncomeTax.warning && financialIncomeTax.total <= 15_000_000)
-    return { score: 2, grade: '양호', detail: `금융소득 합계 ${totalMan}만 원 – 종합과세 기준 충분히 이하.` };
-  if (!financialIncomeTax.warning)
-    return { score: 1, grade: '주의', detail: `금융소득 합계 ${totalMan}만 원 – 2,000만 원 접근. 절세 전략 수립을 권장합니다.` };
-  return { score: 0, grade: '문제', detail: `금융소득 합계 ${totalMan}만 원 – 종합과세 대상. 즉시 절세 전략 수립 필요.` };
+/**
+ * 세금 효율성 100점 만점 감점·가점 하이브리드 산출기
+ *
+ * [감점 요인]
+ *   P1 금융소득종합과세 초과 규모 비례 감점 (최대 -40점)
+ *     · 2,000만 원 초과 시: ceil(초과액 / 2,000만) × 40, 최대 40점
+ *     · 75~100% 접근 구간 (1,500만~2,000만): -10점
+ *     · 50~75% 구간 (1,000만~1,500만):       -5점
+ *   P2 해외주식 양도소득세 세액 비례 감점 (최대 -30점)
+ *     · max(0, 손익통산 차익 - 250만) × 22% = 해외양도세액
+ *     · 세액 100만 원당 3점 감점
+ *   P3 국내 대주주 양도소득세 (50억 이상 국내주식, 최대 -20점)
+ *     · 과세표준 ≤ 3억: × 22%  / 초과분: × 27.5%
+ *     · 세액 100만 원당 2점 감점
+ *
+ * [가점 요인]
+ *   B  TLH(Tax Loss Harvesting) 절세 방어 비율 (최대 +15점)
+ *     · 해외직접주식 손실 종목 손익 상계 후 세액 절감액 / 원래 세액 비율 × 15
+ *
+ * [최종 가드]
+ *   taxScore = Math.max(0, Math.min(100, round(100 - P1 - P2 - P3 + B)))
+ *   0/1/2 매핑: taxScore ≥ 75 → 2(양호) / ≥ 40 → 1(주의) / else → 0(문제)
+ */
+function scoreTaxEfficiency(financialIncomeTax, assets, _t_marginal) {
+  // 세금 데이터가 전혀 없는 경우
+  if (!financialIncomeTax && (!assets || assets.length === 0)) {
+    return { score: 2, grade: '양호', detail: '세금 데이터 미제공 – 평가 생략.' };
+  }
+
+  const assetList = assets ?? [];
+
+  // ── Penalty 1: 금융소득종합과세 ────────────────────────────────────────────────
+  const totalFI   = financialIncomeTax?.total ?? 0;
+  const excessFI  = Math.max(totalFI - FINANCIAL_INCOME_THRESHOLD, 0);
+  let p1 = 0;
+  if (totalFI > FINANCIAL_INCOME_THRESHOLD) {
+    // 초과액이 기준액의 N배 → 40 × N (최대 40점)
+    p1 = Math.min(40, Math.ceil((excessFI / FINANCIAL_INCOME_THRESHOLD) * 40));
+  } else if (totalFI >= FINANCIAL_INCOME_THRESHOLD * 0.75) {
+    p1 = 10; // 종합과세 임박 구간
+  } else if (totalFI >= FINANCIAL_INCOME_THRESHOLD * 0.50) {
+    p1 = 5;  // 주의 구간
+  }
+
+  // ── Penalty 2: 해외주식 직접 양도소득세 ────────────────────────────────────────
+  const foreignNetGain = assetList
+    .filter(a => a.taxType === TAX_TYPE.DIRECT_STOCK && a.assetClass === ASSET_CLASS.FOREIGN_STOCK)
+    .reduce((s, a) => s + (a.gain ?? 0), 0);
+  const foreignTax = foreignStockCapitalGainsTax(foreignNetGain).tax;
+  // 세액 100만 원당 3점 감점, 최대 30점
+  const p2 = Math.min(30, Math.round((foreignTax / 1_000_000) * 3));
+
+  // ── Penalty 3: 국내 대주주 양도소득세 (보유액 50억 이상 국내주식) ─────────────
+  let majorTax = 0;
+  for (const a of assetList) {
+    const val  = a.value ?? 0;
+    const gain = a.gain  ?? 0;
+    if (
+      a.taxType   === TAX_TYPE.DIRECT_STOCK &&
+      a.assetClass === ASSET_CLASS.DOMESTIC_STOCK &&
+      val >= 5_000_000_000 &&
+      gain > 0
+    ) {
+      // 기본공제 250만 원 (해외주식 그룹과 별도)
+      const taxable = Math.max(0, gain - FOREIGN_STOCK_DEDUCTION);
+      majorTax += taxable <= 300_000_000
+        ? taxable * 0.22
+        : 300_000_000 * 0.22 + (taxable - 300_000_000) * 0.275;
+    }
+  }
+  // 세액 100만 원당 2점 감점, 최대 20점
+  const p3 = Math.min(20, Math.round((majorTax / 1_000_000) * 2));
+
+  // ── Bonus: TLH 절세 방어 (해외직접주식 손실 종목 상계, 최대 +15점) ────────────
+  const foreignLossGain = assetList
+    .filter(a =>
+      a.taxType    === TAX_TYPE.DIRECT_STOCK &&
+      a.assetClass === ASSET_CLASS.FOREIGN_STOCK &&
+      (a.gain ?? 0) < 0
+    )
+    .reduce((s, a) => s + (a.gain ?? 0), 0);
+
+  let bonus = 0;
+  if (foreignTax > 0 && foreignLossGain < 0) {
+    const newNetGain  = Math.max(0, foreignNetGain + foreignLossGain); // 손실 상계
+    const newTax      = foreignStockCapitalGainsTax(newNetGain).tax;
+    const tlhSaving   = foreignTax - newTax;
+    if (tlhSaving > 0) {
+      // 절세 방어 비율 × 15점
+      bonus = Math.min(15, Math.round((tlhSaving / foreignTax) * 15));
+    }
+  }
+
+  // ── 최종 점수 산출 및 클램핑 ─────────────────────────────────────────────────
+  const taxScore = Math.max(0, Math.min(100, Math.round(100 - p1 - p2 - p3 + bonus)));
+
+  // ── 0/1/2 매핑 ──────────────────────────────────────────────────────────────
+  const itemScore = taxScore >= 75 ? 2 : taxScore >= 40 ? 1 : 0;
+  const grade     = taxScore >= 75 ? '양호' : taxScore >= 40 ? '주의' : '문제';
+
+  // ── 상세 텍스트 조립 (PB 자문 보고서 서식) ──────────────────────────────────
+  const fmtMan = n => Math.round(n / 10_000).toLocaleString('ko-KR');
+  const parts  = [`세금효율 점수 ${taxScore}/100점.`];
+
+  if (financialIncomeTax?.warning) {
+    parts.push(`금융소득 합계 ${fmtMan(totalFI)}만 원으로 종합과세 대상에 해당합니다. 즉시 금융소득 분산 및 명의 분산 전략이 필요합니다.`);
+  } else if (p1 > 0) {
+    parts.push(`금융소득 합계 ${fmtMan(totalFI)}만 원으로 종합과세 기준(2,000만 원) 임박 구간입니다. 절세 계좌(ISA 등) 활용을 권장합니다.`);
+  }
+  if (foreignTax > 0) {
+    parts.push(`해외 자산 손익통산 세액은 약 ${fmtMan(foreignTax)}만 원 수준입니다.`);
+  }
+  if (majorTax > 0) {
+    parts.push(`국내 직접투자 대주주 양도세는 약 ${fmtMan(majorTax)}만 원 수준입니다.`);
+  }
+  if (bonus > 0) {
+    parts.push('손실 종목 상계를 통한 TLH 절세 방어 전략이 유효합니다.');
+  }
+  if (p1 === 0 && p2 === 0 && p3 === 0 && bonus === 0) {
+    parts.push('세금 부담 없음 – 현 포트폴리오 세후 효율 우수.');
+  }
+
+  return { score: itemScore, grade, detail: parts.join('\n') };
 }
 
 /**
@@ -1655,7 +1770,7 @@ export function portfolioHealthCheck(metrics, assets, t_marginal) {
     { key: 'volatility',      label: '변동성',           ...scoreVolatility(volatility) },
     { key: 'sharpe',          label: '샤프 지수',         ...scoreSharpeRatio(sharpeRatio) },
     { key: 'mdd',             label: '최대낙폭(MDD)',     ...scoreMDD(mdd) },
-    { key: 'tax_efficiency',  label: '세금 효율성',       ...scoreTaxEfficiency(financialIncomeTax) },
+    { key: 'tax_efficiency',  label: '세금 효율성',       ...scoreTaxEfficiency(financialIncomeTax, assets, t_marginal) },
   ];
 
   const totalScore = items.reduce((s, i) => s + (i.score ?? 0), 0);

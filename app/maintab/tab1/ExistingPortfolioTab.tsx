@@ -146,6 +146,7 @@ export default function ExistingPortfolioTab() {
     setAnalysisResult,
     setPortfolioDirty,
     pushToRebalancingSell,
+    clearSellHistory,
     saveTaxSummary,
   } = useCustomerContext();
 
@@ -193,6 +194,8 @@ export default function ExistingPortfolioTab() {
   const triggerAnalysis = useCallback(
     async (assets: PortfolioAsset[]) => {
       if (!assets.length) return;
+      // 새 분석 시작 시 TAB 2-5 확정 매도 현황을 공집합으로 초기화
+      clearSellHistory();
       setPortfolioIsRunning(true);
       setPortfolioErrorMsg("");
       setPortfolioStatusMsg("환율 조회 중...");
@@ -269,7 +272,7 @@ export default function ExistingPortfolioTab() {
         setPortfolioIsRunning(false);
       }
     },
-    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty, pushToRebalancingSell]
+    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty, pushToRebalancingSell, clearSellHistory]
   );
 
   // ── 토스트 ────────────────────────────────────────────────────────────────

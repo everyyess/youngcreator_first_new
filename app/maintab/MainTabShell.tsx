@@ -9,7 +9,7 @@ import {
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
-  type SellRecord,
+  type SellRecord, type ConfirmedPairItem, type PbOrderRow, type BuySimTickerItem,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
@@ -96,31 +96,19 @@ function formatHeaderKrw(value: number) {
 }
 
 function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetSummaryState, assets: PortfolioAsset[]) {
-  const baseOperatingAssets = sumPortfolioCurrentValue(assets);
+  // 추가 투자 의향 = TAB 1 입력 원본 b 값 (기획서 수식 b = financial.investableAssets)
+  // 매도/매수 시뮬레이션 단계와 무관하게 고정 — 파생 잔여액(b+(a-d))이 아닌 고객 선언값을 표시
   const baseAdditionalAssets = parseKrwAmount(financial.investableAssets) ?? 0;
-  const operatingAfterSell = summary.confirmedOperatingAssetsAfterSell;
+  const additionalAssets = formatHeaderKrw(baseAdditionalAssets);
 
-  if (operatingAfterSell == null) {
-    return {
-      operatingAssets: formatHeaderKrw(baseOperatingAssets),
-      additionalAssets: formatHeaderKrw(baseAdditionalAssets),
-    };
-  }
+  // 운용 자산 = 최신 확정 단계 값 우선 (매수 완료 > 매도 완료 > 현재 평가액)
+  const operatingAssets = formatHeaderKrw(
+    summary.confirmedOperatingAssetsAfterBuy ??
+    summary.confirmedOperatingAssetsAfterSell ??
+    sumPortfolioCurrentValue(assets),
+  );
 
-  const additionalAfterSell = baseAdditionalAssets + (baseOperatingAssets - operatingAfterSell);
-  const operatingAfterBuy = summary.confirmedOperatingAssetsAfterBuy;
-
-  if (operatingAfterBuy == null) {
-    return {
-      operatingAssets: formatHeaderKrw(operatingAfterSell),
-      additionalAssets: formatHeaderKrw(additionalAfterSell),
-    };
-  }
-
-  return {
-    operatingAssets: formatHeaderKrw(operatingAfterBuy),
-    additionalAssets: formatHeaderKrw(additionalAfterSell - (operatingAfterBuy - operatingAfterSell)),
-  };
+  return { operatingAssets, additionalAssets };
 }
 
 function buildConsultationSummarySnapshot(state: AppState) {
@@ -159,12 +147,7 @@ function buildConsultationSummarySnapshot(state: AppState) {
 export default function MainTabShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
-  // 메인 탭 전환 시 서브 탭 기본값 보장: localStorage 잔류값 선제 제거
   const currentSegment = useSelectedLayoutSegment();
-  useEffect(() => {
-    if (currentSegment === "tab2") window.localStorage.removeItem("samsung-vvip-tab2-inner-tab");
-    if (currentSegment === "tab3") window.localStorage.removeItem("samsung-vvip-tab3-inner-tab");
-  }, [currentSegment]);
 
   const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>(defaultCustomerProfiles);
   const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>(() => createInitialCustomerData(defaultCustomerProfiles));
@@ -218,6 +201,16 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [sellHistoryMap, setSellHistoryMap] = useState<Record<CustomerId, SellRecord[]>>({});
   const [sellHistoryDirtyMap, setSellHistoryDirtyMap] = useState<Record<CustomerId, boolean>>({});
 
+  // ── TAB 3-1/3-2 확정 조합 Maps (고객별 격리, 탭 전환 보존) ──────────────────
+  const [confirmedDomesticPairMap, setConfirmedDomesticPairMap] = useState<Record<CustomerId, ConfirmedPairItem[]>>({});
+  const [confirmedGlobalPairMap, setConfirmedGlobalPairMap] = useState<Record<CustomerId, ConfirmedPairItem[]>>({});
+  // ── TAB 3-3 투자금 조정 테이블 영속 Maps (고객별 격리, 탭 전환 보존) ──────────
+  const [buySimPersistedStateMap, setBuySimPersistedStateMap] = useState<
+    Record<CustomerId, { items: BuySimTickerItem[]; sig: string }>
+  >({});
+  // ── TAB 3-3 PB 직접 매수 주문 Maps (고객별 격리, 탭 전환 보존) ───────────────
+  const [pbOrderRowsMap, setPbOrderRowsMap] = useState<Record<CustomerId, PbOrderRow[]>>({});
+
   // ── 원자적 읽기용 Ref — async 콜백 / 비동기 파이프라인에서 stale closure 없이 최신 상태 참조
   // React 상태 업데이트는 배치 처리되어 다음 렌더까지 pending 상태이므로,
   // 매 렌더에서 .current를 동기 갱신하면 항상 최신 커밋 값을 보장한다.
@@ -238,6 +231,11 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const tab3AnalysisState = tab3AnalysisStateMap[selectedCustomer] ?? {};
   const productSelectedIds = productSelectionsMap[selectedCustomer] ?? [];
   const sellHistory = sellHistoryMap[selectedCustomer] ?? [];
+  const confirmedDomesticPair = confirmedDomesticPairMap[selectedCustomer] ?? null;
+  const confirmedGlobalPair = confirmedGlobalPairMap[selectedCustomer] ?? null;
+  const buySimTickerItems = buySimPersistedStateMap[selectedCustomer]?.items ?? [];
+  const buySimConfirmedSig = buySimPersistedStateMap[selectedCustomer]?.sig ?? '';
+  const pbOrderRows = pbOrderRowsMap[selectedCustomer] ?? [];
 
   // Ref 동기화 — 렌더마다 최신 커밋 값 기록 (useEffect 없이 동기 할당)
   // 이를 통해 async 콜백이 stale 클로저 없이 항상 최신 상태를 읽을 수 있다
@@ -643,9 +641,13 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const addSellRecord = useCallback((record: SellRecord) => {
     const cid = selectedCustomerRef.current;
 
-    // ─ 1. sellHistory 누적 ─────────────────────────────────────────────────
-    const nextHistory = [...(sellHistoryMapRef.current[cid] ?? []), record];
-    setSellHistoryMap(prev => ({ ...prev, [cid]: nextHistory }));
+    // ─ 1. sellHistory 누적 — functional setter로 React가 보장하는 최신 prev 사용
+    // prev 기반으로 nextHistory를 파생시켜 rapid sell 시 기록 유실 방지
+    let capturedNextHistory: SellRecord[] = [];
+    setSellHistoryMap(prev => {
+      capturedNextHistory = [...(prev[cid] ?? []), record];
+      return { ...prev, [cid]: capturedNextHistory };
+    });
     setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: true }));
 
     // ─ 2. rebalancingSellAssets 수량 차감 (Infinite Sell 차단) ─────────────
@@ -664,9 +666,14 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true })); // TAB3/TAB4 파이프라인 반영
 
     // ─ 3. 기획서 수식 c = a − 누적매도금액; 헤더 가용자금(d) 연산 기반 ────────
-    const a = sumPortfolioCurrentValue(portfolioAssetsMapRef.current[cid] ?? []);
-    const totalSoldValue = nextHistory.reduce((s, r) => s + r.sellPrice * r.sellQty, 0);
-    const c = Math.max(0, a - totalSoldValue);
+    // capturedNextHistory는 setSellHistoryMap의 setter 내에서 동기 파생된 최신값
+    const portfolioTotal = sumPortfolioCurrentValue(portfolioAssetsMapRef.current[cid] ?? []);
+    // capturedNextHistory가 빈 경우(첫 렌더 race) fallback으로 ref 기반 계산
+    const historyForCalc = capturedNextHistory.length > 0
+      ? capturedNextHistory
+      : [...(sellHistoryMapRef.current[cid] ?? []), record];
+    const totalSoldValue = historyForCalc.reduce((s, r) => s + r.sellPrice * r.sellQty, 0);
+    const c = Math.max(0, portfolioTotal - totalSoldValue);
     updateHeaderAssetSummary(cid, (current) => ({
       ...current,
       confirmedOperatingAssetsAfterSell: c,
@@ -679,6 +686,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     const cid = selectedCustomerRef.current;
     setSellHistoryMap(prev => ({ ...prev, [cid]: [] }));
     setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: true }));
+
     // rebalancingSellAssets → 원본 portfolioAssets로 롤백
     const originalAssets = (portfolioAssetsMapRef.current[cid] ?? []).map(a => ({ ...a }));
     setRebalancingSellMap(prev => ({ ...prev, [cid]: originalAssets }));
@@ -691,18 +699,49 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     }));
   }, [updateHeaderAssetSummary]); // stable
 
+  const setConfirmedDomesticPair = useCallback((pair: ConfirmedPairItem[] | null) => {
+    const cid = selectedCustomerRef.current;
+    setConfirmedDomesticPairMap(prev => {
+      if (!pair) { const next = { ...prev }; delete next[cid]; return next; }
+      return { ...prev, [cid]: [...pair] };
+    });
+  }, []);
+
+  const setConfirmedGlobalPair = useCallback((pair: ConfirmedPairItem[] | null) => {
+    const cid = selectedCustomerRef.current;
+    setConfirmedGlobalPairMap(prev => {
+      if (!pair) { const next = { ...prev }; delete next[cid]; return next; }
+      return { ...prev, [cid]: [...pair] };
+    });
+  }, []);
+
+  const setBuySimPersistedState = useCallback((items: BuySimTickerItem[], sig: string) => {
+    const cid = selectedCustomerRef.current;
+    setBuySimPersistedStateMap(prev => ({ ...prev, [cid]: { items, sig } }));
+  }, []);
+
+  const setPbOrderRows = useCallback((rows: PbOrderRow[]) => {
+    const cid = selectedCustomerRef.current;
+    setPbOrderRowsMap(prev => ({ ...prev, [cid]: rows }));
+  }, []);
+
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
-  // d = b + (a - c): 기획서 표준 수식 — 가용 추가 투자 의향 자금
-  // a = 현재 포트폴리오 평가총액 | b = TAB1 투자가능자금 | c = 매도 확정 후 잔여자산
+  // Buying Power = b + cashFromSales (기획서 표준 수식)
+  // b = TAB1 investableAssets | cashFromSales = a - c (매도 대금)
+  // a = 최초 포트폴리오 평가총액 | c = 매도 확정 후 잔여자산 총액
   const availableInvestmentFunds = useMemo(() => {
-    // 포트폴리오 미로드 시 a = 0 되어 d가 음수 오염되는 것을 방지
-    if (!isPortfolioLoaded) return null;
-    const c = formData.headerAssetSummary?.confirmedOperatingAssetsAfterSell ?? null;
-    if (c === null) return null; // 매도 시뮬레이션 미진행 시 null
-    const a = sumPortfolioCurrentValue(portfolioAssets);
-    if (!Number.isFinite(a) || a <= 0) return null; // 유효한 평가총액 없으면 연산 생략
     const b = parseKrwAmount(formData.financial.investableAssets) ?? 0;
+    const c = formData.headerAssetSummary?.confirmedOperatingAssetsAfterSell ?? null;
+
+    // 매도 시뮬레이션 미진행: cashFromSales = 0 → Buying Power = b (investableAssets)
+    if (c === null) return b > 0 ? b : null;
+
+    // 매도 시뮬레이션 완료: Buying Power = b + (a - c)
+    // 포트폴리오 미로드 시 a = 0 → cashFromSales 음수 오염 방지 — b만 반환
+    if (!isPortfolioLoaded) return b > 0 ? b : null;
+    const a = sumPortfolioCurrentValue(portfolioAssets);
+    if (!Number.isFinite(a) || a <= 0) return b > 0 ? b : null;
     const d = b + (a - c);
     return Number.isFinite(d) ? d : null;
   }, [formData.headerAssetSummary, formData.financial.investableAssets, portfolioAssets, isPortfolioLoaded]);
@@ -1027,6 +1066,12 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     saveTaxSummary: saveTaxSummaryFn,
     // TAB2-5 매도 시뮬레이터 전역 영속 (탭 전환 후에도 이력 유지)
     sellHistory, addSellRecord, clearSellHistory, availableInvestmentFunds,
+    // TAB 3-1/3-2 확정 조합 (고객별 격리, 불변성 유지)
+    confirmedDomesticPair, confirmedGlobalPair, setConfirmedDomesticPair, setConfirmedGlobalPair,
+    // TAB 3-3 투자금 조정 테이블 영속 (고객별 격리, 탭 전환 보존)
+    buySimTickerItems, buySimConfirmedSig, setBuySimPersistedState,
+    // TAB 3-3 PB 직접 매수 (고객별 격리, 탭 전환 보존)
+    pbOrderRows, setPbOrderRows,
   };
 
   return (
