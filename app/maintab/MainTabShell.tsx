@@ -572,9 +572,25 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     const customerId = selectedCustomer;
     const assets = portfolioAssetsMap[customerId] ?? [];
 
-    void savePortfolioAssets(customerId, assets).then(() => {
-      setDirtyPortfolioMap(prev => ({ ...prev, [customerId]: false }));
-    });
+    void savePortfolioAssets(customerId, assets)
+      .then(() => {
+        setDirtyPortfolioMap(prev => ({ ...prev, [customerId]: false }));
+      })
+      .catch((error) => {
+        const detail = error && typeof error === "object"
+          ? {
+              message: (error as { message?: unknown }).message,
+              code: (error as { code?: unknown }).code,
+              details: (error as { details?: unknown }).details,
+              hint: (error as { hint?: unknown }).hint,
+            }
+          : error;
+        console.error("Failed to save portfolio assets", {
+          customerId,
+          assetCount: assets.length,
+          error: detail,
+        });
+      });
   }, [portfolioAssetsMap, portfolioLoadedMap, dirtyPortfolioMap, selectedCustomer]);
 
   // ── 포트폴리오 행 조작 함수 — Tab 1의 setFinancial/setRrttllu 패턴과 동일 ──
