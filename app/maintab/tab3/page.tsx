@@ -83,12 +83,31 @@ export default function Tab3Page() {
         expectedDividendIncome: formData.rrttllu.expectedDividendIncome,
       });
       if (result) {
+        // runAnalysis가 proxy-finance에서 추가로 가져온 dividendYield를 원본 buy assets에 반영
+        // (auto-complete 없이 입력된 종목은 여기서만 dividendYield가 채워짐)
+        const enrichedArr = result.enrichedAssets ?? [];
+        const mergedBuyAssets = rebalancingBuyAssets.map((a, i) => {
+          const ea = enrichedArr[i] as unknown as Record<string, unknown>;
+          if (!ea) return a;
+          const aExt = a as unknown as Record<string, unknown>;
+          const patch: Record<string, unknown> = {};
+          if (ea.dividendYield != null && aExt.dividendYield == null) patch.dividendYield = ea.dividendYield;
+          if (ea.trailingAnnualDividendRate != null && aExt.trailingAnnualDividendRate == null) patch.trailingAnnualDividendRate = ea.trailingAnnualDividendRate;
+          return Object.keys(patch).length ? { ...a, ...patch } : a;
+        });
+
+        // dividendYield가 새로 채워진 자산이 있으면 context/Supabase 자동저장에도 반영
+        const hasNewDividends = mergedBuyAssets.some((a, i) => a !== rebalancingBuyAssets[i]);
+        if (hasNewDividends) {
+          setRebalancingBuyAssets(mergedBuyAssets as typeof rebalancingBuyAssets);
+        }
+
         confirmRebalancingBuy();
         setNewPortfolioAnalysisResult(result);
 
-        // 신규 포트폴리오 자산 목록 → PensionTaxPanel에서 읽음
+        // 신규 포트폴리오 자산 목록 → PensionTaxPanel에서 읽음 (dividendYield 포함 버전)
         try {
-          localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(rebalancingBuyAssets));
+          localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(mergedBuyAssets));
           window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
         } catch {}
 

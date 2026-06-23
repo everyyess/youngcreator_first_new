@@ -203,7 +203,7 @@ function allocateIRP(pool: SimAsset[], target: number): IRPResult {
 // Formatting
 // ─────────────────────────────────────────────
 const man = (n: number) => `${Math.round(n / 10000).toLocaleString("ko-KR")}만원`;
-const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 
 // ─────────────────────────────────────────────
 // Sub-components
