@@ -433,6 +433,16 @@ function PBRecommendationPair({ left, right, styles }: {
     ...rightItems.filter(it => !leftKeys.includes(it.key)),
   ];
 
+  const RISK_COMMENTS: Record<string, string> = {
+    "단일 종목 집중도": "특정 종목 비중이 높아 해당 종목 하락 시 포트폴리오 전체에 영향을 줄 수 있으나, 분산 편입을 통해 리스크를 조절할 수 있습니다.",
+    "단일 섹터 집중도": "특정 섹터에 편중되어 있어 섹터 조정 시 변동성이 커질 수 있으나, 타 섹터 자산 편입으로 완충 가능합니다.",
+    "변동성": "포트폴리오 변동성이 높은 수준이나, 장기 보유 시 변동성은 수익 기회로 전환될 수 있습니다.",
+    "최대낙폭(MDD)": "최대 낙폭이 다소 높으나, 방어 자산 편입을 통해 점진적으로 낮출 수 있습니다.",
+    "분산도": "자산 간 상관관계가 낮아 분산 효과가 우수한 상태입니다.",
+    "샤프 지수": "위험 대비 수익 효율이 양호한 수준입니다.",
+    "세금 효율성": "세후 기준으로도 양호한 수익 구조를 유지하고 있습니다.",
+  };
+
   const renderItems = (items: HealthItem[]) => {
     if (!items.length) return <Text style={styles.small}>항목 없음</Text>;
     return (
@@ -456,6 +466,11 @@ function PBRecommendationPair({ left, right, styles }: {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.recLabel, { color: badge.color }]}>{it.label}</Text>
                 {it.detail ? <Text style={styles.recDetail}>{cleanDetail(it.detail)}</Text> : null}
+                {(it.score === 0 || it.score === 1) && (
+                  <Text style={{ fontSize: (styles.recDetail as AnyResult).fontSize, color: "#0F766E", lineHeight: 1.5, marginTop: 2 }}>
+                    {Object.entries(RISK_COMMENTS).find(([k]) => it.label.includes(k))?.[1] ?? "담당 PB와 상담을 통해 포트폴리오 조정을 검토해 드립니다."}
+                  </Text>
+                )}  
               </View>
             </View>
           );
