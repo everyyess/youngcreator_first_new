@@ -129,8 +129,8 @@ function SummaryTab({ d }: { d: OptionsChainResponse }) {
     if (n && f && n / f >= 1.2) rows.push({ type: "bad", text: `근월 IV(${n.toFixed(0)}%)가 원월(${f.toFixed(0)}%)보다 높은 <b>백워데이션</b> 구조 — 단기 이벤트 기대가 큰 상태입니다.` });
   }
 
-  if (anomalies.length) rows.push({ type: "bad", text: `<b>특이사항 ${anomalies.length}건</b> 감지 — 하단 '특이사항' 탭에서 확인하세요.` });
   if (earnings) rows.push({ type: "neut", text: `실적 발표 예정: <b>${earnings.date}</b> (D-${earnings.dte})` });
+  rows.push({ type: "neut", text: "P/C 비율은 포지션 분포만 봅니다. 풋이 많다고 무조건 약세가 아닙니다 — 주식 보유자의 <b>하락 보험(헤지)</b>일 수도 있습니다. '종합 요약'은 뉴스·시장 맥락과 함께 판단하세요." });
 
   const badge = score >= 20 ? "콜 우세 강세" : score <= -20 ? "풋 우세 약세" : "중립";
 
@@ -186,10 +186,6 @@ function SummaryTab({ d }: { d: OptionsChainResponse }) {
         borderColor={score >= 20 ? "#86efac" : score <= -20 ? "#fecaca" : "#e2e8f0"}
         rows={rows}
       />
-
-      <div className="rounded-r-md border-l-4 border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
-        💡 P/C 비율은 포지션 분포만 봅니다. 풋이 많다고 무조건 약세가 아닙니다 — 주식 보유자의 <b>하락 보험(헤지)</b>일 수도 있습니다. '종합 해석'은 뉴스·시장 맥락과 함께 판단하세요.
-      </div>
     </div>
   );
 }

@@ -677,6 +677,8 @@ export default function BuySimulatorTab() {
   const [isLoadingRelated, setIsLoadingRelated] = useState(false);
   const [relatedSortFilter, setRelatedSortFilter] = useState<RelatedSortFilter>("theme");
   const [isSortTransitioning, setIsSortTransitioning] = useState(false);
+  // 리스트 행 해시태그용: ticker → 테마연관순 상위 5 종목명 캐시
+  const [tickerTopNames, setTickerTopNames] = useState<Map<string, string[]>>(new Map());
 
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmDone, setConfirmDone] = useState(false);
@@ -961,6 +963,33 @@ export default function BuySimulatorTab() {
         return a.sector.localeCompare(b.sector, "ko");
       });
   }, [tickerItems]);
+
+  // 리스트 해시태그 pre-fetch: sortedTickerItems 변경 시 미캐시 항목만 순차 조회
+  useEffect(() => {
+    if (!sortedTickerItems.length) return;
+    let cancelled = false;
+    (async () => {
+      for (const item of sortedTickerItems) {
+        if (cancelled) break;
+        if (tickerTopNames.has(item.ticker)) continue;
+        try {
+          const market = item.isGlobal ? "global" : "domestic";
+          const keyword = deriveSearchKeyword(item.sector, market);
+          const mkt = market === "domestic" ? "kr" : "en";
+          const params = new URLSearchParams({ keyword, count: "5", market: mkt, ticker: item.ticker });
+          const res = await fetch(`/api/related-companies?${params}`);
+          if (cancelled) break;
+          if (res.ok) {
+            const json = (await res.json()) as { companies: RelatedCompany[] };
+            const names = (json.companies ?? []).slice(0, 5).map((c) => c.name);
+            setTickerTopNames((prev) => new Map(prev).set(item.ticker, names));
+          }
+        } catch { /* 네트워크 오류 시 해시태그 생략 */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedTickerItems]);
 
   // ── 핸들러 ───────────────────────────────────────────────────────────────
 
@@ -1972,9 +2001,11 @@ export default function BuySimulatorTab() {
                       >
                         {item.isGlobal ? "해외 ETF" : "국내 ETF"}
                       </span>
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">
-                        {item.sector}
-                      </span>
+                      {(tickerTopNames.get(item.ticker) ?? []).map((name) => (
+                        <span key={name} className="text-[10px] text-slate-400">
+                          #{name}
+                        </span>
+                      ))}
                     </div>
                   </div>
                   <button
@@ -1990,10 +2021,11 @@ export default function BuySimulatorTab() {
                         isGlobal: item.isGlobal,
                       });
                     }}
-                    className="flex-shrink-0 rounded-md border border-slate-200 p-1.5 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
+                    className="flex-shrink-0 flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
                     title="딥다이브 분석"
                   >
                     <Info size={13} />
+                    <span className="text-[10px] font-medium whitespace-nowrap">관련 개별종목 보기</span>
                   </button>
                 </div>
               );

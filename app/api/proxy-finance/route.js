@@ -721,12 +721,24 @@ export async function GET(request) {
     const closes    = yahooJson?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
     const chartMeta = yahooJson?.chart?.result?.[0]?.meta ?? {};
 
+    // userProductType 미지정 시 Yahoo Chart instrumentType='ETF' 자동 보정
+    // inferMetaFromTicker가 순수 US 티커를 일괄 '해외주식/주식형'으로 분류하는 문제를 해결
+    // v8 Chart API는 quoteType이 아닌 instrumentType 필드를 사용함
+    // productType을 'ETF'(서브 타입)로 설정해야 toUnifiedProductType()이 올바르게 변환함
+    let effectiveMeta = finalMeta;
+    const yahooIsEtf = chartMeta.instrumentType === 'ETF' || chartMeta.quoteType === 'ETF';
+    if (!userProductType && yahooIsEtf) {
+      effectiveMeta = { ...finalMeta, productType: 'ETF' };
+      console.log(`[proxy-finance] instrumentType=ETF 자동 보정: '${ticker}' productType → 'ETF'`);
+    }
+
     // 빈 시계열 → regularMarketPrice(현재가)는 chartMeta에 남아 있으므로 yahooJson 포함 반환
     if (closes.length === 0) {
       console.warn(`[proxy-finance] 빈 시계열 (${ticker}) — 현재가 포함 200 OK 반환`);
       const partialName = resolveOfficialName(ticker, chartMeta);
       return Response.json({
         ...EMPTY_RESULT,
+        ...effectiveMeta,
         officialName: partialName,
         ...yahooJson,
         ticker,              // ...yahooJson 이후 명시 고정 — 최상단 ticker 필드 보장
@@ -825,7 +837,7 @@ export async function GET(request) {
       }
     }
 
-    return Response.json({ ticker, officialName, ...finalMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
+    return Response.json({ ticker, officialName, ...effectiveMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
 
   } catch (blockErr) {
     // 예상치 못한 TypeError 등 블록 내 모든 예외를 포획 — 500 크래시 원천 차단

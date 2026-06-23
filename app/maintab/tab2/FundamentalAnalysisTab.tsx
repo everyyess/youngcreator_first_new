@@ -112,7 +112,17 @@ function ImportanceBadge({ label }: { label: string }) {
 
 type TelegramDetailState = { msg: TelegramMessage; summary: string };
 
-function TelegramDetailPanel({ state, onClose }: { state: TelegramDetailState; onClose: () => void }) {
+function highlightStockName(text: string, stockName: string): React.ReactNode[] {
+  if (!stockName) return [text];
+  const parts = text.split(new RegExp(`(${stockName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "g"));
+  return parts.map((part, i) =>
+    part === stockName
+      ? <mark key={i} style={{ background: "#facc15", color: "inherit", borderRadius: "2px", padding: "0 1px" }}>{part}</mark>
+      : part
+  );
+}
+
+function TelegramDetailPanel({ state, stockName, onClose }: { state: TelegramDetailState; stockName: string; onClose: () => void }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
@@ -153,7 +163,7 @@ function TelegramDetailPanel({ state, onClose }: { state: TelegramDetailState; o
           {/* 원문 */}
           <div>
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">원문</p>
-            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700">{state.msg.text}</p>
+            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700">{highlightStockName(state.msg.text, stockName)}</p>
           </div>
         </div>
 
@@ -419,7 +429,7 @@ function TelegramSearchPanel({
 
       {/* 상세 패널 */}
       {detailPanel && (
-        <TelegramDetailPanel state={detailPanel} onClose={() => setDetailPanel(null)} />
+        <TelegramDetailPanel state={detailPanel} stockName={stockName} onClose={() => setDetailPanel(null)} />
       )}
     </div>
   );

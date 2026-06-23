@@ -533,6 +533,7 @@ export function AssetClassTable({
 
     return (
       <tr key={key} className="bg-white hover:bg-slate-50">
+        <td className="px-2 py-2 text-left text-xs font-semibold text-navy max-w-0 truncate">{a.name}</td>
         <td className="px-2 py-2 text-center">
           <span
             className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
@@ -544,9 +545,8 @@ export function AssetClassTable({
             {a.productType ?? cls}
           </span>
         </td>
-        <td className="px-2 py-2 text-left text-xs font-semibold text-navy max-w-0 truncate">{a.name}</td>
-        <td className="px-2 py-2 text-right text-xs font-bold text-slate-700">{classWeight.toFixed(1)}%</td>
-        <td className="px-2 py-2 text-right text-xs font-bold text-navy">{totalWeight.toFixed(1)}%</td>
+        <td className="px-2 py-2 text-center text-xs font-bold text-slate-700">{classWeight.toFixed(1)}%</td>
+        <td className="px-2 py-2 text-center text-xs font-bold text-navy">{totalWeight.toFixed(1)}%</td>
         {hasRebalancing && (
           <td className="px-2 py-2 text-center">
             {info && (
@@ -566,6 +566,7 @@ export function AssetClassTable({
 
   const renderSoldRow = (info: RebalancingStatusInfo) => (
     <tr key={info.key} className="opacity-55 bg-white hover:bg-red-50">
+      <td className="px-2 py-2 text-left text-xs font-semibold text-slate-500 max-w-0 truncate">{info.name}</td>
       <td className="px-2 py-2 text-center">
         <span
           className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
@@ -574,9 +575,8 @@ export function AssetClassTable({
           {info.productType || info.assetClass}
         </span>
       </td>
-      <td className="px-2 py-2 text-left text-xs font-semibold text-slate-500 max-w-0 truncate">{info.name}</td>
-      <td className="px-2 py-2 text-right text-xs text-slate-400">—</td>
-      <td className="px-2 py-2 text-right text-xs text-slate-400">—</td>
+      <td className="px-2 py-2 text-center text-xs text-slate-400">—</td>
+      <td className="px-2 py-2 text-center text-xs text-slate-400">—</td>
       <td className="px-2 py-2 text-center">
         <button
           type="button"
@@ -604,10 +604,10 @@ export function AssetClassTable({
         <table className="w-full table-fixed text-xs">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
+              <th className="w-[30%] px-2 py-2 text-left text-[10px] font-bold text-slate-500 whitespace-nowrap">종목명</th>
               <th className="w-[22%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">종목유형</th>
-              <th className="w-[30%] px-2 py-2 text-left   text-[10px] font-bold text-slate-500 whitespace-nowrap">종목명</th>
-              <th className="w-[18%] px-2 py-2 text-right  text-[10px] font-bold text-slate-500 whitespace-nowrap">자산군 내 비중</th>
-              <th className="w-[15%] px-2 py-2 text-right  text-[10px] font-bold text-slate-500 whitespace-nowrap">전체 비중</th>
+              <th className="w-[18%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">자산군 내 비중</th>
+              <th className="w-[15%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">전체 비중</th>
               {hasRebalancing && (
                 <th className="w-[15%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">변동 상태</th>
               )}
@@ -838,7 +838,10 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
   const labelFont  = isTiny ? "text-[9px]"  : isCompact ? "text-[10px]" : "text-xs";
   const headerPad  = isTiny ? "p-0.5"       : isCompact ? "p-1"         : "p-2.5";
   const cellPad    = isTiny ? "p-0.5"       : isCompact ? "p-1.5"       : "p-3";
-  const valueFont  = isTiny ? "text-[9px]"  : isCompact ? "text-[10px]" : "text-xs";
+  const valueFont  = isTiny ? "text-[14px]" : isCompact ? "text-[15px]" : "text-[17px]";
+
+  // 종목 수에 따라 행 최소 높이를 동적으로 계산: 전체 약 360px 기준, 최소 32px, 최대 60px
+  const rowH = Math.max(32, Math.min(60, Math.round(360 / (n + 1))));
 
   function cellStyles(val: number): { bg: string; text: string } {
     if (val >= 0.7)  return { bg: "bg-red-500",     text: "text-white font-bold" };
@@ -850,13 +853,13 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
     <div className="overflow-hidden rounded-xl w-full">
       <table className="border-collapse w-full table-fixed">
         <thead>
-          <tr>
+          <tr style={{ height: rowH }}>
             {/* 좌상단 빈 셀 */}
             <th className={`bg-slate-200 ${headerPad} border border-slate-300`} style={{ width: isCompact ? "4rem" : "5rem" }} />
             {labels.map((l, i) => (
               <th
                 key={i}
-                className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
+                className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
               >
                 {l || '자산'}
               </th>
@@ -865,7 +868,7 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
         </thead>
         <tbody>
           {matrix.map((row, ri) => (
-            <tr key={ri}>
+            <tr key={ri} style={{ height: rowH }}>
               <td
                 className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
               >

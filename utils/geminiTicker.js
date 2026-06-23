@@ -107,6 +107,8 @@ const SYSTEM_INSTRUCTION =
   'SPY → {"isListed":true,"krCode":null,"market":"US","englishName":"SPDR S&P 500 ETF Trust","koreanName":"SPDR S&P500 ETF"}\n' +
   'QQQ → {"isListed":true,"krCode":null,"market":"US","englishName":"Invesco QQQ Trust","koreanName":"인베스코 QQQ ETF"}\n' +
   'SOXL → {"isListed":true,"krCode":null,"market":"US","englishName":"Direxion Daily Semiconductor Bull 3X ETF","koreanName":"디렉시온 반도체 3배 레버리지 ETF"}\n' +
+  'Direxion Daily Semiconductor Bull 3X ETF → {"isListed":true,"krCode":null,"market":"US","englishName":"Direxion Daily Semiconductor Bull 3X ETF","koreanName":"디렉시온 반도체 3배 레버리지 ETF"}\n' +
+  'TQQQ → {"isListed":true,"krCode":null,"market":"US","englishName":"ProShares UltraPro QQQ","koreanName":"프로쉐어스 울트라프로 QQQ"}\n' +
   'SpaceX → {"isListed":false,"krCode":null,"market":null,"englishName":"Space Exploration Technologies Corp.","koreanName":null}\n' +
   'OpenAI → {"isListed":false,"krCode":null,"market":null,"englishName":"OpenAI","koreanName":null}\n' +
   'Stripe → {"isListed":false,"krCode":null,"market":null,"englishName":"Stripe Inc.","koreanName":null}';
