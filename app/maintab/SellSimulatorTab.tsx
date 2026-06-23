@@ -310,12 +310,17 @@ export default function SellSimulatorTab() {
       )
       .map((a) => {
         const cp = a.current_price as number;
-        const unrealizedGain = (cp - a.buy_price!) * a.amount;
-        const lossRate = (cp - a.buy_price!) / a.buy_price!;
+        const bp = a.buy_price!;
+        const unrealizedGain = (cp - bp) * a.amount;
+        const lossRate = (cp - bp) / bp;
         const newNetGains = taxInfo.taxableNet + unrealizedGain;
         const newTax = newNetGains > 2_500_000 ? Math.round((newNetGains - 2_500_000) * 0.22) : 0;
         const taxSaving = Math.max(0, Math.round(taxInfo.tax) - newTax);
-        return { name: a.name, ticker: a.ticker ?? "", unrealizedGain, lossRate, taxSaving };
+        return {
+          name: a.name, ticker: a.ticker ?? "",
+          unrealizedGain, lossRate, taxSaving,
+          amount: a.amount, buyPrice: bp, currentPrice: cp,
+        };
       })
       .filter((c) => c.unrealizedGain < 0);
     const hasAny = isYearEnd

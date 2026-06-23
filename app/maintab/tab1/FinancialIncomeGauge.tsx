@@ -191,15 +191,20 @@ export function FinancialIncomeGauge({
           (a.productType === "해외주식" || a.productType === "해외ETF") &&
           a.buy_price != null && a.buy_price > 0 &&
           a.current_price != null && a.current_price > 0 &&
-          a.amount_type === "quantity"
+          a.amount_type === "quantity" && a.amount > 0
       )
       .map((a) => {
-        const unrealizedGain = (a.current_price! - a.buy_price!) * a.amount;
-        const lossRate = (a.current_price! - a.buy_price!) / a.buy_price!;
+        const cp = a.current_price!;
+        const bp = a.buy_price!;
+        const unrealizedGain = (cp - bp) * a.amount;
+        const lossRate = (cp - bp) / bp;
         const newNetGains = tlhData.netCapitalGains + unrealizedGain;
         const newTax = newNetGains > 2_500_000 ? Math.round((newNetGains - 2_500_000) * 0.22) : 0;
         const taxSaving = Math.max(0, tlhData.capitalGainsTax - newTax);
-        return { name: a.name, ticker: a.ticker, unrealizedGain, lossRate, taxSaving };
+        return {
+          name: a.name, ticker: a.ticker, unrealizedGain, lossRate, taxSaving,
+          amount: a.amount, buyPrice: bp, currentPrice: cp,
+        };
       })
       .filter((c) => c.unrealizedGain < 0);
 
@@ -567,13 +572,20 @@ export function TLHTabContent({
   netCapitalGains,
   capitalGainsTax,
 }: {
-  baseCandidates: { name: string; ticker: string; unrealizedGain: number; lossRate: number; taxSaving: number }[];
+  baseCandidates: {
+    name: string; ticker: string;
+    unrealizedGain: number; lossRate: number; taxSaving: number;
+    amount: number; buyPrice: number; currentPrice: number;
+  }[];
   isYearEnd: boolean;
   daysLeft: number | null;
   netCapitalGains: number;
   capitalGainsTax: number;
 }) {
   const [lossThreshold, setLossThreshold] = useState(15);
+
+  // 세금 0원을 만들기 위해 필요한 손실 규모
+  const taxableGapToFill = Math.max(0, netCapitalGains - 2_500_000);
 
   const candidates = useMemo(() => {
     return baseCandidates
@@ -582,15 +594,31 @@ export function TLHTabContent({
         if (c.taxSaving >= 1_000_000) triggers.push("tax_saving");
         if (isYearEnd) triggers.push("year_end");
         if (c.lossRate < -(lossThreshold / 100)) triggers.push("loss_rate");
-        return { ...c, triggers };
+
+        // 이 종목만으로 세금 0원을 만들기 위한 최소 매도 주수
+        const perShareLoss = c.buyPrice - c.currentPrice; // 양수 (손실)
+        const sharesNeeded = perShareLoss > 0
+          ? Math.ceil(taxableGapToFill / perShareLoss)
+          : c.amount;
+        const sharesRecommended = Math.min(sharesNeeded, c.amount);
+        const canZeroTax = sharesRecommended >= sharesNeeded; // 보유 주수로 세금 0원 가능 여부
+
+        // 권장 주수 매도 시 절세액
+        const lossIfSell = perShareLoss * sharesRecommended;
+        const newNet = netCapitalGains - lossIfSell;
+        const newTaxIfSell = newNet > 2_500_000 ? Math.round((newNet - 2_500_000) * 0.22) : 0;
+        const taxSavingRecommended = Math.max(0, capitalGainsTax - newTaxIfSell);
+
+        return { ...c, triggers, sharesRecommended, canZeroTax, taxSavingRecommended, newTaxIfSell };
       })
       .filter((c) => c.triggers.length > 0);
-  }, [baseCandidates, lossThreshold, isYearEnd]);
+  }, [baseCandidates, lossThreshold, isYearEnd, taxableGapToFill, netCapitalGains, capitalGainsTax]);
 
-  const totalLoss = candidates.reduce((sum, c) => sum + c.unrealizedGain, 0);
-  const newNetGains = netCapitalGains + totalLoss;
-  const newTax = newNetGains > 2_500_000 ? Math.round((newNetGains - 2_500_000) * 0.22) : 0;
-  const totalSaving = Math.max(0, capitalGainsTax - newTax);
+  // 권장 주수 전체 매도 시 합산 효과
+  const combinedLoss = candidates.reduce((sum, c) => sum + (c.buyPrice - c.currentPrice) * c.sharesRecommended, 0);
+  const combinedNewNet = netCapitalGains - combinedLoss;
+  const combinedNewTax = combinedNewNet > 2_500_000 ? Math.round((combinedNewNet - 2_500_000) * 0.22) : 0;
+  const combinedSaving = Math.max(0, capitalGainsTax - combinedNewTax);
 
   return (
     <div className="space-y-3 pt-1">
@@ -616,7 +644,7 @@ export function TLHTabContent({
       {capitalGainsTax > 0 && candidates.length > 0 && (
         <div className="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2.5">
           <p className="text-[11px] font-bold text-blue-700 mb-2">
-            후보 종목 전량 매도 시 절세 시뮬레이션
+            권장 주수 매도 시 절세 시뮬레이션
           </p>
           <div className="flex items-center justify-center gap-4">
             <div className="text-center">
@@ -626,12 +654,14 @@ export function TLHTabContent({
             <span className="text-slate-400 text-lg font-bold">→</span>
             <div className="text-center">
               <p className="text-[10px] text-slate-500">TLH 후 세액</p>
-              <p className="text-sm font-black text-blue-700">{fmtWon(newTax)}</p>
+              <p className={`text-sm font-black ${combinedNewTax === 0 ? "text-emerald-600" : "text-blue-700"}`}>
+                {combinedNewTax === 0 ? "0원" : fmtWon(combinedNewTax)}
+              </p>
             </div>
           </div>
           <div className="mt-2 text-center border-t border-blue-100 pt-2">
             <span className="text-xs font-black text-emerald-600">
-              절세 효과 {fmtWon(totalSaving)}
+              절세 효과 {fmtWon(combinedSaving)}{combinedNewTax === 0 ? " · 세금 완전 제거" : ""}
             </span>
           </div>
         </div>
@@ -639,42 +669,52 @@ export function TLHTabContent({
 
       {/* 후보 종목 리스트 */}
       {candidates.length > 0 ? (
-        <div className="space-y-0">
+        <div className="space-y-2">
           {candidates.map((c, i) => (
             <div
               key={i}
-              className="flex items-start justify-between gap-2 py-2 border-b border-slate-50 last:border-0"
+              className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5"
             >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs font-bold text-navy truncate">{c.name}</span>
-                  {c.ticker && (
-                    <span className="text-[10px] text-slate-400 font-mono">({c.ticker})</span>
-                  )}
-                  {c.triggers.includes("loss_rate") && (
-                    <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700">
-                      {Math.abs(c.lossRate * 100).toFixed(1)}%↓
-                    </span>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-1 mt-0.5">
-                  {c.triggers.includes("tax_saving") && (
-                    <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
-                      절세효과
-                    </span>
-                  )}
-                  {c.triggers.includes("year_end") && (
-                    <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold text-orange-700">
-                      연말임박{daysLeft !== null ? ` D-${daysLeft}` : ""}
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">
-                  평가손실 {fmtWon(Math.abs(c.unrealizedGain))}
-                </div>
+              {/* 종목명 + 배지 */}
+              <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                <span className="text-xs font-bold text-navy truncate">{c.name}</span>
+                {c.ticker && (
+                  <span className="text-[10px] text-slate-400 font-mono">({c.ticker})</span>
+                )}
+                {c.triggers.includes("loss_rate") && (
+                  <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700">
+                    {Math.abs(c.lossRate * 100).toFixed(1)}%↓
+                  </span>
+                )}
+                {c.triggers.includes("tax_saving") && (
+                  <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">절세효과</span>
+                )}
+                {c.triggers.includes("year_end") && (
+                  <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[9px] font-bold text-orange-700">
+                    연말임박{daysLeft !== null ? ` D-${daysLeft}` : ""}
+                  </span>
+                )}
               </div>
-              <div className="shrink-0 text-right">
-                <p className="text-xs font-bold text-emerald-600">절세 {fmtWon(c.taxSaving)}</p>
+
+              {/* 핵심: 권장 매도 주수 */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] text-slate-500">
+                    평가손실 {fmtWon(Math.abs(c.unrealizedGain))} · 보유 {c.amount.toLocaleString()}주
+                  </p>
+                  <p className="text-xs font-bold text-blue-700 mt-0.5">
+                    권장 매도{" "}
+                    <span className="text-sm font-black">{c.sharesRecommended.toLocaleString()}주</span>
+                    {c.canZeroTax
+                      ? <span className="ml-1 text-emerald-600 font-bold">→ 세금 0원 가능</span>
+                      : <span className="ml-1 text-slate-500 font-normal">(전량, 세금 완전제거 불가)</span>
+                    }
+                  </p>
+                </div>
+                <div className="text-right shrink-0 ml-2">
+                  <p className="text-[10px] text-slate-400">절세</p>
+                  <p className="text-xs font-black text-emerald-600">{fmtWon(c.taxSavingRecommended)}</p>
+                </div>
               </div>
             </div>
           ))}
