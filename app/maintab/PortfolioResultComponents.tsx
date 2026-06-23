@@ -408,18 +408,23 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
 
 // ─── Stress Test ─────────────────────────────────────────────────────────────
 
+const STRESS_INITIAL_COUNT = 8;
+
 export function StressScenarioBar({
   scenario,
 }: {
   scenario: { label: string; lossRate: number; lossAmount: number; details: { name: string; contribution: number }[] };
 }) {
-  const details = scenario.details.slice(0, 8);
-  const maxContrib = Math.max(...details.map((d) => Math.abs(d.contribution)), 0.001);
+  const [expanded, setExpanded] = useState(false);
+  const allDetails = scenario.details;
+  const details = expanded ? allDetails : allDetails.slice(0, STRESS_INITIAL_COUNT);
+  const hasMore = allDetails.length > STRESS_INITIAL_COUNT;
+
+  const maxContrib = Math.max(...allDetails.map((d) => Math.abs(d.contribution)), 0.001);
   const CHART_DOMAIN = Math.max(maxContrib * 1.1, 0.01);
   const isGain = scenario.lossRate >= 0;
   const ratePct = Math.abs(scenario.lossRate * 100).toFixed(1);
 
-  // CSS transition duration — 내부 스타일로 고정해 Tailwind 클래스 파싱 순서에 독립
   const BAR_TRANSITION = "width 0.35s ease";
 
   return (
@@ -441,11 +446,9 @@ export function StressScenarioBar({
           const valColor = isPos ? "text-emerald-600" : isNeg ? "text-red-500" : "text-slate-400";
           const sign = isPos ? "+" : "";
           return (
-            // key = 자산명 고정: 시나리오 전환 시 순서가 바뀌어도 동일 DOM 노드를 재사용
             <div key={d.name} className="grid grid-cols-[80px_1fr_2px_1fr_44px] items-center gap-x-1 text-xs">
               <span className="truncate font-semibold text-slate-700" title={d.name}>{d.name}</span>
 
-              {/* 손실 바 — 항상 DOM에 존재, width=0으로 수렴하여 unmount 없이 트랜지션 유지 */}
               <div className="flex h-4 items-center justify-end overflow-hidden">
                 <div
                   className="h-2 rounded-l-sm"
@@ -459,7 +462,6 @@ export function StressScenarioBar({
 
               <div className="h-4 w-0.5 rounded-full bg-slate-300 mx-auto" />
 
-              {/* 수익 바 — 항상 DOM에 존재, width=0으로 수렴 */}
               <div className="flex h-4 items-center justify-start overflow-hidden">
                 <div
                   className="h-2 rounded-r-sm"
@@ -478,6 +480,17 @@ export function StressScenarioBar({
           );
         })}
       </div>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded((p) => !p)}
+          className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-slate-100 transition"
+        >
+          {expanded
+            ? "접기 ▲"
+            : `더보기 (${allDetails.length - STRESS_INITIAL_COUNT}개 더) ▼`}
+        </button>
+      )}
     </div>
   );
 }

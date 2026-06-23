@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -23,6 +23,7 @@ import type {
 } from "../../../utils/optionIndicators";
 import { usePortfolioResult } from "../PortfolioResultComponents";
 import type { PortfolioAsset } from "../CustomerContext";
+import StockSearchBox from "./StockSearchBox";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
 
@@ -642,6 +643,23 @@ export default function OptionAnalysisTab() {
   const [selectedTicker, setSelectedTicker] = useState("");
   const [selectedName, setSelectedName] = useState("");
   const [activeTab, setActiveTab] = useState<OptTab>("summary");
+
+  const [koreanNames, setKoreanNames] = useState<Record<string, string>>({});
+  const fetchedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const a of tickerableAssets) {
+      if (!a.ticker || fetchedRef.current.has(a.ticker)) continue;
+      fetchedRef.current.add(a.ticker);
+      fetch(`/api/korean-name?ticker=${encodeURIComponent(a.ticker)}`)
+        .then(r => r.json())
+        .then((d: { name?: string }) => {
+          if (d.name && a.ticker)
+            setKoreanNames(prev => ({ ...prev, [a.ticker!]: d.name! }));
+        })
+        .catch(() => {});
+    }
+  }, [tickerableAssets]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OptionsChainResponse | null>(null);
@@ -679,55 +697,38 @@ export default function OptionAnalysisTab() {
     setActiveTab("summary");
   };
 
-  // 포트폴리오 없음
-  if (!portfolioData) {
-    return (
-      <section className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
-        <BarChart2 size={32} className="mx-auto mb-3 text-slate-300" />
-        <p className="text-[16px] font-bold text-navy">옵션 분석</p>
-        <p className="mt-2 text-sm text-slate-400">'보유 현황 및 진단' 탭에서 자산을 입력하고 분석 실행을 눌러주세요.</p>
-      </section>
-    );
-  }
-
-  // ticker 자산 없음
-  if (tickerableAssets.length === 0) {
-    return (
-      <section className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
-        <AlertTriangle size={32} className="mx-auto mb-3 text-amber-400" />
-        <p className="text-[16px] font-bold text-slate-700">분석 가능한 종목 없음</p>
-        <p className="mt-2 text-sm text-slate-400">
-          자산군이 <b className="text-slate-600">해외주식</b>이고 티커가 입력된 종목만 표시됩니다.<br />
-          국내주식·채권·현금·금·리츠 등은 옵션 분석 대상이 아닙니다.
-        </p>
-      </section>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {/* 종목 선택 바 */}
-      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">분석 종목 선택 (미국 상장 종목만)</div>
-        <div className="flex flex-wrap gap-2">
-          {tickerableAssets.map((a) => (
-            <button
-              key={a.ticker}
-              onClick={() => selectAsset(a.ticker!, a.name)}
-              className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
-                selectedTicker === a.ticker
-                  ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
-                  : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
-              }`}
-            >
-              {a.name}
-              <span className={`ml-1.5 text-[10px] font-normal ${selectedTicker === a.ticker ? "text-blue-200" : "text-slate-400"}`}>
-                {a.ticker}
-              </span>
-            </button>
-          ))}
+      {tickerableAssets.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">분석 종목 선택 (미국 상장 종목만)</div>
+          <div className="flex flex-wrap gap-2">
+            {tickerableAssets.map((a) => (
+              <button
+                key={a.ticker}
+                onClick={() => selectAsset(a.ticker!, a.name)}
+                className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
+                  selectedTicker === a.ticker
+                    ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
+                    : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                }`}
+              >
+                {koreanNames[a.ticker!] || a.name}
+                <span className={`ml-1.5 text-[10px] font-normal ${selectedTicker === a.ticker ? "text-blue-200" : "text-slate-400"}`}>
+                  {a.ticker}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 비보유 종목 검색 (해외주식만) */}
+      <StockSearchBox
+        market="overseas"
+        onSelect={(item) => selectAsset(item.ticker, item.name)}
+      />
 
       {/* 분석 영역 */}
       {selectedTicker && (
@@ -735,7 +736,7 @@ export default function OptionAnalysisTab() {
           {/* 헤더 */}
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <div className="text-[15px] font-bold text-slate-800">{selectedName}</div>
+              <div className="text-[15px] font-bold text-slate-800">{koreanNames[selectedTicker] || selectedName}</div>
               <div className="text-[12px] text-slate-400">
                 {selectedTicker} · 미국 상장 옵션 · {data ? `${data.nExp}개 만기 집계` : "로딩 중..."}
               </div>

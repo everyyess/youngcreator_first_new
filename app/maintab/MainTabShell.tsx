@@ -32,9 +32,8 @@ const tabPaths: Record<string, string> = {
   profile:   "/maintab/tab1",
   existing:  "/maintab/tab2",
   create:    "/maintab/tab3",
-  supply:    "/maintab/tab4",
-  compare:   "/maintab/tab5",
-  recommend: "/maintab/tab6",
+  compare:   "/maintab/tab4",
+  recommend: "/maintab/tab5",
 };
 
 function toFiniteNumber(value: unknown) {
@@ -372,6 +371,16 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     setPortfolioAssetsMap(prev => ({
       ...prev,
       [selectedCustomer]: [...(prev[selectedCustomer] ?? []), { ...EMPTY_PORTFOLIO_ASSET, owner_customer_id: selectedCustomer }],
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
+  const bulkAddPortfolioRows = (rows: Partial<PortfolioAsset>[]) => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: [
+        ...(prev[selectedCustomer] ?? []),
+        ...rows.map(r => ({ ...EMPTY_PORTFOLIO_ASSET, owner_customer_id: selectedCustomer, ...r })),
+      ],
     }));
     setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
   };
@@ -773,7 +782,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     updateCustomerProfile, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태
     portfolioAssets, isPortfolioLoaded, analysisResult,
-    addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
+    addPortfolioRow, bulkAddPortfolioRows, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
     // 리밸런싱 파이프라인
     rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
@@ -824,9 +833,8 @@ const segmentToTab: Record<string, string> = {
   tab1: "profile",
   tab2: "existing",
   tab3: "create",
-  tab4: "supply",
-  tab5: "compare",
-  tab6: "recommend",
+  tab4: "compare",
+  tab5: "recommend",
 };
 function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const segment = useSelectedLayoutSegment();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Activity, BarChart2, FolderOpen, GitBranch, RefreshCcw } from "lucide-react";
+import { Activity, BarChart2, Bell, BookOpen, FolderOpen, GitBranch, RefreshCcw, TrendingUp } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
   DistributionAndRiskSection,
@@ -11,6 +11,9 @@ import {
 } from "../PortfolioResultComponents";
 import TechnicalAnalysisTab from "./TechnicalAnalysisTab";
 import OptionAnalysisTab from "./OptionAnalysisTab";
+import SupplyDemandAnalysis from "./SupplyDemandAnalysisTab";
+import DartAnalysisTab from "./DartAnalysisTab";
+import FundamentalAnalysisTab from "./FundamentalAnalysisTab";
 import RebalancingPortfolioInput from "../RebalancingPortfolioInput";
 import { useCustomerContext } from "../CustomerContext";
 import {
@@ -23,13 +26,16 @@ import { parseKoreanNumber } from "@/lib/portfolioLogic";
 
 // ─── Sub-tab 정의 ─────────────────────────────────────────────────────────────
 
-type InnerTab = "holding" | "risk" | "technical" | "options" | "rebalancing";
+type InnerTab = "holding" | "risk" | "fundamental" | "technical" | "supply" | "options" | "dart" | "rebalancing";
 
 const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
   { id: "holding",     label: "보유 현황 및 진단",  icon: <FolderOpen size={15} /> },
   { id: "risk",        label: "분산 및 위험 분석",  icon: <Activity size={15} /> },
   { id: "technical",   label: "기술적 분석",        icon: <GitBranch size={15} /> },
+  { id: "supply",      label: "수급 분석",          icon: <TrendingUp size={15} /> },
   { id: "options",     label: "옵션 분석",          icon: <BarChart2 size={15} /> },
+  { id: "fundamental", label: "외부자료 분석",       icon: <BookOpen size={15} /> },
+  { id: "dart",        label: "공시 분석",           icon: <Bell size={15} /> },
   { id: "rebalancing", label: "리밸런싱(매도/유지)", icon: <RefreshCcw size={15} /> },
 ];
 
@@ -142,7 +148,7 @@ export default function Tab2Page() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem(TAB2_SUBTAB_KEY);
-    if (stored === "holding" || stored === "risk" || stored === "technical" || stored === "options" || stored === "rebalancing") {
+    if (stored === "holding" || stored === "risk" || stored === "fundamental" || stored === "technical" || stored === "supply" || stored === "options" || stored === "dart" || stored === "rebalancing") {
       setActiveInnerTab(stored as InnerTab);
     }
   }, []);
@@ -190,15 +196,33 @@ export default function Tab2Page() {
         </div>
       )}
 
+      {activeInnerTab === "fundamental" && (
+        <div className="space-y-5">
+          <FundamentalAnalysisTab />
+        </div>
+      )}
+
       {activeInnerTab === "technical" && (
         <div className="space-y-5">
           <TechnicalAnalysisTab />
         </div>
       )}
 
+      {activeInnerTab === "supply" && (
+        <div className="space-y-5">
+          <SupplyDemandAnalysis />
+        </div>
+      )}
+
       {activeInnerTab === "options" && (
         <div className="space-y-5">
           <OptionAnalysisTab />
+        </div>
+      )}
+
+      {activeInnerTab === "dart" && (
+        <div className="space-y-5">
+          <DartAnalysisTab />
         </div>
       )}
 

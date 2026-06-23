@@ -535,14 +535,31 @@ export async function GET(request) {
   const dividendYield          = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
   const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
 
-  // ── officialName: Yahoo meta.shortName 우선 → longName → Gemini englishName 순 폴백 ──
-  // 약어·오타로 입력된 종목명을 공식 사명으로 자동 보정하기 위해 사용됩니다.
+  // ── officialName: 국내 종목은 네이버 한국어 사명 우선, 해외는 Yahoo 영문명 ──
+  const isKoreanTicker = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
+
+  let koreanName = null;
+  if (isKoreanTicker) {
+    const code = ticker.replace(/\.(KS|KQ)$/i, '');
+    try {
+      const naverRes = await fetchWithTimeout(
+        `https://m.stock.naver.com/api/stock/${code}/basic`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' } },
+        5_000
+      );
+      if (naverRes.ok) {
+        const naverData = await naverRes.json();
+        koreanName = naverData.stockName ?? naverData.corporateName ?? null;
+      }
+    } catch { /* 폴백 */ }
+  }
+
   const yahooPrimaryName = typeof meta.shortName === 'string' && meta.shortName.trim()
     ? meta.shortName.trim()
     : typeof meta.longName === 'string' && meta.longName.trim()
       ? meta.longName.trim()
       : null;
-  const officialName = yahooPrimaryName ?? geminiEnglishName ?? null;
+  const officialName = koreanName ?? yahooPrimaryName ?? geminiEnglishName ?? null;
 
   return Response.json({ ticker, officialName, ...assetMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileUp, Loader2, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
+import { Camera, FileSpreadsheet, FileUp, Loader2, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import {
   useCustomerContext,
   parseKrwAmount,
@@ -141,6 +141,7 @@ export default function ExistingPortfolioTab() {
     formData, selectedCustomer,
     portfolioAssets, isPortfolioLoaded,
     addPortfolioRow: addRow,
+    bulkAddPortfolioRows,
     removePortfolioRow: removeRow,
     updatePortfolioRow: updateRow,
     setAnalysisResult,
@@ -150,6 +151,25 @@ export default function ExistingPortfolioTab() {
   } = useCustomerContext();
 
   const [clearConfirm, setClearConfirm] = useState(false);
+
+  // ── 가져오기(Import) 상태 ────────────────────────────────────────────────
+  type ImportItem = {
+    name: string;
+    quantity: number | null;
+    avgPrice: number | null;
+    originalCurrency?: string;
+    originalAvgPrice?: number;
+    fxRate?: number;
+  };
+  const [importPreview, setImportPreview] = useState<ImportItem[] | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [csvLoading, setCsvLoading] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [batchInferring, setBatchInferring] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 });
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const pendingInferenceRef = useRef<{ start: number; count: number } | null>(null);
 
   const clearAllAssets = () => {
     // 마지막 인덱스부터 역순 삭제 → React 18 배치로 한 번의 렌더/저장으로 처리됨
@@ -187,6 +207,38 @@ export default function ExistingPortfolioTab() {
     if (total >= 1.2e9) return 0.35;
     return 0.38;
   }, [formData.financial.totalAssets]);
+
+  // ── 배치 티커 자동완성 (가져오기 확정 후 순차 실행) ──────────────────────
+  // portfolioAssets.length 변화 감지 → pendingInferenceRef에 예약된 범위 처리
+  useEffect(() => {
+    const pending = pendingInferenceRef.current;
+    if (!pending) return;
+    if (portfolioAssets.length < pending.start + pending.count) return;
+
+    pendingInferenceRef.current = null;
+    const { start, count } = pending;
+    const snapshot = portfolioAssets.slice(start, start + count);
+
+    let alive = true;
+    const run = async () => {
+      setBatchInferring(true);
+      setBatchProgress({ done: 0, total: count });
+      for (let i = 0; i < count; i++) {
+        if (!alive) break;
+        const name = snapshot[i]?.name?.trim();
+        if (name) await handleSmartInference(start + i, name);
+        if (alive) setBatchProgress({ done: i + 1, total: count });
+      }
+      if (alive) {
+        setBatchInferring(false);
+        showToast(`티커 자동 완성 완료 (${count}개)`);
+      }
+    };
+    run();
+    return () => { alive = false; };
+  // handleSmartInference·showToast 는 useCallback으로 안정적이므로 생략
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portfolioAssets.length]);
 
   // ── 분석 실행 ─────────────────────────────────────────────────────────────
 
@@ -280,6 +332,217 @@ export default function ExistingPortfolioTab() {
     toastTimerRef.current = setTimeout(() => setToastMsg(""), 3000);
   }, []);
 
+  // ── 스크린샷 이미지 분석 (Gemini Vision) ─────────────────────────────────
+
+  const handleImageFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setImageLoading(true);
+    setImportError("");
+    setImportPreview(null);
+    try {
+      const fd = new FormData();
+      // 첫 번째는 "image", 이후는 "image1", "image2" ...
+      files.forEach((f, i) => fd.append(i === 0 ? "image" : `image${i}`, f));
+      const res = await fetch("/api/portfolio-ocr", { method: "POST", body: fd });
+      const data = await res.json() as {
+        assets?: { name: string; quantity: number | null; avgPrice: number | null; originalCurrency?: string; originalAvgPrice?: number; fxRate?: number }[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? `오류 (${res.status})`);
+      if (!data.assets?.length) throw new Error("이미지에서 종목을 찾을 수 없습니다. 보유 종목 화면인지 확인해주세요.");
+      setImportPreview(data.assets.map(a => ({
+        name: a.name,
+        quantity: a.quantity,
+        avgPrice: a.avgPrice,
+        originalCurrency: a.originalCurrency,
+        originalAvgPrice: a.originalAvgPrice,
+        fxRate: a.fxRate,
+      })));
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "이미지 분석 중 오류가 발생했습니다.");
+    } finally {
+      setImageLoading(false);
+    }
+  }, []);
+
+  // ── CSV / 엑셀 / PDF 파일 파싱 ───────────────────────────────────────────
+
+  const handleCsvFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setCsvLoading(true);
+    setImportError("");
+    setImportPreview(null);
+
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+    // PDF → Gemini OCR 경로 (Excel 변환 불필요)
+    if (isPdf) {
+      try {
+        const fd = new FormData();
+        fd.append("image", file);
+        const res = await fetch("/api/portfolio-ocr", { method: "POST", body: fd });
+        const data = await res.json() as { assets?: { name: string; quantity: number | null; avgPrice: number | null; originalCurrency?: string; originalAvgPrice?: number; fxRate?: number }[]; error?: string };
+        if (!res.ok) throw new Error(data.error ?? `오류 (${res.status})`);
+        if (!data.assets?.length) throw new Error("PDF에서 종목을 찾을 수 없습니다.");
+        setImportPreview(data.assets.map(a => ({
+          name: a.name, quantity: a.quantity, avgPrice: a.avgPrice,
+          originalCurrency: a.originalCurrency, originalAvgPrice: a.originalAvgPrice, fxRate: a.fxRate,
+        })));
+      } catch (err) {
+        setImportError(err instanceof Error ? err.message : "PDF 분석 중 오류가 발생했습니다.");
+      } finally {
+        setCsvLoading(false);
+      }
+      return;
+    }
+
+    // Excel / CSV 스마트 파싱
+    try {
+      const { read, utils } = await import("xlsx");
+      const buffer = await file.arrayBuffer();
+      const wb = read(buffer, { type: "array" });
+
+      // 모든 시트를 순서대로 시도
+      type RawRow = unknown[];
+      let raw: RawRow[] = [];
+      for (const sheetName of wb.SheetNames) {
+        const ws = wb.Sheets[sheetName];
+        const rows = utils.sheet_to_json<RawRow>(ws, { header: 1, defval: "" });
+        if (rows.length > raw.length) raw = rows; // 가장 많은 데이터가 있는 시트 우선
+      }
+      if (!raw.length) throw new Error("파일에서 데이터를 찾을 수 없습니다.");
+
+      const toStr = (v: unknown) => String(v ?? "").replace(/,/g, "").trim();
+      const toNum = (v: unknown): number | null => {
+        const n = parseFloat(toStr(v));
+        return isFinite(n) && n > 0 ? n : null;
+      };
+      // 순수 숫자가 아닌 2자 이상 문자열 → 종목명 후보
+      const looksLikeName = (s: string) =>
+        s.length >= 1 && !/^-?[\d.]+$/.test(s) &&
+        !/^(평가금액|투자비중|수수료|제세금|합계|총계|소계|대출일자|신용|매수|매도|현재가|손익|등락)/.test(s);
+
+      const scan = raw.map(r => r.map(toStr));
+
+      // ── 헤더 행 탐색 (최대 100행, 모든 시트 통합) ──────────────────────
+      const IS_NAME_H  = (s: string) => /^(종목명|종목|name)$/i.test(s);
+      const IS_QTY_H   = (s: string) => /보유잔고|잔고수량|보유수량|잔수량|수량|qty|quantity/i.test(s);
+      const IS_PRICE_H = (s: string) => /평균단가|매수단가|매입단가|평균매입가|매입평균가/i.test(s);
+
+      let nameHeaderRow = -1, nameCol = -1, qtyCol = -1, priceColA = -1;
+      let priceHeaderRow = -1, priceColB = -1;
+
+      for (let i = 0; i < Math.min(scan.length, 100); i++) {
+        const row = scan[i];
+        const ni = row.findIndex(IS_NAME_H);
+        if (ni >= 0 && nameHeaderRow < 0) {
+          nameHeaderRow = i;
+          nameCol  = ni;
+          qtyCol   = row.findIndex(IS_QTY_H);
+          priceColA = row.findIndex(IS_PRICE_H); // 같은 행에 평균단가가 있을 수도 있음
+        }
+        // 별도 섹션에 있는 평균단가 헤더 탐색 (KB증권 등 2-테이블 구조)
+        if (nameHeaderRow >= 0 && i > nameHeaderRow + 2) {
+          const pi = row.findIndex(IS_PRICE_H);
+          if (pi >= 0 && priceHeaderRow < 0) {
+            priceHeaderRow = i;
+            priceColB = pi;
+          }
+        }
+      }
+
+      if (nameHeaderRow < 0) {
+        const sample = scan.slice(0, 5).map(r => r.filter(Boolean).slice(0, 6).join(" | ")).join(" / ");
+        throw new Error(`'종목명' 컬럼을 찾을 수 없습니다.\n처음 5행 미리보기: ${sample}`);
+      }
+
+      // ── 종목명 + 수량 추출 ─────────────────────────────────────────────
+      const nameItems: Array<{ name: string; quantity: number | null; avgPriceInline: number | null }> = [];
+      const stopRow = priceHeaderRow > 0 ? priceHeaderRow : scan.length;
+
+      for (let i = nameHeaderRow + 1; i < stopRow; i++) {
+        const row = scan[i];
+        const name = row[nameCol];
+        if (!name || !looksLikeName(name)) continue;
+        if (IS_NAME_H(name)) break; // 두 번째 종목명 헤더 행이 오면 중단
+        nameItems.push({
+          name,
+          quantity: qtyCol >= 0 ? toNum(row[qtyCol]) : null,
+          avgPriceInline: priceColA >= 0 ? toNum(row[priceColA]) : null,
+        });
+      }
+
+      // ── 별도 섹션 평균단가 추출 (KB증권 page 5 스타일) ─────────────────
+      const separatePrices: (number | null)[] = [];
+      if (priceHeaderRow >= 0 && priceColB >= 0) {
+        for (let i = priceHeaderRow + 1; i < scan.length; i++) {
+          if (separatePrices.length >= nameItems.length) break;
+          const row = scan[i];
+          const firstCell = row[0];
+          // 첫 셀이 비어 있거나 텍스트면 스킵 (소계 행 등)
+          if (!firstCell || !/^\d/.test(firstCell)) continue;
+          separatePrices.push(toNum(row[priceColB]));
+        }
+      }
+
+      // ── 병합 ─────────────────────────────────────────────────────────
+      const items = nameItems
+        .map((item, idx) => ({
+          name: item.name,
+          quantity: item.quantity,
+          avgPrice: item.avgPriceInline ?? separatePrices[idx] ?? null,
+        }))
+        .filter(item => item.name.length > 0);
+
+      if (!items.length) throw new Error("유효한 종목 데이터가 없습니다.");
+      setImportPreview(items);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "파일 파싱 중 오류가 발생했습니다.");
+    } finally {
+      setCsvLoading(false);
+    }
+  }, []);
+
+  // ── 프리뷰 행 편집 / 삭제 ────────────────────────────────────────────────
+
+  const removePreviewItem = useCallback((idx: number) => {
+    setImportPreview(prev => prev ? prev.filter((_, i) => i !== idx) : null);
+  }, []);
+
+  const updatePreviewItem = useCallback((idx: number, field: "quantity" | "avgPrice", raw: string) => {
+    const n = parseFloat(raw.replace(/,/g, ""));
+    setImportPreview(prev =>
+      prev
+        ? prev.map((item, i) =>
+            i === idx ? { ...item, [field]: raw === "" ? null : (isFinite(n) ? n : item[field]) } : item
+          )
+        : null
+    );
+  }, []);
+
+  // ── 가져오기 확정 + 배치 티커 자동완성 예약 ──────────────────────────────
+
+  const applyImport = useCallback(() => {
+    if (!importPreview?.length) return;
+    const startIdx = portfolioAssets.length;
+    const count = importPreview.length;
+    bulkAddPortfolioRows(
+      importPreview.map(item => ({
+        name: item.name,
+        amount: item.quantity ?? 0,
+        amount_type: "quantity" as const,
+        buy_price: item.avgPrice ?? null,
+      }))
+    );
+    pendingInferenceRef.current = { start: startIdx, count };
+    setImportPreview(null);
+    showToast(`${count}개 종목 추가 완료 — 티커 자동 완성을 시작합니다.`);
+  }, [importPreview, portfolioAssets.length, bulkAddPortfolioRows, showToast]);
+
   // ── 지능형 추론 (Gemini AI + 배당 데이터) ────────────────────────────────
 
   const handleSmartInference = useCallback(
@@ -326,10 +589,19 @@ export default function ExistingPortfolioTab() {
         }
 
         // 공식 사명 — Yahoo meta.shortName/longName → Gemini englishName 순 폴백
-        // 약어·오타 입력값(name)을 정규화된 공식 사명으로 강제 보정합니다.
         const officialName = typeof data.officialName === "string" && data.officialName.trim()
           ? data.officialName.trim()
           : null;
+
+        // 한국어 종목명 조회 (네이버 자동완성)
+        let koreanName: string | null = null;
+        try {
+          const knRes = await fetch(`/api/korean-name?ticker=${encodeURIComponent(ticker)}`);
+          if (knRes.ok) {
+            const kn = await knRes.json() as { name?: string };
+            if (kn.name && kn.name !== ticker) koreanName = kn.name;
+          }
+        } catch { /* 무시 */ }
 
         const geminiAssetClass  = typeof data.assetClass  === "string" ? data.assetClass  : "";
         const geminiProductType = typeof data.productType === "string" ? data.productType : "";
@@ -366,10 +638,11 @@ export default function ExistingPortfolioTab() {
           typeof data.trailingAnnualDividendRate === "number" && data.trailingAnnualDividendRate > 0
             ? data.trailingAnnualDividendRate : undefined;
 
+        const resolvedName = koreanName ?? officialName;
         updateRow(idx, {
           ticker,
-          // officialName이 있으면 유저 입력값을 공식 사명으로 강제 보정
-          ...(officialName ? { name: officialName } : {}),
+          // 한국어명 → 영문 공식명 → 입력값 순으로 이름 보정
+          ...(resolvedName ? { name: resolvedName } : {}),
           ...(unifiedType ? {
             productType: unifiedType,
             asset_class: deriveAssetClass(unifiedType),
@@ -382,7 +655,7 @@ export default function ExistingPortfolioTab() {
           ...(trailingAnnualDividendRate != null ? { trailingAnnualDividendRate } : {}),
         } as Partial<PortfolioAsset>);
 
-        const displayName = officialName ?? name;
+        const displayName = koreanName ?? officialName ?? name;
         const priceStr = currentPriceKRW !== null
           ? ` / 현재가 ${currentPriceKRW.toLocaleString("ko-KR")}원`
           : "";
@@ -419,6 +692,8 @@ export default function ExistingPortfolioTab() {
         </div>
 
         <input ref={fileInputRef} type="file" accept=".pdf" className="hidden" />
+        <input ref={imageInputRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" multiple className="hidden" onChange={handleImageFileChange} />
+        <input ref={csvInputRef} type="file" accept=".csv,.xlsx,.xls,.pdf" className="hidden" onChange={handleCsvFileChange} />
 
         {/* 액션 버튼 */}
         <div className="flex flex-wrap items-center gap-3">
@@ -438,6 +713,25 @@ export default function ExistingPortfolioTab() {
           >
             <Plus size={16} />
             자산 추가
+          </button>
+          <button
+            type="button"
+            disabled={imageLoading}
+            onClick={() => imageInputRef.current?.click()}
+            title="여러 화면 동시 선택 가능 (예: 수량 화면 + 평균단가 화면)"
+            className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {imageLoading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+            스크린샷으로 추가
+          </button>
+          <button
+            type="button"
+            disabled={csvLoading}
+            onClick={() => csvInputRef.current?.click()}
+            className="flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {csvLoading ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+            PDF로 추가
           </button>
           {portfolioAssets.length > 0 && (
             clearConfirm ? (
@@ -479,6 +773,123 @@ export default function ExistingPortfolioTab() {
           <div className="mt-3 flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-800">
             <Sparkles size={14} className="shrink-0 text-violet-500" />
             {toastMsg}
+          </div>
+        )}
+
+        {/* 배치 티커 자동완성 진행 표시 */}
+        {batchInferring && (
+          <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3">
+            <div className="mb-2 flex items-center justify-between text-sm font-semibold text-violet-800">
+              <span className="flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin text-violet-500" />
+                티커 자동 완성 중... {batchProgress.done} / {batchProgress.total}
+              </span>
+              <span className="text-xs text-violet-500">{Math.round((batchProgress.done / batchProgress.total) * 100)}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-violet-100">
+              <div
+                className="h-full rounded-full bg-violet-500 transition-all duration-300"
+                style={{ width: `${(batchProgress.done / batchProgress.total) * 100}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* 가져오기 에러 */}
+        {importError && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+            <X size={14} className="mt-0.5 shrink-0 cursor-pointer hover:text-red-900" onClick={() => setImportError("")} />
+            <span className="whitespace-pre-line">{importError}</span>
+          </div>
+        )}
+
+        {/* 가져오기 프리뷰 패널 */}
+        {importPreview && importPreview.length > 0 && (
+          <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-sky-600">가져오기 미리보기</p>
+                <p className="mt-0.5 text-sm font-semibold text-navy">
+                  {importPreview.length}개 종목 감지됨 — 수정·삭제 후 확정하세요
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={applyImport}
+                  className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2 text-sm font-bold text-white transition hover:bg-[#1b35bd]"
+                >
+                  <FileSpreadsheet size={14} />
+                  확정
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportPreview(null)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-sky-200 bg-white">
+              <table className="w-full text-sm">
+                <thead className="border-b border-sky-100 bg-sky-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-bold text-sky-700">#</th>
+                    <th className="px-3 py-2 text-left text-xs font-bold text-sky-700">종목명</th>
+                    <th className="px-3 py-2 text-left text-xs font-bold text-sky-700">수량</th>
+                    <th className="px-3 py-2 text-left text-xs font-bold text-sky-700">매수단가(원)</th>
+                    <th className="px-3 py-2 text-left text-xs font-bold text-sky-700"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {importPreview.map((item, i) => (
+                    <tr key={i} className="group hover:bg-sky-50">
+                      <td className="px-3 py-2 text-xs text-slate-400">{i + 1}</td>
+                      <td className="px-3 py-2 text-sm font-semibold text-navy">{item.name}</td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="h-8 w-24 rounded border border-slate-200 px-2 text-xs text-navy focus:border-sky-400 focus:outline-none"
+                          value={item.quantity != null ? item.quantity.toLocaleString("ko-KR") : ""}
+                          placeholder="—"
+                          onChange={(e) => updatePreviewItem(i, "quantity", e.target.value)}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col gap-0.5">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            className="h-8 w-28 rounded border border-slate-200 px-2 text-xs text-navy focus:border-sky-400 focus:outline-none"
+                            value={item.avgPrice != null ? item.avgPrice.toLocaleString("ko-KR") : ""}
+                            placeholder="—"
+                            onChange={(e) => updatePreviewItem(i, "avgPrice", e.target.value)}
+                          />
+                          {item.originalCurrency && item.originalAvgPrice != null && (
+                            <span className="text-[10px] text-slate-400">
+                              {item.originalCurrency} {item.originalAvgPrice.toLocaleString("en-US")}
+                              {item.fxRate ? ` × ${Math.round(item.fxRate).toLocaleString("ko-KR")}` : ""}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => removePreviewItem(i)}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-slate-200 text-slate-400 opacity-0 transition hover:border-red-200 hover:text-red-600 group-hover:opacity-100"
+                          title="이 항목 제거"
+                        >
+                          <X size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 

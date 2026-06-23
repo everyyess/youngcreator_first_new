@@ -417,7 +417,7 @@ export async function GET(request: Request): Promise<Response> {
   const lockedTicker = TICKERS_ORDERED.includes(url.searchParams.get('lockedTicker') ?? '')
     ? url.searchParams.get('lockedTicker')
     : '';
-  const activeTab = ['optimal', 'heatmap', 'chart', 'weight', 'sectorlist'].includes(url.searchParams.get('activeTab') ?? '')
+  const activeTab = ['optimal', 'heatmap', 'chart', 'sectorlist'].includes(url.searchParams.get('activeTab') ?? '')
     ? url.searchParams.get('activeTab')
     : 'optimal';
 
