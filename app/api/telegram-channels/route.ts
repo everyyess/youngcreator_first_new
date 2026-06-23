@@ -16,8 +16,8 @@ export async function GET() {
   let TelegramClient: typeof TC;
   let StringSession: typeof SS;
   try {
-    // eslint-disable-next-line no-eval
-    const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const _tg = require("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
     TelegramClient = _tg.TelegramClient;
     StringSession = _tg.sessions.StringSession;
   } catch (e) {
