@@ -109,6 +109,7 @@ interface AllocResult {
 }
 interface IRPResult extends AllocResult {
   riskRatio: number;
+  safeRatio: number;
 }
 
 // ─────────────────────────────────────────────
@@ -195,7 +196,9 @@ function allocateIRP(pool: SimAsset[], target: number): IRPResult {
     picks,
     totalAmount,
     totalIncome: picks.reduce((s, p) => s + p.amount * p.rate, 0),
-    riskRatio: totalAmount > 0 ? riskUsed / totalAmount : 0,
+    // target 기준 비율 (안전자산 부족으로 미배분된 30%가 위험자산으로 보이지 않도록)
+    riskRatio: target > 0 ? riskUsed / target : 0,
+    safeRatio: target > 0 ? (totalAmount - riskUsed) / target : 0,
   };
 }
 
@@ -748,11 +751,12 @@ export default function PensionTaxPanel({
                     <div style={{ height: 24, marginBottom: 10, visibility: irpResult.totalAmount > 0 ? "visible" : "hidden" }}>
                       <div style={{ display: "flex", height: 7, borderRadius: 4, overflow: "hidden", border: `1px solid ${C.line}` }}>
                         <div style={{ width: `${irpResult.riskRatio * 100}%`, background: C.gold }} />
-                        <div style={{ width: `${(1 - irpResult.riskRatio) * 100}%`, background: C.green }} />
+                        <div style={{ width: `${irpResult.safeRatio * 100}%`, background: C.green }} />
+                        <div style={{ width: `${(1 - irpResult.riskRatio - irpResult.safeRatio) * 100}%`, background: "#e2e8f0" }} />
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.slate, marginTop: 3 }}>
                         <span>위험자산 {pct(irpResult.riskRatio)} (상한 70%)</span>
-                        <span>안전자산 {pct(1 - irpResult.riskRatio)}</span>
+                        <span>안전자산 {pct(irpResult.safeRatio)}</span>
                       </div>
                     </div>
                     <div style={{ marginTop: "auto" }}>
