@@ -736,39 +736,15 @@ function TopStocksContent({
   );
 }
 
-// ── 수급 주체별 분석 ───────────────────────────────────────────────────────
+// ── 수급 주체별 분석 (KIS summaries 기반) ─────────────────────────────────
 
 function InvestorAnalysisContent({
-  market, displayMode, investorType, orgSubType,
-}: { market: Market; displayMode: DisplayMode; investorType: InvestorKey; orgSubType: OrgSubType }) {
-  const pykrxInvestor: string | null =
-    investorType === "frgn" ? "외국인" :
-    investorType === "orgn" ? orgSubType :
-    investorType === "prsn" ? "개인" : null;
-
-  const [pData, setPData] = useState<PykrxData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async (nocache = false) => {
-    if (!pykrxInvestor) return;
-    setLoading(true); setError(""); setPData(null);
-    try {
-      const res = await fetch(`/api/pykrx?market=${market}&investor=${encodeURIComponent(pykrxInvestor)}&top_n=10${nocache ? "&nocache=1" : ""}`);
-      const json: PykrxData = await res.json();
-      if (!json.ok) throw new Error(json.error ?? "pykrx 오류");
-      setPData(json);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setLoading(false); }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [market, pykrxInvestor]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const fmtRow = (r: PykrxRow) => displayMode === "amount" ? fmtAmtWon(r.net_amt) : fmtQtyNum(r.net_qty);
-  const investorLabel = pykrxInvestor ?? "합산";
-
-  if (!pykrxInvestor) {
+  displayMode, investorType, summaries, latestDate,
+}: {
+  displayMode: DisplayMode; investorType: InvestorKey;
+  summaries: (StockSummary | null)[]; latestDate: string;
+}) {
+  if (investorType === "total") {
     return (
       <div className="p-6 text-center text-xs text-slate-400">
         합산 기준 순위는 수급 주체별 분석에서 지원하지 않습니다.<br />
@@ -777,36 +753,44 @@ function InvestorAnalysisContent({
     );
   }
 
+  const valid = summaries.filter((s): s is StockSummary => s !== null);
+
+  const getVal = (s: StockSummary) => {
+    if (displayMode === "qty") {
+      if (investorType === "frgn") return s.frgn_qty;
+      if (investorType === "orgn") return s.orgn_qty;
+      return s.prsn_qty;
+    }
+    if (investorType === "frgn") return s.frgn;
+    if (investorType === "orgn") return s.orgn;
+    return s.prsn;
+  };
+
+  const fmtVal = (s: StockSummary) =>
+    displayMode === "amount" ? fmtAmtWon(getVal(s)) : fmtQtyNum(getVal(s));
+
+  const byDesc = [...valid].sort((a, b) => getVal(b) - getVal(a)).slice(0, 10);
+  const byAsc  = [...valid].sort((a, b) => getVal(a) - getVal(b)).slice(0, 10);
+
+  const investorLabel = INVESTOR_LABELS[investorType];
+  const unitStr = displayMode === "amount" ? "억원" : "주";
+
   return (
     <div className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        {pData ? (
-          <span className="text-xs text-slate-400">
-            <span className="font-bold text-slate-600">{investorLabel}</span>
-            {" "}· {market} 전체 {pData.count?.toLocaleString()}종목 · 기준일 {fmtDate(pData.date)}
-            {" "}· {displayMode === "amount" ? "억원" : "주"}
-          </span>
-        ) : <span />}
-        <button type="button" onClick={() => load(true)} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
-          <RefreshCw size={11} /> 새로고침
-        </button>
+        <span className="text-xs text-slate-400">
+          <span className="font-bold text-slate-600">{investorLabel}</span>
+          {" "}· 시총 상위 {valid.length}종목 · 기준일 {fmtDate(latestDate)}
+          {" "}· {unitStr}
+          <span className="ml-2 text-slate-300">(KIS API 기반)</span>
+        </span>
       </div>
-      {loading ? <Spinner label={`${market} 전체 시장 ${investorLabel} 분석 중… (pykrx)`} /> :
-       error   ? <ErrBox msg={error} onRetry={() => load(true)} /> :
-       !pData  ? null :
-       (pData.buy_top?.length ?? 0) === 0 && (pData.sell_top?.length ?? 0) === 0 ? (
+      {valid.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-slate-400">
-          <RefreshCw size={22} className="text-slate-300" />
           <p className="text-sm font-semibold">데이터가 아직 준비되지 않았습니다</p>
-          <p className="text-xs text-slate-400">
-            pykrx 당일 수급 데이터는 장 마감(16:00) 이후 확정됩니다.
-          </p>
-          <button type="button" onClick={() => load(true)}
-            className="mt-2 flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 transition">
-            <RefreshCw size={11} /> 새로고침
-          </button>
+          <p className="text-xs">시총 상위종목 분석 탭을 먼저 로드해 주세요.</p>
         </div>
-       ) : (
+      ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-red-200 bg-red-50/60 p-3">
             <p className="flex items-center gap-1.5 text-xs font-bold text-red-600 mb-2">
@@ -814,14 +798,14 @@ function InvestorAnalysisContent({
             </p>
             <table className="w-full">
               <tbody>
-                {(pData.buy_top ?? []).map((r, i) => (
-                  <tr key={r.ticker} className="border-b border-red-100 last:border-0">
+                {byDesc.map((s, i) => (
+                  <tr key={s.ticker} className="border-b border-red-100 last:border-0">
                     <td className="py-1.5 pr-2 text-xs font-bold text-red-300 w-5">{i + 1}</td>
                     <td className="py-1.5 pr-2">
-                      <p className="text-xs font-bold text-slate-800">{r.name}</p>
-                      <p className="text-[9px] text-slate-400">{r.ticker}</p>
+                      <p className="text-xs font-bold text-slate-800">{s.name}</p>
+                      <p className="text-[9px] text-slate-400">{s.ticker}</p>
                     </td>
-                    <td className="py-1.5 text-right text-xs font-extrabold text-red-600">{fmtRow(r)}</td>
+                    <td className="py-1.5 text-right text-xs font-extrabold text-red-600">{fmtVal(s)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -833,14 +817,14 @@ function InvestorAnalysisContent({
             </p>
             <table className="w-full">
               <tbody>
-                {(pData.sell_top ?? []).map((r, i) => (
-                  <tr key={r.ticker} className="border-b border-blue-100 last:border-0">
+                {byAsc.map((s, i) => (
+                  <tr key={s.ticker} className="border-b border-blue-100 last:border-0">
                     <td className="py-1.5 pr-2 text-xs font-bold text-blue-300 w-5">{i + 1}</td>
                     <td className="py-1.5 pr-2">
-                      <p className="text-xs font-bold text-slate-800">{r.name}</p>
-                      <p className="text-[9px] text-slate-400">{r.ticker}</p>
+                      <p className="text-xs font-bold text-slate-800">{s.name}</p>
+                      <p className="text-[9px] text-slate-400">{s.ticker}</p>
                     </td>
-                    <td className="py-1.5 text-right text-xs font-extrabold text-blue-600">{fmtRow(r)}</td>
+                    <td className="py-1.5 text-right text-xs font-extrabold text-blue-600">{fmtVal(s)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -852,45 +836,38 @@ function InvestorAnalysisContent({
   );
 }
 
-// ── 스마트머니 ─────────────────────────────────────────────────────────────
+// ── 스마트머니 (KIS summaries 기반) ───────────────────────────────────────
 
-function SmartMoneyContent({ market }: { market: Market }) {
-  const [pData, setPData] = useState<PykrxData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async (nocache = false) => {
-    setLoading(true); setError(""); setPData(null);
-    try {
-      const res = await fetch(`/api/pykrx?smart=1&market=${market}&top_n=20${nocache ? "&nocache=1" : ""}`);
-      const json: PykrxData = await res.json();
-      if (!json.ok) throw new Error(json.error ?? "pykrx 오류");
-      setPData(json);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setLoading(false); }
-  }, [market]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const items = pData?.data ?? [];
+function SmartMoneyContent({
+  summaries, latestDate,
+}: {
+  summaries: (StockSummary | null)[]; latestDate: string;
+}) {
+  const items = summaries
+    .filter((s): s is StockSummary => s !== null && s.frgn > 0 && s.orgn > 0)
+    .sort((a, b) => (b.frgn + b.orgn) - (a.frgn + a.orgn));
 
   return (
     <div className="flex flex-col gap-3 p-4">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700">
           <Star size={9} /> 스마트머니
         </span>
         <span className="text-xs text-slate-500 font-semibold">
-          {market} 전체 종목 중 외국인·기관 동시 순매수 교집합
+          시총 상위종목 중 외국인·기관 동시 순매수 교집합
         </span>
-        {pData?.date && <span className="text-xs text-slate-400 ml-auto">기준일: {fmtDate(pData.date)}</span>}
-        <button type="button" onClick={() => load(true)} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600">
-          <RefreshCw size={11} />
-        </button>
+        {latestDate && (
+          <span className="text-xs text-slate-400 ml-auto">기준일: {fmtDate(latestDate)}</span>
+        )}
+        <span className="text-[10px] text-slate-300">(KIS API 기반)</span>
       </div>
-      {loading ? <Spinner label={`${market} 전체 스마트머니 분석 중… (pykrx)`} /> :
-       error   ? <ErrBox msg={error} onRetry={() => load(true)} /> :
-       items.length === 0 ? <p className="py-8 text-center text-sm font-semibold text-slate-400">외국인·기관 동시 순매수 종목 없음</p> : (
+      {items.length === 0 ? (
+        <p className="py-8 text-center text-sm font-semibold text-slate-400">
+          {summaries.filter(Boolean).length === 0
+            ? "시총 상위종목 분석 탭을 먼저 로드해 주세요."
+            : "외국인·기관 동시 순매수 종목 없음"}
+        </p>
+      ) : (
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
@@ -902,21 +879,18 @@ function SmartMoneyContent({ market }: { market: Market }) {
             </tr>
           </thead>
           <tbody>
-            {items.map((s, i) => {
-              const frgnAmt = s.frgn_amt ?? 0, orgnAmt = s.orgn_amt ?? 0;
-              return (
-                <tr key={s.ticker} className="border-b border-slate-100 hover:bg-amber-50 transition">
-                  <td className="py-2 pl-3 pr-2 text-xs font-bold text-amber-400">{i + 1}</td>
-                  <td className="py-2 px-2">
-                    <p className="text-sm font-bold text-slate-800">{s.name}</p>
-                    <p className="text-[10px] text-slate-400">{s.ticker}</p>
-                  </td>
-                  <td className="py-2 px-2 text-right text-xs font-bold text-red-500">{fmtAmtWon(frgnAmt)}</td>
-                  <td className="py-2 px-2 text-right text-xs font-bold text-red-500">{fmtAmtWon(orgnAmt)}</td>
-                  <td className="py-2 pl-2 pr-3 text-right text-xs font-extrabold text-red-600">{fmtAmtWon(frgnAmt + orgnAmt)}</td>
-                </tr>
-              );
-            })}
+            {items.map((s, i) => (
+              <tr key={s.ticker} className="border-b border-slate-100 hover:bg-amber-50 transition">
+                <td className="py-2 pl-3 pr-2 text-xs font-bold text-amber-400">{i + 1}</td>
+                <td className="py-2 px-2">
+                  <p className="text-sm font-bold text-slate-800">{s.name}</p>
+                  <p className="text-[10px] text-slate-400">{s.ticker}</p>
+                </td>
+                <td className="py-2 px-2 text-right text-xs font-bold text-red-500">{fmtAmtWon(s.frgn)}</td>
+                <td className="py-2 px-2 text-right text-xs font-bold text-red-500">{fmtAmtWon(s.orgn)}</td>
+                <td className="py-2 pl-2 pr-3 text-right text-xs font-extrabold text-red-600">{fmtAmtWon(s.frgn + s.orgn)}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}
@@ -1110,11 +1084,15 @@ export default function SupplyDemandAnalysisTab() {
         )}
         {activeTab === "investor" && (
           <InvestorAnalysisContent
-            market={market} displayMode={displayMode}
-            investorType={investorType} orgSubType={orgSubType}
+            displayMode={displayMode}
+            investorType={investorType}
+            summaries={summaries}
+            latestDate={latestDate}
           />
         )}
-        {activeTab === "smart" && <SmartMoneyContent market={market} />}
+        {activeTab === "smart" && (
+          <SmartMoneyContent summaries={summaries} latestDate={latestDate} />
+        )}
       </div>
     </div>
   );
