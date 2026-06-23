@@ -1430,12 +1430,37 @@ export default function BuySimulatorTab() {
   }, []);
 
   // 매수 확정 — PB 직접 추가 매수 전용 (ETF 카탈로그 비개입)
-  const handleConfirm = useCallback(async () => {
+  // PB 패널 내부 확정 — rebalancingSellAssets만 업데이트 (Tab 4 미반영)
+  const handlePbConfirm = useCallback(() => {
     const validPbRows = pbOrderRowsRef.current.filter((r) => {
+      if (isBondProductType(r.productType)) {
+        return computeKrwAmount(r, usdKrwRateRef.current) > 0;
+      }
       const qty = parseFloat(r.quantity);
       return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
     });
     if (!validPbRows.length) return;
+
+    const mergeBase = sellAssetsRef.current.length > 0 ? sellAssetsRef.current : portfolioRef.current;
+    const remainingAssets = mergeBase.filter((a) => a.amount > 0);
+    const mergedAssets = mergeBuyIntoBase(remainingAssets, validPbRows, [], usdKrwRateRef.current);
+    setRebalancingSellAssets(mergedAssets);
+
+    const totalCost = validPbRows.reduce((s, r) => s + computeKrwAmount(r, usdKrwRateRef.current), 0);
+    if (totalCost > 0) addBuyCost(totalCost);
+
+    setPbOrderRows([]);
+  }, [setRebalancingSellAssets, setPbOrderRows, addBuyCost]);
+
+  const handleConfirm = useCallback(async () => {
+    const validPbRows = pbOrderRowsRef.current.filter((r) => {
+      if (isBondProductType(r.productType)) {
+        return computeKrwAmount(r, usdKrwRateRef.current) > 0;
+      }
+      const qty = parseFloat(r.quantity);
+      return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
+    });
+    // PB 행이 없어도 드래그앤드롭·PB버튼으로 확정된 자산이 있으면 분석 진행
     // 비동기 실행 중 고객 전환 race condition 방지 — await 전에 스냅샷
     const customerAtStart = selectedCustomerRef.current;
     setIsConfirming(true);
@@ -1444,41 +1469,16 @@ export default function BuySimulatorTab() {
       const tm = tMarginalRef.current;
       const fd = formDataRef.current;
 
-      const pbBuyAssets: PortfolioAsset[] = validPbRows.map((row) => {
-        const safeAmount = computeKrwAmount(row, usdKrwRateRef.current);
-        const bondYieldVal = parseFloat(row.bondYield);
-        const maturityVal = parseFloat(row.maturityYears);
-        return {
-          name: row.name || row.ticker || "직접매수종목",
-          ticker: row.ticker || "",
-          asset_class: row.productType,
-          productType: row.productType,
-          theme: "기타",
-          country: row.productType.includes("해외") ? "미국" : "한국",
-          buy_price: null,
-          bond_yield: Number.isFinite(bondYieldVal) && bondYieldVal > 0 ? bondYieldVal : null,
-          bond_maturity: Number.isFinite(maturityVal) && maturityVal > 0 ? maturityVal : null,
-          amount: safeAmount,
-          amount_type: "value" as const,
-          is_hedged: false,
-          needs_review: false,
-          current_value: safeAmount > 0 ? safeAmount : undefined,
-        };
-      });
-
       const mergeBase =
         sellAssetsRef.current.length > 0
           ? sellAssetsRef.current
           : portfolioRef.current;
       const remainingAssets = mergeBase.filter((a) => a.amount > 0);
 
-      // 병합: PB 직접 매수 전용 — ETF 카탈로그 완전 격리 ([])
-      const mergedAssets = mergeBuyIntoBase(
-        remainingAssets,
-        validPbRows,
-        [],
-        usdKrwRateRef.current,
-      );
+      // 잔여 PB 행 병합 (handlePbConfirm으로 이미 처리된 경우 validPbRows = [])
+      const mergedAssets = validPbRows.length > 0
+        ? mergeBuyIntoBase(remainingAssets, validPbRows, [], usdKrwRateRef.current)
+        : remainingAssets;
 
       setRebalancingBuyAssets(mergedAssets);
 
@@ -1737,10 +1737,14 @@ export default function BuySimulatorTab() {
   );
 
   const hasPbItems = pbOrderRows.some((r) => {
+    if (isBondProductType(r.productType)) {
+      return computeKrwAmount(r, usdKrwRate) > 0;
+    }
     const qty = parseFloat(r.quantity);
     return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
   });
-  const canConfirm = hasPbItems && !isOverBudget;
+  // PB 패널 항목이 있거나, 드래그앤드롭/PB버튼으로 이미 확정된 매수가 있으면 활성화
+  const canConfirm = (hasPbItems || confirmedPbAmount > 0) && !isOverBudget;
 
   // ── 렌더 ─────────────────────────────────────────────────────────────────
 
@@ -2500,11 +2504,22 @@ export default function BuySimulatorTab() {
                   </span>
                 )}
               </div>
-              <span
-                className={`text-sm font-black ${isOverBudget ? "text-red-600" : "text-violet-900"}`}
-              >
-                {fmtKrwMan(pbTotalAmount)}
-              </span>
+              <div className="flex items-center gap-3">
+                <span
+                  className={`text-sm font-black ${isOverBudget ? "text-red-600" : "text-violet-900"}`}
+                >
+                  {fmtKrwMan(pbTotalAmount)}
+                </span>
+                <button
+                  type="button"
+                  disabled={!hasPbItems || isOverBudget}
+                  onClick={handlePbConfirm}
+                  className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <CheckCircle2 size={12} />
+                  매수 확정
+                </button>
+              </div>
             </div>
           </>
         )}

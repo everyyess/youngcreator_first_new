@@ -152,7 +152,7 @@ export default function SellSimulatorTab() {
     [baseAssets, selectedKey],
   );
 
-  // 상단 카드 그리드 렌더링용 — 국내(파란) → 해외(에메랄드) → 기타 순 시장 속성 그룹 정렬
+  // 탭 3-3과 동일 기준: 국내 → 해외 → 기타, 같은 유형 내 productType 알파벳순
   const sortedCards = useMemo(() => {
     const marketGroup = (x: PortfolioAsset): number => {
       const k = (x.productType ?? x.asset_class ?? "").trim();
@@ -165,6 +165,18 @@ export default function SellSimulatorTab() {
       return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
     });
   }, [baseAssets]);
+
+  // 탭 3-3과 동일하게 productType별 그룹화
+  const groupedCards = useMemo(() => {
+    const groups: { type: string; assets: PortfolioAsset[] }[] = [];
+    for (const a of sortedCards) {
+      const type = a.productType ?? a.asset_class ?? "기타";
+      const last = groups[groups.length - 1];
+      if (last && last.type === type) last.assets.push(a);
+      else groups.push({ type, assets: [a] });
+    }
+    return groups;
+  }, [sortedCards]);
 
   const maxQty = selectedAsset?.amount_type === "quantity" ? (selectedAsset.amount ?? 0) : 0;
 
@@ -428,8 +440,10 @@ export default function SellSimulatorTab() {
         <p className="mb-3 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
           보유 자산 선택 — 매도 시뮬레이션할 종목을 클릭하세요
         </p>
-        <div className="flex flex-wrap gap-3">
-          {sortedCards.map((a) => {
+        <div className="flex flex-col gap-3">
+          {groupedCards.map((group, gi) => (
+          <div key={gi} className="flex flex-wrap gap-3">
+          {group.assets.map((a) => {
             const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
             const color = CLASS_COLORS[cls] ?? "#94a3b8";
             const key = makeKey(a);
@@ -507,6 +521,8 @@ export default function SellSimulatorTab() {
               </button>
             );
           })}
+          </div>
+          ))}
         </div>
       </section>
       )} {/* baseAssets.length > 0 조건부 블록 끝 */}
