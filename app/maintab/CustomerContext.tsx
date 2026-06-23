@@ -1036,6 +1036,17 @@ const rebSB = () => supabase!.from("rebalancing_state") as any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const narSB = () => supabase!.from("new_analysis_results") as any;
 
+function describeSupabaseError(error: unknown) {
+  if (!error || typeof error !== "object") return error;
+  const value = error as Record<string, unknown>;
+  return {
+    message: value.message,
+    code: value.code,
+    details: value.details,
+    hint: value.hint,
+  };
+}
+
 export async function loadPortfolioAssets(customerId: CustomerId): Promise<PortfolioAsset[]> {
   if (!supabase) return [];
   try {
@@ -1056,16 +1067,49 @@ export async function loadPortfolioAssets(customerId: CustomerId): Promise<Portf
 
 export async function savePortfolioAssets(customerId: CustomerId, assets: PortfolioAsset[]): Promise<void> {
   if (!supabase) return;
+  if (!customerId) throw new Error("Portfolio asset save failed: missing customer_id.");
   if (assets.length > 0) {
     const isOwnershipValid = assets.every(a => a.owner_customer_id === customerId);
-    if (!isOwnershipValid) return;
-    const hasContent = assets.some(a => (a.name ?? "").trim() || (a.ticker ?? "").trim());
+    if (!isOwnershipValid) throw new Error("Portfolio asset ownership mismatch.");
+    const hasContent = assets.some(a =>
+      (a.name ?? "").trim() ||
+      (a.ticker ?? "").trim() ||
+      (a.productType ?? "").trim() ||
+      (a.asset_class ?? "").trim() ||
+      a.amount > 0 ||
+      a.buy_price != null ||
+      a.current_price != null ||
+      a.bond_yield != null ||
+      a.bond_maturity != null
+    );
     if (!hasContent) return;
   }
-  await rebSB().upsert(
-    { customer_id: customerId, portfolio_assets: assets, updated_at: new Date().toISOString() },
-    { onConflict: "customer_id" },
-  );
+  const payload = { portfolio_assets: assets, updated_at: new Date().toISOString() };
+  const updateResult = await rebSB()
+    .update(payload)
+    .eq("customer_id", customerId)
+    .select("customer_id");
+
+  if (updateResult.error) {
+    console.error("Supabase rebalancing_state.portfolio_assets update failed", {
+      customerId,
+      assetCount: assets.length,
+      error: describeSupabaseError(updateResult.error),
+    });
+    throw updateResult.error;
+  }
+
+  if (Array.isArray(updateResult.data) && updateResult.data.length > 0) return;
+
+  const insertResult = await rebSB().insert({ customer_id: customerId, ...payload });
+  if (insertResult.error) {
+    console.error("Supabase rebalancing_state row insert for portfolio_assets failed", {
+      customerId,
+      assetCount: assets.length,
+      error: describeSupabaseError(insertResult.error),
+    });
+    throw insertResult.error;
+  }
 }
 
 export async function loadAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
