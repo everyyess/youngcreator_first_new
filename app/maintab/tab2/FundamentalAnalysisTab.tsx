@@ -222,7 +222,11 @@ function TelegramSearchPanel({
     }
 
     fetch(`/api/telegram-search?${params}`)
-      .then(r => r.json())
+      .then(async r => {
+        const text = await r.text();
+        if (!text) throw new Error("서버에서 빈 응답이 반환됐습니다.");
+        return JSON.parse(text) as TelegramSearchResponse;
+      })
       .then(async (data: TelegramSearchResponse) => {
         if (data.error) throw new Error(data.error);
         setResult(data);

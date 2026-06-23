@@ -793,7 +793,20 @@ function InvestorAnalysisContent({
       </div>
       {loading ? <Spinner label={`${market} 전체 시장 ${investorLabel} 분석 중… (pykrx)`} /> :
        error   ? <ErrBox msg={error} onRetry={() => load(true)} /> :
-       !pData  ? null : (
+       !pData  ? null :
+       (pData.buy_top?.length ?? 0) === 0 && (pData.sell_top?.length ?? 0) === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-slate-400">
+          <RefreshCw size={22} className="text-slate-300" />
+          <p className="text-sm font-semibold">데이터가 아직 준비되지 않았습니다</p>
+          <p className="text-xs text-slate-400">
+            pykrx 당일 수급 데이터는 장 마감(16:00) 이후 확정됩니다.
+          </p>
+          <button type="button" onClick={() => load(true)}
+            className="mt-2 flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 transition">
+            <RefreshCw size={11} /> 새로고침
+          </button>
+        </div>
+       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-lg border border-red-200 bg-red-50/60 p-3">
             <p className="flex items-center gap-1.5 text-xs font-bold text-red-600 mb-2">

@@ -87,6 +87,18 @@ async function safeJson(res) {
   }
 }
 
+// ── 영문 표기 KR 종목 하드코딩 맵 (Gemini 오분류 방지) ─────────────────────
+// 영문으로만 표기되지만 실제 KOSPI/KOSDAQ 상장 종목인 케이스.
+// Gemini는 HLB→H.LUNDBECK(덴마크) 처럼 외국 동명 기업과 혼동할 수 있으므로
+// Gemini 호출 전에 선제적으로 KR 티커를 확정한다.
+const KR_ENGLISH_NAME_MAP = new Map([
+  ['hlb',           { krCode: '028300', market: 'KOSDAQ', koreanName: 'HLB' }],
+  ['hlb이노베이션',  { krCode: '067830', market: 'KOSDAQ', koreanName: 'HLB이노베이션' }],
+  ['hlb생명과학',    { krCode: '067630', market: 'KOSDAQ', koreanName: 'HLB생명과학' }],
+  ['hlb테라퓨틱스',  { krCode: '115450', market: 'KOSDAQ', koreanName: 'HLB테라퓨틱스' }],
+  ['hlb글로벌',      { krCode: '003580', market: 'KOSDAQ', koreanName: 'HLB글로벌' }],
+]);
+
 // ── 영문 알파벳 → 한글 발음 변환 맵 (회사명 ASCII 접두사 처리용) ───────────
 // 예: "HD현대" → "에이치디현대",  "SK하이닉스" → "에스케이하이닉스"
 const ALPHA_SOUND = {
@@ -470,6 +482,16 @@ export async function GET(request) {
   // ── [KR 경로] Gemini → krCode 직접 조립 → Yahoo v7 AC 폴백 ──────────────
   let ticker = null;
   let resolvedKoreanName = null; // Gemini에서 얻은 한국어 종목명
+
+  // [최우선] 영문 표기 KR 종목 하드코딩 확정 — Gemini 오분류 선제 차단
+  // productType 미지정 시에도 KR 티커를 정확히 반환한다.
+  const hardcodedKR = KR_ENGLISH_NAME_MAP.get(assetName.trim().toLowerCase());
+  if (hardcodedKR) {
+    const suffix = hardcodedKR.market === 'KOSDAQ' ? '.KQ' : '.KS';
+    ticker = `${hardcodedKR.krCode}${suffix}`;
+    resolvedKoreanName = hardcodedKR.koreanName;
+    console.log(`[proxy-finance] KR 하드코딩 확정: '${assetName}' → '${ticker}'`);
+  }
 
   if (forcedMarket === 'KR') {
     // [0순위] assetName이 이미 유효한 KRX 티커 형식이면 해석 체인 전체 생략

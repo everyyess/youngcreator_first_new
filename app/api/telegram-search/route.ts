@@ -1,7 +1,12 @@
+export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
-import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
-import type { Api } from "telegram";
+import type { Api, TelegramClient as TC, StringSession as SS } from "telegram";
+
+// eslint-disable-next-line no-eval
+const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
+const TelegramClient = _tg.TelegramClient;
+const StringSession = _tg.sessions.StringSession;
 
 // ── 중요도 분류 ───────────────────────────────────────────────────────────────
 
@@ -152,9 +157,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "텔레그램 설정 필요 (TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION)" }, { status: 503 });
   }
 
-  const client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, { connectionRetries: 2 });
-
+  let client: TelegramClient | null = null;
   try {
+    client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, { connectionRetries: 2 });
     await client.connect();
 
     const found = await searchChannels(client, keyword, keyword2);
@@ -191,6 +196,6 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: `텔레그램 연결 오류: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
   } finally {
-    await client.disconnect();
+    await client?.disconnect();
   }
 }

@@ -11,10 +11,12 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")
 
 
 def recent_trading_date():
-    """최근 영업일 (주말 건너뜀)"""
-    d = datetime.today()
-    # 오전 9시 이전이면 전날 사용
-    if d.hour < 9:
+    """최근 영업일 (주말 건너뜀, 장 마감 16:00 KST 이전이면 전일 사용)"""
+    # UTC+9 = KST
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    d = kst_now
+    # pykrx 당일 데이터는 장 마감(16:00) 후에 확정되므로 그 전이면 전일 사용
+    if d.hour < 16:
         d -= timedelta(days=1)
     while d.weekday() >= 5:  # 토=5, 일=6
         d -= timedelta(days=1)

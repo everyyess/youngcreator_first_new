@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Activity, BarChart2, Bell, BookOpen, FolderOpen, GitBranch, RefreshCcw, TrendingUp } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
@@ -38,11 +38,14 @@ const TAB2_SUBTAB_KEY = "tab2-active-subtab";
 const VALID_TABS: InnerTab[] = ["holding", "risk", "fundamental", "technical", "supply", "options", "dart", "rebalancing"];
 
 export default function Tab2Page() {
-  const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>(() => {
-    if (typeof window === "undefined") return "holding";
-    const stored = window.localStorage.getItem(TAB2_SUBTAB_KEY);
-    return (VALID_TABS as string[]).includes(stored ?? "") ? (stored as InnerTab) : "holding";
-  });
+  const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
+
+  useEffect(() => {
+    const stored = localStorage.getItem(TAB2_SUBTAB_KEY);
+    if ((VALID_TABS as string[]).includes(stored ?? "")) {
+      setActiveInnerTab(stored as InnerTab);
+    }
+  }, []);
   const data = usePortfolioResult();
 
   const selectInnerTab = (tab: InnerTab) => {

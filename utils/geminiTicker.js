@@ -79,6 +79,7 @@ const SYSTEM_INSTRUCTION =
   '삼성바이오로직스 → {"isListed":true,"krCode":"207940","market":"KOSPI","englishName":"Samsung Biologics","koreanName":"삼성바이오로직스"}\n' +
   '알테오젠 → {"isListed":true,"krCode":"196170","market":"KOSDAQ","englishName":"Alteogen","koreanName":"알테오젠"}\n' +
   '에코프로비엠 → {"isListed":true,"krCode":"247540","market":"KOSDAQ","englishName":"EcoPro BM","koreanName":"에코프로비엠"}\n' +
+  'HLB → {"isListed":true,"krCode":"028300","market":"KOSDAQ","englishName":"HLB Inc.","koreanName":"HLB"}\n' +
   'HLB이노베이션 → {"isListed":true,"krCode":"067830","market":"KOSDAQ","englishName":"HLB Innovation","koreanName":"HLB이노베이션"}\n' +
   'KODEX 200 → {"isListed":true,"krCode":"069500","market":"KOSPI","englishName":"KODEX 200 ETF","koreanName":"KODEX 200"}\n' +
   'TIGER 미국나스닥100 → {"isListed":true,"krCode":"133690","market":"KOSPI","englishName":"TIGER US Nasdaq 100 ETF","koreanName":"TIGER 미국나스닥100"}\n' +

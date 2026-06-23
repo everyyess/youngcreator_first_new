@@ -228,12 +228,13 @@ export function usePortfolioResult(): PortfolioAnalysisResult | null {
 // ─── Layout Primitives ───────────────────────────────────────────────────────
 
 export function ResultCard({
-  icon, title, accent, children,
+  icon, title, accent, children, headerRight,
 }: {
   icon?: React.ReactNode;
   title: string;
   accent: "blue" | "green" | "gold" | "red" | "orange" | "slate";
   children: React.ReactNode;
+  headerRight?: React.ReactNode;
 }) {
   const accentMap = {
     blue: "text-samsung bg-blue-50",
@@ -245,13 +246,14 @@ export function ResultCard({
   };
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft flex flex-col h-full">
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex items-center gap-3 flex-wrap">
         {icon && (
           <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${accentMap[accent]}`}>
             {icon}
           </div>
         )}
         <h3 className="text-base font-bold text-navy">{title}</h3>
+        {headerRight && <div className="ml-auto">{headerRight}</div>}
       </div>
       <div className="flex-1 flex flex-col">
         {children}
@@ -845,58 +847,42 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
                      return { bg: "bg-emerald-500", text: "text-white font-bold" };
   }
   return (
-    <div className="flex items-stretch h-full gap-4">
-      <div className="overflow-hidden rounded-xl flex-1">
-        <table className="border-collapse w-full table-fixed h-full">
-          <thead>
-            <tr>
-              {/* 좌상단 빈 셀 */}
-              <th className={`bg-slate-200 ${headerPad} border border-slate-300`} style={{ width: isCompact ? "4rem" : "5rem" }} />
-              {labels.map((l, i) => (
-                <th
-                  key={i}
-                  className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
-                >
-                  {l || '자산'}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.map((row, ri) => (
-              <tr key={ri}>
-                <td
-                  className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
-                >
-                  {labels[ri] || '자산'}
-                </td>
-                {row.map((val, ci) => {
-                  const { bg, text } = cellStyles(val);
-                  return (
-                    <td key={ci} className={`${cellPad} text-center align-middle select-none border border-white/40 ${bg} ${text} ${valueFont}`}>
-                      {val.toFixed(2)}
-                    </td>
-                  );
-                })}
-              </tr>
+    <div className="overflow-hidden rounded-xl w-full">
+      <table className="border-collapse w-full table-fixed">
+        <thead>
+          <tr>
+            {/* 좌상단 빈 셀 */}
+            <th className={`bg-slate-200 ${headerPad} border border-slate-300`} style={{ width: isCompact ? "4rem" : "5rem" }} />
+            {labels.map((l, i) => (
+              <th
+                key={i}
+                className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
+              >
+                {l || '자산'}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex flex-col gap-2 text-xs font-semibold shrink-0 pt-1">
-        {[
-          { color: "bg-red-500",     label: "0.7 이상", sub: "고상관 (리스크 쏠림)" },
-          { color: "bg-orange-400",  label: "0.3 ~ 0.7", sub: "중상관 (동조화 주의)" },
-          { color: "bg-slate-100 border border-slate-300", label: "-0.3 ~ 0.3", sub: "저상관 (일반적)" },
-          { color: "bg-emerald-500", label: "−0.3 미만", sub: "역상관 (최우수 헷지)" },
-        ].map(({ color, label, sub }) => (
-          <span key={label} className="flex items-center gap-1.5">
-            <span className={`h-3.5 w-3.5 rounded-lg shrink-0 ${color}`} />
-            <span className="text-slate-700 font-bold">{label}</span>
-            <span className="text-slate-500 font-normal">{sub}</span>
-          </span>
-        ))}
-      </div>
+          </tr>
+        </thead>
+        <tbody>
+          {matrix.map((row, ri) => (
+            <tr key={ri}>
+              <td
+                className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
+              >
+                {labels[ri] || '자산'}
+              </td>
+              {row.map((val, ci) => {
+                const { bg, text } = cellStyles(val);
+                return (
+                  <td key={ci} className={`${cellPad} text-center align-middle select-none border border-white/40 ${bg} ${text} ${valueFont}`}>
+                    {val.toFixed(2)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -1344,13 +1330,33 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
         <InteractiveDonutWithTable assets={enrichedAssets} />
       </ResultCard>
 
-      <ResultCard icon={<Activity size={18} />} title="자산 간 상관관계 히트맵" accent="slate">
-          {quantResult?.risk?.correlationHeatmap?.matrix?.length ? (
-            <CorrelationHeatmap matrix={quantResult.risk.correlationHeatmap.matrix} labels={quantResult.risk.correlationHeatmap.labels} />
-          ) : (
-            <p className="text-sm text-slate-400">자산이 2개 이상일 때 표시됩니다.</p>
-          )}
-        </ResultCard>
+      <ResultCard
+        icon={<Activity size={18} />}
+        title="자산 간 상관관계 히트맵"
+        accent="slate"
+        headerRight={
+          <div className="flex items-center gap-3 flex-wrap text-xs font-semibold">
+            {[
+              { color: "bg-red-500",     label: "0.7 이상", sub: "고상관 (리스크 쏠림)" },
+              { color: "bg-orange-400",  label: "0.3 ~ 0.7", sub: "중상관 (동조화 주의)" },
+              { color: "bg-slate-100 border border-slate-300", label: "-0.3 ~ 0.3", sub: "저상관 (일반적)" },
+              { color: "bg-emerald-500", label: "−0.3 미만", sub: "역상관 (최우수 헷지)" },
+            ].map(({ color, label, sub }) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className={`h-3 w-3 rounded shrink-0 ${color}`} />
+                <span className="text-slate-700 font-bold">{label}</span>
+                <span className="text-slate-500 font-normal">{sub}</span>
+              </span>
+            ))}
+          </div>
+        }
+      >
+        {quantResult?.risk?.correlationHeatmap?.matrix?.length ? (
+          <CorrelationHeatmap matrix={quantResult.risk.correlationHeatmap.matrix} labels={quantResult.risk.correlationHeatmap.labels} />
+        ) : (
+          <p className="text-sm text-slate-400">자산이 2개 이상일 때 표시됩니다.</p>
+        )}
+      </ResultCard>
 
       {quantResult && (
         <div className="grid gap-5">

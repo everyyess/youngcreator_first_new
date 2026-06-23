@@ -1,7 +1,12 @@
+export const runtime = "nodejs";
+
 import { NextResponse } from "next/server";
-import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
-import type { Api } from "telegram";
+import type { Api, TelegramClient as TC, StringSession as SS } from "telegram";
+
+// eslint-disable-next-line no-eval
+const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
+const TelegramClient = _tg.TelegramClient;
+const StringSession = _tg.sessions.StringSession;
 
 export async function GET() {
   const apiId      = parseInt(process.env.TELEGRAM_API_ID   ?? "", 10);
