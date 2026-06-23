@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import type { Api, TelegramClient as TC } from "telegram";
@@ -56,7 +57,6 @@ function fmtDate(d: Date): string {
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
 type FoundMsg = { date: Date; text: string; id: number; channelTitle: string; cleanId: string };
-type GeminiResp = { candidates?: Array<{ content: { parts: Array<{ text: string }> } }> };
 
 export interface TelegramMessage {
   channel: string;
@@ -75,7 +75,35 @@ export interface TelegramSearchResponse {
   error?: string;
 }
 
-// ── 연결된 계정의 전체 채널 목록 가져오기 ────────────────────────────────────
+// ── 검색 제외 채널 ID 목록 ────────────────────────────────────────────────────
+
+const EXCLUDED_CHANNEL_IDS = new Set([
+  "1250083224", // 🌸Crypto Judy🐰🌸
+  "3846361765", // 64비트사령부⚡️
+  "1595235468", // 낭만투자파트너스
+  "1265215458", // 부동산 급등일보🏠
+  "1612411061", // 선수촌
+  "1918977910", // 시미의 생각 아카이브
+  "1514595150", // 엄브렐라리서치 Jay의 주식투자교실
+  "2821525183", // 여유_Research
+  "3885506984", // 여유_Summary
+  "2249953555", // 요약하는 고잉
+  "2322948689", // 우산 X NNN의 아이디어
+  "1446671164", // 코인 갤러리(Coin gallery)
+  "2318888530", // 투자 생각 한 스푼
+  "1506613982", // 특파원 김씨 (5분 딜레이)
+  "2388573708", // BI (Be Independent)
+  "1656364050", // Brain and Body Research
+  "1308754120", // BZCF | 비즈까페
+  "2508155064", // fed rate cuts
+  "1945407885", // KB증권 이지은의 인터넷/게임
+  "2098793993", // KK Kontemporaries
+  "1768167577", // Macro Jungle | micro lens
+  "2283860878", // SHY_Research
+  "1863728198", // Stock Trip
+]);
+
+// ── 채널 목록 조회 ────────────────────────────────────────────────────────────
 
 async function getChannelDialogs(
   client: TC,
@@ -86,18 +114,18 @@ async function getChannelDialogs(
     const e = dialog.entity;
     if (!e || (e as { className?: string }).className !== "Channel") continue;
     const ch = e as Api.Channel;
-    channels.push({
-      entity: ch,
-      title: ch.title || String(ch.id),
-      cleanId: String(ch.id),
-    });
+    const cleanId = String(ch.id);
+    if (EXCLUDED_CHANNEL_IDS.has(cleanId)) continue;
+    channels.push({ entity: ch, title: ch.title || cleanId, cleanId });
   }
   return channels;
 }
 
-// ── 채널 검색 헬퍼 (병렬 배치 처리) ─────────────────────────────────────────
+// ── 채널 검색 (대형 배치 병렬 처리) ──────────────────────────────────────────
+// BATCH_SIZE를 크게 늘려 순차 배치 횟수를 줄임 → 전체 검색 시간 단축
+// 44채널 / 20 = 3배치 × ~2s ≈ 6s (Vercel Hobby 10s 내 완료 가능)
 
-const BATCH_SIZE = 5;
+const BATCH_SIZE = 20;
 
 async function searchChannels(
   client: TC,
@@ -124,7 +152,6 @@ async function searchChannels(
             for (const msg of msgList) {
               const m = msg as unknown as Api.Message;
               if (!m.message || !m.date) continue;
-              // 링크 제거 후 50자 미만이면 스킵 (짧은 글·링크 전용 글 제외)
               const textOnly = m.message.replace(/https?\S+/g, "").trim();
               if (textOnly.length < 50) continue;
               msgs.push({ date: new Date(m.date * 1000), text: m.message, id: m.id, channelTitle: title, cleanId });
@@ -158,14 +185,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "텔레그램 설정 필요 (TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION)" }, { status: 503 });
   }
 
+  // maxDuration(60s)보다 5초 일찍 중단 → Vercel HTML 504 대신 JSON 오류 반환
+  const INTERNAL_TIMEOUT_MS = 55_000;
+
   let client: TC | null = null;
   try {
     client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, { connectionRetries: 2 });
     await client.connect();
 
-    const found = await searchChannels(client, keyword, keyword2);
+    const found = await Promise.race([
+      searchChannels(client, keyword, keyword2),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("검색 시간 초과. 잠시 후 다시 시도해주세요.")),
+          INTERNAL_TIMEOUT_MS,
+        )
+      ),
+    ]);
 
-    // 최신순 정렬 + 중복 제거 + 상위 10개
     found.sort((a, b) => b.date.getTime() - a.date.getTime());
     const unique: FoundMsg[] = [];
     for (const m of found) {
@@ -173,7 +210,6 @@ export async function GET(req: NextRequest) {
       if (unique.length === 10) break;
     }
 
-    // Gemini 요약은 클라이언트가 /api/telegram-summarize 로 별도 호출 (긴 Telegram 검색과 분리)
     const now = new Date();
     const p = (n: number) => String(n).padStart(2,"0");
     const collectedAt = `${now.getUTCFullYear()}-${p(now.getUTCMonth()+1)}-${p(now.getUTCDate())} ${p(now.getUTCHours())}:${p(now.getUTCMinutes())} UTC`;
@@ -187,7 +223,7 @@ export async function GET(req: NextRequest) {
         date: fmtDate(m.date),
         importance: classifyImportance(m.text),
         text: m.text,
-        summary: "",  // 클라이언트가 수신 후 즉시 /api/telegram-summarize 호출
+        summary: "",
         link: `https://t.me/c/${m.cleanId}/${m.id}`,
       })),
       ...(unique.length === 0 ? { summary: `'${keyword}' 관련 메시지가 없습니다.` } : {}),

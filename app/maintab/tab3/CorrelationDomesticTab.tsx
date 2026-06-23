@@ -248,17 +248,6 @@ export default function CorrelationDomesticTab({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleApply}
-          className="ml-auto flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold bg-blue-600 text-white rounded-md hover:bg-blue-700 active:scale-95 transition"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          분석 실행
-        </button>
-
         <span className="text-xs text-slate-400">
           국내 KODEX ETF 30종목 · 30×30 상관행렬 · 섹터 다양성 제약
         </span>

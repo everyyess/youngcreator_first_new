@@ -1,32 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 
 const KIS_BASE = "https://openapi.koreainvestment.com:9443";
 
-// ── Token cache ────────────────────────────────────────────────────────────
+// ── Token cache (Vercel Data Cache로 인스턴스 간 공유) ─────────────────────
+// 로컬: 인-메모리 캐시로도 충분하지만 Vercel 서버리스는 인스턴스마다 메모리가 분리됨.
+// unstable_cache는 Vercel Data Cache(분산)에 저장되어 모든 인스턴스가 동일 토큰을 사용.
+// KIS는 앱키당 토큰 1개만 유효 → 인스턴스마다 새 토큰을 발급하면 이전 토큰이 무효화됨.
 
-let tokenCache: { token: string; expiresAt: number } | null = null;
+const _fetchToken = unstable_cache(
+  async (): Promise<string> => {
+    const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "client_credentials",
+        appkey: process.env.KIS_APP_KEY,
+        appsecret: process.env.KIS_APP_SECRET,
+      }),
+    });
+    const data = await res.json();
+    if (!data.access_token) {
+      throw new Error(`KIS 토큰 발급 실패: ${JSON.stringify(data).slice(0, 200)}`);
+    }
+    return data.access_token as string;
+  },
+  ["kis-access-token"],
+  { revalidate: 82800 },  // 23시간 — KIS 토큰 유효기간 24시간보다 1시간 여유
+);
 
 async function getToken(): Promise<string> {
-  if (tokenCache && tokenCache.expiresAt > Date.now()) return tokenCache.token;
-  const res = await fetch(`${KIS_BASE}/oauth2/tokenP`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "client_credentials",
-      appkey: process.env.KIS_APP_KEY,
-      appsecret: process.env.KIS_APP_SECRET,
-    }),
-    cache: "no-store",
-  });
-  const data = await res.json();
-  if (!data.access_token) {
-    throw new Error(`KIS 토큰 발급 실패: ${JSON.stringify(data).slice(0, 200)}`);
-  }
-  tokenCache = {
-    token: data.access_token,
-    expiresAt: Date.now() + ((data.expires_in ?? 86400) - 300) * 1000,
-  };
-  return tokenCache.token;
+  return _fetchToken();
 }
 
 // ── Data cache ─────────────────────────────────────────────────────────────
