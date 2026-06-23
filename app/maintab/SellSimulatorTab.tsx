@@ -140,11 +140,19 @@ export default function SellSimulatorTab() {
     [baseAssets, selectedKey],
   );
 
-  // 상단 카드 그리드 렌더링용 — productType 기준 오름차순 정렬 (원본 baseAssets 불변)
-  const sortedCards = useMemo(
-    () => [...baseAssets].sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? "")),
-    [baseAssets],
-  );
+  // 상단 카드 그리드 렌더링용 — 국내(파란) → 해외(에메랄드) → 기타 순 시장 속성 그룹 정렬
+  const sortedCards = useMemo(() => {
+    const marketGroup = (x: PortfolioAsset): number => {
+      const k = (x.productType ?? x.asset_class ?? "").trim();
+      if (k.startsWith("국내")) return 0;
+      if (k.startsWith("해외")) return 1;
+      return 2;
+    };
+    return [...baseAssets].sort((a, b) => {
+      const d = marketGroup(a) - marketGroup(b);
+      return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
+    });
+  }, [baseAssets]);
 
   const maxQty = selectedAsset?.amount_type === "quantity" ? (selectedAsset.amount ?? 0) : 0;
 

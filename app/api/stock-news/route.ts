@@ -5,6 +5,8 @@
  * 반환: { items: [{ title, preview, url }] }  최대 3건
  */
 
+import newsQueryMaster from './news-query-master.json';
+
 export const runtime = 'nodejs';
 
 export interface StockNewsItem {
@@ -54,8 +56,10 @@ function resolveNaverUrl(href: string): string {
 // 네이버 모바일 뉴스 API 파싱 공통 헬퍼
 async function fetchNaverMobileNews(code: string, category: string): Promise<StockNewsItem[]> {
   try {
+    // code가 빈 문자열이면 symbol 파라미터 자체를 제외 — 빈 symbol로 API 오류 방지
+    const symbolParam = code ? `&symbol=${encodeURIComponent(code)}` : '';
     const res = await withTimeout(
-      `https://m.stock.naver.com/api/news/list?category=${category}&symbol=${code}&page=0&pageSize=3`,
+      `https://m.stock.naver.com/api/news/list?category=${category}${symbolParam}&page=0&pageSize=3`,
       {
         headers: {
           'User-Agent': UA,
@@ -257,7 +261,8 @@ async function fetchNaverKeywordNews(keyword: string): Promise<StockNewsItem[]> 
 
   // ── 2티어: 네이버 금융 뉴스 검색 (EUC-KR 디코딩, 봇 차단 우회 대안) ────────────
   try {
-    const url2 = `https://finance.naver.com/news/news_search.naver?q=${encodeURIComponent(keyword)}`;
+    // ie=utf8: 네이버 금융 서버에 UTF-8 입력임을 명시 — 한글 쿼리 깨짐 방지
+    const url2 = `https://finance.naver.com/news/news_search.naver?q=${encodeURIComponent(keyword)}&ie=utf8`;
     const res2 = await withTimeout(url2, {
       headers: {
         'User-Agent': UA,
@@ -344,6 +349,12 @@ export async function GET(request: Request): Promise<Response> {
   const keyword = (searchParams.get('keyword') ?? '').trim(); // 섹터/테마 키워드 (선택)
   if (!ticker) return Response.json({ items: [] });
 
+  // ── 마스터 키워드 우선순위 가드 ────────────────────────────────────────────
+  // 1순위: 마스터 데이터셋 등재 자산 → 정제된 검색어로 교체
+  // 2순위: 미등재 자산 → 파라미터로 전달된 keyword 그대로 폴백
+  const masterKeyword = (newsQueryMaster as Record<string, string>)[ticker];
+  const effectiveKeyword = masterKeyword ?? keyword;
+
   const isKr = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
   let items: StockNewsItem[];
 
@@ -358,12 +369,12 @@ export async function GET(request: Request): Promise<Response> {
     items = [];
   }
 
-  // 테마 레벨 뉴스 폴백: 티커 기반 결과 없고 keyword 제공 시 섹터 뉴스로 보완
-  if (items.length === 0 && keyword) {
+  // 테마 레벨 뉴스 폴백: 티커 기반 결과 없고 effectiveKeyword 존재 시 키워드 뉴스로 보완
+  if (items.length === 0 && effectiveKeyword) {
     try {
       items = isKr
-        ? await fetchNaverKeywordNews(keyword)
-        : await fetchYahooKeywordNews(keyword);
+        ? await fetchNaverKeywordNews(effectiveKeyword)
+        : await fetchYahooKeywordNews(effectiveKeyword);
     } catch {
       // 폴백 실패 — 아래 플레이스홀더로 처리
     }

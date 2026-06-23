@@ -1,3 +1,5 @@
+import tickerCompaniesMaster from './ticker-companies-master.json';
+
 /**
  * /api/related-companies  GET ?keyword=X&count=N&market=kr|en&etfName=Y
  *
@@ -268,13 +270,15 @@ async function getYahooCrumb(): Promise<YahooCrumb | null> {
 }
 
 // ── Yahoo Finance 지표 조회 — crumb 인증 + v8 chart 폴백 ─────────────────────
-// 1단계: crumb 인증 v7 배치 (marketCap + volume)
+// 1단계: crumb 인증 v7 배치 (marketCap + volume + sector)
 // 2단계: crumb 만료 or 실패 시 v8/chart 개별 병렬 (volume 전용)
+interface QuoteMetrics { marketCap: number; volume: number; sector?: string; }
+
 async function fetchYahooQuoteMetrics(
   symbols: string[],
-): Promise<Map<string, { marketCap: number; volume: number }>> {
+): Promise<Map<string, QuoteMetrics>> {
   if (symbols.length === 0) return new Map();
-  const metricsMap = new Map<string, { marketCap: number; volume: number }>();
+  const metricsMap = new Map<string, QuoteMetrics>();
 
   // 1단계: crumb 기반 v7 배치 — marketCap + volume 모두 수집
   const crumbInfo = await getYahooCrumb();
@@ -304,6 +308,7 @@ async function fetchYahooQuoteMetrics(
           metricsMap.set(sym, {
             marketCap: extractRawValue(r.marketCap),
             volume:    extractRawValue(r.regularMarketVolume),
+            sector:    typeof r.sector === 'string' && r.sector.trim() ? r.sector.trim() : undefined,
           });
         }
         if (metricsMap.size > 0) break;
@@ -345,6 +350,83 @@ async function fetchYahooQuoteMetrics(
 
   return metricsMap;
 }
+
+// ── Guard 2: 테마/산업 일치 필터 엔진 ─────────────────────────────────────────
+// 개별 종목 하드코딩 금지 — 오직 Yahoo Finance 표준 sector 속성 기반으로 동작한다.
+//
+// THEME_SECTOR_ALLOW: keyword·etfName·etfFullName 합산 문자열에 패턴 매칭 →
+//   해당 테마 도메인에서 유의미한 Yahoo Finance sector 집합을 반환.
+//   매칭 패턴이 없으면 null 반환 → 필터 건너뜀 (보수적 fail-open).
+//
+// filterBySectorRelevance: 허용 섹터 집합에 없는 종목을 동적으로 드롭.
+//   sector 데이터가 비어 있는 종목은 보수적으로 통과 (false negative 방지).
+const THEME_SECTOR_ALLOW: Array<{ pattern: RegExp; sectors: string[] }> = [
+  { pattern: /방산|방위|항공우주|조선|shipbuild|defense|aerospace/i,
+    sectors: ['Industrials', 'Basic Materials'] },
+  { pattern: /반도체|semiconductor|chip/i,
+    sectors: ['Technology'] },
+  { pattern: /2차전지|배터리|battery|리튬|lithium|전기차|\bev\b/i,
+    sectors: ['Technology', 'Industrials', 'Basic Materials', 'Consumer Cyclical'] },
+  { pattern: /바이오|biotech|제약|pharma|생명공학/i,
+    sectors: ['Healthcare'] },
+  { pattern: /자동차|automotive|vehicle|모빌리티|mobility/i,
+    sectors: ['Consumer Cyclical', 'Industrials'] },
+  { pattern: /원전|원자력|nuclear|우라늄|uranium/i,
+    sectors: ['Utilities', 'Energy', 'Industrials'] },
+  { pattern: /로봇|robot|자동화|automation/i,
+    sectors: ['Industrials', 'Technology'] },
+  { pattern: /금융|fintech|bank|보험|insurance|증권|securities/i,
+    sectors: ['Financial Services'] },
+  { pattern: /헬스케어|healthcare|의료|hospital|medical/i,
+    sectors: ['Healthcare'] },
+  { pattern: /에너지|energy|석유|oil|가스|gas|태양광|solar|풍력|wind|신재생/i,
+    sectors: ['Energy', 'Utilities'] },
+  { pattern: /전력|power.grid|power.infra/i,
+    sectors: ['Utilities', 'Industrials'] },
+  { pattern: /건설|construction|인프라|infrastructure/i,
+    sectors: ['Industrials', 'Real Estate'] },
+  { pattern: /\bAI\b|인공지능|artificial.intelligence|클라우드|cloud/i,
+    sectors: ['Technology'] },
+  { pattern: /게임|gaming|엔터테인먼트|entertainment|미디어|media/i,
+    sectors: ['Communication Services', 'Technology'] },
+  { pattern: /부동산|리츠|REIT|real.estate/i,
+    sectors: ['Real Estate'] },
+  { pattern: /소재|화학|chemical|철강|steel|금속|metal/i,
+    sectors: ['Basic Materials', 'Industrials'] },
+  { pattern: /귀금속|gold|silver|mining|precious/i,
+    sectors: ['Basic Materials'] },
+  { pattern: /agriculture|fertilizer|농산물|곡물/i,
+    sectors: ['Basic Materials', 'Consumer Staples'] },
+  { pattern: /cryptocurrency|crypto|blockchain|bitcoin/i,
+    sectors: ['Financial Services', 'Technology'] },
+];
+
+// keyword + etfName + etfFullName 합산 문자열 → 허용 섹터 Set 도출
+// 반환 null = 매칭 패턴 없음 → 호출부에서 필터 건너뜀
+function resolveSectorAllow(keyword: string, etfName: string, etfFullName: string): Set<string> | null {
+  const combined = `${keyword} ${etfName} ${etfFullName}`;
+  const allowed = new Set<string>();
+  for (const { pattern, sectors } of THEME_SECTOR_ALLOW) {
+    if (pattern.test(combined)) sectors.forEach((s) => allowed.add(s.toLowerCase()));
+  }
+  return allowed.size > 0 ? allowed : null;
+}
+
+// Fail-Closed 섹터 가드: allowedSectors가 확정된 상황에서
+// sector 데이터 누락(undefined) 또는 허용 집합 미포함 종목은 모두 탈락
+function filterBySectorRelevance(
+  companies: RelatedCompanyItem[],
+  metricsMap: Map<string, QuoteMetrics>,
+  allowedSectors: Set<string>,
+): RelatedCompanyItem[] {
+  return companies.filter((c) => {
+    const sector = metricsMap.get(c.symbol)?.sector;
+    if (!sector) return false;
+    return allowedSectors.has(sector.toLowerCase());
+  });
+}
+
+interface ThemeCompanyEntry { ticker: string; name: string; }
 
 function parseEquityQuotes(
   quotes: Record<string, unknown>[],
@@ -515,18 +597,19 @@ async function getHandler(request: Request): Promise<Response> {
   const keyword = url.searchParams.get('keyword');
   const count = Math.min(parseInt(url.searchParams.get('count') ?? '10', 10) || 10, 10);
   const market = (url.searchParams.get('market') ?? 'en') as 'kr' | 'en';
-  // ETF 공식명 (선택) — 영문 토큰 추출 보조 소스
+  // 부모 ETF 티커 (P0 결정론적 매핑의 기본 키)
+  const ticker = (url.searchParams.get('ticker') ?? '').trim();
+  // ETF 공식명 (선택) — 외부 API 폴백 경로 토큰 추출 보조
   const etfName = (url.searchParams.get('etfName') ?? '').trim();
-  // ETF 영문 풀네임 (선택) — 원유 관련 ETF 감지 및 쿼리 정밀 타겟팅 소스
   const etfFullName = (url.searchParams.get('etfFullName') ?? '').trim();
-  // 최우선 쿼리 (예: "정유") — subQuery가 있으면 기존 keyword보다 먼저 매칭 시도
   const subQuery = (url.searchParams.get('subQuery') ?? '').trim();
 
-  if (!keyword || keyword.trim() === '') {
+  // ticker도 keyword도 없으면 즉시 빈 배열 반환
+  if (!ticker && (!keyword || !keyword.trim())) {
     return Response.json({ companies: [] });
   }
 
-  const kw = keyword.trim();
+  const kw = (keyword ?? '').trim();
 
   const buildYahooUrl = (q: string) =>
     `https://query1.finance.yahoo.com/v1/finance/search` +
@@ -545,83 +628,78 @@ async function getHandler(request: Request): Promise<Response> {
   };
 
   let companies: RelatedCompanyItem[] = [];
+  let fromDataset = false;
 
-  if (market === 'kr') {
-    // ── 0단계(최우선): subQuery 직접 테마 매칭 (예: "정유" 우선 타겟팅) ─────
-    // 시장 격리 가드 적용: 코스닥 부모라면 .KS 종목 전량 배제
-    if (subQuery) {
-      companies = applyKrFilter(await fetchNaverThemeStocks(subQuery, count), etfFullName);
+  // ── P0: 티커 기반 마스터 데이터셋 직접 매핑 (결정론적) ─────────────────────
+  // 부모 ETF 티커를 Key로 ticker-companies-master.json에서 관련주를 즉시 반환.
+  // 문자열 부분매칭·정규식 가드 없이 O(1) 조회 — 외부 API 호출 없음.
+  if (ticker) {
+    const hits = (tickerCompaniesMaster as Record<string, ThemeCompanyEntry[]>)[ticker];
+    if (hits && hits.length > 0) {
+      companies = hits.slice(0, count).map((c) => ({
+        symbol: c.ticker,
+        name: c.name,
+        exchDisp: c.ticker.endsWith('.KS') || c.ticker.endsWith('.KQ') ? 'Korea' : 'US',
+        marketCap: 0,
+        volume: 0,
+      }));
+      fromDataset = true;
     }
+  }
 
-    // ── 국내 3단계 동적 구출 체인 ──────────────────────────────────────────
-    // 1단계: Yahoo Finance EQUITY → 시장 격리 가드 (KOSDAQ/코스피 분리)
-    if (companies.length === 0) {
-      companies = applyKrFilter(await fetchEquity(kw), etfFullName);
-    }
+  // ── 폴백: 티커 미매칭 시 외부 API 체인 ─────────────────────────────────────
+  if (!fromDataset) {
+    if (!kw) return Response.json({ companies: [] });
 
-    // 2단계: 야후 결과 없으면 네이버 파이낸스 테마 검색 (EUC-KR 디코딩)
-    // 시장 격리 가드 적용: 네이버는 6자리 코드를 .KS로 통일하므로
-    // 코스닥 부모 ETF에 대해 .KS 결과를 여기서 완전히 배제한다
-    if (companies.length === 0) {
-      companies = applyKrFilter(await fetchNaverThemeStocks(kw, count), etfFullName);
-    }
-
-    // 3단계: 그래도 없으면 현지화 Fallback 키워드('금융')로 네이버 테마 재검색
-    if (companies.length === 0) {
-      const fallbackKw = getKrEquityFallbackKeyword(kw) ?? '금융';
-      companies = applyKrFilter(await fetchNaverThemeStocks(fallbackKw, count), etfFullName);
-    }
-  } else {
-    // ── [market=en] 글로벌 전용 파이프라인 ──────────────────────────────────
-    // applyKrFilter / resolveKrSuffix / fetchNaverThemeStocks 는 여기서 절대 호출하지 않는다.
-    // 한국 주식 접미사 검사(.KS/.KQ) 및 국내 시장 격리 가드는 market=kr 전용이며
-    // 이 블록에서는 전량 배제된다. 글로벌 EQUITY만 반환한다.
-
-    // etfFullName에서 원유 핵심 명사('Oil', 'Crude', 'Petroleum') 포착 시 정밀 타겟팅 활성화
-    const oilMatch = etfFullName ? /\b(oil|crude|petroleum)\b/i.test(etfFullName) : false;
-
-    // 한글 키워드 감지 시 영문 섹터 대표어로 변환 — 비ASCII 소거 문제 원천 차단
-    const translatedKw = /[가-힣]/.test(kw) ? translateKrToEn(kw) : kw;
-
-    // ── 0단계(최우선): subQuery 직접 Yahoo 매칭 ────────────────────────────
-    if (subQuery) {
-      companies = await fetchEquity(subQuery);
-    }
-
-    // ── 글로벌 3티어 하이브리드 검색 폴백 체인 ─────────────────────────────
-    // 1티어: 정밀 쿼리 — oil 감지 시 'Crude Oil Major', 아니면 번역된 카테고리 키워드
-    if (companies.length === 0) {
-      companies = await fetchEquity(oilMatch ? 'Crude Oil Major' : translatedKw);
-    }
-
-    // 2티어: 1티어가 정밀 쿼리로 0건일 때 → 원래 광범위 카테고리 키워드로 재검색
-    if (companies.length === 0 && oilMatch) {
-      companies = await fetchEquity(translatedKw);
-    }
-
-    // 3티어: 핵심 명사 토큰 순차 재검색 → 모든 티어 실패 시에도 빈 배열로 안전 반환
-    // oil 감지: ['oil', 'petroleum'] 고정 토큰 / 비oil: translatedKw·etfName·etfFullName 동적 추출
-    if (companies.length === 0) {
-      const baseTokens = oilMatch
-        ? ['oil', 'petroleum']
-        : extractEnNounTokens(translatedKw);
-      const etfTokens    = etfName     ? extractEnNounTokens(etfName)     : [];
-      const etfFnTokens  = (etfFullName && !oilMatch) ? extractEnNounTokens(etfFullName) : [];
-      const seen = new Set<string>();
-      const tokens: string[] = [];
-      for (const t of [...baseTokens, ...etfTokens, ...etfFnTokens]) {
-        if (!seen.has(t)) { seen.add(t); tokens.push(t); }
+    if (market === 'kr') {
+      // 0단계: subQuery 직접 테마 매칭
+      if (subQuery) {
+        companies = applyKrFilter(await fetchNaverThemeStocks(subQuery, count), etfFullName);
       }
-      for (const token of tokens) {
-        companies = await fetchEquity(token);
-        if (companies.length > 0) break;
+      // 1단계: Yahoo Finance EQUITY → 시장 격리 가드
+      if (companies.length === 0) {
+        companies = applyKrFilter(await fetchEquity(kw), etfFullName);
+      }
+      // 2단계: 네이버 파이낸스 테마 검색 (EUC-KR 디코딩)
+      if (companies.length === 0) {
+        companies = applyKrFilter(await fetchNaverThemeStocks(kw, count), etfFullName);
+      }
+      // 3단계: 현지화 Fallback 키워드로 네이버 테마 재검색
+      if (companies.length === 0) {
+        const fallbackKw = getKrEquityFallbackKeyword(kw) ?? '금융';
+        companies = applyKrFilter(await fetchNaverThemeStocks(fallbackKw, count), etfFullName);
+      }
+    } else {
+      const oilMatch = etfFullName ? /\b(oil|crude|petroleum)\b/i.test(etfFullName) : false;
+      const translatedKw = /[가-힣]/.test(kw) ? translateKrToEn(kw) : kw;
+
+      if (subQuery) { companies = await fetchEquity(subQuery); }
+      if (companies.length === 0) {
+        companies = await fetchEquity(oilMatch ? 'Crude Oil Major' : translatedKw);
+      }
+      if (companies.length === 0 && oilMatch) {
+        companies = await fetchEquity(translatedKw);
+      }
+      if (companies.length === 0) {
+        const baseTokens = oilMatch ? ['oil', 'petroleum'] : extractEnNounTokens(translatedKw);
+        const etfTokens   = etfName     ? extractEnNounTokens(etfName)                      : [];
+        const etfFnTokens = (etfFullName && !oilMatch) ? extractEnNounTokens(etfFullName)   : [];
+        const seen = new Set<string>();
+        const tokens: string[] = [];
+        for (const t of [...baseTokens, ...etfTokens, ...etfFnTokens]) {
+          if (!seen.has(t)) { seen.add(t); tokens.push(t); }
+        }
+        for (const token of tokens) {
+          companies = await fetchEquity(token);
+          if (companies.length > 0) break;
+        }
       }
     }
   }
 
-  // ── Yahoo Finance v7/quote 배치 보강 ──────────────────────────────────────
+  // ── Yahoo Finance v7/quote 배치 보강 + Guard 2 섹터 필터 ──────────────────
   // /v1/finance/search 및 네이버 HTML 파싱은 marketCap·volume 미제공이 일반적.
-  // 확보된 심볼 목록으로 quote API를 추가 호출하여 실측 정량 데이터로 덮어쓴다.
+  // 확보된 심볼 목록으로 quote API를 추가 호출하여 실측 정량 데이터 + sector를 덮어쓴다.
   // 보강 실패(rate limit·타임아웃)는 try-catch로 흡수 — 기존 값 그대로 반환
   if (companies.length > 0) {
     try {
@@ -636,6 +714,13 @@ async function getHandler(request: Request): Promise<Response> {
             volume:    m.volume    > 0 ? m.volume    : c.volume,
           };
         });
+        // Guard 2: 외부 API 결과에만 섹터 필터 적용 — 데이터셋 직접 반환 시 생략
+        if (!fromDataset) {
+          const allowedSectors = resolveSectorAllow(kw, etfName, etfFullName);
+          if (allowedSectors) {
+            companies = filterBySectorRelevance(companies, metricsMap, allowedSectors);
+          }
+        }
       }
     } catch (err) {
       console.error('[related-companies] fetchYahooQuoteMetrics error (non-fatal):', err);

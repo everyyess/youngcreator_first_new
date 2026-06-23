@@ -11,6 +11,7 @@
  */
 
 import { resolveTickerWithGemini } from '@/utils/geminiTicker';
+import krAssetMaster from './kr-asset-master.json';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +35,19 @@ function inferMetaFromTicker(ticker) {
   if (t.endsWith('.HK') || t.endsWith('.SS') || t.endsWith('.SZ'))
     return { assetClass: '해외주식', productType: '주식형', country: '중국' };
   return { assetClass: '해외주식', productType: '주식형', country: '미국' };
+}
+
+// ── officialName 결정 — 마스터 데이터셋(Single Source of Truth) 우선 참조 ─────
+// 1순위: kr-asset-master.json에 티커가 존재하면 외부 API 응답값을 무시하고 공식 명칭 반환
+// 2순위: 미등재 티커(해외 자산 등)는 Yahoo chartMeta.shortName → longName 순 폴백
+function resolveOfficialName(ticker, chartMeta) {
+  const masterName = (krAssetMaster)[ticker];
+  if (masterName) return masterName;
+  if (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim())
+    return chartMeta.shortName.trim();
+  if (typeof chartMeta?.longName === 'string' && chartMeta.longName.trim())
+    return chartMeta.longName.trim();
+  return null;
 }
 
 // ── 공통 브라우저 헤더 ─────────────────────────────────────────────────────
@@ -572,10 +586,7 @@ export async function GET(request) {
     // 빈 시계열 → regularMarketPrice(현재가)는 chartMeta에 남아 있으므로 yahooJson 포함 반환
     if (closes.length === 0) {
       console.warn(`[proxy-finance] 빈 시계열 (${ticker}) — 현재가 포함 200 OK 반환`);
-      const partialName =
-        (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim()) ? chartMeta.shortName.trim()
-        : (typeof chartMeta?.longName  === 'string' && chartMeta.longName.trim())  ? chartMeta.longName.trim()
-        : null;
+      const partialName = resolveOfficialName(ticker, chartMeta);
       return Response.json({
         ...EMPTY_RESULT,
         officialName: partialName,
@@ -633,11 +644,8 @@ export async function GET(request) {
     const dividendYield              = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
     const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
 
-    // officialName: Yahoo meta.shortName → longName 순 폴백
-    const officialName =
-      (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim()) ? chartMeta.shortName.trim()
-      : (typeof chartMeta?.longName  === 'string' && chartMeta.longName.trim())  ? chartMeta.longName.trim()
-      : null;
+    // officialName: KR 티커 → 마스터 테이블 우선 → Yahoo meta.shortName → longName 순 폴백
+    const officialName = resolveOfficialName(ticker, chartMeta);
 
     return Response.json({ ticker, officialName, ...finalMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
 

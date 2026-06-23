@@ -37,6 +37,11 @@ import {
   NEW_PORTFOLIO_INCOME_STORAGE_KEY,
   type AssetForIncomeCalc,
 } from "./tab1/FinancialIncomeGauge";
+import {
+  CLASS_COLORS,
+  formatKrwAmount,
+  normalizeAssetClass,
+} from "./PortfolioResultComponents";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 
@@ -102,21 +107,31 @@ interface StockNewsItem {
 // 국내 관련주 → kr 키워드, 해외 관련주 → en 키워드로 동적 추출
 
 const THEME_KEYWORDS_MAP: Record<string, { en: string; kr: string }> = {
-  "자율주행":      { en: "Autonomous Driving",              kr: "자율주행차" },
-  "인프라":        { en: "Infrastructure Engineering",       kr: "건설대표주" },
-  "달러·외환":     { en: "Global Banking",                   kr: "은행"       },
-  "귀금속":        { en: "Gold Silver Mining",               kr: "비철금속"   },
-  "농산물원자재":  { en: "Agriculture Fertilizer",           kr: "사료"       },
-  "에너지원자재":  { en: "Oil Gas Exploration",              kr: "정유"       },
-  "채권(단기)":    { en: "Short Term Treasury",              kr: "은행"       },
-  "채권":          { en: "Fixed Income Asset",               kr: "증권"       },
-  "암호화폐":      { en: "Cryptocurrency Blockchain",        kr: "가상화폐"   },
-  "시장전체":      { en: "Mega Cap Stocks",                  kr: "지주사"     },
-  "2차전지·리튬":  { en: "Lithium Battery Electric Vehicle", kr: "2차전지"    },
-  "반도체":        { en: "Semiconductor Chip Manufacturer",  kr: "반도체"     },
-  "헬스케어":      { en: "Healthcare Biotech Pharma",        kr: "바이오"     },
-  "클린에너지":    { en: "Clean Energy Solar Wind",          kr: "태양광"     },
-  "부동산":        { en: "Real Estate REIT",                 kr: "리츠"       },
+  "자율주행":         { en: "Autonomous Driving",              kr: "자율주행차"   },
+  "인프라":           { en: "Infrastructure Engineering",       kr: "건설대표주"   },
+  "달러·외환":        { en: "Global Banking",                   kr: "은행"         },
+  "귀금속":           { en: "Gold Silver Mining",               kr: "비철금속"     },
+  "농산물원자재":     { en: "Agriculture Fertilizer",           kr: "사료"         },
+  "에너지원자재":     { en: "Oil Gas Exploration",              kr: "정유"         },
+  "채권(단기)":       { en: "Short Term Treasury",              kr: "은행"         },
+  "채권":             { en: "Fixed Income Asset",               kr: "증권"         },
+  "암호화폐":         { en: "Cryptocurrency Blockchain",        kr: "가상화폐"     },
+  "시장전체":         { en: "Mega Cap Stocks",                  kr: "지주사"       },
+  "2차전지·리튬":     { en: "Lithium Battery Electric Vehicle", kr: "2차전지"      },
+  "반도체":           { en: "Semiconductor Chip Manufacturer",  kr: "반도체"       },
+  "헬스케어":         { en: "Healthcare Biotech Pharma",        kr: "바이오"       },
+  "클린에너지":       { en: "Clean Energy Solar Wind",          kr: "태양광"       },
+  "부동산":           { en: "Real Estate REIT",                 kr: "리츠"         },
+  "AI·전력":          { en: "AI Power Infrastructure",          kr: "AI전력"       },
+  "AI·빅데이터":      { en: "Artificial Intelligence Big Data", kr: "반도체"       },
+  "청정에너지":       { en: "Clean Energy Solar Wind",          kr: "신재생에너지" },
+  "바이오테크":       { en: "Healthcare Biotech Pharma",        kr: "바이오"       },
+  "원자력·우라늄":    { en: "Uranium Nuclear Energy",           kr: "원자력"       },
+  "사이버보안":       { en: "Cybersecurity Technology",         kr: "방산"         },
+  "양자컴퓨팅":       { en: "Quantum Computing Technology",     kr: "반도체"       },
+  "희토류·전략소재":  { en: "Rare Earth Strategic Materials",   kr: "비철금속"     },
+  "데이터센터":       { en: "Data Center Infrastructure",       kr: "반도체"       },
+  "로보틱스":         { en: "Robotics Automation",              kr: "로보틱스"     },
 };
 
 // ── 전략 상수 ─────────────────────────────────────────────────────────────────
@@ -416,6 +431,103 @@ function fmtLargeFinancial(v: number | null, currency: string): string {
   return v.toLocaleString();
 }
 
+// ── 매수 확정 병합 엔진 ───────────────────────────────────────────────────────────
+// 기존 보유 자산에 신규 매수 종목을 병합: 수량형은 qty 누적, 금액형은 금액 누적, 신규면 push
+
+function mergeBuyIntoBase(
+  base: PortfolioAsset[],
+  pbRows: PbOrderRow[],
+  etfBuys: PortfolioAsset[],
+  usdKrwRate: number,
+): PortfolioAsset[] {
+  const merged = base.map((a) => ({ ...a }));
+
+  for (const row of pbRows) {
+    const qty = parseFloat(row.quantity);
+    if (!Number.isFinite(qty) || qty <= 0 || (row.currentPrice ?? 0) <= 0) continue;
+    const idx = merged.findIndex((a) => isSameAsset(a, row.name, row.ticker));
+    if (idx !== -1) {
+      const ex = merged[idx];
+      if (ex.amount_type === "quantity") {
+        merged[idx] = { ...ex, amount: ex.amount + qty };
+      } else {
+        merged[idx] = { ...ex, amount: ex.amount + computeKrwAmount(row, usdKrwRate) };
+      }
+    } else {
+      const bondYieldVal = parseFloat(row.bondYield);
+      const maturityVal = parseFloat(row.maturityYears);
+      const newRow: PortfolioAsset = {
+        name: row.name || row.ticker || "직접매수종목",
+        ticker: row.ticker || "",
+        asset_class: row.productType,
+        productType: row.productType,
+        theme: "기타",
+        country: row.productType.includes("해외") ? "미국" : "한국",
+        buy_price: row.currentPrice,
+        amount: qty,
+        amount_type: "quantity",
+        is_hedged: false,
+        needs_review: false,
+        bond_yield: Number.isFinite(bondYieldVal) && bondYieldVal > 0 ? bondYieldVal : null,
+        bond_maturity: Number.isFinite(maturityVal) && maturityVal > 0 ? maturityVal : null,
+        current_price: row.currentPrice ?? undefined,
+        current_value: computeKrwAmount(row, usdKrwRate) || undefined,
+      };
+      merged.push(newRow);
+    }
+  }
+
+  for (const buy of etfBuys) {
+    const idx = merged.findIndex((a) => isSameAsset(a, buy.name, buy.ticker));
+    if (idx !== -1) {
+      const ex = merged[idx];
+      if (ex.amount_type === "value") {
+        merged[idx] = { ...ex, amount: ex.amount + buy.amount };
+      }
+    } else {
+      merged.push({ ...buy });
+    }
+  }
+
+  return merged;
+}
+
+// ── 보유 자산 카드 그리드 헬퍼 ───────────────────────────────────────────────────
+
+function normalizeKey(name: string, ticker?: string | null): string {
+  return `${name.toLowerCase().trim()}::${(ticker ?? "").toLowerCase().trim()}`;
+}
+
+// 티커에서 .KS/.KQ 등 거래소 접미사 제거 후 소문자 정규화
+function tickerBase(t?: string | null): string {
+  return (t ?? "").replace(/\.[A-Za-z]+$/, "").toLowerCase().trim();
+}
+
+// 티커 일치 OR 종목명 일치이면 동일 종목으로 판정
+function isSameAsset(a: PortfolioAsset, name: string, ticker?: string | null): boolean {
+  const tb = tickerBase(ticker);
+  if (tb && tickerBase(a.ticker) === tb) return true;
+  return a.name.toLowerCase().trim() === name.toLowerCase().trim();
+}
+
+function makeAssetKey(a: PortfolioAsset): string {
+  return normalizeKey(a.name, a.ticker);
+}
+
+function getEffectiveAssetPrice(a: PortfolioAsset): number {
+  const cp = Number(a.current_price);
+  if (Number.isFinite(cp) && cp > 0) return cp;
+  const bp = Number(a.buy_price);
+  return Number.isFinite(bp) && bp > 0 ? bp : 0;
+}
+
+function getEffectiveAssetValue(a: PortfolioAsset): number {
+  if (a.current_value != null && a.current_value > 0) return a.current_value;
+  const price = getEffectiveAssetPrice(a);
+  if (a.amount_type === "quantity" && price > 0) return a.amount * price;
+  return a.amount ?? 0;
+}
+
 // ── PB 행 원화 환산 (priceCurrency 기준 — 종목유형 불문) ───────────────────────
 // 국내(KRW): price × quantity
 // 해외(USD): price × quantity × usdKrwRate
@@ -433,6 +545,7 @@ export default function BuySimulatorTab() {
   const {
     availableInvestmentFunds,
     rebalancingSellAssets,
+    setRebalancingSellAssets,
     setRebalancingBuyAssets,
     confirmRebalancingBuy,
     setNewPortfolioAnalysisResult,
@@ -449,6 +562,36 @@ export default function BuySimulatorTab() {
     pbOrderRows,
     setPbOrderRows,
   } = useCustomerContext();
+
+  // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
+  const baseAssets = useMemo<PortfolioAsset[]>(() => {
+    const enriched = (analysisResult?.enrichedAssets ?? []) as PortfolioAsset[];
+    const priceMap = new Map(enriched.map((a) => [makeAssetKey(a), a]));
+    if (rebalancingSellAssets.length > 0) {
+      return rebalancingSellAssets
+        .filter((a) => a.name)
+        .map((a) => {
+          const e = priceMap.get(makeAssetKey(a));
+          const cp = Number(e?.current_price ?? a.current_price);
+          return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
+        });
+    }
+    const src = enriched.length ? enriched : portfolioAssets;
+    return src.filter((a) => a.name);
+  }, [analysisResult, portfolioAssets, rebalancingSellAssets]);
+
+  const sortedAssetCards = useMemo(() => {
+    const marketGroup = (x: PortfolioAsset): number => {
+      const k = (x.productType ?? x.asset_class ?? "").trim();
+      if (k.startsWith("국내")) return 0;
+      if (k.startsWith("해외")) return 1;
+      return 2;
+    };
+    return [...baseAssets].sort((a, b) => {
+      const d = marketGroup(a) - marketGroup(b);
+      return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
+    });
+  }, [baseAssets]);
 
   const defaultStrategy = useMemo<Strategy>(
     () => RISK_TO_STRATEGY[riskResult.level] ?? "balanced",
@@ -705,31 +848,62 @@ export default function BuySimulatorTab() {
     return result;
   }, [globalData]);
 
+  // ── 최소 예치 잔고 입력 상태 ─────────────────────────────────────────────
+  const [minDepositManStr, setMinDepositManStr] = useState("");
+
   // ── 예산 계산 ────────────────────────────────────────────────────────────
 
-  // 수량 × 현재가 × (환율 if USD) 합산 — amountManStr 비참조
+  // 순수 대기 행 합산: 이미 rebalancingSellAssets에 반영된 확정 행은 0원 처리 (double-count 방지)
   const pbTotalAmount = useMemo(() => {
-    return pbOrderRows.reduce((s, row) => s + computeKrwAmount(row, usdKrwRate), 0);
-  }, [pbOrderRows, usdKrwRate]);
+    return pbOrderRows.reduce((s, row) => {
+      const confirmedAsset = rebalancingSellAssets.find((a) =>
+        isSameAsset(a, row.name, row.ticker),
+      );
+      const origAsset = portfolioAssets.find((pa) =>
+        isSameAsset(pa, row.name, row.ticker),
+      );
+      const alreadyConfirmed =
+        !!confirmedAsset &&
+        (!origAsset ||
+          (confirmedAsset.amount_type === "quantity" &&
+            confirmedAsset.amount > origAsset.amount));
+      return alreadyConfirmed ? s : s + computeKrwAmount(row, usdKrwRate);
+    }, 0);
+  }, [pbOrderRows, usdKrwRate, rebalancingSellAssets, portfolioAssets]);
+
+  // 세션 확정 금액: rebalancingSellAssets↔portfolioAssets 전수 비교로 누적 매수분 역산
+  // 신규 편입: current_value(KRW 확정값), 기존 증가분: deltaQty × current_price(KRW)
+  const confirmedPbAmount = useMemo(() => {
+    return rebalancingSellAssets.reduce((sum, a) => {
+      const origAsset = portfolioAssets.find((pa) => isSameAsset(pa, a.name, a.ticker));
+      if (!origAsset) {
+        return sum + (a.current_value ?? 0);
+      }
+      if (a.amount_type === "quantity" && a.amount > origAsset.amount) {
+        const delta = a.amount - origAsset.amount;
+        const cp = Number(a.current_price);
+        return sum + (Number.isFinite(cp) && cp > 0 ? delta * cp : 0);
+      }
+      return sum;
+    }, 0);
+  }, [rebalancingSellAssets, portfolioAssets]);
+
+  const minDeposit = useMemo(() => {
+    const v = parseFloat(minDepositManStr);
+    return Number.isFinite(v) && v >= 0 ? Math.floor(v) * 10_000 : 0;
+  }, [minDepositManStr]);
 
   const { totalAllocated, remaining, isOverBudget } = useMemo(() => {
-    // ETF 항목 + PB 직접 매수 합산 (만 원 단위 floor 엄격 적용)
-    const etfTotal = tickerItems
-      .filter((t) => t.checked)
-      .reduce((s, t) => {
-        const man = parseFloat(t.customAmountStr);
-        const v =
-          Number.isFinite(man) && man > 0 ? Math.floor(man) * 10000 : 0;
-        return s + v;
-      }, 0);
-    const total = etfTotal + pbTotalAmount;
+    // 세션 누적형: 확정 금액(이전 매수 확정 누계) + 현재 입력창 대기 금액
+    const total = confirmedPbAmount + pbTotalAmount;
     const avail = availableInvestmentFunds ?? 0;
+    const effective = avail - minDeposit;
     return {
       totalAllocated: total,
-      remaining: avail - total,
-      isOverBudget: avail > 0 && total > avail,
+      remaining: effective - total,
+      isOverBudget: avail > 0 && total > effective,
     };
-  }, [tickerItems, availableInvestmentFunds, pbTotalAmount]);
+  }, [availableInvestmentFunds, confirmedPbAmount, pbTotalAmount, minDeposit]);
 
   // ── 섹터 카테고리별 정렬 (렌더 전 그룹화) ────────────────────────────────
 
@@ -748,6 +922,7 @@ export default function BuySimulatorTab() {
 
   // ── 핸들러 ───────────────────────────────────────────────────────────────
 
+  // 체크박스 — 시각 효과 전용 (totalAllocated·handleConfirm 비개입)
   const toggleCheck = useCallback(
     (idx: number) =>
       setTickerItems((prev) =>
@@ -836,12 +1011,63 @@ export default function BuySimulatorTab() {
     setPbOrderRows([...pbOrderRowsRef.current, newRow]);
   }, [setPbOrderRows]);
 
-  const removePbRow = useCallback((id: string) => {
+  const removePbRow = useCallback(async (id: string) => {
+    const row = pbOrderRowsRef.current.find((r) => r.id === id);
+
+    // 이미 매수 확정된 종목인지 체크 (rebalancingSellAssets↔portfolioAssets 비교)
+    if (row) {
+      const confirmedAsset = sellAssetsRef.current.find((a) =>
+        isSameAsset(a, row.name, row.ticker),
+      );
+      const origAsset = portfolioRef.current.find((pa) =>
+        isSameAsset(pa, row.name, row.ticker),
+      );
+      const isConfirmed =
+        !!confirmedAsset &&
+        (!origAsset ||
+          (confirmedAsset.amount_type === "quantity" &&
+            confirmedAsset.amount > origAsset.amount));
+
+      if (isConfirmed) {
+        const ok = window.confirm(
+          "해당 종목은 이미 신규 포트폴리오에 반영되었습니다. 시뮬레이션 데이터에서 완전히 삭제(되돌리기)하시겠습니까?",
+        );
+        if (ok) {
+          // 해당 종목만 원본 수량으로 롤백 (신규 편입이면 배열에서 제거)
+          const rolledBack = sellAssetsRef.current
+            .map((a): PortfolioAsset | null => {
+              if (!isSameAsset(a, row.name, row.ticker)) return a;
+              if (!origAsset) return null;
+              return { ...a, amount: origAsset.amount, current_value: undefined };
+            })
+            .filter((a): a is PortfolioAsset => a !== null);
+
+          setRebalancingSellAssets(rolledBack);
+          // 롤백 즉시 입력 행도 제거 — runAnalysis 완료를 기다리지 않음
+          setPbOrderRows(pbOrderRowsRef.current.filter((r) => r.id !== id));
+          try {
+            const { runAnalysis } = await import("@/lib/portfolioLogic");
+            const result = await runAnalysis(rolledBack, {
+              tMarginal: tMarginalRef.current,
+              expectedInterestIncome:
+                formDataRef.current.rrttllu.expectedInterestIncome,
+              expectedDividendIncome:
+                formDataRef.current.rrttllu.expectedDividendIncome,
+            });
+            if (result) setNewPortfolioAnalysisResult(result);
+          } catch {
+            // 분석 실패는 비치명적 — 자산 롤백은 완료
+          }
+        }
+        // 예/아니오 모두 입력 행은 삭제
+      }
+    }
+
     clearTimeout(pbSearchTimersRef.current[id]);
     delete pbSearchTimersRef.current[id];
     setPbSearchState((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setPbOrderRows(pbOrderRowsRef.current.filter((r) => r.id !== id));
-  }, [setPbOrderRows]);
+  }, [setPbOrderRows, setRebalancingSellAssets, setNewPortfolioAnalysisResult]);
 
   const updatePbRow = useCallback((id: string, patch: Partial<PbOrderRow>) => {
     // productType 변경 시 현재가 초기화 (통화 불일치 방지)
@@ -859,7 +1085,7 @@ export default function BuySimulatorTab() {
   // 관련 기업 실시간 검색 (Yahoo Finance + 네이버 파이낸스 3단계 엔진)
   // market=kr → .KS/.KQ 종목만 반환, market=en → 글로벌 EQUITY 반환
   // subQuery: 백엔드 최우선 매칭 키워드 (예: "정유" — oil ETF 감지 시 주입)
-  const fetchRelatedCompanies = useCallback(async (sector: string, market: "domestic" | "global", subQuery?: string, etfFullName?: string) => {
+  const fetchRelatedCompanies = useCallback(async (sector: string, market: "domestic" | "global", subQuery?: string, etfFullName?: string, parentTicker?: string) => {
     // 진행 중인 이전 요청 취소 — 빠른 ETF 전환 시 구형 네트워크 I/O 정리
     relatedAbortRef.current?.abort();
     const ctrl = new AbortController();
@@ -873,6 +1099,7 @@ export default function BuySimulatorTab() {
       const keyword = deriveSearchKeyword(sector, market);
       const mkt = market === "domestic" ? "kr" : "en";
       const params = new URLSearchParams({ keyword, count: "10", market: mkt });
+      if (parentTicker) params.set("ticker", parentTicker);
       if (subQuery) params.set("subQuery", subQuery);
       if (etfFullName) params.set("etfFullName", etfFullName);
       const res = await fetch(`/api/related-companies?${params}`, { signal: ctrl.signal });
@@ -919,7 +1146,7 @@ export default function BuySimulatorTab() {
     // modalFocusTicker를 ETF 티커로 초기화 → useEffect 트리거 → proxy-finance + 뉴스 로드
     setModalFocusTicker(item.ticker);
     // 관련주는 별도 로드 (이쪽은 isLoadingRelated로 관리)
-    await fetchRelatedCompanies(item.sector, initMarket);
+    await fetchRelatedCompanies(item.sector, initMarket, undefined, undefined, item.ticker);
   }, [fetchRelatedCompanies]);
 
   const closeModal = useCallback(() => {
@@ -1043,9 +1270,9 @@ export default function BuySimulatorTab() {
     const isOil    = /oil|원유|wti/i.test(etfOfficialName);
     const isKosdaq = /코스닥|kosdaq/i.test(etfOfficialName);
     if (isOil) {
-      fetchRelatedCompanies(modalSector, relatedMarket, "정유", etfOfficialName);
+      fetchRelatedCompanies(modalSector, relatedMarket, "정유", etfOfficialName, modalTicker ?? undefined);
     } else if (isKosdaq) {
-      fetchRelatedCompanies(modalSector, relatedMarket, undefined, etfOfficialName);
+      fetchRelatedCompanies(modalSector, relatedMarket, undefined, etfOfficialName, modalTicker ?? undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etfOfficialName, modalTicker]);
@@ -1069,16 +1296,13 @@ export default function BuySimulatorTab() {
       .catch(() => {});
   }, []);
 
-  // 매수 확정 (floor 연산 가드 적용)
+  // 매수 확정 — PB 직접 추가 매수 전용 (ETF 카탈로그 비개입)
   const handleConfirm = useCallback(async () => {
-    const checkedItems = tickerItems.filter(
-      (t) => t.checked && t.customAmountStr.length > 0,
-    );
     const validPbRows = pbOrderRowsRef.current.filter((r) => {
       const qty = parseFloat(r.quantity);
       return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
     });
-    if (!checkedItems.length && !validPbRows.length) return;
+    if (!validPbRows.length) return;
     // 비동기 실행 중 고객 전환 race condition 방지 — await 전에 스냅샷
     const customerAtStart = selectedCustomerRef.current;
     setIsConfirming(true);
@@ -1086,30 +1310,6 @@ export default function BuySimulatorTab() {
       const { runAnalysis } = await import("@/lib/portfolioLogic");
       const tm = tMarginalRef.current;
       const fd = formDataRef.current;
-
-      const etfBuyAssets: PortfolioAsset[] = checkedItems.map((item) => {
-        // 만 원 단위 내림 엄격 적용 — 잔여 자금 0 이상 보장
-        const amountMan = parseFloat(item.customAmountStr);
-        const safeAmount =
-          Number.isFinite(amountMan) && amountMan > 0
-            ? Math.floor(amountMan) * 10000
-            : 0;
-        const productType = item.isGlobal ? "해외ETF" : "국내ETF";
-        return {
-          name: item.sector,
-          ticker: item.ticker,
-          asset_class: productType,
-          productType,
-          theme: "기타",
-          country: item.isGlobal ? "미국" : "한국",
-          buy_price: null,
-          amount: safeAmount,
-          amount_type: "value" as const,
-          is_hedged: false,
-          needs_review: false,
-          current_value: safeAmount > 0 ? safeAmount : undefined,
-        };
-      });
 
       const pbBuyAssets: PortfolioAsset[] = validPbRows.map((row) => {
         const safeAmount = computeKrwAmount(row, usdKrwRateRef.current);
@@ -1133,18 +1333,23 @@ export default function BuySimulatorTab() {
         };
       });
 
-      const newBuyAssets: PortfolioAsset[] = [...etfBuyAssets, ...pbBuyAssets];
-
-      const baseAssets =
+      const mergeBase =
         sellAssetsRef.current.length > 0
           ? sellAssetsRef.current
           : portfolioRef.current;
-      const remainingAssets = baseAssets.filter((a) => a.amount > 0);
-      const combinedAssets = [...remainingAssets, ...newBuyAssets];
+      const remainingAssets = mergeBase.filter((a) => a.amount > 0);
 
-      setRebalancingBuyAssets(combinedAssets);
+      // 병합: PB 직접 매수 전용 — ETF 카탈로그 완전 격리 ([])
+      const mergedAssets = mergeBuyIntoBase(
+        remainingAssets,
+        validPbRows,
+        [],
+        usdKrwRateRef.current,
+      );
 
-      const result = await runAnalysis(combinedAssets, {
+      setRebalancingBuyAssets(mergedAssets);
+
+      const result = await runAnalysis(mergedAssets, {
         tMarginal: tm,
         expectedInterestIncome: fd.rrttllu.expectedInterestIncome,
         expectedDividendIncome: fd.rrttllu.expectedDividendIncome,
@@ -1156,6 +1361,9 @@ export default function BuySimulatorTab() {
       if (result) {
         confirmRebalancingBuy();
         setNewPortfolioAnalysisResult(result);
+        // 보유 자산 카드 그리드를 병합 결과로 즉시 동기화
+        // (재분석 시 clearSellHistory가 portfolioAssets로 롤백하여 원본 보존)
+        setRebalancingSellAssets(mergedAssets);
 
         const assetsForCalc: AssetForIncomeCalc[] = (
           result.enrichedAssets ?? []
@@ -1310,8 +1518,8 @@ export default function BuySimulatorTab() {
       setIsConfirming(false);
     }
   }, [
-    tickerItems,
     setRebalancingBuyAssets,
+    setRebalancingSellAssets,
     confirmRebalancingBuy,
     setNewPortfolioAnalysisResult,
     saveTaxSummary,
@@ -1375,12 +1583,11 @@ export default function BuySimulatorTab() {
     [defaultStrategy],
   );
 
-  const checkedCount = tickerItems.filter((t) => t.checked).length;
   const hasPbItems = pbOrderRows.some((r) => {
     const qty = parseFloat(r.quantity);
     return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
   });
-  const canConfirm = (checkedCount > 0 || hasPbItems) && !isOverBudget;
+  const canConfirm = hasPbItems && !isOverBudget;
 
   // ── 렌더 ─────────────────────────────────────────────────────────────────
 
@@ -1393,7 +1600,7 @@ export default function BuySimulatorTab() {
           <DollarSign size={13} />
           Buying Power — 가용 투자 자금
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="rounded-lg bg-white/10 p-3">
             <div className="text-[10px] text-white/60">총 가용 자금 (d)</div>
             <div className="mt-1 truncate text-base font-bold">
@@ -1408,7 +1615,23 @@ export default function BuySimulatorTab() {
             <div className="mt-1 truncate text-base font-bold">
               {fmtKrwMan(totalAllocated)}
             </div>
-            <div className="text-[10px] text-white/40">선택 종목 합계</div>
+            <div className="text-[10px] text-white/40">ETF + 직접 매수 합계</div>
+          </div>
+          {/* 최소 예치 잔고 입력 */}
+          <div className="rounded-lg bg-white/10 p-3">
+            <div className="mb-1 text-[10px] text-white/60">최소 예치 잔고</div>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min="0"
+                value={minDepositManStr}
+                onChange={(e) => setMinDepositManStr(e.target.value)}
+                placeholder="0"
+                className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-right text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-white/50"
+              />
+              <span className="flex-shrink-0 text-[10px] text-white/50">만원</span>
+            </div>
+            <div className="mt-0.5 text-[10px] text-white/40">투입하지 않을 금액</div>
           </div>
           <div
             className={`rounded-lg p-3 ${isOverBudget ? "bg-red-500/30" : "bg-white/10"}`}
@@ -1431,106 +1654,96 @@ export default function BuySimulatorTab() {
         </div>
       </div>
 
-      {/* ── 레이어 2: 전략 카드 팩 (국내+해외 통합 — 토글 제거) ─────── */}
-      <div>
-        <div className="mb-3 flex items-center gap-2">
-          <TrendingUp size={16} className="text-navy" />
-          <span className="text-sm font-bold text-navy">
-            AI 성향 매칭 포트폴리오
-          </span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-            국내·해외 ETF 통합
-          </span>
+      {/* ── 보유 자산 ──────────────────────────────────────────────────── */}
+      {baseAssets.length === 0 ? (
+        <div className="flex min-h-[160px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50">
+          <p className="text-sm font-semibold text-slate-400">
+            TAB 2-1에서 자산을 입력하고 분석 실행 후 이 화면으로 돌아오세요.
+          </p>
         </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          {orderedStrategies.map((strategy) => {
-            const metrics = allMetrics[strategy] ?? null;
-            const colors = STRATEGY_COLORS[strategy];
-            const isActive = activeStrategy === strategy;
-            const isRecommended = strategy === defaultStrategy;
-            const gCount = globalData[strategy]?.period?.optimal.length ?? 0;
-            const dCount = domesticData[strategy]?.period?.optimal.length ?? 0;
-            const hl = STRATEGY_HIGHLIGHT[strategy];
-            const hlColor = (key: string) =>
-              isActive && hl.keys.includes(key) ? hl.color : "text-slate-700";
-
-            return (
-              <button
-                key={strategy}
-                type="button"
-                onClick={() => setActiveStrategy(strategy)}
-                className={`relative flex flex-col rounded-xl border-2 p-4 text-left transition hover:shadow-md ${
-                  isActive
-                    ? `${colors.border} ${colors.bg} shadow-md`
-                    : "border-slate-200 bg-white hover:border-slate-300"
-                }`}
-              >
-                {isRecommended && (
-                  <div className="absolute -top-2.5 left-3">
-                    <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[9px] font-bold text-white shadow">
-                      고객 성향 추천
-                    </span>
-                  </div>
-                )}
+      ) : (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
+          <p className="mb-3 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+            보유 자산
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {sortedAssetCards.map((a) => {
+              const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+              const color = CLASS_COLORS[cls] ?? "#94a3b8";
+              const key = makeAssetKey(a);
+              const isSoldOut = a.amount_type === "quantity" && a.amount <= 0;
+              const cp = getEffectiveAssetPrice(a);
+              const val = getEffectiveAssetValue(a);
+              const bp = Number(a.buy_price);
+              const gainPct = cp > 0 && bp > 0 ? ((cp - bp) / bp) * 100 : null;
+              const origAsset = portfolioAssets.find((pa) => isSameAsset(pa, a.name, a.ticker));
+              const isNewBuy = !isSoldOut && !origAsset;
+              const addedQty =
+                !isNewBuy &&
+                !isSoldOut &&
+                origAsset &&
+                a.amount_type === "quantity"
+                  ? a.amount - origAsset.amount
+                  : null;
+              return (
                 <div
-                  className={`mb-2 inline-flex items-center self-start rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                    isActive
-                      ? colors.badge
-                      : "bg-slate-100 text-slate-600"
-                  }`}
+                  key={key}
+                  className={`relative flex flex-col gap-1 rounded-xl border-2 px-4 py-3 text-left ${isSoldOut ? "opacity-50" : ""}`}
+                  style={{
+                    borderColor: isSoldOut ? "#cbd5e1" : color + "55",
+                    backgroundColor: isSoldOut ? "#f8fafc" : "#ffffff",
+                    minWidth: "9rem",
+                  }}
                 >
-                  {STRATEGY_LABELS[strategy]}
+                  {isNewBuy && (
+                    <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                      신규 매수
+                    </span>
+                  )}
+                  {addedQty !== null && addedQty > 0 && (
+                    <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                      {addedQty.toLocaleString()}주 추가 매수
+                    </span>
+                  )}
+                  {isSoldOut ? (
+                    <span className="inline-block self-start rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold leading-none text-red-600">
+                      완전 매도
+                    </span>
+                  ) : (
+                    <span
+                      className="inline-block self-start rounded-full px-2 py-0.5 text-[10px] font-bold leading-none"
+                      style={{ backgroundColor: color + "22", color }}
+                    >
+                      {a.productType ?? cls}
+                    </span>
+                  )}
+                  <span className={`mt-1 max-w-[148px] truncate text-sm font-bold leading-tight ${isSoldOut ? "text-slate-400 line-through" : "text-navy"}`}>
+                    {formatLocalTickerName(a.name, a.ticker, portfolioAssets)}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    현재가 {cp > 0 ? formatKrwAmount(cp) : "—"}
+                  </span>
+                  <span className={`text-xs font-bold ${isSoldOut ? "text-slate-400" : "text-slate-700"}`}>
+                    {isSoldOut ? "—" : val > 0 ? formatKrwAmount(val) : "—"}
+                  </span>
+                  {gainPct !== null && !isSoldOut && (
+                    <span className={`text-[10px] font-semibold ${gainPct >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      {gainPct >= 0 ? "▲" : "▼"} {Math.abs(gainPct).toFixed(1)}%
+                    </span>
+                  )}
+                  <span className={`text-[10px] ${isSoldOut ? "font-bold text-red-500" : "text-slate-400"}`}>
+                    {a.amount_type === "quantity"
+                      ? isSoldOut
+                        ? "0주 (매도 완료)"
+                        : `${a.amount.toLocaleString()}주`
+                      : "평가액 기준"}
+                  </span>
                 </div>
-                <p className="mb-3 text-[11px] leading-relaxed text-slate-500">
-                  {STRATEGY_DESCS[strategy]}
-                </p>
-
-                {isLoading && !metrics ? (
-                  <div className="flex items-center gap-1 text-xs text-slate-400">
-                    <Loader2 size={11} className="animate-spin" />
-                    산출 중…
-                  </div>
-                ) : metrics ? (
-                  <div className="flex flex-col gap-1.5">
-                    <MetricRow
-                      label="예상 수익률 (CAGR)"
-                      value={fmtPct(metrics.cagr)}
-                      color={metrics.cagr < 0 ? "text-red-600" : hlColor("cagr")}
-                      highlight={isActive && hl.keys.includes("cagr")}
-                    />
-                    <MetricRow
-                      label="최대 낙폭 (MDD)"
-                      value={fmtPct(metrics.mdd)}
-                      color={hlColor("mdd")}
-                      highlight={isActive && hl.keys.includes("mdd")}
-                    />
-                    <MetricRow
-                      label="샤프 비율"
-                      value={fmtFixed(metrics.sharpe)}
-                      color={metrics.sharpe < 0 ? "text-red-600" : hlColor("sharpe")}
-                      highlight={isActive && hl.keys.includes("sharpe")}
-                    />
-                    <MetricRow
-                      label="분산 최적화 점수"
-                      value={`${metrics.optScore.toFixed(1)}점`}
-                      color={hlColor("optScore")}
-                      highlight={isActive && hl.keys.includes("optScore")}
-                    />
-                    <MetricRow
-                      label="추천 종목 수 (국내+해외)"
-                      value={gCount + dCount > 0 ? `${gCount + dCount}종` : `${metrics.tickerCount}종`}
-                      color="text-slate-600"
-                    />
-                  </div>
-                ) : (
-                  <div className="text-xs text-slate-400">데이터 없음</div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* ── 레이어 3: 추천 종목 그리드 (섹터 카테고리별 정렬 + 컬러) ─── */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-soft">
@@ -1538,18 +1751,9 @@ export default function BuySimulatorTab() {
           <div className="flex items-center gap-2">
             <CheckCircle2 size={16} className="text-emerald-600" />
             <span className="text-sm font-bold text-navy">
-              추천 종목 선택 및 투자금 조정
+              선택한 종목
             </span>
           </div>
-          <button
-            type="button"
-            onClick={reallocate}
-            disabled={!availableInvestmentFunds}
-            className="flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <RefreshCcw size={11} />
-            비중 재배분
-          </button>
         </div>
 
         {isLoading ? (
@@ -1564,63 +1768,49 @@ export default function BuySimulatorTab() {
         ) : (
           <div className="divide-y divide-slate-50">
             {sortedTickerItems.map((item) => {
-              const sColor = getSectorColor(item.sector, item.isGlobal);
               const isChecked = item.checked;
 
               return (
                 <div
                   key={`${item.ticker}-${item.originalIdx}`}
-                  className={`flex items-center gap-3 border-l-4 px-4 py-3 transition ${
+                  className={`flex cursor-pointer items-center gap-3 px-4 py-3 transition hover:bg-slate-50 ${
                     isChecked ? "" : "opacity-45"
                   }`}
-                  style={{ borderLeftColor: isChecked ? sColor.border : "#e2e8f0" }}
+                  onClick={() => toggleCheck(item.originalIdx)}
                 >
                   <input
                     type="checkbox"
                     checked={isChecked}
                     onChange={() => toggleCheck(item.originalIdx)}
-                    className="h-4 w-4 flex-shrink-0 rounded accent-[#2f2f9d]"
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-4 w-4 flex-shrink-0 cursor-pointer rounded accent-[#2f2f9d]"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-navy">
-                        {item.sector}
-                      </span>
-                      <span className="flex-shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+                    <p className="truncate text-sm font-bold text-slate-800">
+                      {item.sector}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] text-gray-600">
                         {item.ticker}
                       </span>
-                      {/* ETF 유형 배지 */}
                       <span
-                        className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold ${
+                        className={`rounded border px-1.5 py-0.5 text-[10px] ${
                           item.isGlobal
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-blue-50 text-blue-700"
+                            ? "border-emerald-100 bg-emerald-50 text-emerald-600"
+                            : "border-blue-100 bg-blue-50 text-blue-600"
                         }`}
                       >
-                        {item.isGlobal ? "해외ETF" : "국내ETF"}
+                        {item.isGlobal ? "해외 ETF" : "국내 ETF"}
+                      </span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700">
+                        {item.sector}
                       </span>
                     </div>
-                    <div className="text-[11px] text-slate-400">
-                      AI 최적 비중 {fmtPct(item.weight)}
-                    </div>
-                  </div>
-                  <div className="flex flex-shrink-0 items-center gap-1">
-                    <input
-                      type="number"
-                      min="0"
-                      value={item.customAmountStr}
-                      onChange={(e) =>
-                        updateAmount(item.originalIdx, e.target.value)
-                      }
-                      disabled={!isChecked}
-                      placeholder="0"
-                      className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-right text-sm font-semibold text-navy outline-none focus:border-[#2f2f9d] disabled:bg-slate-50 disabled:text-slate-300"
-                    />
-                    <span className="text-xs text-slate-400">만원</span>
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={(e) => {
+                      e.stopPropagation();
                       openModal({
                         ticker: item.ticker,
                         sector: item.sector,
@@ -1628,8 +1818,8 @@ export default function BuySimulatorTab() {
                         checked: item.checked,
                         customAmountStr: item.customAmountStr,
                         isGlobal: item.isGlobal,
-                      })
-                    }
+                      });
+                    }}
                     className="flex-shrink-0 rounded-md border border-slate-200 p-1.5 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
                     title="딥다이브 분석"
                   >
@@ -1641,41 +1831,6 @@ export default function BuySimulatorTab() {
           </div>
         )}
 
-        {/* 확정 버튼 */}
-        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3">
-          <div className="text-xs text-slate-400">
-            {checkedCount}종목 선택 · 합계&nbsp;
-            <span
-              className={
-                isOverBudget
-                  ? "font-bold text-red-500"
-                  : "font-semibold"
-              }
-            >
-              {fmtKrwMan(totalAllocated)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={isConfirming || !canConfirm}
-            className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a] disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {isConfirming ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                분석 중…
-              </>
-            ) : confirmDone ? (
-              <>
-                <CheckCircle2 size={14} />
-                완료 — TAB4에서 확인
-              </>
-            ) : (
-              "매수 확정 → TAB4 반영"
-            )}
-          </button>
-        </div>
       </div>
 
       {/* ── PB 직접 추가 매수 패널 ──────────────────────────────────────── */}
@@ -1851,7 +2006,7 @@ export default function BuySimulatorTab() {
             </div>
             <div className="flex items-center justify-between border-t border-slate-100 bg-violet-50 px-4 py-2.5">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-violet-700">PB 직접 매수 합계</span>
+                <span className="text-xs font-bold text-violet-700">매수 합계</span>
                 {usdKrwRate > 100 && (
                   <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] text-violet-500">
                     USD/KRW {usdKrwRate.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
@@ -1866,6 +2021,42 @@ export default function BuySimulatorTab() {
             </div>
           </>
         )}
+      </div>
+
+      {/* ── 매수 확정 ──────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-soft">
+        <div className="text-xs text-slate-400">
+          합계&nbsp;
+          <span
+            className={
+              isOverBudget
+                ? "font-bold text-red-500"
+                : "font-semibold"
+            }
+          >
+            {fmtKrwMan(totalAllocated)}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={handleConfirm}
+          disabled={isConfirming || !canConfirm}
+          className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isConfirming ? (
+            <>
+              <Loader2 size={14} className="animate-spin" />
+              분석 중…
+            </>
+          ) : confirmDone ? (
+            <>
+              <CheckCircle2 size={14} />
+              완료 — TAB4에서 확인
+            </>
+          ) : (
+            "매수 확정 → TAB4 반영"
+          )}
+        </button>
       </div>
 
       {/* ── 딥다이브 모달 (2분할 확장 레이아웃) ───────────────────── */}
