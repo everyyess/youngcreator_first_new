@@ -273,6 +273,16 @@ async function fetchTickerFromYahoo(query, productType = null) {
       console.warn(`[proxy-finance] Yahoo Search 결과 없음: '${query}'`);
       return null;
     }
+
+    // productType 미지정 시 미국 거래소(순수 티커, 도트 없음) 우선 선택
+    // 예: 'LILY.WA'(바르샤바) 대신 'LLY'(NYSE) 반환
+    const usPrimary = quotes.find(q =>
+      (q.quoteType === 'EQUITY' || q.quoteType === 'ETF') && !String(q.symbol).includes('.')
+    );
+    if (usPrimary) {
+      console.log(`[proxy-finance] Yahoo Search 미국 거래소 우선 선택: '${query}' → '${usPrimary.symbol}'`);
+      return String(usPrimary.symbol).trim();
+    }
   }
 
   const symbol = String(quotes[0].symbol).trim();

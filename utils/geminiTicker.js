@@ -91,6 +91,8 @@ const SYSTEM_INSTRUCTION =
   'JP모건 → {"isListed":true,"krCode":null,"market":"US","englishName":"JPMorgan Chase & Co.","koreanName":"JP모건체이스"}\n' +
   'Berkshire Hathaway → {"isListed":true,"krCode":null,"market":"US","englishName":"Berkshire Hathaway Inc.","koreanName":"버크셔해서웨이"}\n' +
   'Eli Lilly → {"isListed":true,"krCode":null,"market":"US","englishName":"Eli Lilly and Company","koreanName":"일라이릴리"}\n' +
+  'ELILILLY → {"isListed":true,"krCode":null,"market":"US","englishName":"Eli Lilly and Company","koreanName":"일라이릴리"}\n' +
+  '일라이릴리 → {"isListed":true,"krCode":null,"market":"US","englishName":"Eli Lilly and Company","koreanName":"일라이릴리"}\n' +
   'Broadcom → {"isListed":true,"krCode":null,"market":"US","englishName":"Broadcom Inc.","koreanName":"브로드컴"}\n' +
   'Home Depot → {"isListed":true,"krCode":null,"market":"US","englishName":"The Home Depot Inc.","koreanName":"홈디포"}\n' +
   'Costco → {"isListed":true,"krCode":null,"market":"US","englishName":"Costco Wholesale Corporation","koreanName":"코스트코"}\n' +
