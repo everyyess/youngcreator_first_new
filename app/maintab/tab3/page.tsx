@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Globe, RefreshCcw, ScatterChart } from "lucide-react";
 import CorrelationGlobalTab from "./CorrelationGlobalTab";
 import CorrelationDomesticTab from "./CorrelationDomesticTab";
@@ -18,16 +18,6 @@ const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
 export default function Tab3Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("correlation-domestic");
   const { appMode, tab3AnalysisState, updateTab3AnalysisState } = useCustomerContext();
-
-  useEffect(() => {
-    if (
-      tab3AnalysisState.activeInnerTab === "correlation-domestic" ||
-      tab3AnalysisState.activeInnerTab === "correlation-global" ||
-      tab3AnalysisState.activeInnerTab === "rebalancing"
-    ) {
-      setActiveInnerTab(tab3AnalysisState.activeInnerTab);
-    }
-  }, [tab3AnalysisState.activeInnerTab]);
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
