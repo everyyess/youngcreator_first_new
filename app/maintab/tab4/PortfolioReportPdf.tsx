@@ -1,15 +1,7 @@
 "use client";
 
 import {
-  Document,
-  Page,
-  Text,
-  View,
-  StyleSheet,
-  Font,
-  Svg,
-  Circle,
-  Image,
+  Document, Page, Text, View, StyleSheet, Font, Svg, Circle, Image,
 } from "@react-pdf/renderer";
 
 Font.register({
@@ -31,10 +23,7 @@ export const OPTIONAL_SECTIONS: { key: ReportSectionKey; label: string }[] = [
 ];
 
 export interface ReportSectionToggles {
-  stress: boolean;
-  health: boolean;
-  taxIncome: boolean;
-  holdings: boolean;
+  stress: boolean; health: boolean; taxIncome: boolean; holdings: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,19 +40,13 @@ interface PortfolioSide {
 }
 
 export interface PortfolioReportProps {
-  customerName: string;
-  pbName?: string;
-  reportDate: string;
+  customerName: string; pbName?: string; reportDate: string;
   sections: ReportSectionToggles;
-  left: PortfolioSide | null;
-  right: PortfolioSide | null;
-  leftTaxSummary?: AnyResult | null;
-  rightTaxSummary?: AnyResult | null;
-  marginalTaxRate?: number;
-  mode?: ReportMode;
+  left: PortfolioSide | null; right: PortfolioSide | null;
+  leftTaxSummary?: AnyResult | null; rightTaxSummary?: AnyResult | null;
+  marginalTaxRate?: number; aiComment?: string; mode?: ReportMode;
 }
 
-// ─── 용어 사전 ───────────────────────────────────────────────────
 const GLOSSARY: Record<string, string> = {
   "세후 수익률": "세금을 뺀 후 실제로 손에 남는 수익률입니다.",
   "MDD": "투자 기간 중 가장 크게 떨어진 손실 비율입니다. 숫자가 클수록 하락 위험이 큽니다.",
@@ -78,23 +61,13 @@ const GLOSSARY: Record<string, string> = {
   "한계세율": "소득이 조금 더 늘어날 때 그 늘어난 부분에 적용되는 세율입니다.",
 };
 
-// PDF 렌더링 순서에 맞게 용어 순서 정의
-// 실제 등장 순서: OverviewPanel(세후수익률→MDD→샤프) → MetricBars(소르티노→변동성→베타) → Tax섹션
-function buildOrderedTerms(sections: ReportSectionToggles, mode: ReportMode): { term: string; desc: string; marker: string }[] {
+function buildOrderedTerms(sections: ReportSectionToggles, mode: ReportMode) {
   if (mode !== "easy") return [];
-  const ordered: string[] = [
-    "세후 수익률", "MDD", "샤프 비율", "소르티노 비율", "변동성", "베타",
-  ];
-  if (sections.taxIncome) {
-    ordered.push("금융소득종합과세", "이자소득", "배당소득", "순 양도소득", "한계세율");
-  }
-  return ordered
-    .filter(t => GLOSSARY[t])
-    .map((term, i) => ({ term, desc: GLOSSARY[term], marker: `※${i + 1}` }));
+  const ordered = ["세후 수익률", "MDD", "샤프 비율", "소르티노 비율", "변동성", "베타"];
+  if (sections.taxIncome) ordered.push("금융소득종합과세", "이자소득", "배당소득", "순 양도소득", "한계세율");
+  return ordered.filter(t => GLOSSARY[t]).map((term, i) => ({ term, desc: GLOSSARY[term], marker: `※${i + 1}` }));
 }
 
-// 첫 번째 등장에만 마커 붙이기 — 이후 중복은 원문 그대로 반환
-// getUsedTerms()로 실제로 마커가 붙은 용어만 가져올 수 있음 (각주 목록 정확도 확보)
 function makeMarkerTracker(terms: { term: string; desc: string; marker: string }[]) {
   const used = new Set<string>();
   const usedList: { term: string; desc: string; marker: string }[] = [];
@@ -102,24 +75,15 @@ function makeMarkerTracker(terms: { term: string; desc: string; marker: string }
     if (!terms.length) return text;
     const matched = terms.find(t => text.includes(t.term) && !used.has(t.term));
     if (!matched) return text;
-    used.add(matched.term);
-    usedList.push(matched);
+    used.add(matched.term); usedList.push(matched);
     return text + matched.marker;
   }
-  function getUsedTerms() { return usedList; }
-  return { withMarker, getUsedTerms };
+  return { withMarker, getUsedTerms: () => usedList };
 }
 
-// ─── 컬러 팔레트 ─────────────────────────────────────────────────
-const NAVY = "#1428A0";
-const BLUE = "#3457B2";
-const GOLD = "#B8975A";
-const GRAY = "#64748B";
-const LIGHT = "#F1F5F9";
-const BLACK = "#1E293B";
-const RED = "#DC2626";
-const AMBER = "#D97706";
-const GREENC = "#0F766E";
+const NAVY = "#1428A0"; const BLUE = "#3457B2"; const GOLD = "#B8975A";
+const GRAY = "#64748B"; const LIGHT = "#F1F5F9"; const BLACK = "#1E293B";
+const RED = "#DC2626"; const AMBER = "#D97706"; const GREENC = "#0F766E";
 const BORDER = "#E2E8F0";
 
 const ASSET_CLASS_COLOR_MAP: Record<string, string> = {
@@ -127,18 +91,14 @@ const ASSET_CLASS_COLOR_MAP: Record<string, string> = {
   금: GOLD, 리츠: "#8C8C8C", 현금: "#94A3B8", 달러: "#6B8CD6", 암호화폐: "#A9B4E3",
 };
 const DONUT_FALLBACK = ["#1428A0", "#3457B2", "#7C93D6", "#0F766E", GOLD, "#94A3B8"];
-function getAssetColor(cls: string, idx: number): string {
+function getAssetColor(cls: string, idx: number) {
   return ASSET_CLASS_COLOR_MAP[cls] ?? DONUT_FALLBACK[idx % DONUT_FALLBACK.length];
 }
 
 function makeStyles(easy: boolean) {
   const fs = (n: number) => easy ? n * 1.25 : n;
   return StyleSheet.create({
-    page: {
-      fontFamily: "Pretendard", fontSize: fs(9), color: BLACK,
-      padding: easy ? 34 : 30, paddingBottom: easy ? 48 : 42,
-      lineHeight: easy ? 1.65 : 1.45, borderWidth: 1.4, borderColor: NAVY,
-    },
+    page: { fontFamily: "Pretendard", fontSize: fs(9), color: BLACK, padding: easy ? 34 : 30, paddingBottom: easy ? 48 : 42, lineHeight: easy ? 1.65 : 1.45, borderWidth: 1.4, borderColor: NAVY },
     logoRow: { marginBottom: 18 },
     logoImg: { width: 78 },
     bannerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
@@ -150,10 +110,7 @@ function makeStyles(easy: boolean) {
     bannerHr: { borderBottomWidth: 1.5, borderBottomColor: GOLD, marginBottom: 12 },
     bannerDesc: { fontSize: fs(7.5), color: GRAY, lineHeight: 1.6, marginBottom: 4 },
     sectionHeaderRow: { flexDirection: "row", alignItems: "center", marginTop: 18, marginBottom: 4 },
-    sectionNum: {
-      fontSize: fs(7.5), fontWeight: "bold", color: "#FFFFFF",
-      width: easy ? 18 : 15,
-    },
+    sectionNum: { fontSize: fs(7.5), fontWeight: "bold", color: "#FFFFFF", width: easy ? 18 : 15 },
     sectionTitle: { fontSize: fs(11), fontWeight: "bold", color: NAVY, textTransform: "uppercase", letterSpacing: 0.3 },
     sectionHr: { borderBottomWidth: 1, borderBottomColor: BORDER, marginTop: 7, marginBottom: 10 },
     twoCol: { flexDirection: "row", gap: 14 },
@@ -163,6 +120,9 @@ function makeStyles(easy: boolean) {
     colNew: { flex: 1 },
     insightBox: { backgroundColor: LIGHT, borderRadius: 3, padding: 8, marginBottom: 10 },
     insightText: { fontSize: fs(7.8), color: BLACK, lineHeight: 1.6 },
+    aiCommentBox: { borderRadius: 4, padding: 10, marginTop: 10, marginBottom: 4, borderWidth: 1, borderColor: GOLD, backgroundColor: "#FFFDF5" },
+    aiCommentLabel: { fontSize: fs(7), fontWeight: "bold", color: GOLD, marginBottom: 4, letterSpacing: 0.5, textTransform: "uppercase" },
+    aiCommentText: { fontSize: fs(8), color: BLACK, lineHeight: 1.7 },
     deltaIntro: { fontSize: fs(7.5), color: GRAY, marginBottom: 8 },
     deltaRow: { flexDirection: "row", gap: 8 },
     deltaCard: { flex: 1, borderWidth: 1, borderColor: BORDER, borderRadius: 4, padding: 9 },
@@ -178,9 +138,8 @@ function makeStyles(easy: boolean) {
     barLabelRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
     barTrack: { height: easy ? 7 : 5, backgroundColor: LIGHT, borderRadius: 2.5 },
     barFill: { height: easy ? 7 : 5, backgroundColor: BLUE, borderRadius: 2.5 },
-    recRow: { flexDirection: "row", marginBottom: 7 },
-    recDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 3, marginRight: 6 },
-    recLabel: { fontSize: fs(7.8), fontWeight: "bold", color: BLACK },
+    recRow: { flexDirection: "row", marginBottom: 8, alignItems: "flex-start" },
+    recLabel: { fontSize: fs(7.8), fontWeight: "bold" },
     recDetail: { fontSize: fs(7.3), color: GRAY, lineHeight: 1.5, marginTop: 1 },
     table: { borderWidth: 1, borderColor: BORDER, borderRadius: 3, overflow: "hidden" },
     tableRowHeader: { flexDirection: "row", backgroundColor: NAVY },
@@ -190,11 +149,7 @@ function makeStyles(easy: boolean) {
     td: { flex: 1, fontSize: fs(7), padding: 4, color: BLACK },
     paragraph: { fontSize: fs(8.3), color: BLACK, marginBottom: 6, lineHeight: 1.55 },
     small: { fontSize: fs(7.5), color: GRAY },
-    footer: {
-      position: "absolute", bottom: 20, left: easy ? 34 : 30, right: easy ? 34 : 30,
-      flexDirection: "row", justifyContent: "space-between", fontSize: fs(7), color: GRAY,
-      borderTopWidth: 1, borderTopColor: GOLD, paddingTop: 6,
-    },
+    footer: { position: "absolute", bottom: 20, left: easy ? 34 : 30, right: easy ? 34 : 30, flexDirection: "row", justifyContent: "space-between", fontSize: fs(7), color: GRAY, borderTopWidth: 1, borderTopColor: GOLD, paddingTop: 6 },
     glossaryBox: { marginTop: 16, borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 10 },
     glossaryTitle: { fontSize: fs(8), fontWeight: "bold", color: NAVY, marginBottom: 6 },
     glossaryRow: { flexDirection: "row", marginBottom: 4 },
@@ -227,7 +182,7 @@ function fmtWon(n: number | null | undefined): string {
   return `${sign}${man.toLocaleString()}만원`;
 }
 
-const STRESS_LABELS: { key: string; period: string }[] = [
+const STRESS_LABELS = [
   { key: "scenario1", period: "연준 양적긴축 쇼크 (2018)" },
   { key: "scenario3", period: "팬데믹 블랙스완 쇼크 (2020)" },
   { key: "scenario2", period: "러-우 원자재 공급망 위기 (2022)" },
@@ -238,15 +193,8 @@ function SectionHeader({ num, title, styles }: { num: string; title: string; sty
   return (
     <View wrap={false} minPresenceAhead={40}>
       <View style={styles.sectionHeaderRow}>
-      <View style={{
-          width: sz, height: sz, borderRadius: sz / 2,
-          backgroundColor: NAVY, marginRight: 7,
-          alignItems: "center", justifyContent: "center",
-          paddingTop: 1.5,
-        }}>
-          <Text style={{ fontSize: (styles.sectionNum as AnyResult).fontSize * 0.85, fontWeight: "bold", color: "#FFFFFF" }}>
-            {num}
-          </Text>
+        <View style={{ width: sz, height: sz, borderRadius: sz / 2, backgroundColor: NAVY, marginRight: 7, alignItems: "center", justifyContent: "center", paddingTop: 1.5 }}>
+          <Text style={{ fontSize: (styles.sectionNum as AnyResult).fontSize * 0.85, fontWeight: "bold", color: "#FFFFFF" }}>{num}</Text>
         </View>
         <Text style={styles.sectionTitle}>{title}</Text>
       </View>
@@ -257,8 +205,7 @@ function SectionHeader({ num, title, styles }: { num: string; title: string; sty
 
 function DeltaCard({ label, leftDisplay, rightDisplay, deltaText, isGood, leftRaw, rightRaw, cap, styles, invertArrow }: {
   label: string; leftDisplay: string; rightDisplay: string; deltaText: string; isGood: boolean | null;
-  leftRaw: number | null; rightRaw: number | null; cap: number; styles: ReturnType<typeof makeStyles>;
-  invertArrow?: boolean;
+  leftRaw: number | null; rightRaw: number | null; cap: number; styles: ReturnType<typeof makeStyles>; invertArrow?: boolean;
 }) {
   const lW = leftRaw != null ? Math.max(2, Math.min(100, (Math.abs(leftRaw) / cap) * 100)) : 0;
   const rW = rightRaw != null ? Math.max(2, Math.min(100, (Math.abs(rightRaw) / cap) * 100)) : 0;
@@ -290,7 +237,6 @@ function buildOverviewInsight(rd: number | null, md: number | null): string | nu
   return "기대수익률은 낮아졌지만 최대낙폭(MDD)이 축소되어, 안정성을 우선한 조정으로 해석됩니다.";
 }
 
-// withMarker를 여기서 받아서 DeltaCard 라벨에 적용 — 이게 각주 첫 등장 기준점
 function OverviewDeltaPanel({ left, right, styles, withMarker }: {
   left: PortfolioSide | null; right: PortfolioSide | null;
   styles: ReturnType<typeof makeStyles>; withMarker: (t: string) => string;
@@ -311,17 +257,9 @@ function OverviewDeltaPanel({ left, right, styles, withMarker }: {
       <Text style={styles.deltaIntro}>기존 포트폴리오 대비 신규 제안 포트폴리오의 핵심 변화입니다.</Text>
       {insight && <View style={styles.insightBox}><Text style={styles.insightText}>{insight}</Text></View>}
       <View style={styles.deltaRow}>
-      <DeltaCard label={withMarker("세후 수익률")} leftDisplay={fmtPct(lR)} rightDisplay={fmtPct(rR)}
-          deltaText={rd != null ? fmtPctSigned(rd) : "-"} isGood={rd != null ? rd >= 0 : null}
-          leftRaw={lR ?? null} rightRaw={rR ?? null} cap={0.3} styles={styles} />
-        <DeltaCard label={withMarker("최대 낙폭(MDD)")} leftDisplay={fmtPct(lM)} rightDisplay={fmtPct(rM)}
-          deltaText={md != null ? fmtPctSigned(md) : "-"}
-          isGood={md != null ? md <= 0 : null}
-          leftRaw={lM} rightRaw={rM} cap={0.6} styles={styles} invertArrow />
-        <DeltaCard label={withMarker("샤프 비율")} leftDisplay={fmtNum(lS)} rightDisplay={fmtNum(rS)}
-          deltaText={sd != null ? `${sd >= 0 ? "+" : ""}${sd.toFixed(2)}` : "-"}
-          isGood={sd != null ? sd >= 0 : null}
-          leftRaw={lS ?? null} rightRaw={rS ?? null} cap={3} styles={styles} />
+        <DeltaCard label={withMarker("세후 수익률")} leftDisplay={fmtPct(lR)} rightDisplay={fmtPct(rR)} deltaText={rd != null ? fmtPctSigned(rd) : "-"} isGood={rd != null ? rd >= 0 : null} leftRaw={lR ?? null} rightRaw={rR ?? null} cap={0.3} styles={styles} />
+        <DeltaCard label={withMarker("최대 낙폭(MDD)")} leftDisplay={fmtPct(lM)} rightDisplay={fmtPct(rM)} deltaText={md != null ? fmtPctSigned(md) : "-"} isGood={md != null ? md <= 0 : null} leftRaw={lM} rightRaw={rM} cap={0.6} styles={styles} invertArrow />
+        <DeltaCard label={withMarker("샤프 비율")} leftDisplay={fmtNum(lS)} rightDisplay={fmtNum(rS)} deltaText={sd != null ? `${sd >= 0 ? "+" : ""}${sd.toFixed(2)}` : "-"} isGood={sd != null ? sd >= 0 : null} leftRaw={lS ?? null} rightRaw={rS ?? null} cap={3} styles={styles} />
       </View>
     </View>
   );
@@ -349,9 +287,7 @@ function MetricBars({ quantResult, afterTaxReturn, withMarker, styles }: {
           <View key={it.label} style={{ marginBottom: 7 }} wrap={false}>
             <View style={styles.barLabelRow}>
               <Text style={{ fontSize: (styles.small as AnyResult).fontSize, color: GRAY }}>{withMarker(it.label)}</Text>
-              <Text style={{ fontSize: (styles.colLabel as AnyResult).fontSize, fontWeight: "bold", color: NAVY, letterSpacing: -0.2 }}>
-                {it.pct ? fmtPct(val) : fmtNum(val)}
-              </Text>
+              <Text style={{ fontSize: (styles.colLabel as AnyResult).fontSize, fontWeight: "bold", color: NAVY, letterSpacing: -0.2 }}>{it.pct ? fmtPct(val) : fmtNum(val)}</Text>
             </View>
             <View style={styles.barTrack}><View style={[styles.barFill, { width: `${w}%` }]} /></View>
           </View>
@@ -369,7 +305,8 @@ function aggregateAssetClass(assets: AnyResult[] | undefined) {
     const val = a.current_value != null ? a.current_value : base;
     map.set(cls, (map.get(cls) || 0) + val); total += val;
   });
-  return Array.from(map.entries()).map(([cls, val]) => ({ cls, val, pct: total > 0 ? val / total : 0 }))
+  return Array.from(map.entries())
+    .map(([cls, val]) => ({ cls, val, pct: total > 0 ? val / total : 0 }))
     .sort((a, b) => b.val - a.val).slice(0, 7);
 }
 
@@ -389,8 +326,7 @@ function DonutChart({ assets, styles }: { assets: AnyResult[] | undefined; style
             const seg = Math.min(Math.max(raw - gap, 0.6), circ - 0.6);
             const gp = Math.max(circ - seg, 0.6);
             const sa = cum * 360; cum += d.pct;
-            return <Circle key={d.cls} cx={cx} cy={cy} r={r} fill="none" stroke={getAssetColor(d.cls, i)}
-              strokeWidth={sw} strokeDasharray={`${seg} ${gp}`} transform={`rotate(${sa - 90}, ${cx}, ${cy})`} />;
+            return <Circle key={d.cls} cx={cx} cy={cy} r={r} fill="none" stroke={getAssetColor(d.cls, i)} strokeWidth={sw} strokeDasharray={`${seg} ${gp}`} transform={`rotate(${sa - 90}, ${cx}, ${cy})`} />;
           })}
         </Svg>
         <View style={{ position: "absolute", top: 0, left: 0, width: size, height: size, alignItems: "center", justifyContent: "center" }}>
@@ -419,92 +355,83 @@ function buildDivInsight(la: AnyResult[] | undefined, ra: AnyResult[] | undefine
 
 type HealthItem = { key: string; label: string; score: number; detail: string };
 
-function PBRecommendation({ side, styles }: { side: PortfolioSide | null; styles: ReturnType<typeof makeStyles> }) {
-  if (!side?.healthResult) return <Text style={styles.small}>데이터 없음</Text>;
-  const items = (side.healthResult.items ?? []) as HealthItem[];
-  const act = items.filter(it => it.score === 0 || it.score === 1).sort((a, b) => a.score - b.score).slice(0, 6);
-  if (!act.length) return <Text style={styles.small}>특이 권고사항 없음 — 현 구성 유지를 권고합니다.</Text>;
-  return (
-    <View>
-      {act.map((it, i) => (
-        <View key={it.key ?? i} style={styles.recRow} wrap={false}>
-          <View style={[styles.recDot, { backgroundColor: it.score === 0 ? RED : AMBER }]} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.recLabel}>{it.label}</Text>
-            <Text style={styles.recDetail}>{it.detail}</Text>
-          </View>
-        </View>
-      ))}
-    </View>
+function cleanDetail(text: string | undefined): string {
+  if (!text) return "";
+  let t = text
+    .replace(/금투협\s*[^.。]*?(초과|이하|기준\s*충족)[^.。]*/g, "")
+    .replace(/분산\s*점수\s*\d+점\s*[–-]\s*/g, "")
+    .replace(/샤프\s*지수\s*[-\d.]+\s*[–-]\s*/g, "")
+    .replace(/금융소득\s*합계\s*[\d,]+만?\s*원?\s*[–-]\s*/g, "")
+    .replace(/충분히\s*/g, "")
+    .replace(/\s*[–-]\s*\./g, ".")
+    .replace(/\s*[–-]\s*$/g, "")
+    .replace(/\(\s*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  t = t.replace(
+    /단일\s*종목\s*([\d.]+)%\s*\(([^)]+)\)[^.]*/g,
+    (_: string, pct: string, name: string) => {
+      const p = parseFloat(pct);
+      const expr =
+        p >= 70 ? "포트폴리오 대부분이 단일 종목에 집중되어 있어" :
+        p >= 40 ? "포트폴리오 상당 부분이 단일 종목에 집중되어 있어" :
+                  "특정 단일 종목 비중이 두드러지게 높아";
+      return `${expr} 분산 편입을 권고드립니다. (집중 종목: ${name.trim()})`;
+    }
   );
+
+  t = t.replace(
+    /섹터\(([^)]+)\)\s*비중\s*([\d.]+)%[^.]*/g,
+    (_: string, sector: string, pct: string) => {
+      const p = parseFloat(pct);
+      const expr =
+        p >= 80 ? "포트폴리오 대부분이 해당 섹터에 편중되어 있어" :
+        p >= 55 ? "포트폴리오 상당 비중이 해당 섹터에 집중되어 있어" :
+                  "섹터 비중이 다소 높아";
+      return `${sector} 섹터 ${expr} 분산 조정을 권고드립니다.`;
+    }
+  );
+
+  t = t
+    .replace(/권고\./g, "권고드립니다.").replace(/권고$/g, "권고드립니다.")
+    .replace(/필요\./g, "필요합니다.").replace(/필요$/g, "필요합니다.")
+    .replace(/검토하세요\.?$/g, "검토를 권고드립니다.")
+    .replace(/우수\.?$/g, "우수합니다.")
+    .replace(/이하\.?$/g, "이하입니다.")
+    .replace(/주의\.?$/g, "주의가 필요합니다.")
+    .replace(/우수한 위험 대비 수익 효율\.?$/g, "위험 대비 수익 효율이 우수합니다.")
+    .replace(/자산 간 상관관계가 낮아 분산 효과 우수\.?$/g, "자산 간 상관관계가 낮아 분산 효과가 우수합니다.")
+    .replace(/종합과세 기준 이하\.?$/g, "금융소득이 종합과세 기준 이하입니다.")
+    .replace(/0\.5 미만 저효율[^.]*\.?$/g, "샤프 지수가 낮아 수익 대비 위험 구조 재검토를 권고드립니다.");
+
+  t = t.replace(/\s{2,}/g, " ").trim();
+  if (t && !t.endsWith(".")) t += ".";
+  return t;
 }
 
 function PBRecommendationPair({ left, right, styles }: {
-  left: PortfolioSide | null;
-  right: PortfolioSide | null;
-  styles: ReturnType<typeof makeStyles>;
+  left: PortfolioSide | null; right: PortfolioSide | null; styles: ReturnType<typeof makeStyles>;
 }) {
-  // score 기준 뱃지 설정
-  const getBadge = (score: number): { label: string; color: string } => {
+  const getBadge = (score: number) => {
     if (score === 0) return { label: "위험", color: RED };
     if (score === 1) return { label: "주의", color: AMBER };
     return { label: "양호", color: GREENC };
   };
 
-  // 전체 항목 가져오기 (score 0/1/2 모두) — 점수 오름차순 정렬, 최대 7개
   const getAllItems = (side: PortfolioSide | null): HealthItem[] => {
     if (!side?.healthResult) return [];
     return ((side.healthResult.items ?? []) as HealthItem[])
-      .sort((a, b) => a.score - b.score)
-      .slice(0, 7);
+      .sort((a, b) => a.score - b.score).slice(0, 7);
   };
 
-  // 기존/신규 항목 키 기준으로 정렬 통일 — 같은 항목이 나란히 보이도록
   const leftItems = getAllItems(left);
   const rightItems = getAllItems(right);
-
-  // 기존 항목의 key 순서를 기준으로 신규도 같은 순서로 맞춤
   const leftKeys = leftItems.map(it => it.key);
   const rightSorted = [
     ...rightItems.filter(it => leftKeys.includes(it.key)).sort((a, b) => leftKeys.indexOf(a.key) - leftKeys.indexOf(b.key)),
     ...rightItems.filter(it => !leftKeys.includes(it.key)),
   ];
-
-  const cleanDetail = (text: string | undefined): string => {
-    if (!text) return "";
-    let t = text
-      .replace(/금투협\s*[^.。]*?(초과|이하|기준\s*충족)[^.。]*/g, "")
-      .replace(/분산\s*점수\s*\d+점\s*[–-]\s*/g, "")
-      .replace(/샤프\s*지수\s*[-\d.]+\s*[–-]\s*/g, "")
-      .replace(/금융소득\s*합계\s*[\d,]+만?\s*원?\s*[–-]\s*/g, "")
-      .replace(/충분히\s*/g, "")
-      .replace(/\s*[–-]\s*\./g, ".")
-      .replace(/\s*[–-]\s*$/g, "")
-      .replace(/\(\s*\)/g, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-    // 반말 → 존댓말 변환
-    t = t
-      .replace(/권고\./g, "권고드립니다.")
-      .replace(/권고$/g, "권고드립니다.")
-      .replace(/필요\./g, "필요합니다.")
-      .replace(/필요$/g, "필요합니다.")
-      .replace(/검토하세요\./g, "검토를 권고드립니다.")
-      .replace(/검토하세요$/g, "검토를 권고드립니다.")
-      .replace(/우수\./g, "우수합니다.")
-      .replace(/우수$/g, "우수합니다.")
-      .replace(/이하\./g, "이하입니다.")
-      .replace(/이하$/g, "이하입니다.")
-      .replace(/주의\./g, "주의가 필요합니다.")
-      .replace(/주의$/g, "주의가 필요합니다.")
-      .replace(/우수한 위험 대비 수익 효율\.?$/g, "위험 대비 수익 효율이 우수합니다.")
-      .replace(/자산 간 상관관계가 낮아 분산 효과 우수\.?$/g, "자산 간 상관관계가 낮아 분산 효과가 우수합니다.")
-      .replace(/종합과세 기준 이하\.?$/g, "금융소득이 종합과세 기준 이하입니다.")
-      .replace(/0\.5 미만 저효율\. 수익\/리스크 구조 재검토 필요\.?$/g, "샤프 지수가 낮아 수익 대비 위험 구조 재검토를 권고드립니다.");
-    // 마침표 없으면 추가
-    if (t && !t.endsWith(".")) t += ".";
-    return t;
-  };
 
   const renderItems = (items: HealthItem[]) => {
     if (!items.length) return <Text style={styles.small}>항목 없음</Text>;
@@ -513,21 +440,22 @@ function PBRecommendationPair({ left, right, styles }: {
         {items.map((it, i) => {
           const badge = getBadge(it.score);
           return (
-            <View key={it.key ?? i} style={[styles.recRow, { alignItems: "flex-start" }]} wrap={false}>
-              {/* 뱃지 */}
+            <View key={it.key ?? i} style={styles.recRow} wrap={false}>
               <View style={{
-                backgroundColor: badge.color, borderRadius: 3,
-                paddingHorizontal: 4, paddingVertical: 2,
-                marginRight: 6, marginTop: 2,
-                display: "flex", alignItems: "center", justifyContent: "center",
+                width: 28, height: 14,
+                backgroundColor: badge.color,
+                borderRadius: 3,
+                marginRight: 6,
+                marginTop: 1,
+                flexShrink: 0,
+                alignItems: "center",
+                justifyContent: "center",
               }}>
-                <Text style={{ fontSize: 6.5, fontWeight: "bold", color: "#FFFFFF", marginTop: 1 }}>{badge.label}</Text>
+                <Text style={{ fontSize: 6, fontWeight: "bold", color: "#FFFFFF" }}>{badge.label}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.recLabel, { color: badge.color }]}>{it.label}</Text>
-                {it.detail ? (
-                  <Text style={styles.recDetail}>{cleanDetail(it.detail)}</Text>
-                ) : null}
+                {it.detail ? <Text style={styles.recDetail}>{cleanDetail(it.detail)}</Text> : null}
               </View>
             </View>
           );
@@ -614,11 +542,7 @@ function TaxIncomeSection({ taxSummary, marginalTaxRate, withMarker, styles }: {
       <Text style={{ fontSize: (styles.small as AnyResult).fontSize, color: GRAY, marginBottom: 6 }}>
         {withMarker("금융소득종합과세")} 현황
       </Text>
-      {over && (
-        <Text style={[styles.paragraph, { color: RED, fontWeight: "bold" }]}>
-          ⚠ 기준선(2천만원)을 초과한 고객입니다.
-        </Text>
-      )}
+      {over && <Text style={[styles.paragraph, { color: RED, fontWeight: "bold" }]}>⚠ 기준선(2천만원)을 초과한 고객입니다.</Text>}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5 }}>
         {items.map((it) => (
           <View key={it.label} style={{ width: "47.5%", borderBottomWidth: 1, borderBottomColor: BORDER, paddingVertical: 6 }} wrap={false}>
@@ -695,14 +619,15 @@ function PageFooter({ customerName, styles }: { customerName: string; styles: Re
 
 export function PortfolioReportPdf({
   customerName, pbName, reportDate, sections, left, right,
-  leftTaxSummary, rightTaxSummary, marginalTaxRate, mode = "normal",
+  leftTaxSummary, rightTaxSummary, marginalTaxRate, aiComment, mode = "normal",
 }: PortfolioReportProps) {
   const easy = mode === "easy";
   const styles = makeStyles(easy);
   const terms = buildOrderedTerms(sections, mode);
   const { withMarker, getUsedTerms } = makeMarkerTracker(terms);
-  const displayPbName = pbName ?? "xxx";
+  const displayPbName = "김일조";
   const reportTitle = easy ? "포트폴리오 제안서 (쉬운 설명 버전)" : "포트폴리오 제안서";
+
   let secCount = 0;
   const nextNum = () => String(++secCount).padStart(2, "0");
 
@@ -710,10 +635,7 @@ export function PortfolioReportPdf({
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.logoRow}>
-          <Image
-            src={typeof window !== "undefined" ? `${window.location.origin}/logo-sni.png` : "/logo-sni.png"}
-            style={styles.logoImg}
-          />
+          <Image src={typeof window !== "undefined" ? `${window.location.origin}/logo-sni.png` : "/logo-sni.png"} style={styles.logoImg} />
         </View>
         <View style={styles.bannerRow}>
           <View>
@@ -740,9 +662,9 @@ export function PortfolioReportPdf({
           </>
         )}
 
-<SectionHeader num={nextNum()} title="핵심 지표 요약" styles={styles} />
-<View style={[styles.twoCol, { alignItems: "flex-start" }]}>
-<View style={[styles.col, { borderRightWidth: 1, borderRightColor: BORDER, paddingRight: 10, minHeight: easy ? 240 : 190 }]}>
+        <SectionHeader num={nextNum()} title="핵심 지표 요약" styles={styles} />
+        <View style={[styles.twoCol, { alignItems: "flex-start" }]}>
+          <View style={[styles.col, { borderRightWidth: 1, borderRightColor: BORDER, paddingRight: 10, minHeight: easy ? 240 : 190 }]}>
             <Text style={styles.colLabel}>{left?.label ?? "현재 포트폴리오"}</Text>
             <MetricBars quantResult={left?.quantResult} afterTaxReturn={left?.afterTaxReturn} withMarker={withMarker} styles={styles} />
           </View>
@@ -754,25 +676,27 @@ export function PortfolioReportPdf({
           )}
         </View>
 
+        {/* AI PB 코멘트 — 핵심 지표 요약 바로 아래 */}
+        {right && aiComment && (
+          <View style={styles.aiCommentBox} wrap={false}>
+            <Text style={styles.aiCommentLabel}>▪ PB 코멘트</Text>
+            <Text style={styles.aiCommentText}>{aiComment}</Text>
+          </View>
+        )}
+
         <SectionHeader num={nextNum()} title="자산군별 비중 분포" styles={styles} />
-        <View wrap={false} minPresenceAhead={120}>
+        {right && <View style={styles.insightBox}><Text style={styles.insightText}>{buildDivInsight(left?.enrichedAssets, right.enrichedAssets)}</Text></View>}
+        <View style={styles.twoCol}>
+          <View style={styles.col}>
+            <Text style={styles.colLabel}>{left?.label ?? "현재 포트폴리오"}</Text>
+            <DonutChart assets={left?.enrichedAssets} styles={styles} />
+          </View>
           {right && (
-            <View style={styles.insightBox}>
-              <Text style={styles.insightText}>{buildDivInsight(left?.enrichedAssets, right.enrichedAssets)}</Text>
+            <View style={styles.colNew}>
+              <Text style={styles.colLabelNew}>{right.label}</Text>
+              <DonutChart assets={right.enrichedAssets} styles={styles} />
             </View>
           )}
-          <View style={styles.twoCol}>
-            <View style={styles.col}>
-              <Text style={styles.colLabel}>{left?.label ?? "현재 포트폴리오"}</Text>
-              <DonutChart assets={left?.enrichedAssets} styles={styles} />
-            </View>
-            {right && (
-              <View style={styles.colNew}>
-                <Text style={styles.colLabelNew}>{right.label}</Text>
-                <DonutChart assets={right.enrichedAssets} styles={styles} />
-              </View>
-            )}
-          </View>
         </View>
 
         {sections.health && (left?.healthResult || right?.healthResult) && (
@@ -817,7 +741,7 @@ export function PortfolioReportPdf({
           </>
         )}
 
-{easy && <GlossarySection terms={getUsedTerms()} styles={styles} />}
+        {easy && <GlossarySection terms={getUsedTerms()} styles={styles} />}
         <PageFooter customerName={customerName} styles={styles} />
       </Page>
     </Document>
