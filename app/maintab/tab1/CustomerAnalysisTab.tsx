@@ -1524,7 +1524,7 @@ function AiConsultingGuideCard({
 // ── 고객 성향 분석 탭 메인 컴포넌트 ────────────────────────────────────────
 export default function CustomerAnalysisTab() {
   const {
-    formData, riskResult,
+    appMode, formData, riskResult,
     selectedCustomerProfile, selectedCustomer, internalJsonPayload,
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome,
     setExpectedReturn, toggleExpectedReturnUnknown, toggleInvestmentExperience,
@@ -1598,8 +1598,12 @@ export default function CustomerAnalysisTab() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem(tab1SubTabStorageKey);
-    if (stored === "input" || stored === "analysis" || stored === "guide") setActiveSubTab(stored);
-  }, []);
+    if (stored === "input" || stored === "analysis" || (appMode === "pb" && stored === "guide")) setActiveSubTab(stored as Tab1SubTab);
+  }, [appMode]);
+
+  useEffect(() => {
+    if (appMode === "customer" && activeSubTab === "guide") setActiveSubTab("input");
+  }, [activeSubTab, appMode]);
 
   const selectSubTab = (tab: Tab1SubTab) => {
     setActiveSubTab(tab);
@@ -1652,12 +1656,12 @@ export default function CustomerAnalysisTab() {
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
+      <div data-consultation-lock-exempt="true" className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
         {[
           { id: "input" as const, label: "고객 정보 입력", icon: <ClipboardList size={15} /> },
           { id: "analysis" as const, label: "성향 및 니즈 분석", icon: <BarChart3 size={15} /> },
           { id: "guide" as const, label: "AI 상담 가이드", icon: <Sparkles size={15} /> },
-        ].map((tab) => (
+        ].filter((tab) => appMode === "pb" || tab.id !== "guide").map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -1676,7 +1680,7 @@ export default function CustomerAnalysisTab() {
 
       {activeSubTab === "input" ? (
         <>
-      <SmartInputCard />
+      {appMode === "pb" ? <SmartInputCard /> : null}
 
       {/* 기본 재무 정보 */}
       <Panel icon={<WalletCards size={18} />} eyebrow="기본 재무 정보" title="고객 재무 현황" note="※ 금액은 원화(KRW) 기준으로 입력해주세요.">
@@ -1786,6 +1790,7 @@ export default function CustomerAnalysisTab() {
       </Panel>
 
       {/* ⑦ Unique */}
+      {appMode === "pb" ? (
       <Panel
         icon={<Sparkles size={18} />}
         eyebrow="RRTTLLU"
@@ -1823,6 +1828,7 @@ export default function CustomerAnalysisTab() {
           </div>
         </CheckerboardGrid>
       </Panel>
+      ) : null}
 
       <p className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm font-semibold leading-6 text-slate-600 shadow-soft">민감 정보는 필수 입력이 아니며, 제공이 어려운 경우 대략적인 범위만 입력하셔도 됩니다.</p>
         </>

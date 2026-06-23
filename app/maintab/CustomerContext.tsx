@@ -191,6 +191,7 @@ export type CustomerRow = {
   id: string;
   profile?: CustomerProfile;
   app_state?: AppState;
+  pb_employee_id?: string;
   sort_order?: number;
   updated_at?: string;
   [key: string]: unknown;
@@ -655,10 +656,11 @@ export async function saveCustomerDataJsonOnly(customerId: CustomerId, dataPaylo
   return { ok: true, message: "Customer data saved." };
 }
 
-async function insertEmptyCustomerRow(customerId: CustomerId, dataPayload: unknown, sortOrder: number): Promise<StorageResult> {
+async function insertEmptyCustomerRow(customerId: CustomerId, dataPayload: unknown, sortOrder: number, pbEmployeeId?: string): Promise<StorageResult> {
   if (!supabase) return { ok: false, message: "Supabase is not configured." };
+  const ownerPayload = pbEmployeeId?.trim() ? { pb_employee_id: pbEmployeeId.trim() } : {};
   const candidates: Record<string, unknown>[] = [
-    { id: customerId, data: dataPayload, sort_order: sortOrder, updated_at: new Date().toISOString() },
+    { id: customerId, data: dataPayload, sort_order: sortOrder, updated_at: new Date().toISOString(), ...ownerPayload },
     { id: customerId, data: dataPayload, updated_at: new Date().toISOString() },
     { id: customerId, data: dataPayload },
   ];
@@ -716,8 +718,8 @@ export const customerStorage = {
       return { rows: [], errorMessage: "Supabase 고객 데이터 로드에 실패했습니다. 기본 화면으로 계속 진행합니다." };
     }
   },
-  async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number): Promise<StorageResult> {
-    return insertEmptyCustomerRow(profile.id, normalizeAppState(appState), sortOrder);
+  async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number, pbEmployeeId?: string): Promise<StorageResult> {
+    return insertEmptyCustomerRow(profile.id, normalizeAppState(appState), sortOrder, pbEmployeeId);
   },
   async insertDefaults(state: StoredCustomerState): Promise<StorageResult> {
     let final: StorageResult = { ok: true, message: "기본 고객 생성 완료" };
@@ -1034,6 +1036,17 @@ const rebSB = () => supabase!.from("rebalancing_state") as any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const narSB = () => supabase!.from("new_analysis_results") as any;
 
+function describeSupabaseError(error: unknown) {
+  if (!error || typeof error !== "object") return error;
+  const value = error as Record<string, unknown>;
+  return {
+    message: value.message,
+    code: value.code,
+    details: value.details,
+    hint: value.hint,
+  };
+}
+
 export async function loadPortfolioAssets(customerId: CustomerId): Promise<PortfolioAsset[]> {
   if (!supabase) return [];
   try {
@@ -1054,16 +1067,49 @@ export async function loadPortfolioAssets(customerId: CustomerId): Promise<Portf
 
 export async function savePortfolioAssets(customerId: CustomerId, assets: PortfolioAsset[]): Promise<void> {
   if (!supabase) return;
+  if (!customerId) throw new Error("Portfolio asset save failed: missing customer_id.");
   if (assets.length > 0) {
     const isOwnershipValid = assets.every(a => a.owner_customer_id === customerId);
-    if (!isOwnershipValid) return;
-    const hasContent = assets.some(a => (a.name ?? "").trim() || (a.ticker ?? "").trim());
+    if (!isOwnershipValid) throw new Error("Portfolio asset ownership mismatch.");
+    const hasContent = assets.some(a =>
+      (a.name ?? "").trim() ||
+      (a.ticker ?? "").trim() ||
+      (a.productType ?? "").trim() ||
+      (a.asset_class ?? "").trim() ||
+      a.amount > 0 ||
+      a.buy_price != null ||
+      a.current_price != null ||
+      a.bond_yield != null ||
+      a.bond_maturity != null
+    );
     if (!hasContent) return;
   }
-  await rebSB().upsert(
-    { customer_id: customerId, portfolio_assets: assets, updated_at: new Date().toISOString() },
-    { onConflict: "customer_id" },
-  );
+  const payload = { portfolio_assets: assets, updated_at: new Date().toISOString() };
+  const updateResult = await rebSB()
+    .update(payload)
+    .eq("customer_id", customerId)
+    .select("customer_id");
+
+  if (updateResult.error) {
+    console.error("Supabase rebalancing_state.portfolio_assets update failed", {
+      customerId,
+      assetCount: assets.length,
+      error: describeSupabaseError(updateResult.error),
+    });
+    throw updateResult.error;
+  }
+
+  if (Array.isArray(updateResult.data) && updateResult.data.length > 0) return;
+
+  const insertResult = await rebSB().insert({ customer_id: customerId, ...payload });
+  if (insertResult.error) {
+    console.error("Supabase rebalancing_state row insert for portfolio_assets failed", {
+      customerId,
+      assetCount: assets.length,
+      error: describeSupabaseError(insertResult.error),
+    });
+    throw insertResult.error;
+  }
 }
 
 export async function loadAnalysisResult(customerId: CustomerId): Promise<unknown | null> {
@@ -1249,6 +1295,7 @@ export async function saveProductSelections(customerId: CustomerId, selectedIds:
 
 // ── Context ────────────────────────────────────────────────────────────────
 export type CustomerContextValue = {
+  appMode: "pb" | "customer";
   formData: AppState;
   selectedCustomerProfile: CustomerProfile;
   customerProfiles: CustomerProfile[];
@@ -1284,6 +1331,8 @@ export type CustomerContextValue = {
   resumeLatestConsultation: () => void;
   activeConsultation: unknown;
   activeConsultationElapsedSeconds: number;
+  isConsultationReadOnly: boolean;
+  requestConsultationResume: () => void;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
   // ── 포트폴리오 전역 상태 (탭 이동 시에도 메모리에서 유지됨) ──────────────
   portfolioAssets: PortfolioAsset[];
@@ -1308,7 +1357,7 @@ export type CustomerContextValue = {
   resetRebalancingBuySummary: () => void;
   setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
   setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
-  updateTab3AnalysisState: (patch: Partial<Tab3AnalysisState>) => void;
+  updateTab3AnalysisState: (patch: Partial<Tab3AnalysisState>, options?: { allowReadOnlyViewState?: boolean }) => void;
   // ── Tab 5 상품 선택 (고객별 격리, Supabase 영속) ──────────────────────────
   productSelectedIds: string[];
   setProductSelectedIds: (ids: string[]) => void;

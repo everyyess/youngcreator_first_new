@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronLeft, ChevronRight, Home, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Home, LogOut, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
 import {
   createInitialCustomerData,
   createInitialState,
@@ -38,6 +38,7 @@ import {
   type ActiveConsultation,
   type ConsultationSession,
 } from "../consultationStore";
+import { formatLoginTime, pbAuthStore, type PbSession } from "../authStore";
 
 const tempPbName = "삼성";
 
@@ -68,13 +69,17 @@ function customerBirth(profile?: CustomerProfile) {
   return (profile?.birth_year ?? profile?.birthYear ?? profile?.fallbackBirthYear ?? "").trim();
 }
 
+function sortCustomersByName(customers: CustomerProfile[]) {
+  return [...customers].sort((a, b) => customerName(a).localeCompare(customerName(b), "ko-KR"));
+}
+
 function customerDisplay(profile?: CustomerProfile | null) {
   const birth = customerBirth(profile ?? undefined);
   return `${customerName(profile ?? undefined)}${birth ? ` (${birth})` : ""}`;
 }
 
 function ageDisplay(age: string) {
-  return age ? `${age}세` : "입력 대기";
+  return age ? `${age}세` : "대기";
 }
 
 function buildSummarySnapshot(state?: AppState) {
@@ -209,6 +214,58 @@ function allSessions(customerData: Record<CustomerId, AppState>) {
   return Object.values(customerData).flatMap((state) => getCustomerSessions(state));
 }
 
+function sessionDateTime(value: string) {
+  if (!value) return null;
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function splitSessionDateTime(value: string) {
+  const [date = todayDate(), time = "09:00"] = (value || "").split("T");
+  return { date: date || todayDate(), time: (time || "09:00").slice(0, 5) };
+}
+
+function combineSessionDateTime(date: string, time: string) {
+  return `${date || todayDate()}T${(time || "09:00").slice(0, 5)}`;
+}
+
+function pastRelativeLabel(value: string) {
+  const date = sessionDateTime(value);
+  if (!date) return "";
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return "";
+  const now = new Date();
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) return "오늘";
+  const dayMs = 24 * 60 * 60 * 1000;
+  const days = Math.max(1, Math.floor(diffMs / dayMs));
+  if (days < 30) return `${days}일 전`;
+  const months = Math.max(1, Math.floor(days / 30));
+  if (months < 12) return `${months}달 전`;
+  return `${Math.max(1, Math.floor(months / 12))}년 전`;
+}
+
+function upcomingRelativeLabel(session: ConsultationSession) {
+  if (session.status === "active") return "✨ 상담 중이에요!";
+  if (session.status === "completed") return "";
+  const date = sessionDateTime(session.date);
+  if (!date) return "";
+  const diffMs = date.getTime() - Date.now();
+  if (diffMs < 0) return "✨ 상담 중이에요!";
+  const hourMs = 60 * 60 * 1000;
+  const dayMs = 24 * hourMs;
+  if (diffMs < hourMs) return `✨ ${Math.max(1, Math.ceil(diffMs / (60 * 1000)))}분 남았어요!`;
+  if (diffMs < dayMs) return `✨ ${Math.ceil(diffMs / hourMs)}시간 남았어요!`;
+  return `✨ ${Math.ceil(diffMs / dayMs)}일 남았어요!`;
+}
+
+function durationWithSuffix(value: string) {
+  const text = value.trim();
+  if (!text) return "소요 시간 미입력";
+  return text.endsWith("소요") ? text : `${text} 소요`;
+}
+
+const leftPanelInnerWidthClass = "w-full max-w-full";
+
 export default function HomePage() {
   const router = useRouter();
   const [leftOpen, setLeftOpen] = useState(true);
@@ -227,6 +284,7 @@ export default function HomePage() {
   const [storageMessage, setStorageMessage] = useState("");
   const [customerDeleteTarget, setCustomerDeleteTarget] = useState<CustomerProfile | null>(null);
   const [sessionDeleteTarget, setSessionDeleteTarget] = useState<ConsultationSession | null>(null);
+  const [pbSession, setPbSession] = useState<PbSession | null>(null);
 
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
@@ -241,7 +299,7 @@ export default function HomePage() {
     if (result.errorMessage) setStorageMessage(result.errorMessage);
     if (!result.rows.length) return;
     const stored = customerRowsToStoredState(result.rows);
-    setCustomers(stored.customerProfiles);
+    setCustomers(sortCustomersByName(stored.customerProfiles));
     setCustomerData(stored.customerData);
     const storedSelected = getStoredSelectedCustomerId();
     setSelectedCustomerId((current) => {
@@ -251,7 +309,15 @@ export default function HomePage() {
     });
   }, []);
 
-  useEffect(() => { loadCustomers(); }, [loadCustomers]);
+  useEffect(() => {
+    setPbSession(pbAuthStore.readSession());
+    loadCustomers();
+  }, [loadCustomers]);
+
+  const logout = async () => {
+    await pbAuthStore.logout();
+    router.push("/");
+  };
 
   useEffect(() => {
     const syncActive = () => {
@@ -295,10 +361,18 @@ export default function HomePage() {
   }, [customerData, persistCustomerState]);
 
   const updateSession = useCallback((sessionId: string, patch: Partial<ConsultationSession>) => {
-    const session = sessions.find((item) => item.id === sessionId);
-    if (!session) return;
-    upsertSession({ ...session, ...patch });
-  }, [sessions, upsertSession]);
+    setCustomerData((prev) => {
+      for (const [customerId, state] of Object.entries(prev) as Array<[CustomerId, AppState]>) {
+        const sessionsForCustomer = getCustomerSessions(state);
+        if (!sessionsForCustomer.some((item) => item.id === sessionId)) continue;
+        const nextSessions = sessionsForCustomer.map((item) => item.id === sessionId ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item);
+        const nextState = { ...state, consultationSessions: nextSessions };
+        saveCustomerDataJsonOnly(customerId, nextState).catch((error) => console.error("Failed to save customer data", error));
+        return { ...prev, [customerId]: nextState };
+      }
+      return prev;
+    });
+  }, []);
 
   const deleteSession = (session: ConsultationSession) => {
     setSessionDeleteTarget(session);
@@ -413,12 +487,12 @@ export default function HomePage() {
       fallbackName: newCustomer.name || "신규 고객",
     };
     const state = createInitialState();
-    const result = await customerStorage.insertCustomer(profile, state, customers.length);
+    const result = await customerStorage.insertCustomer(profile, state, customers.length, pbSession?.employeeId);
     if (!result.ok) {
       setStorageMessage(result.message);
       return;
     }
-    setCustomers((prev) => [...prev, profile]);
+    setCustomers((prev) => sortCustomersByName([...prev, profile]));
     setCustomerData((prev) => ({ ...prev, [profile.id]: state }));
     setSelectedCustomerId(profile.id);
     storeSelectedCustomerId(profile.id);
@@ -428,22 +502,33 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_85%_65%_at_8%_0%,rgba(99,102,241,0.11),transparent_55%),radial-gradient(ellipse_65%_65%_at_98%_100%,rgba(59,130,246,0.18),transparent_55%),#f8fafc] p-4 text-slate-900">
-      <div className="grid min-h-[calc(100vh-2rem)] gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "240px" : "56px"}` }}>
-        <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}>
-          <PanelHeader open={leftOpen} title={`${tempPbName} PB님, 오늘도 힘내세요!`} side="left" onToggle={() => setLeftOpen((value) => !value)} />
+      <div className="grid min-h-[calc(100vh-2rem)] gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "255px" : "56px"}` }}>
+        <aside className={`box-border min-w-0 overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}>
+          <div className="mb-4 flex items-start justify-between gap-2">
+            {leftOpen ? (
+              <div>
+                <p className="text-base font-black text-blue-950">{pbSession?.name || tempPbName} PB님,</p>
+                <p className="mt-1 text-sm font-extrabold text-blue-900">오늘도 힘내세요!</p>
+                <p className="mt-1 whitespace-nowrap text-[11px] font-bold text-slate-400">마지막 로그인: {formatLoginTime(pbSession?.lastLoginAt)}</p>
+              </div>
+            ) : null}
+            <button type="button" onClick={() => setLeftOpen((value) => !value)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:text-blue-700">
+              {leftOpen ? <PanelLeftClose size={18} /> : <ChevronRight size={18} />}
+            </button>
+          </div>
           {leftOpen ? (
-            <div className="grid gap-4">
+            <div className="grid w-full min-w-0 gap-4 overflow-x-hidden">
               {storageMessage ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{storageMessage}</p> : null}
-              <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
-                <label className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3">
-                  <Search size={16} className="text-slate-400" />
+              <div className={`grid ${leftPanelInnerWidthClass} min-w-0 grid-cols-[minmax(0,1fr)_104px] gap-2 overflow-hidden`}>
+                <label className="flex h-11 min-w-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2">
+                  <Search size={14} className="shrink-0 text-slate-400" />
                   <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder="고객 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
                 </label>
-                <button type="button" onClick={() => setShowAddCustomerForm((value) => !value)} className="whitespace-nowrap rounded-xl bg-blue-600 px-2 text-xs font-extrabold text-white hover:bg-blue-700">신규 고객 추가</button>
+                <button type="button" onClick={() => setShowAddCustomerForm((value) => !value)} className="min-w-0 whitespace-nowrap rounded-xl bg-blue-600 px-2 text-[11px] font-extrabold text-white hover:bg-blue-700">신규 고객 추가</button>
               </div>
-              <div className="grid max-h-40 gap-1 overflow-y-auto pr-1">
+              <div className={`grid ${leftPanelInnerWidthClass} max-h-[122px] min-w-0 gap-1 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
                 {filteredCustomers.map((customer) => (
-                  <button key={customer.id} type="button" onClick={() => selectCustomer(customer.id)} className={`rounded-lg px-3 py-2 text-left text-sm font-bold transition ${customer.id === selectedCustomerId ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-700 hover:bg-blue-50"}`}>
+                  <button key={customer.id} type="button" onClick={() => selectCustomer(customer.id)} className={`min-w-0 rounded-lg px-3 py-2 text-left text-sm font-bold transition ${customer.id === selectedCustomerId ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-700 hover:bg-blue-50"}`}>
                     {customerName(customer)} <span className="text-xs opacity-70">{customerBirth(customer)}</span>
                   </button>
                 ))}
@@ -453,11 +538,11 @@ export default function HomePage() {
               {showCreateForm && draftSession ? (
                 <CreateSessionForm draft={draftSession} setDraft={(updater) => setDraftSession((prev) => prev ? updater(prev) : prev)} onCancel={() => setShowCreateForm(false)} onSave={() => saveDraftSession(false)} onStart={() => saveDraftSession(true)} />
               ) : null}
-              <section>
+              <section className={`${leftPanelInnerWidthClass} min-w-0 overflow-hidden`}>
                 <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">상담 내역</p>
-                <div className="grid gap-2">
+                <div className="grid max-h-[440px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {selectedSessions.length ? selectedSessions.map((session) => (
-                    <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} />
+                    <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onStart={() => startSession(session)} />
                   )) : <EmptyBox text="상담 내역이 없습니다." />}
                 </div>
               </section>
@@ -472,17 +557,27 @@ export default function HomePage() {
         </section>
 
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>
-          <PanelHeader open={rightOpen} title="상담 일정" side="right" onToggle={() => setRightOpen((value) => !value)} />
+          <div className="mb-4 flex items-center justify-between gap-2">
+            {rightOpen ? (
+              <button type="button" onClick={logout} className="inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+                <LogOut size={14} /> 로그아웃
+              </button>
+            ) : null}
+            <button type="button" onClick={() => setRightOpen((value) => !value)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:text-blue-700">
+              {rightOpen ? <PanelRightClose size={18} /> : <ChevronLeft size={18} />}
+            </button>
+          </div>
           {rightOpen ? (
             <div className="grid gap-5">
+              <p className="text-sm font-extrabold text-blue-900">상담 일정</p>
               {activeConsultation ? (
                 <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/maintab/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
                   <span className="inline-flex items-center gap-1"><Home size={15} /> 상담 화면으로 돌아가기</span>
                   <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
                 </button>
               ) : null}
-              <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} />
-              <SideSection title="최근 상담 내역" sessions={recent} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} />
+              <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} startSession={startSession} />
+              <SideSection title="최근 상담 내역" sessions={recent} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} startSession={startSession} />
             </div>
           ) : null}
         </aside>
@@ -493,6 +588,7 @@ export default function HomePage() {
           customer={customers.find((customer) => customer.id === expandedSession.customerId)}
           sessions={sessions}
           onUpdate={(patch) => updateSession(expandedSession.id, patch)}
+          onStart={() => startSession(expandedSession)}
           onClose={() => setExpandedSessionId(null)}
         />
       ) : null}
@@ -540,18 +636,24 @@ function CustomerProfileEditor({ profile, setProfile, onSave, onCancel }: { prof
     setProfile(next);
   };
   return (
-    <section className="rounded-xl border border-blue-100 bg-blue-50/70 p-3">
-      <p className="mb-3 text-sm font-extrabold text-blue-900">신규 고객 추가</p>
-      <div className="grid gap-2">
-        <ProfileInput label="성명" value={profile.name} placeholder="예. 홍길동" onChange={(value) => update({ name: value })} />
-        <GenderToggle value={profile.gender} onChange={(gender) => update({ gender })} />
-        <ProfileInput label="생년월일" value={birth} placeholder="예. 671018" onChange={(value) => update({ birthYear: value, birth_year: value })} />
-        <div className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-500">{ageDisplay(profile.age)}</div>
-        <ProfileInput label="직업" value={profile.job} placeholder="예. 삼성증권 PB" onChange={(value) => update({ job: value })} />
-        <div className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={onCancel} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700">취소</button>
-          <button type="button" onClick={onSave} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-blue-700">저장</button>
+    <section className="box-border min-w-0 max-w-full overflow-hidden">
+      <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">신규 고객 추가</p>
+      <div className={`box-border ${leftPanelInnerWidthClass} overflow-hidden rounded-xl border border-slate-900 bg-white p-3 shadow-sm`}>
+      <div className="grid min-w-0 gap-2 overflow-hidden">
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_62px] gap-1.5 overflow-hidden">
+          <ProfileInput label="성명" value={profile.name} placeholder="성명" required compact narrowLabel onChange={(value) => update({ name: value })} />
+          <GenderToggle value={profile.gender} onChange={(gender) => update({ gender })} />
         </div>
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_48px] gap-2 overflow-hidden">
+          <ProfileInput label="생년월일" value={birth} placeholder="생년월일" required compact onChange={(value) => update({ birthYear: value, birth_year: value })} />
+          <div className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-500">{ageDisplay(profile.age)}</div>
+        </div>
+        <ProfileInput label="직업" value={profile.job} placeholder="예. 삼성증권 PB" onChange={(value) => update({ job: value })} />
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+          <button type="button" onClick={onCancel} className="min-w-0 truncate rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">취소</button>
+          <button type="button" onClick={onSave} className="min-w-0 truncate rounded-lg bg-blue-600 px-2 py-2 text-xs font-extrabold text-white hover:bg-blue-700">저장</button>
+        </div>
+      </div>
       </div>
     </section>
   );
@@ -560,22 +662,22 @@ function CustomerProfileEditor({ profile, setProfile, onSave, onCancel }: { prof
 function SelectedCustomerInfo({ customer, onChange, onCreate, onDelete }: { customer: CustomerProfile; onChange: (id: CustomerId, patch: Partial<CustomerProfile>) => void; onCreate: () => void; onDelete: () => void }) {
   const birth = customer.birthYear || customer.birth_year || "";
   return (
-    <section>
+    <section className="box-border min-w-0 max-w-full overflow-hidden">
       <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">고객 정보</p>
-      <div className="rounded-xl border border-slate-900 bg-white p-3 shadow-sm">
-      <div className="grid gap-2">
-        <div className="grid grid-cols-[minmax(0,1fr)_62px] gap-1.5">
-          <ProfileInput label="성명" value={customer.name} placeholder="성명" compact narrowLabel onChange={(value) => onChange(customer.id, { name: value })} />
+      <div className={`box-border ${leftPanelInnerWidthClass} overflow-hidden rounded-xl border border-slate-900 bg-white p-3 shadow-sm`}>
+      <div className="grid min-w-0 gap-2 overflow-hidden">
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_62px] gap-1.5 overflow-hidden">
+          <ProfileInput label="성명" value={customer.name} placeholder="성명" required compact narrowLabel onChange={(value) => onChange(customer.id, { name: value })} />
           <GenderToggle value={customer.gender} onChange={(gender) => onChange(customer.id, { gender })} />
         </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_48px] gap-2">
-          <ProfileInput label="생년월일" value={birth} placeholder="생년월일" compact onChange={(value) => onChange(customer.id, { birthYear: value, birth_year: value })} />
-          <div className="h-10 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-500">{customer.age ? `${customer.age}세` : "대기"}</div>
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_48px] gap-2 overflow-hidden">
+          <ProfileInput label="생년월일" value={birth} placeholder="생년월일" required compact onChange={(value) => onChange(customer.id, { birthYear: value, birth_year: value })} />
+          <div className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-500">{ageDisplay(customer.age)}</div>
         </div>
         <ProfileInput label="직업" value={customer.job} placeholder="직업" onChange={(value) => onChange(customer.id, { job: value })} />
-        <div className="grid grid-cols-[minmax(0,1fr)_40px] gap-2">
-          <button type="button" onClick={onCreate} className="min-h-12 whitespace-nowrap rounded-lg bg-blue-600 px-2 text-xs font-extrabold text-white hover:bg-blue-700">신규 상담 일지 생성</button>
-          <button type="button" onClick={onDelete} aria-label="고객 정보 삭제" className="flex min-h-12 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100">
+        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_40px] gap-2 overflow-hidden">
+          <button type="button" onClick={onCreate} className="min-h-12 min-w-0 whitespace-nowrap rounded-lg bg-blue-600 px-1.5 text-[11px] font-extrabold text-white hover:bg-blue-700">신규 상담 일지 생성</button>
+          <button type="button" onClick={onDelete} aria-label="고객 정보 삭제" className="flex min-h-12 min-w-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100">
             <Trash2 size={16} />
           </button>
         </div>
@@ -587,7 +689,7 @@ function SelectedCustomerInfo({ customer, onChange, onCreate, onDelete }: { cust
 
 function GenderToggle({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
-    <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-slate-100 p-1">
+    <div className="grid h-10 w-full min-w-0 grid-cols-2 gap-0.5 rounded-lg bg-slate-100 p-1">
       {["남", "여"].map((option) => (
         <button key={option} type="button" onClick={() => onChange(option)} className={`h-8 rounded-md text-xs font-extrabold transition ${value === option ? "bg-blue-600 text-white" : "bg-white text-slate-600 hover:bg-blue-50"}`}>
           {option}
@@ -597,23 +699,28 @@ function GenderToggle({ value, onChange }: { value: string; onChange: (value: st
   );
 }
 
-function ProfileInput({ label, value, placeholder, onChange, compact = false, narrowLabel = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean; narrowLabel?: boolean }) {
+function ProfileInput({ label, value, placeholder, onChange, compact = false, narrowLabel = false, required = false }: { label: string; value: string; placeholder: string; onChange: (value: string) => void; compact?: boolean; narrowLabel?: boolean; required?: boolean }) {
+  const isRequiredEmpty = required && !value.trim();
   return (
-    <label className={`grid items-center gap-2 ${narrowLabel ? "grid-cols-[42px_minmax(0,1fr)]" : compact ? "grid-cols-[58px_minmax(0,1fr)]" : "grid-cols-[58px_minmax(0,1fr)]"}`}>
-      <span className="whitespace-nowrap text-xs font-extrabold text-slate-600">{label}</span>
-      <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm placeholder:font-normal" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
+    <label className={`grid w-full min-w-0 items-center gap-2 ${narrowLabel ? "grid-cols-[42px_minmax(0,1fr)]" : compact ? "grid-cols-[58px_minmax(0,1fr)]" : "grid-cols-[58px_minmax(0,1fr)]"}`}>
+      <span className="min-w-0 overflow-hidden whitespace-nowrap text-xs font-extrabold text-slate-600">{label}{required ? <span className="ml-0.5 text-red-600">*</span> : null}</span>
+      <input className={`h-10 w-full min-w-0 rounded-lg border bg-white px-3 text-sm placeholder:font-normal ${isRequiredEmpty ? "border-red-400" : "border-slate-200"}`} placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }
 
 function CreateSessionForm({ draft, setDraft, onCancel, onSave, onStart }: { draft: ConsultationSession; setDraft: (updater: (prev: ConsultationSession) => ConsultationSession) => void; onCancel: () => void; onSave: () => void; onStart: () => void }) {
+  const { date, time } = splitSessionDateTime(draft.date);
   return (
     <section className="box-border w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-slate-900 bg-blue-50/70 p-3">
       <p className="mb-3 text-sm font-extrabold text-blue-900">신규 상담 생성</p>
       <div className="grid min-w-0 gap-2">
         <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="상담 제목" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} />
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_48px] gap-1.5">
-          <input className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-1.5 text-[11px]" type="date" value={draft.date} onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))} />
+          <div className="grid min-h-[76px] gap-1 rounded-lg border border-slate-200 bg-white p-2">
+            <input className="h-7 min-w-0 bg-transparent text-xs font-bold outline-none" type="date" value={date} onChange={(e) => setDraft((prev) => ({ ...prev, date: combineSessionDateTime(e.target.value, splitSessionDateTime(prev.date).time) }))} />
+            <input className="h-7 min-w-0 bg-transparent text-xs font-bold outline-none" type="time" value={time} onChange={(e) => setDraft((prev) => ({ ...prev, date: combineSessionDateTime(splitSessionDateTime(prev.date).date, e.target.value) }))} />
+          </div>
           <button type="button" onClick={onCancel} className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">취소</button>
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-1.5">
@@ -625,27 +732,37 @@ function CreateSessionForm({ draft, setDraft, onCancel, onSave, onStart }: { dra
   );
 }
 
-function SessionCard({ session, customer, onExpand, onDelete }: { session: ConsultationSession; customer?: CustomerProfile | null; expanded: boolean; onExpand: () => void; onDelete: () => void; onUpdate: (patch: Partial<ConsultationSession>) => void }) {
+function SessionCard({ session, customer, expanded, onExpand, onDelete, onStart }: { session: ConsultationSession; customer?: CustomerProfile | null; expanded: boolean; onExpand: () => void; onDelete: () => void; onUpdate: (patch: Partial<ConsultationSession>) => void; onStart?: () => void }) {
+  const upcomingLabel = upcomingRelativeLabel(session);
+  const pastLabel = pastRelativeLabel(session.date);
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex items-start justify-between gap-2">
-        <button type="button" onClick={onExpand} className="min-w-0 text-left">
+    <article className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <button type="button" onClick={onExpand} className="min-w-0 flex-1 overflow-hidden text-left">
+          {upcomingLabel ? <p className="mb-1 text-xs font-extrabold text-red-600">{upcomingLabel}</p> : null}
           <p className="truncate text-sm font-extrabold text-slate-900">{displaySessionTitle(session.title)}</p>
-          <p className="mt-1 text-xs font-bold text-slate-500">{displayKoreanDate(session.date)} · {session.duration || "소요 시간 미입력"}</p>
+          <div className="mt-1 grid gap-0.5 text-xs font-bold">
+            {displayKoreanDate(session.date)}
+            <span className="text-slate-400">{durationWithSuffix(session.duration)}{pastLabel ? ` · ${pastLabel}` : ""}</span>
+          </div>
           {customer ? <p className="mt-1 text-xs text-slate-400">{customerDisplay(customer)}</p> : null}
         </button>
         <div className="flex shrink-0 gap-1">
-          <button type="button" onClick={onDelete} className="rounded-lg bg-red-50 p-2 text-red-700 hover:bg-red-100"><Trash2 size={15} /></button>
+          <button type="button" onClick={onDelete} className="shrink-0 rounded-lg bg-red-50 p-2 text-red-700 hover:bg-red-100"><Trash2 size={15} /></button>
         </div>
       </div>
+      {expanded && session.status === "draft" && onStart ? (
+        <button type="button" onClick={onStart} className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+      ) : null}
     </article>
   );
 }
 
-function SummaryModal({ session, customer, sessions, onUpdate, onClose }: { session: ConsultationSession; customer?: CustomerProfile; sessions: ConsultationSession[]; onUpdate: (patch: Partial<ConsultationSession>) => void; onClose: () => void }) {
+function SummaryModal({ session, customer, sessions, onUpdate, onStart, onClose }: { session: ConsultationSession; customer?: CustomerProfile; sessions: ConsultationSession[]; onUpdate: (patch: Partial<ConsultationSession>) => void; onStart: () => void; onClose: () => void }) {
   const snapshot = sessionSummarySnapshot(session);
   const previous = previousSessionFor(session, sessions);
   const changes = snapshotChangeRows(snapshot, previous ? sessionSummarySnapshot(previous) : null);
+  const dateTimeValue = session.date.includes("T") ? session.date : `${session.date || todayDate()}T00:00`;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
       <section className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
@@ -653,21 +770,26 @@ function SummaryModal({ session, customer, sessions, onUpdate, onClose }: { sess
           <div>
             <p className="text-sm font-extrabold text-blue-600">{customerDisplay(customer)}</p>
             <h1 className="mt-1 text-2xl font-black text-blue-950">{displaySessionTitle(session.title)}</h1>
-            <p className="mt-1 text-sm font-bold text-slate-500">{displayKoreanDate(session.date)} · {session.duration || "소요 시간 미입력"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-500">{displayKoreanDate(session.date)} <span className="text-slate-400">· {session.duration || "소요 시간 미입력"}</span></p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-extrabold text-slate-600 hover:bg-slate-50">닫기</button>
+          <div className="flex flex-wrap gap-2">
+            {session.status === "draft" ? (
+              <button type="button" onClick={onStart} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+            ) : null}
+            <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-extrabold text-slate-600 hover:bg-slate-50">닫기</button>
+          </div>
         </div>
         <div className="mb-5 grid gap-2 sm:grid-cols-3">
           <label className="grid gap-1">
-            <span className="text-xs font-extrabold text-blue-600">상담 제목</span>
+            <span className="text-xs font-extrabold text-blue-600">상담 제목 수정</span>
             <input className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-bold" value={session.title} placeholder="상담 제목" onChange={(e) => onUpdate({ title: e.target.value })} />
           </label>
           <label className="grid gap-1">
-            <span className="text-xs font-extrabold text-blue-600">날짜</span>
-            <input className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-bold" type="date" value={session.date} onChange={(e) => onUpdate({ date: e.target.value })} />
+            <span className="text-xs font-extrabold text-blue-600">날짜 및 시간 수정</span>
+            <input className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-bold" type="datetime-local" value={dateTimeValue} onChange={(e) => onUpdate({ date: e.target.value })} />
           </label>
           <label className="grid gap-1">
-            <span className="text-xs font-extrabold text-blue-600">소요 시간</span>
+            <span className="text-xs font-extrabold text-blue-600">소요 시간 수정</span>
             <input className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-bold" value={session.duration} placeholder="소요 시간" onChange={(e) => onUpdate({ duration: e.target.value })} />
           </label>
         </div>
@@ -728,7 +850,7 @@ function SummaryTable({ snapshot }: { snapshot: SummarySnapshot | null }) {
   );
 }
 
-function SideSection({ title, sessions, customers, expandedSessionId, setExpandedSessionId, deleteSession }: { title: string; sessions: ConsultationSession[]; customers: CustomerProfile[]; expandedSessionId: string | null; setExpandedSessionId: (id: string | null) => void; deleteSession: (session: ConsultationSession) => void }) {
+function SideSection({ title, sessions, customers, expandedSessionId, setExpandedSessionId, deleteSession, startSession }: { title: string; sessions: ConsultationSession[]; customers: CustomerProfile[]; expandedSessionId: string | null; setExpandedSessionId: (id: string | null) => void; deleteSession: (session: ConsultationSession) => void; startSession: (session: ConsultationSession) => void }) {
   return (
     <section>
       <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">{title}</p>
@@ -736,7 +858,7 @@ function SideSection({ title, sessions, customers, expandedSessionId, setExpande
         {sessions.length ? sessions.map((session) => {
           const customer = customers.find((item) => item.id === session.customerId);
           return (
-            <SessionCard key={session.id} session={session} customer={customer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={() => {}} />
+            <SessionCard key={session.id} session={session} customer={customer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={() => {}} onStart={() => startSession(session)} />
           );
         }) : <EmptyBox text="표시할 상담이 없습니다." />}
       </div>
@@ -745,7 +867,7 @@ function SideSection({ title, sessions, customers, expandedSessionId, setExpande
 }
 
 function EmptyBox({ text }: { text: string }) {
-  return <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-400">{text}</div>;
+  return <div className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm font-bold text-slate-400">{text}</div>;
 }
 
 function DeleteConfirmModal({ title, body, onCancel, onConfirm }: { title: string; body: string; onCancel: () => void; onConfirm: () => void }) {

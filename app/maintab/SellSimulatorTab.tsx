@@ -100,6 +100,7 @@ export default function SellSimulatorTab() {
   const {
     portfolioAssets, analysisResult,
     rebalancingSellAssets,           // 확정 매도 후 잔여 수량이 실시간 반영된 배열
+    setRebalancingSellAssets,
     sellHistory, addSellRecord, availableInvestmentFunds,
   } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
@@ -132,6 +133,10 @@ export default function SellSimulatorTab() {
 
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [sellQtyStr, setSellQtyStr] = useState<string>("");
+
+  // 매수/매도 모드 토글
+  const [mode, setMode] = useState<"sell" | "buy">("sell");
+  const [buyQtyStr, setBuyQtyStr] = useState<string>("");
 
   // ── 선택 종목 상세 (펀더멘털 + 1Y 차트) ────────────────────────────────────
   const [stockDetail, setStockDetail] = useState<StockDetail | null>(null);
@@ -219,6 +224,26 @@ export default function SellSimulatorTab() {
     return maxQty > 0 ? Math.min(n, maxQty) : n;
   }, [sellQtyStr, maxQty]);
 
+  const buyQty = useMemo(() => {
+    const n = parseFloat(buyQtyStr);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [buyQtyStr]);
+
+  // 매수 시뮬레이션 — 선택 종목 수량 증가 후 도넛 재계산
+  const simulatedBuyAssets = useMemo<PortfolioAsset[]>(() => {
+    if (!selectedAsset || buyQty <= 0 || mode !== "buy") return baseAssets;
+    return baseAssets.map((a) => {
+      if (makeKey(a) !== selectedKey) return a;
+      const price = getEffectivePrice(a);
+      const newAmt = a.amount + buyQty;
+      return {
+        ...a,
+        amount: newAmt,
+        current_value: price > 0 ? newAmt * price : a.current_value,
+      };
+    });
+  }, [baseAssets, selectedAsset, selectedKey, buyQty, mode]);
+
   // 수량 입력 — 오버플로우 가드: 최대 보유 수량 초과 시 자동 리셋
   const handleQtyChange = useCallback(
     (val: string) => {
@@ -260,6 +285,21 @@ export default function SellSimulatorTab() {
     const amt = (cp - bp) * selectedAsset.amount;
     return { pct, amt };
   }, [selectedAsset]);
+
+  // 매수 확정 — rebalancingSellAssets에 수량 증가 반영
+  const handleConfirmBuy = useCallback(() => {
+    if (!selectedAsset || buyQty <= 0) return;
+    const price = getEffectivePrice(selectedAsset);
+    if (price <= 0) return;
+    const updated = baseAssets.map((a) => {
+      if (makeKey(a) !== selectedKey) return a;
+      const newAmt = a.amount + buyQty;
+      return { ...a, amount: newAmt, current_value: newAmt * price };
+    });
+    setRebalancingSellAssets(updated);
+    setBuyQtyStr("");
+    setSelectedKey(null);
+  }, [selectedAsset, buyQty, baseAssets, selectedKey, setRebalancingSellAssets]);
 
   // 매도 확정 — 전역 Context에 누적 (탭 이동 후 복귀 시에도 유지)
   const handleConfirmSell = () => {
@@ -420,7 +460,7 @@ export default function SellSimulatorTab() {
       </section>
       )} {/* baseAssets.length > 0 조건부 블록 끝 */}
 
-      {/* ── [2] 중간: 실시간 매도 조율 ──────────────────────────────────────── */}
+      {/* ── [2] 중간: 실시간 매도/매수 조율 ─────────────────────────────────── */}
       {selectedAsset && selectedAsset.amount > 0 && (
         <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
@@ -629,64 +669,123 @@ export default function SellSimulatorTab() {
 
           {/* 우측: 수량 입력 + 실시간 도넛 차트 */}
           <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
+            {/* 매수/매도 모드 토글 */}
+            <div className="flex rounded-lg border border-slate-200 p-0.5">
+              <button
+                type="button"
+                onClick={() => { setMode("sell"); setBuyQtyStr(""); }}
+                className={`flex-1 rounded-md py-2 text-sm font-bold transition ${mode === "sell" ? "bg-samsung text-white shadow-sm" : "text-slate-500 hover:text-navy"}`}
+              >
+                매도
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode("buy"); setSellQtyStr(""); }}
+                className={`flex-1 rounded-md py-2 text-sm font-bold transition ${mode === "buy" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-500 hover:text-navy"}`}
+              >
+                추가 매수
+              </button>
+            </div>
+
             <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
-              매도 수량 입력 및 매도 후 예상 비중
+              {mode === "sell" ? "매도 수량 입력 및 매도 후 예상 비중" : "매수 수량 입력 및 매수 후 예상 비중"}
             </p>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="number"
-                min={0}
-                max={maxQty > 0 ? maxQty : undefined}
-                value={sellQtyStr}
-                onChange={(e) => handleQtyChange(e.target.value)}
-                onBlur={() => {
-                  if (maxQty > 0 && parseFloat(sellQtyStr) > maxQty) setSellQtyStr(String(maxQty));
-                }}
-                placeholder="0"
-                disabled={isCustomerView}
-                className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-samsung focus:outline-none focus:ring-1 focus:ring-samsung disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <span className="text-sm font-semibold text-slate-500">
-                개 매도 시
-                {maxQty > 0 && (
-                  <span className="ml-1 text-slate-400">(최대 {maxQty.toLocaleString()}주)</span>
+            {mode === "sell" ? (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    type="number"
+                    min={0}
+                    max={maxQty > 0 ? maxQty : undefined}
+                    value={sellQtyStr}
+                    onChange={(e) => handleQtyChange(e.target.value)}
+                    onBlur={() => {
+                      if (maxQty > 0 && parseFloat(sellQtyStr) > maxQty) setSellQtyStr(String(maxQty));
+                    }}
+                    placeholder="0"
+                    disabled={isCustomerView}
+                    className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-samsung focus:outline-none focus:ring-1 focus:ring-samsung disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <span className="text-sm font-semibold text-slate-500">
+                    개 매도 시
+                    {maxQty > 0 && (
+                      <span className="ml-1 text-slate-400">(최대 {maxQty.toLocaleString()}주)</span>
+                    )}
+                  </span>
+                </div>
+
+                {sellQty > 0 && selectedAsset.buy_price != null && (
+                  <div className="rounded-lg bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-600">
+                    예상 실현손익:{" "}
+                    {(() => {
+                      const gain = (getEffectivePrice(selectedAsset) - selectedAsset.buy_price) * sellQty;
+                      return (
+                        <span className={`font-black ${gain >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                          {gain >= 0 ? "+" : ""}{formatKrwAmount(gain)}
+                        </span>
+                      );
+                    })()}
+                  </div>
                 )}
-              </span>
-            </div>
 
-            {sellQty > 0 && selectedAsset.buy_price != null && (
-              <div className="rounded-lg bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-600">
-                예상 실현손익:{" "}
-                {(() => {
-                  const gain =
-                    (getEffectivePrice(selectedAsset) - selectedAsset.buy_price) * sellQty;
-                  return (
-                    <span
-                      className={`font-black ${gain >= 0 ? "text-emerald-600" : "text-red-600"}`}
-                    >
-                      {gain >= 0 ? "+" : ""}
-                      {formatKrwAmount(gain)}
+                <div className="flex justify-center">
+                  <DonutChart assets={simulatedAssets} />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmSell}
+                  disabled={sellQty <= 0 || isCustomerView}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-samsung px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <CheckCircle2 size={16} />
+                  매도 확정
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    value={buyQtyStr}
+                    onChange={(e) => setBuyQtyStr(e.target.value)}
+                    placeholder="0"
+                    className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <span className="text-sm font-semibold text-slate-500">주 추가 매수</span>
+                </div>
+
+                {buyQty > 0 && (
+                  <div className="rounded-lg bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-slate-600">
+                    매수 예정:{" "}
+                    <span className="font-black text-emerald-700">
+                      {formatKrwAmount(buyQty * getEffectivePrice(selectedAsset))}
                     </span>
-                  );
-                })()}
-              </div>
+                    {availableInvestmentFunds !== null && (
+                      <span className="ml-2 text-slate-400">
+                        (가용: {formatKrwAmount(availableInvestmentFunds)})
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-center">
+                  <DonutChart assets={simulatedBuyAssets} />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmBuy}
+                  disabled={buyQty <= 0}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <CheckCircle2 size={16} />
+                  매수 확정
+                </button>
+              </>
             )}
-
-            {/* 실시간 도넛 차트 — simulatedAssets 기준으로 리렌더링 */}
-            <div className="flex justify-center">
-              <DonutChart assets={simulatedAssets} />
-            </div>
-
-            <button
-              type="button"
-              onClick={handleConfirmSell}
-              disabled={sellQty <= 0 || isCustomerView}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-samsung px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <CheckCircle2 size={16} />
-              매도 확정
-            </button>
           </div>
         </section>
       )}

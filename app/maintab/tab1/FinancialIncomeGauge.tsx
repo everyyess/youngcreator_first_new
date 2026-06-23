@@ -334,7 +334,7 @@ export function FinancialIncomeGauge({
 
       {/* 소득 탭: 배당 / 이자 — hideCapitalGains 시 양도 탭 제외 */}
       <div className="border-t border-slate-100">
-        <div className="flex border-b border-slate-100">
+        <div data-consultation-lock-exempt="true" className="flex border-b border-slate-100">
           {(hideCapitalGains ? ["배당", "이자"] as const : ["배당", "이자", "양도"] as const).map((tab) => (
             <button
               key={tab}
