@@ -1,7 +1,8 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import type { Api, TelegramClient as TC, StringSession as SS } from "telegram";
+import type { Api, TelegramClient as TC } from "telegram";
+import type { StringSession as SS } from "telegram/sessions";
 
 // eslint-disable-next-line no-eval
 const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
@@ -77,7 +78,7 @@ export interface TelegramSearchResponse {
 // ── 연결된 계정의 전체 채널 목록 가져오기 ────────────────────────────────────
 
 async function getChannelDialogs(
-  client: TelegramClient,
+  client: TC,
 ): Promise<{ entity: Api.Channel; title: string; cleanId: string }[]> {
   const dialogs = await client.getDialogs({ limit: 500 });
   const channels: { entity: Api.Channel; title: string; cleanId: string }[] = [];
@@ -99,7 +100,7 @@ async function getChannelDialogs(
 const BATCH_SIZE = 5;
 
 async function searchChannels(
-  client: TelegramClient,
+  client: TC,
   keyword: string,
   keyword2: string | undefined,
 ): Promise<FoundMsg[]> {
@@ -157,7 +158,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "텔레그램 설정 필요 (TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION)" }, { status: 503 });
   }
 
-  let client: TelegramClient | null = null;
+  let client: TC | null = null;
   try {
     client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, { connectionRetries: 2 });
     await client.connect();

@@ -1,7 +1,8 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import type { Api, TelegramClient as TC, StringSession as SS } from "telegram";
+import type { Api, TelegramClient as TC } from "telegram";
+import type { StringSession as SS } from "telegram/sessions";
 
 // eslint-disable-next-line no-eval
 const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
