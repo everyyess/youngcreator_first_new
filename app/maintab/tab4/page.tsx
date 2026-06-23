@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
+import { useCustomerView } from "../CustomerViewContext";
 import {
   fmt,
   fmtPct,
@@ -86,6 +87,7 @@ function generatePdfComment(left: MetricSnapshot, right: MetricSnapshot): string
 export default function Tab4Page() {
   const data = usePortfolioResult();
   const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData, selectedCustomerProfile } = useCustomerContext();
+  const { isCustomerView } = useCustomerView();
   const [showPensionPanel, setShowPensionPanel] = useState(false);
 
   const tMarginal = useMemo(() => {
@@ -203,7 +205,7 @@ export default function Tab4Page() {
               </button>
             </div>
             <div className="p-4">
-              <PensionTaxPanel tMarginal={tMarginal} alwaysOpen />
+              <PensionTaxPanel tMarginal={tMarginal} alwaysOpen isCustomerView={isCustomerView} />
             </div>
           </div>
         </div>

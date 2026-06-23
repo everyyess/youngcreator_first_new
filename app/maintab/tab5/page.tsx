@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useCustomerContext, loadTaxSummaries } from "../CustomerContext";
 import { usePortfolioResult } from "../PortfolioResultComponents";
+import { useCustomerView } from "../CustomerViewContext";
 import { parseLiquidityEntries, type LiquidityKind } from "../liquidityFields";
 
 type BucketType = "자본증식" | "인컴창출" | "위험헷지" | "유동성" | "절세";
@@ -602,6 +603,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 
 export default function Tab5Page() {
   const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation, selectedCustomer } = useCustomerContext();
+  const { isCustomerView } = useCustomerView();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
   const [bucketOffset, setBucketOffset] = useState<Partial<Record<BucketType,number>>>({});
@@ -889,8 +891,9 @@ const additionalInvestmentAmount = (() => {
                               </span>
                             )}
                             <button type="button"
-                              onClick={e=>{e.stopPropagation();handleSelect(p);}}
-                              className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${sel?"border-samsung bg-samsung text-white":unsuitable?"border-red-300 bg-white hover:border-red-400":"border-slate-300 bg-white hover:border-samsung"}`}>
+                              onClick={e=>{e.stopPropagation();if(!isCustomerView)handleSelect(p);}}
+                              disabled={isCustomerView}
+                              className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${sel?"border-samsung bg-samsung text-white":unsuitable?"border-red-300 bg-white hover:border-red-400":"border-slate-300 bg-white hover:border-samsung"} ${isCustomerView?"cursor-not-allowed opacity-50":""}`}>
                               {sel&&<CheckCircle2 size={14}/>}
                             </button>
                             <div className={`mb-2 flex items-center gap-1.5 pr-8 ${unsuitable?"mt-5":""}`}>
@@ -932,7 +935,7 @@ const additionalInvestmentAmount = (() => {
                 <h2 className="text-lg font-bold text-navy">총 {selectedProducts.length}개 상품 선택됨</h2>
               </div>
             </div>
-            <button type="button" onClick={()=>{setSelectedIdsRaw([]);setActiveEffectId(null);}} className="text-xs font-bold text-slate-400 hover:text-red-500 transition">전체 해제</button>
+            <button type="button" onClick={()=>{if(!isCustomerView){setSelectedIdsRaw([]);setActiveEffectId(null);}}} disabled={isCustomerView} className="text-xs font-bold text-slate-400 hover:text-red-500 transition disabled:cursor-not-allowed disabled:opacity-40">전체 해제</button>
           </div>
           <div className="space-y-2">
             {BUCKETS.map(bucket=>{
@@ -949,7 +952,7 @@ const additionalInvestmentAmount = (() => {
                           {isUnsuitable(p,client)&&<AlertTriangle size={12} className="shrink-0 text-red-500"/>}
                           <p className="text-xs font-semibold text-navy truncate">{p.name}</p>
                         </div>
-                        <button type="button" onClick={()=>handleSelect(p)} className="shrink-0 text-slate-300 hover:text-red-400 transition"><X size={14}/></button>
+                        <button type="button" onClick={()=>{if(!isCustomerView)handleSelect(p);}} disabled={isCustomerView} className="shrink-0 text-slate-300 hover:text-red-400 transition disabled:cursor-not-allowed disabled:opacity-40"><X size={14}/></button>
                       </div>
                     ))}
                   </div>

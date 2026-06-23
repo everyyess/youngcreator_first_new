@@ -27,6 +27,7 @@ import {
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
 } from "./CustomerContext";
 import { FINANCIAL_INCOME_STORAGE_KEY, NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
+import { CustomerViewContext, CONSULTATION_ENDED_STORAGE_KEY } from "./CustomerViewContext";
 import { formatLiquiditySummary, normalizeLiquidityValue } from "./liquidityFields";
 import {
   consultationTimerEventName,
@@ -174,6 +175,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   const [lastAnalysisSnapshot, setLastAnalysisSnapshot] = useState<ReturnType<typeof buildStructuredJsonPayload> | null>(null);
   const [changeHistory, setChangeHistory] = useState<ChangeEntry[]>([]);
   const [changeHistoryExpanded, setChangeHistoryExpanded] = useState(false);
+  const [isCustomerView, setIsCustomerView] = useState(false);
+  const [consultationEnded, setConsultationEnded] = useState(false);
   const formData = deriveCalculatedAppState(customerData[selectedCustomer] ?? createInitialState());
 
   // ── 포트폴리오 전역 상태 — Tab 1의 customerData Map 패턴과 동일 구조 ──────
@@ -266,6 +269,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     setCustomerData((prev) => ({ ...prev, [active.customerId]: nextState }));
     saveCustomerDataJsonOnly(active.customerId, nextState).catch((error) => console.error("Failed to save consultation duration", error));
     writeActiveConsultation(null);
+    window.localStorage.setItem(CONSULTATION_ENDED_STORAGE_KEY, "1");
+    setConsultationEnded(true);
     setActiveConsultation(null);
     setActiveConsultationElapsedSeconds(0);
   }, [activeConsultation, customerData]);
@@ -281,6 +286,8 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     setCustomerData((prev) => ({ ...prev, [selectedCustomer]: nextState }));
     saveCustomerDataJsonOnly(selectedCustomer, nextState).catch((error) => console.error("Failed to resume consultation", error));
     storeSelectedCustomerId(selectedCustomer);
+    window.localStorage.removeItem(CONSULTATION_ENDED_STORAGE_KEY);
+    setConsultationEnded(false);
     writeActiveConsultation({ sessionId: target.id, customerId: selectedCustomer, startedAt: new Date().toISOString(), returnPath: `/maintab/${currentSegment ?? "tab1"}` });
     setActiveConsultation(readActiveConsultation());
   }, [customerData, currentSegment, selectedCustomer]);
@@ -298,6 +305,20 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
       window.removeEventListener(consultationTimerEventName, syncActive);
       window.removeEventListener("storage", syncActive);
     };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setIsCustomerView(params.get("view") === "customer");
+  }, []);
+
+  useEffect(() => {
+    const syncEnded = () => {
+      setConsultationEnded(!!window.localStorage.getItem(CONSULTATION_ENDED_STORAGE_KEY));
+    };
+    syncEnded();
+    window.addEventListener("storage", syncEnded);
+    return () => window.removeEventListener("storage", syncEnded);
   }, []);
 
   useEffect(() => {
@@ -1085,38 +1106,53 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
   };
 
   return (
-    <CustomerContext.Provider value={contextValue}>
-      <main className="min-h-screen px-5 py-6 text-ink lg:px-8">
-        <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
-          <HeaderSummary
-            currentCustomer={selectedCustomerProfile}
-            recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
-            assetSummary={headerAssetSummary}
-            storageErrorMessage={storageErrorMessage}
-            activeConsultation={activeConsultation}
-            elapsedSeconds={activeConsultationElapsedSeconds}
-            onHome={() => router.push("/home")}
-            onFinish={() => finishActiveConsultation(false)}
-            onResume={resumeLatestConsultation}
-          />
-          <div className="flex flex-col gap-5 xl:flex-row">
-            <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
-            <section className="min-w-0 flex-1">
-              <div className="flex flex-col gap-5">
-                {children}
-              </div>
-            </section>
+    <CustomerViewContext.Provider value={{ isCustomerView, consultationEnded }}>
+      <CustomerContext.Provider value={contextValue}>
+        <main className="min-h-screen px-5 py-6 text-ink lg:px-8">
+          <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
+            <HeaderSummary
+              currentCustomer={selectedCustomerProfile}
+              recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
+              assetSummary={headerAssetSummary}
+              storageErrorMessage={storageErrorMessage}
+              activeConsultation={activeConsultation}
+              elapsedSeconds={activeConsultationElapsedSeconds}
+              onHome={() => router.push("/home")}
+              onFinish={() => finishActiveConsultation(false)}
+              onResume={resumeLatestConsultation}
+            />
+            <div className="flex flex-col gap-5 xl:flex-row">
+              <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
+              <section className="min-w-0 flex-1">
+                <div className="flex flex-col gap-5">
+                  {children}
+                </div>
+              </section>
+            </div>
           </div>
-        </div>
-        {deleteConfirmOpen ? (
-          <DeleteCustomerDialog
-            customerLabel={selectedCustomerProfile ? customerTabLabel(selectedCustomerProfile) : "현재 고객"}
-            onCancel={() => setDeleteConfirmOpen(false)}
-            onDelete={deleteSelectedCustomer}
-          />
-        ) : null}
-      </main>
-    </CustomerContext.Provider>
+          {deleteConfirmOpen ? (
+            <DeleteCustomerDialog
+              customerLabel={selectedCustomerProfile ? customerTabLabel(selectedCustomerProfile) : "현재 고객"}
+              onCancel={() => setDeleteConfirmOpen(false)}
+              onDelete={deleteSelectedCustomer}
+            />
+          ) : null}
+          {isCustomerView && consultationEnded && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60">
+              <div className="rounded-2xl bg-white px-8 py-8 shadow-2xl text-center max-w-sm w-full mx-4">
+                <div className="mb-4 flex justify-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-100">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  </div>
+                </div>
+                <h2 className="text-lg font-extrabold text-slate-900 mb-2">상담이 종료되었습니다</h2>
+                <p className="text-sm text-slate-500">담당 PB에게 상담 재개를 요청해주세요.</p>
+              </div>
+            </div>
+          )}
+        </main>
+      </CustomerContext.Provider>
+    </CustomerViewContext.Provider>
   );
 }
 

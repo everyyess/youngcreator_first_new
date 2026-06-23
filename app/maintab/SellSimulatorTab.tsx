@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { useCustomerContext } from "./CustomerContext";
 import type { PortfolioAsset, SellRecord } from "./CustomerContext";
+import { useCustomerView } from "./CustomerViewContext";
 import { TLHTabContent } from "./tab1/FinancialIncomeGauge";
 import {
   CLASS_COLORS,
@@ -101,6 +102,7 @@ export default function SellSimulatorTab() {
     rebalancingSellAssets,           // 확정 매도 후 잔여 수량이 실시간 반영된 배열
     sellHistory, addSellRecord, availableInvestmentFunds,
   } = useCustomerContext();
+  const { isCustomerView } = useCustomerView();
 
   // ─── 카드 그리드 기준 자산 ───────────────────────────────────────────────
   // rebalancingSellAssets: 매도 확정마다 수량이 차감되는 working copy
@@ -642,7 +644,8 @@ export default function SellSimulatorTab() {
                   if (maxQty > 0 && parseFloat(sellQtyStr) > maxQty) setSellQtyStr(String(maxQty));
                 }}
                 placeholder="0"
-                className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-samsung focus:outline-none focus:ring-1 focus:ring-samsung"
+                disabled={isCustomerView}
+                className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-samsung focus:outline-none focus:ring-1 focus:ring-samsung disabled:cursor-not-allowed disabled:opacity-50"
               />
               <span className="text-sm font-semibold text-slate-500">
                 개 매도 시
@@ -678,7 +681,7 @@ export default function SellSimulatorTab() {
             <button
               type="button"
               onClick={handleConfirmSell}
-              disabled={sellQty <= 0}
+              disabled={sellQty <= 0 || isCustomerView}
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-samsung px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <CheckCircle2 size={16} />

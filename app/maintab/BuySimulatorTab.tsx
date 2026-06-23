@@ -30,6 +30,7 @@ import {
   type PortfolioAsset,
   type PbOrderRow,
 } from "./CustomerContext";
+import { useCustomerView } from "./CustomerViewContext";
 import { formatLocalTickerName } from "./tickerUtils";
 import { parseKoreanNumber } from "@/lib/portfolioLogic";
 import {
@@ -566,6 +567,7 @@ export default function BuySimulatorTab() {
     pbOrderRows,
     setPbOrderRows,
   } = useCustomerContext();
+  const { isCustomerView } = useCustomerView();
 
   // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
   const baseAssets = useMemo<PortfolioAsset[]>(() => {
@@ -1684,7 +1686,8 @@ export default function BuySimulatorTab() {
                 value={minDepositManStr}
                 onChange={(e) => setMinDepositManStr(e.target.value)}
                 placeholder="0"
-                className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-right text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-white/50"
+                disabled={isCustomerView}
+                className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-right text-sm font-bold text-white outline-none placeholder:text-white/30 focus:border-white/50 disabled:cursor-not-allowed disabled:opacity-50"
               />
               <span className="flex-shrink-0 text-[10px] text-white/50">만원</span>
             </div>
@@ -1835,17 +1838,18 @@ export default function BuySimulatorTab() {
               return (
                 <div
                   key={`${item.ticker}-${item.originalIdx}`}
-                  className={`flex cursor-pointer items-center gap-3 px-4 py-3 transition hover:bg-slate-50 ${
+                  className={`flex items-center gap-3 px-4 py-3 transition ${isCustomerView ? "cursor-default" : "cursor-pointer hover:bg-slate-50"} ${
                     isChecked ? "" : "opacity-45"
                   }`}
-                  onClick={() => toggleCheck(item.originalIdx)}
+                  onClick={() => !isCustomerView && toggleCheck(item.originalIdx)}
                 >
                   <input
                     type="checkbox"
                     checked={isChecked}
-                    onChange={() => toggleCheck(item.originalIdx)}
+                    onChange={() => !isCustomerView && toggleCheck(item.originalIdx)}
                     onClick={(e) => e.stopPropagation()}
-                    className="h-4 w-4 flex-shrink-0 cursor-pointer rounded accent-[#2f2f9d]"
+                    disabled={isCustomerView}
+                    className="h-4 w-4 flex-shrink-0 cursor-pointer rounded accent-[#2f2f9d] disabled:cursor-not-allowed"
                   />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-bold text-slate-800">
@@ -1942,7 +1946,8 @@ export default function BuySimulatorTab() {
           <button
             type="button"
             onClick={addPbRow}
-            className="flex items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700 transition hover:bg-violet-100"
+            disabled={isCustomerView}
+            className="flex items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={12} />
             종목 추가
@@ -1983,7 +1988,8 @@ export default function BuySimulatorTab() {
                           <select
                             value={row.productType}
                             onChange={(e) => updatePbRow(row.id, { productType: e.target.value })}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-navy outline-none focus:border-[#2f2f9d]"
+                            disabled={isCustomerView}
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-navy outline-none focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <option>국내주식</option>
                             <option>해외주식</option>
@@ -2000,6 +2006,7 @@ export default function BuySimulatorTab() {
                             <input
                               type="text"
                               value={row.name}
+                              disabled={isCustomerView}
                               onChange={(e) =>
                                 updatePbRow(row.id, { name: e.target.value, ticker: "" })
                               }
@@ -2047,7 +2054,8 @@ export default function BuySimulatorTab() {
                             value={row.quantity}
                             onChange={(e) => updatePbRow(row.id, { quantity: e.target.value })}
                             placeholder="0"
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d]"
+                            disabled={isCustomerView}
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:opacity-50"
                           />
                         </td>
                         {/* 매수단가(원화) — read-only 자동 연산 */}
@@ -2069,7 +2077,7 @@ export default function BuySimulatorTab() {
                             step="0.1"
                             value={row.bondYield}
                             onChange={(e) => updatePbRow(row.id, { bondYield: e.target.value })}
-                            disabled={!isBond}
+                            disabled={!isBond || isCustomerView}
                             placeholder={isBond ? "%" : "—"}
                             className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
                           />
@@ -2082,7 +2090,7 @@ export default function BuySimulatorTab() {
                             step="1"
                             value={row.maturityYears}
                             onChange={(e) => updatePbRow(row.id, { maturityYears: e.target.value })}
-                            disabled={!isBond}
+                            disabled={!isBond || isCustomerView}
                             placeholder={isBond ? "년" : "—"}
                             className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
                           />
@@ -2092,7 +2100,8 @@ export default function BuySimulatorTab() {
                           <button
                             type="button"
                             onClick={() => removePbRow(row.id)}
-                            className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition hover:bg-red-50 hover:text-red-500"
+                            disabled={isCustomerView}
+                            className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30"
                           >
                             <X size={12} />
                           </button>
@@ -2139,7 +2148,7 @@ export default function BuySimulatorTab() {
         <button
           type="button"
           onClick={handleConfirm}
-          disabled={isConfirming || !canConfirm}
+          disabled={isConfirming || !canConfirm || isCustomerView}
           className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isConfirming ? (
