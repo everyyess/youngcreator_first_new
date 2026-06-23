@@ -524,6 +524,26 @@ export default function ExistingPortfolioTab() {
     );
   }, []);
 
+  // ── 티커 없는 종목 전체 재조회 ───────────────────────────────────────────
+
+  const retryMissingTickers = useCallback(async () => {
+    const missing = portfolioAssets
+      .map((a, i) => ({ a, i }))
+      .filter(({ a }) => !a.ticker?.trim() && a.name?.trim());
+    if (!missing.length) { showToast("티커가 없는 종목이 없습니다."); return; }
+    setBatchInferring(true);
+    setBatchProgress({ done: 0, total: missing.length });
+    for (let j = 0; j < missing.length; j++) {
+      const { a, i } = missing[j];
+      await handleSmartInference(i, a.name.trim());
+      setBatchProgress({ done: j + 1, total: missing.length });
+    }
+    setBatchInferring(false);
+    showToast(`티커 재조회 완료 (${missing.length}개)`);
+  // handleSmartInference·showToast는 useCallback으로 안정
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [portfolioAssets]);
+
   // ── 가져오기 확정 + 배치 티커 자동완성 예약 ──────────────────────────────
 
   const applyImport = useCallback(() => {
@@ -714,6 +734,20 @@ export default function ExistingPortfolioTab() {
             <Plus size={16} />
             자산 추가
           </button>
+          {portfolioAssets.some(a => !a.ticker?.trim() && a.name?.trim()) && (
+            <button
+              type="button"
+              disabled={batchInferring}
+              onClick={retryMissingTickers}
+              title="티커가 없는 종목의 정보를 일괄 재조회합니다"
+              className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-600 transition hover:bg-violet-100 disabled:opacity-50"
+            >
+              {batchInferring
+                ? <><Loader2 size={16} className="animate-spin" />{batchProgress.done}/{batchProgress.total} 조회 중…</>
+                : <><Sparkles size={16} />티커 재조회 ({portfolioAssets.filter(a => !a.ticker?.trim() && a.name?.trim()).length}개)</>
+              }
+            </button>
+          )}
           <button
             type="button"
             disabled={imageLoading}
