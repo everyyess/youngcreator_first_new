@@ -26,7 +26,7 @@ const MARKET_SET = new Set(['KOSPI', 'KOSDAQ', 'US']);
 const SYSTEM_INSTRUCTION =
   '너는 주식 종목의 상장 여부와 거래소 메타데이터를 추출하는 금융 정보 봇이야. ' +
   '사용자가 입력한 종목명을 분석하여 반드시 아래 JSON 형식 한 줄로만 응답해야 한다. 설명·마크다운·코드블록 금지.\n' +
-  '{"isListed":true/false,"krCode":"6자리숫자또는null","market":"KOSPI또는KOSDAQ또는US또는null","englishName":"영문사명또는null"}\n\n' +
+  '{"isListed":true/false,"krCode":"6자리숫자또는null","market":"KOSPI또는KOSDAQ또는US또는null","englishName":"영문사명또는null","koreanName":"한국어종목명또는null"}\n\n' +
 
   '━━━ 필드 규칙 ━━━\n' +
   '[isListed] 해당 기업이 어느 거래소에든 정식 상장된 퍼블릭 기업인지 여부.\n' +
@@ -48,8 +48,14 @@ const SYSTEM_INSTRUCTION =
   '  한국 기업도 정확한 영문 사명 출력. 모르면 합리적으로 추론.\n' +
   '  SK스퀘어·LG에너지솔루션·HD현대 등 혼용어는 그룹 브랜드 영문 + 한국어 부분 음차/번역.\n\n' +
 
+  '[koreanName] 해당 종목의 한국어 공식 명칭 (국내 투자자에게 통용되는 이름).\n' +
+  '  해외 종목: 국내에서 통용되는 한국어 명칭. 없으면 영문 사명을 한국어로 음차.\n' +
+  '  국내 종목: 한국어 공식 종목명 (법인 표기 "(주)" 제외).\n' +
+  '  비상장·불명: null.\n\n' +
+
   '━━━ 절대 규칙 ━━━\n' +
   '[규칙 1] 영문+국문 혼합 입력(SK스퀘어·LG에너지솔루션·HD현대·KT&G 등)은 한국 상장 종목 최우선 탐색.\n' +
+  '  HD로 시작하는 입력에 한글이 포함된 경우(HD현대·HD현대중공업·HD현대마린솔루션 등)는 반드시 KR 종목으로 처리. HD(홈디포) 혼동 금지.\n' +
   '[규칙 2] SpaceX·Stripe·OpenAI 같은 유명 비상장 기업은 isListed=false 반드시 출력.\n' +
   '[규칙 3] krCode는 선행 0 포함 정확히 6자리 숫자 문자열. 비KR 종목은 반드시 null.\n' +
   '[규칙 4] JSON 이외 텍스트 절대 금지.\n' +
@@ -58,26 +64,52 @@ const SYSTEM_INSTRUCTION =
   '  null은 해당 기업의 상장 여부 자체가 불확실하거나 코드를 전혀 알 수 없는 경우에만 사용.\n\n' +
 
   '━━━ 정답 예시 ━━━\n' +
-  '삼성전자 → {"isListed":true,"krCode":"005930","market":"KOSPI","englishName":"Samsung Electronics"}\n' +
-  'SK하이닉스 → {"isListed":true,"krCode":"000660","market":"KOSPI","englishName":"SK Hynix"}\n' +
-  'SK스퀘어 → {"isListed":true,"krCode":"402340","market":"KOSPI","englishName":"SK Square"}\n' +
-  'LG에너지솔루션 → {"isListed":true,"krCode":"373220","market":"KOSPI","englishName":"LG Energy Solution"}\n' +
-  'HD현대 → {"isListed":true,"krCode":"267250","market":"KOSPI","englishName":"HD Hyundai"}\n' +
-  '한화에어로스페이스 → {"isListed":true,"krCode":"012450","market":"KOSPI","englishName":"Hanwha Aerospace"}\n' +
-  '알테오젠 → {"isListed":true,"krCode":"196170","market":"KOSDAQ","englishName":"Alteogen"}\n' +
-  '에코프로비엠 → {"isListed":true,"krCode":"247540","market":"KOSDAQ","englishName":"EcoPro BM"}\n' +
-  '휴메딕스 → {"isListed":true,"krCode":"200670","market":"KOSDAQ","englishName":"Humedix"}\n' +
-  '빛과전자 → {"isListed":true,"krCode":"069540","market":"KOSDAQ","englishName":"Bitgwa Jeonja"}\n' +
-  '원텍 → {"isListed":true,"krCode":"336570","market":"KOSDAQ","englishName":"Wontech"}\n' +
-  'KODEX 200 → {"isListed":true,"krCode":"069500","market":"KOSPI","englishName":"KODEX 200 ETF"}\n' +
-  'TIGER 미국나스닥100 → {"isListed":true,"krCode":"133690","market":"KOSPI","englishName":"TIGER US Nasdaq 100 ETF"}\n' +
-  '애플 → {"isListed":true,"krCode":null,"market":"US","englishName":"Apple Inc."}\n' +
-  '엔비디아 → {"isListed":true,"krCode":null,"market":"US","englishName":"Nvidia Corporation"}\n' +
-  'SPY → {"isListed":true,"krCode":null,"market":"US","englishName":"SPDR S&P 500 ETF Trust"}\n' +
-  'SOXL → {"isListed":true,"krCode":null,"market":"US","englishName":"Direxion Daily Semiconductor Bull 3X ETF"}\n' +
-  'SpaceX → {"isListed":false,"krCode":null,"market":null,"englishName":"Space Exploration Technologies Corp."}\n' +
-  'OpenAI → {"isListed":false,"krCode":null,"market":null,"englishName":"OpenAI"}\n' +
-  'Stripe → {"isListed":false,"krCode":null,"market":null,"englishName":"Stripe Inc."}';
+  '삼성전자 → {"isListed":true,"krCode":"005930","market":"KOSPI","englishName":"Samsung Electronics","koreanName":"삼성전자"}\n' +
+  'SK하이닉스 → {"isListed":true,"krCode":"000660","market":"KOSPI","englishName":"SK Hynix","koreanName":"SK하이닉스"}\n' +
+  'SK스퀘어 → {"isListed":true,"krCode":"402340","market":"KOSPI","englishName":"SK Square","koreanName":"SK스퀘어"}\n' +
+  'LG에너지솔루션 → {"isListed":true,"krCode":"373220","market":"KOSPI","englishName":"LG Energy Solution","koreanName":"LG에너지솔루션"}\n' +
+  'HD현대 → {"isListed":true,"krCode":"267250","market":"KOSPI","englishName":"HD Hyundai","koreanName":"HD현대"}\n' +
+  'HD현대중공업 → {"isListed":true,"krCode":"329180","market":"KOSPI","englishName":"HD Hyundai Heavy Industries","koreanName":"HD현대중공업"}\n' +
+  'HD현대마린솔루션 → {"isListed":true,"krCode":"443060","market":"KOSPI","englishName":"HD Hyundai Marine Solution","koreanName":"HD현대마린솔루션"}\n' +
+  'HD현대일렉트릭 → {"isListed":true,"krCode":"267260","market":"KOSPI","englishName":"HD Hyundai Electric","koreanName":"HD현대일렉트릭"}\n' +
+  '한화에어로스페이스 → {"isListed":true,"krCode":"012450","market":"KOSPI","englishName":"Hanwha Aerospace","koreanName":"한화에어로스페이스"}\n' +
+  '기아 → {"isListed":true,"krCode":"000270","market":"KOSPI","englishName":"Kia Corporation","koreanName":"기아"}\n' +
+  '두산에너빌리티 → {"isListed":true,"krCode":"034020","market":"KOSPI","englishName":"Doosan Enerbility","koreanName":"두산에너빌리티"}\n' +
+  '셀트리온 → {"isListed":true,"krCode":"068270","market":"KOSPI","englishName":"Celltrion","koreanName":"셀트리온"}\n' +
+  '삼성바이오로직스 → {"isListed":true,"krCode":"207940","market":"KOSPI","englishName":"Samsung Biologics","koreanName":"삼성바이오로직스"}\n' +
+  '알테오젠 → {"isListed":true,"krCode":"196170","market":"KOSDAQ","englishName":"Alteogen","koreanName":"알테오젠"}\n' +
+  '에코프로비엠 → {"isListed":true,"krCode":"247540","market":"KOSDAQ","englishName":"EcoPro BM","koreanName":"에코프로비엠"}\n' +
+  'HLB → {"isListed":true,"krCode":"028300","market":"KOSDAQ","englishName":"HLB Inc.","koreanName":"HLB"}\n' +
+  'HLB이노베이션 → {"isListed":true,"krCode":"067830","market":"KOSDAQ","englishName":"HLB Innovation","koreanName":"HLB이노베이션"}\n' +
+  'KODEX 200 → {"isListed":true,"krCode":"069500","market":"KOSPI","englishName":"KODEX 200 ETF","koreanName":"KODEX 200"}\n' +
+  'TIGER 미국나스닥100 → {"isListed":true,"krCode":"133690","market":"KOSPI","englishName":"TIGER US Nasdaq 100 ETF","koreanName":"TIGER 미국나스닥100"}\n' +
+  '애플 → {"isListed":true,"krCode":null,"market":"US","englishName":"Apple Inc.","koreanName":"애플"}\n' +
+  '엔비디아 → {"isListed":true,"krCode":null,"market":"US","englishName":"Nvidia Corporation","koreanName":"엔비디아"}\n' +
+  'NVDA → {"isListed":true,"krCode":null,"market":"US","englishName":"Nvidia Corporation","koreanName":"엔비디아"}\n' +
+  'Meta Platforms → {"isListed":true,"krCode":null,"market":"US","englishName":"Meta Platforms Inc.","koreanName":"메타"}\n' +
+  '메타 → {"isListed":true,"krCode":null,"market":"US","englishName":"Meta Platforms Inc.","koreanName":"메타"}\n' +
+  'JPMorgan Chase → {"isListed":true,"krCode":null,"market":"US","englishName":"JPMorgan Chase & Co.","koreanName":"JP모건체이스"}\n' +
+  'JP모건 → {"isListed":true,"krCode":null,"market":"US","englishName":"JPMorgan Chase & Co.","koreanName":"JP모건체이스"}\n' +
+  'Berkshire Hathaway → {"isListed":true,"krCode":null,"market":"US","englishName":"Berkshire Hathaway Inc.","koreanName":"버크셔해서웨이"}\n' +
+  'Eli Lilly → {"isListed":true,"krCode":null,"market":"US","englishName":"Eli Lilly and Company","koreanName":"일라이릴리"}\n' +
+  'ELILILLY → {"isListed":true,"krCode":null,"market":"US","englishName":"Eli Lilly and Company","koreanName":"일라이릴리"}\n' +
+  '일라이릴리 → {"isListed":true,"krCode":null,"market":"US","englishName":"Eli Lilly and Company","koreanName":"일라이릴리"}\n' +
+  'Broadcom → {"isListed":true,"krCode":null,"market":"US","englishName":"Broadcom Inc.","koreanName":"브로드컴"}\n' +
+  'Home Depot → {"isListed":true,"krCode":null,"market":"US","englishName":"The Home Depot Inc.","koreanName":"홈디포"}\n' +
+  'Costco → {"isListed":true,"krCode":null,"market":"US","englishName":"Costco Wholesale Corporation","koreanName":"코스트코"}\n' +
+  'Amazon → {"isListed":true,"krCode":null,"market":"US","englishName":"Amazon.com Inc.","koreanName":"아마존"}\n' +
+  'Alphabet → {"isListed":true,"krCode":null,"market":"US","englishName":"Alphabet Inc.","koreanName":"알파벳"}\n' +
+  'Goldman Sachs → {"isListed":true,"krCode":null,"market":"US","englishName":"The Goldman Sachs Group Inc.","koreanName":"골드만삭스"}\n' +
+  'RKLB → {"isListed":true,"krCode":null,"market":"US","englishName":"Rocket Lab USA","koreanName":"로켓랩"}\n' +
+  'PLTR → {"isListed":true,"krCode":null,"market":"US","englishName":"Palantir Technologies","koreanName":"팔란티어"}\n' +
+  'TSLA → {"isListed":true,"krCode":null,"market":"US","englishName":"Tesla Inc.","koreanName":"테슬라"}\n' +
+  'AAPL → {"isListed":true,"krCode":null,"market":"US","englishName":"Apple Inc.","koreanName":"애플"}\n' +
+  'SPY → {"isListed":true,"krCode":null,"market":"US","englishName":"SPDR S&P 500 ETF Trust","koreanName":"SPDR S&P500 ETF"}\n' +
+  'QQQ → {"isListed":true,"krCode":null,"market":"US","englishName":"Invesco QQQ Trust","koreanName":"인베스코 QQQ ETF"}\n' +
+  'SOXL → {"isListed":true,"krCode":null,"market":"US","englishName":"Direxion Daily Semiconductor Bull 3X ETF","koreanName":"디렉시온 반도체 3배 레버리지 ETF"}\n' +
+  'SpaceX → {"isListed":false,"krCode":null,"market":null,"englishName":"Space Exploration Technologies Corp.","koreanName":null}\n' +
+  'OpenAI → {"isListed":false,"krCode":null,"market":null,"englishName":"OpenAI","koreanName":null}\n' +
+  'Stripe → {"isListed":false,"krCode":null,"market":null,"englishName":"Stripe Inc.","koreanName":null}';
 
 /**
  * Gemini AI에 종목명 분석을 요청하여 금융 메타데이터를 반환합니다.
@@ -149,7 +181,11 @@ export async function resolveTickerWithGemini(assetName, productType = null) {
       ? parsed.englishName.trim()
       : null;
 
-    const result = { isListed, krCode, market, englishName };
+    const koreanName = typeof parsed.koreanName === 'string' && parsed.koreanName.trim()
+      ? parsed.koreanName.trim()
+      : null;
+
+    const result = { isListed, krCode, market, englishName, koreanName };
     console.log(`[geminiTicker] '${assetName}' → ${JSON.stringify(result)}`);
     return result;
 

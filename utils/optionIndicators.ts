@@ -235,11 +235,32 @@ export function computeOptionsResult(
     };
   }
 
-  // Max Pain
+  // Max Pain (대상 만기 기준 — 정의상 만기별 계산)
   const tStrikes = [...new Set([...targetE.calls.map((c) => c.strike), ...targetE.puts.map((p) => p.strike)])].sort((a, b) => a - b);
   const maxPainStrike = tStrikes.length ? computeMaxPain(targetE.calls, targetE.puts, tStrikes) : spot;
-  const callWall = targetE.calls.length ? targetE.calls.reduce((a, b) => b.openInterest > a.openInterest ? b : a).strike : null;
-  const putWall = targetE.puts.length ? targetE.puts.reduce((a, b) => b.openInterest > a.openInterest ? b : a).strike : null;
+
+  // 벽 차트 데이터 — 전체 만기 OI 합산 (현재가 ±45% 범위, 최대 30개 행사가)
+  const loS = spot * 0.55, hiS = spot * 1.55;
+  const cOIMap: Record<number, number> = {};
+  const pOIMap: Record<number, number> = {};
+  for (const e of perExp) {
+    for (const c of e.calls) cOIMap[c.strike] = (cOIMap[c.strike] ?? 0) + c.openInterest;
+    for (const p of e.puts) pOIMap[p.strike] = (pOIMap[p.strike] ?? 0) + p.openInterest;
+  }
+
+  // 콜/풋 벽: 현재가 ±45% 범위 내 전체 만기 OI 합산 기준 최대 행사가
+  const nearCallEntries = Object.entries(cOIMap)
+    .map(([s, oi]) => ({ strike: parseFloat(s), oi }))
+    .filter(({ strike }) => strike >= loS && strike <= hiS);
+  const nearPutEntries = Object.entries(pOIMap)
+    .map(([s, oi]) => ({ strike: parseFloat(s), oi }))
+    .filter(({ strike }) => strike >= loS && strike <= hiS);
+  const callWall = nearCallEntries.length
+    ? nearCallEntries.reduce((a, b) => (b.oi > a.oi ? b : a)).strike
+    : null;
+  const putWall = nearPutEntries.length
+    ? nearPutEntries.reduce((a, b) => (b.oi > a.oi ? b : a)).strike
+    : null;
 
   const target: TargetExpiry = {
     exp: new Date(targetE.ts * 1000).toISOString().slice(0, 10),
@@ -252,31 +273,37 @@ export function computeOptionsResult(
     pOI: targetE.pOI,
   };
 
-  // 벽 차트 데이터 (현재가 ±45% 범위, 최대 30개 행사가)
-  const loS = spot * 0.55, hiS = spot * 1.55;
-  let wallSt = tStrikes.filter((s) => s >= loS && s <= hiS);
-  if (wallSt.length > 30) {
-    wallSt = wallSt.sort((a, b) => Math.abs(a - spot) - Math.abs(b - spot)).slice(0, 30).sort((a, b) => a - b);
+  const allStrikesSet = new Set<number>();
+  for (const e of perExp) {
+    for (const c of e.calls) allStrikesSet.add(c.strike);
+    for (const p of e.puts) allStrikesSet.add(p.strike);
   }
-  const cOIMap: Record<number, number> = {};
-  const pOIMap: Record<number, number> = {};
-  for (const c of targetE.calls) cOIMap[c.strike] = (cOIMap[c.strike] ?? 0) + c.openInterest;
-  for (const p of targetE.puts) pOIMap[p.strike] = (pOIMap[p.strike] ?? 0) + p.openInterest;
+  const inRangeStrikes = [...allStrikesSet].filter((s) => s >= loS && s <= hiS);
+  // 콜 OI 상위 20 + 풋 OI 상위 20 유니온 — 콜벽·풋벽이 각각 반드시 포함되도록
+  const byCallOI = [...inRangeStrikes].sort((a, b) => (cOIMap[b] ?? 0) - (cOIMap[a] ?? 0));
+  const byPutOI  = [...inRangeStrikes].sort((a, b) => (pOIMap[b] ?? 0) - (pOIMap[a] ?? 0));
+  const wallStSet = new Set([...byCallOI.slice(0, 20), ...byPutOI.slice(0, 20)]);
+  let wallSt = [...wallStSet].sort((a, b) => a - b);
   const walls: WallData = {
     strikes: wallSt.map((s) => Math.round(s * 10) / 10),
     callOI: wallSt.map((s) => cOIMap[s] ?? 0),
     putOI: wallSt.map((s) => pOIMap[s] ?? 0),
   };
 
-  // IV 스큐
+  // IV 스큐 — 대상 만기에 실제 존재하는 행사가만 사용 (전체 만기 OI 기반 wallSt는 무관)
   const cIVMap: Record<number, number> = {};
   const pIVMap: Record<number, number> = {};
   for (const c of targetE.calls) if (c.iv > 0.01) cIVMap[c.strike] = Math.round(c.iv * 1000) / 10;
   for (const p of targetE.puts) if (p.iv > 0.01) pIVMap[p.strike] = Math.round(p.iv * 1000) / 10;
+  const skewStrikesSet = new Set<number>([
+    ...Object.keys(cIVMap).map(Number),
+    ...Object.keys(pIVMap).map(Number),
+  ]);
+  const skewStrikes = [...skewStrikesSet].filter((s) => s >= loS && s <= hiS).sort((a, b) => a - b);
   const skew: SkewData = {
-    strikes: wallSt.map((s) => Math.round(s * 10) / 10),
-    callIV: wallSt.map((s) => cIVMap[s] ?? null),
-    putIV: wallSt.map((s) => pIVMap[s] ?? null),
+    strikes: skewStrikes.map((s) => Math.round(s * 10) / 10),
+    callIV: skewStrikes.map((s) => cIVMap[s] ?? null),
+    putIV: skewStrikes.map((s) => pIVMap[s] ?? null),
   };
 
   // IV 기간 구조

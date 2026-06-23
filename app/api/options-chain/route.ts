@@ -76,17 +76,32 @@ async function getYahooCrumb(): Promise<YahooCrumb | null> {
   }
 }
 
+const CACHE_VER = "v5"; // 로직 변경 시 올려서 기존 캐시 무효화
 const cache = new Map<string, { data: OptionsChainResponse; ts: number }>();
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const MAX_EXPIRIES = 18;
 
 // ── Yahoo Finance 내부 타입 ──────────────────────────────────────────
 
+// YF v7 API는 숫자 필드를 { raw: number, fmt: string } 객체 또는 plain number로 반환
+type YFNum = number | { raw: number; fmt?: string } | null | undefined;
+
 interface YFOption {
-  strike: number;
-  volume?: number;
-  openInterest?: number;
-  impliedVolatility?: number;
+  strike:            YFNum;
+  volume?:           YFNum;
+  openInterest?:     YFNum;
+  impliedVolatility?: YFNum;
+}
+
+/** { raw, fmt } 객체 또는 plain number 모두 안전하게 number로 변환 */
+function yfNum(val: YFNum): number {
+  if (val == null) return 0;
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  if (typeof val === "object" && "raw" in val) {
+    const r = val.raw;
+    return typeof r === "number" && !isNaN(r) ? r : 0;
+  }
+  return 0;
 }
 
 interface YFExpiryChain {
@@ -122,6 +137,7 @@ async function fetchOptionsPage(ticker: string, date?: number): Promise<YFOption
   const qs = new URLSearchParams();
   if (date != null) qs.set("date", String(date));
   if (auth?.crumb) qs.set("crumb", auth.crumb);
+  qs.set("formatted", "false"); // 숫자 필드를 plain number로 강제 (객체 포맷 방지)
   const qstr = qs.toString() ? `?${qs}` : "";
 
   const headers: Record<string, string> = {
@@ -209,16 +225,16 @@ function toRawExpiry(ch: YFExpiryChain): RawExpiry {
   return {
     expirationDate: ch.expirationDate,
     calls: (ch.calls ?? []).map((c) => ({
-      strike: c.strike,
-      volume: c.volume ?? 0,
-      openInterest: c.openInterest ?? 0,
-      iv: c.impliedVolatility ?? 0,
+      strike: yfNum(c.strike),
+      volume: yfNum(c.volume),
+      openInterest: yfNum(c.openInterest),
+      iv: yfNum(c.impliedVolatility),
     })),
     puts: (ch.puts ?? []).map((p) => ({
-      strike: p.strike,
-      volume: p.volume ?? 0,
-      openInterest: p.openInterest ?? 0,
-      iv: p.impliedVolatility ?? 0,
+      strike: yfNum(p.strike),
+      volume: yfNum(p.volume),
+      openInterest: yfNum(p.openInterest),
+      iv: yfNum(p.impliedVolatility),
     })),
   };
 }
@@ -241,8 +257,9 @@ export async function GET(request: Request): Promise<Response> {
     );
   }
 
-  // 캐시 확인
-  const cached = cache.get(ticker);
+  // 캐시 확인 (버전 키 포함하여 로직 변경 시 자동 무효화)
+  const cacheKey = `${CACHE_VER}:${ticker}`;
+  const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     return Response.json(cached.data);
   }
@@ -312,6 +329,6 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const data = computeOptionsResult(ticker, spot, allChains, hvPrices, earnings);
-  cache.set(ticker, { data, ts: Date.now() });
+  cache.set(cacheKey, { data, ts: Date.now() });
   return Response.json(data);
 }

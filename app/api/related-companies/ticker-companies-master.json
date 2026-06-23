@@ -1,0 +1,518 @@
+{
+  "069500.KS": [
+    { "ticker": "005930.KS", "name": "삼성전자" },
+    { "ticker": "000660.KS", "name": "SK하이닉스" },
+    { "ticker": "207940.KS", "name": "삼성바이오로직스" },
+    { "ticker": "373220.KS", "name": "LG에너지솔루션" },
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "051910.KS", "name": "LG화학" },
+    { "ticker": "068270.KS", "name": "셀트리온" },
+    { "ticker": "035420.KS", "name": "NAVER" }
+  ],
+  "229200.KS": [
+    { "ticker": "247540.KQ", "name": "에코프로비엠" },
+    { "ticker": "196170.KQ", "name": "알테오젠" },
+    { "ticker": "042700.KQ", "name": "한미반도체" },
+    { "ticker": "145020.KQ", "name": "휴젤" },
+    { "ticker": "214450.KQ", "name": "파마리서치" },
+    { "ticker": "058470.KQ", "name": "리노공업" },
+    { "ticker": "277810.KQ", "name": "레인보우로보틱스" },
+    { "ticker": "086520.KS", "name": "에코프로" }
+  ],
+  "091160.KS": [
+    { "ticker": "005930.KS", "name": "삼성전자" },
+    { "ticker": "000660.KS", "name": "SK하이닉스" },
+    { "ticker": "042700.KQ", "name": "한미반도체" },
+    { "ticker": "058470.KQ", "name": "리노공업" },
+    { "ticker": "336370.KQ", "name": "솔브레인" },
+    { "ticker": "240810.KS", "name": "원익IPS" },
+    { "ticker": "009150.KS", "name": "삼성전기" },
+    { "ticker": "000990.KS", "name": "DB하이텍" }
+  ],
+  "305720.KS": [
+    { "ticker": "006400.KS", "name": "삼성SDI" },
+    { "ticker": "051910.KS", "name": "LG화학" },
+    { "ticker": "373220.KS", "name": "LG에너지솔루션" },
+    { "ticker": "096770.KS", "name": "SK이노베이션" },
+    { "ticker": "003670.KS", "name": "포스코퓨처엠" },
+    { "ticker": "247540.KQ", "name": "에코프로비엠" },
+    { "ticker": "086520.KS", "name": "에코프로" }
+  ],
+  "091180.KS": [
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "000270.KS", "name": "기아" },
+    { "ticker": "012330.KS", "name": "현대모비스" },
+    { "ticker": "011210.KS", "name": "현대위아" },
+    { "ticker": "161390.KS", "name": "한국타이어앤테크놀로지" }
+  ],
+  "441680.KS": [
+    { "ticker": "009830.KS", "name": "한화솔루션" },
+    { "ticker": "112610.KS", "name": "씨에스윈드" },
+    { "ticker": "010060.KS", "name": "OCI" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "015760.KS", "name": "한국전력" },
+    { "ticker": "100090.KS", "name": "삼강엠앤티" },
+    { "ticker": "000880.KS", "name": "한화" }
+  ],
+  "143460.KS": [
+    { "ticker": "068270.KS", "name": "셀트리온" },
+    { "ticker": "207940.KS", "name": "삼성바이오로직스" },
+    { "ticker": "128940.KS", "name": "한미약품" },
+    { "ticker": "145020.KQ", "name": "휴젤" },
+    { "ticker": "196170.KQ", "name": "알테오젠" },
+    { "ticker": "000100.KS", "name": "유한양행" },
+    { "ticker": "214450.KQ", "name": "파마리서치" }
+  ],
+  "445290.KS": [
+    { "ticker": "454910.KS", "name": "두산로보틱스" },
+    { "ticker": "277810.KQ", "name": "레인보우로보틱스" },
+    { "ticker": "090360.KQ", "name": "로보스타" },
+    { "ticker": "348340.KQ", "name": "뉴로메카" },
+    { "ticker": "005930.KS", "name": "삼성전자" },
+    { "ticker": "012450.KS", "name": "한화에어로스페이스" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" }
+  ],
+  "472870.KS": [
+    { "ticker": "012450.KS", "name": "한화에어로스페이스" },
+    { "ticker": "047810.KS", "name": "한국항공우주" },
+    { "ticker": "064350.KS", "name": "현대로템" },
+    { "ticker": "079550.KS", "name": "LIG넥스원" },
+    { "ticker": "097590.KS", "name": "한화시스템" },
+    { "ticker": "033240.KS", "name": "풍산" },
+    { "ticker": "042660.KS", "name": "한화오션" },
+    { "ticker": "000880.KS", "name": "한화" },
+    { "ticker": "204320.KS", "name": "SNT모티브" },
+    { "ticker": "065450.KQ", "name": "빅텍" }
+  ],
+  "0098F0.KS": [
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "036490.KS", "name": "한전KPS" },
+    { "ticker": "015760.KS", "name": "한국전력" },
+    { "ticker": "267260.KS", "name": "한전기술" }
+  ],
+  "449170.KS": [
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "000270.KS", "name": "기아" },
+    { "ticker": "012330.KS", "name": "현대모비스" },
+    { "ticker": "011210.KS", "name": "현대위아" }
+  ],
+  "488290.KS": [
+    { "ticker": "009540.KS", "name": "HD한국조선해양" },
+    { "ticker": "329180.KS", "name": "HD현대중공업" },
+    { "ticker": "010140.KS", "name": "삼성중공업" },
+    { "ticker": "042660.KS", "name": "한화오션" },
+    { "ticker": "010620.KS", "name": "HD현대미포조선" },
+    { "ticker": "267250.KS", "name": "HD현대" }
+  ],
+  "475080.KS": [
+    { "ticker": "010120.KS", "name": "LS일렉트릭" },
+    { "ticker": "298040.KS", "name": "효성중공업" },
+    { "ticker": "015760.KS", "name": "한국전력" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "000720.KS", "name": "현대건설" },
+    { "ticker": "267260.KS", "name": "한전기술" },
+    { "ticker": "036490.KS", "name": "한전KPS" }
+  ],
+  "104530.KS": [
+    { "ticker": "000720.KS", "name": "현대건설" },
+    { "ticker": "028260.KS", "name": "삼성물산" },
+    { "ticker": "006360.KS", "name": "GS건설" },
+    { "ticker": "047040.KS", "name": "대우건설" }
+  ],
+  "228810.KS": [
+    { "ticker": "005380.KS", "name": "현대차" },
+    { "ticker": "000270.KS", "name": "기아" },
+    { "ticker": "090430.KS", "name": "아모레퍼시픽" },
+    { "ticker": "051900.KS", "name": "LG생활건강" },
+    { "ticker": "023530.KS", "name": "롯데쇼핑" },
+    { "ticker": "004370.KS", "name": "농심" },
+    { "ticker": "011780.KS", "name": "금호석유" }
+  ],
+  "228820.KS": [
+    { "ticker": "241560.KS", "name": "두산밥캣" },
+    { "ticker": "034020.KS", "name": "두산에너빌리티" },
+    { "ticker": "042660.KS", "name": "한화오션" },
+    { "ticker": "012450.KS", "name": "한화에어로스페이스" },
+    { "ticker": "010120.KS", "name": "LS일렉트릭" },
+    { "ticker": "267250.KS", "name": "HD현대" }
+  ],
+  "091170.KS": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "032830.KS", "name": "삼성생명" },
+    { "ticker": "088350.KS", "name": "한화생명" },
+    { "ticker": "000810.KS", "name": "삼성화재" },
+    { "ticker": "016360.KS", "name": "삼성증권" }
+  ],
+  "117460.KS": [
+    { "ticker": "051910.KS", "name": "LG화학" },
+    { "ticker": "011170.KS", "name": "롯데케미칼" },
+    { "ticker": "096770.KS", "name": "SK이노베이션" },
+    { "ticker": "010950.KS", "name": "S-Oil" },
+    { "ticker": "078930.KS", "name": "GS" }
+  ],
+  "140710.KS": [
+    { "ticker": "003490.KS", "name": "대한항공" },
+    { "ticker": "011200.KS", "name": "HMM" },
+    { "ticker": "028670.KS", "name": "팬오션" },
+    { "ticker": "086280.KS", "name": "현대글로비스" },
+    { "ticker": "000120.KS", "name": "CJ대한통운" },
+    { "ticker": "020560.KS", "name": "아시아나항공" }
+  ],
+  "117680.KS": [
+    { "ticker": "005490.KS", "name": "POSCO홀딩스" },
+    { "ticker": "004020.KS", "name": "현대제철" },
+    { "ticker": "001230.KS", "name": "동국제강" },
+    { "ticker": "010130.KS", "name": "고려아연" }
+  ],
+  "228800.KS": [
+    { "ticker": "004370.KS", "name": "농심" },
+    { "ticker": "097950.KS", "name": "CJ제일제당" },
+    { "ticker": "271560.KS", "name": "오리온" },
+    { "ticker": "051900.KS", "name": "LG생활건강" },
+    { "ticker": "007310.KS", "name": "오뚜기" },
+    { "ticker": "000080.KS", "name": "하이트진로" }
+  ],
+  "114820.KS": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "032830.KS", "name": "삼성생명" },
+    { "ticker": "000810.KS", "name": "삼성화재" }
+  ],
+  "471230.KS": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "016360.KS", "name": "삼성증권" }
+  ],
+  "132030.KS": [
+    { "ticker": "010130.KS", "name": "고려아연" },
+    { "ticker": "000670.KS", "name": "영풍" },
+    { "ticker": "033240.KS", "name": "풍산" },
+    { "ticker": "005490.KS", "name": "POSCO홀딩스" },
+    { "ticker": "004020.KS", "name": "현대제철" }
+  ],
+  "138920.KS": [
+    { "ticker": "010130.KS", "name": "고려아연" },
+    { "ticker": "033240.KS", "name": "풍산" },
+    { "ticker": "000670.KS", "name": "영풍" },
+    { "ticker": "005490.KS", "name": "POSCO홀딩스" },
+    { "ticker": "010120.KS", "name": "LS일렉트릭" }
+  ],
+  "261220.KS": [
+    { "ticker": "096770.KS", "name": "SK이노베이션" },
+    { "ticker": "010950.KS", "name": "S-Oil" },
+    { "ticker": "078930.KS", "name": "GS" },
+    { "ticker": "267250.KS", "name": "HD현대" },
+    { "ticker": "011170.KS", "name": "롯데케미칼" }
+  ],
+  "459580.KS": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "016360.KS", "name": "삼성증권" }
+  ],
+  "453850.KS": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "016360.KS", "name": "삼성증권" },
+    { "ticker": "039490.KS", "name": "키움증권" },
+    { "ticker": "006800.KS", "name": "미래에셋증권" }
+  ],
+  "138230.KS": [
+    { "ticker": "105560.KS", "name": "KB금융" },
+    { "ticker": "055550.KS", "name": "신한지주" },
+    { "ticker": "086790.KS", "name": "하나금융지주" },
+    { "ticker": "316140.KS", "name": "우리금융지주" },
+    { "ticker": "032830.KS", "name": "삼성생명" },
+    { "ticker": "000810.KS", "name": "삼성화재" }
+  ],
+
+  "SOXX": [
+    { "ticker": "NVDA", "name": "NVIDIA" },
+    { "ticker": "AMD",  "name": "Advanced Micro Devices" },
+    { "ticker": "AVGO", "name": "Broadcom" },
+    { "ticker": "QCOM", "name": "Qualcomm" },
+    { "ticker": "INTC", "name": "Intel" },
+    { "ticker": "TSM",  "name": "Taiwan Semiconductor" },
+    { "ticker": "ASML", "name": "ASML Holding" },
+    { "ticker": "MU",   "name": "Micron Technology" },
+    { "ticker": "LRCX", "name": "Lam Research" },
+    { "ticker": "AMAT", "name": "Applied Materials" }
+  ],
+  "URA": [
+    { "ticker": "CCJ",  "name": "Cameco" },
+    { "ticker": "NXE",  "name": "NexGen Energy" },
+    { "ticker": "DNN",  "name": "Denison Mines" },
+    { "ticker": "UEC",  "name": "Uranium Energy" },
+    { "ticker": "UUUU", "name": "Energy Fuels" },
+    { "ticker": "VST",  "name": "Vistra Energy" },
+    { "ticker": "CEG",  "name": "Constellation Energy" },
+    { "ticker": "SMR",  "name": "NuScale Power" }
+  ],
+  "AIQ": [
+    { "ticker": "MSFT", "name": "Microsoft" },
+    { "ticker": "GOOGL","name": "Alphabet" },
+    { "ticker": "AMZN", "name": "Amazon" },
+    { "ticker": "META", "name": "Meta Platforms" },
+    { "ticker": "IBM",  "name": "IBM" },
+    { "ticker": "SNOW", "name": "Snowflake" },
+    { "ticker": "PLTR", "name": "Palantir Technologies" },
+    { "ticker": "CRM",  "name": "Salesforce" }
+  ],
+  "CIBR": [
+    { "ticker": "CRWD", "name": "CrowdStrike" },
+    { "ticker": "PANW", "name": "Palo Alto Networks" },
+    { "ticker": "FTNT", "name": "Fortinet" },
+    { "ticker": "ZS",   "name": "Zscaler" },
+    { "ticker": "OKTA", "name": "Okta" },
+    { "ticker": "S",    "name": "SentinelOne" },
+    { "ticker": "CYBR", "name": "CyberArk" },
+    { "ticker": "QLYS", "name": "Qualys" }
+  ],
+  "BOTZ": [
+    { "ticker": "ISRG", "name": "Intuitive Surgical" },
+    { "ticker": "ROK",  "name": "Rockwell Automation" },
+    { "ticker": "TER",  "name": "Teradyne" },
+    { "ticker": "NVDA", "name": "NVIDIA" },
+    { "ticker": "EMR",  "name": "Emerson Electric" },
+    { "ticker": "ABB",  "name": "ABB Ltd" },
+    { "ticker": "FANUY","name": "Fanuc" },
+    { "ticker": "IRBT", "name": "iRobot" }
+  ],
+  "ICLN": [
+    { "ticker": "ENPH", "name": "Enphase Energy" },
+    { "ticker": "FSLR", "name": "First Solar" },
+    { "ticker": "SEDG", "name": "SolarEdge Technologies" },
+    { "ticker": "NEE",  "name": "NextEra Energy" },
+    { "ticker": "BEP",  "name": "Brookfield Renewable Partners" },
+    { "ticker": "CWEN", "name": "Clearway Energy" },
+    { "ticker": "ARRY", "name": "Array Technologies" },
+    { "ticker": "RUN",  "name": "Sunrun" }
+  ],
+  "XAR": [
+    { "ticker": "LMT",  "name": "Lockheed Martin" },
+    { "ticker": "RTX",  "name": "RTX Corporation" },
+    { "ticker": "NOC",  "name": "Northrop Grumman" },
+    { "ticker": "GD",   "name": "General Dynamics" },
+    { "ticker": "BA",   "name": "Boeing" },
+    { "ticker": "HII",  "name": "Huntington Ingalls Industries" },
+    { "ticker": "LHX",  "name": "L3Harris Technologies" },
+    { "ticker": "AXON", "name": "Axon Enterprise" }
+  ],
+  "ARKG": [
+    { "ticker": "LLY",  "name": "Eli Lilly" },
+    { "ticker": "UNH",  "name": "UnitedHealth Group" },
+    { "ticker": "ABBV", "name": "AbbVie" },
+    { "ticker": "MRK",  "name": "Merck" },
+    { "ticker": "AMGN", "name": "Amgen" },
+    { "ticker": "MRNA", "name": "Moderna" },
+    { "ticker": "GILD", "name": "Gilead Sciences" },
+    { "ticker": "REGN", "name": "Regeneron Pharmaceuticals" }
+  ],
+  "IPAY": [
+    { "ticker": "V",    "name": "Visa" },
+    { "ticker": "MA",   "name": "Mastercard" },
+    { "ticker": "PYPL", "name": "PayPal" },
+    { "ticker": "SQ",   "name": "Block" },
+    { "ticker": "AFRM", "name": "Affirm" },
+    { "ticker": "SOFI", "name": "SoFi Technologies" },
+    { "ticker": "GPN",  "name": "Global Payments" },
+    { "ticker": "GDOT", "name": "Green Dot" }
+  ],
+  "QTUM": [
+    { "ticker": "IBM",  "name": "IBM" },
+    { "ticker": "GOOGL","name": "Alphabet" },
+    { "ticker": "MSFT", "name": "Microsoft" },
+    { "ticker": "IONQ", "name": "IonQ" },
+    { "ticker": "RGTI", "name": "Rigetti Computing" },
+    { "ticker": "QUBT", "name": "Quantum Computing Inc" },
+    { "ticker": "QBTS", "name": "D-Wave Quantum" },
+    { "ticker": "AMZN", "name": "Amazon" }
+  ],
+  "PAVE": [
+    { "ticker": "CAT",  "name": "Caterpillar" },
+    { "ticker": "PWR",  "name": "Quanta Services" },
+    { "ticker": "URI",  "name": "United Rentals" },
+    { "ticker": "DE",   "name": "Deere & Company" },
+    { "ticker": "EMR",  "name": "Emerson Electric" },
+    { "ticker": "VMC",  "name": "Vulcan Materials" },
+    { "ticker": "MLM",  "name": "Martin Marietta Materials" }
+  ],
+  "LIT": [
+    { "ticker": "TSLA", "name": "Tesla" },
+    { "ticker": "RIVN", "name": "Rivian Automotive" },
+    { "ticker": "NIO",  "name": "NIO" },
+    { "ticker": "LI",   "name": "Li Auto" },
+    { "ticker": "ALB",  "name": "Albemarle" },
+    { "ticker": "SQM",  "name": "Sociedad Química y Minera" },
+    { "ticker": "LAC",  "name": "Lithium Americas" },
+    { "ticker": "QS",   "name": "QuantumScape" }
+  ],
+  "REMX": [
+    { "ticker": "MP",   "name": "MP Materials" },
+    { "ticker": "ALB",  "name": "Albemarle" },
+    { "ticker": "SQM",  "name": "Sociedad Química y Minera" },
+    { "ticker": "FCX",  "name": "Freeport-McMoRan" },
+    { "ticker": "VALE", "name": "Vale" },
+    { "ticker": "NEM",  "name": "Newmont" },
+    { "ticker": "BHP",  "name": "BHP Group" },
+    { "ticker": "RIO",  "name": "Rio Tinto" }
+  ],
+  "DTCR": [
+    { "ticker": "EQIX", "name": "Equinix" },
+    { "ticker": "DLR",  "name": "Digital Realty" },
+    { "ticker": "VRT",  "name": "Vertiv Holdings" },
+    { "ticker": "SMCI", "name": "Super Micro Computer" },
+    { "ticker": "IRM",  "name": "Iron Mountain" },
+    { "ticker": "NVDA", "name": "NVIDIA" },
+    { "ticker": "AMD",  "name": "Advanced Micro Devices" },
+    { "ticker": "AVGO", "name": "Broadcom" }
+  ],
+  "VGLT": [
+    { "ticker": "BLK",  "name": "BlackRock" },
+    { "ticker": "TROW", "name": "T. Rowe Price" },
+    { "ticker": "IVZ",  "name": "Invesco" },
+    { "ticker": "BEN",  "name": "Franklin Templeton" },
+    { "ticker": "JPM",  "name": "JPMorgan Chase" },
+    { "ticker": "BAC",  "name": "Bank of America" },
+    { "ticker": "WFC",  "name": "Wells Fargo" },
+    { "ticker": "GS",   "name": "Goldman Sachs" }
+  ],
+  "VGIT": [
+    { "ticker": "BLK",  "name": "BlackRock" },
+    { "ticker": "TROW", "name": "T. Rowe Price" },
+    { "ticker": "IVZ",  "name": "Invesco" },
+    { "ticker": "JPM",  "name": "JPMorgan Chase" },
+    { "ticker": "MS",   "name": "Morgan Stanley" },
+    { "ticker": "C",    "name": "Citigroup" },
+    { "ticker": "GS",   "name": "Goldman Sachs" },
+    { "ticker": "BAC",  "name": "Bank of America" }
+  ],
+  "VGSH": [
+    { "ticker": "BLK",  "name": "BlackRock" },
+    { "ticker": "TROW", "name": "T. Rowe Price" },
+    { "ticker": "IVZ",  "name": "Invesco" },
+    { "ticker": "JPM",  "name": "JPMorgan Chase" },
+    { "ticker": "MS",   "name": "Morgan Stanley" },
+    { "ticker": "BAC",  "name": "Bank of America" },
+    { "ticker": "WFC",  "name": "Wells Fargo" },
+    { "ticker": "C",    "name": "Citigroup" }
+  ],
+  "AGG": [
+    { "ticker": "BLK",  "name": "BlackRock" },
+    { "ticker": "TROW", "name": "T. Rowe Price" },
+    { "ticker": "IVZ",  "name": "Invesco" },
+    { "ticker": "BEN",  "name": "Franklin Templeton" },
+    { "ticker": "JPM",  "name": "JPMorgan Chase" },
+    { "ticker": "MS",   "name": "Morgan Stanley" },
+    { "ticker": "GS",   "name": "Goldman Sachs" },
+    { "ticker": "BAC",  "name": "Bank of America" }
+  ],
+  "VTI": [
+    { "ticker": "AAPL",  "name": "Apple" },
+    { "ticker": "MSFT",  "name": "Microsoft" },
+    { "ticker": "NVDA",  "name": "NVIDIA" },
+    { "ticker": "AMZN",  "name": "Amazon" },
+    { "ticker": "GOOGL", "name": "Alphabet" },
+    { "ticker": "META",  "name": "Meta Platforms" },
+    { "ticker": "TSLA",  "name": "Tesla" },
+    { "ticker": "BRK.B", "name": "Berkshire Hathaway" }
+  ],
+  "VOO": [
+    { "ticker": "AAPL",  "name": "Apple" },
+    { "ticker": "MSFT",  "name": "Microsoft" },
+    { "ticker": "NVDA",  "name": "NVIDIA" },
+    { "ticker": "AMZN",  "name": "Amazon" },
+    { "ticker": "GOOGL", "name": "Alphabet" },
+    { "ticker": "META",  "name": "Meta Platforms" },
+    { "ticker": "TSLA",  "name": "Tesla" },
+    { "ticker": "AVGO",  "name": "Broadcom" }
+  ],
+  "QQQ": [
+    { "ticker": "AAPL",  "name": "Apple" },
+    { "ticker": "MSFT",  "name": "Microsoft" },
+    { "ticker": "NVDA",  "name": "NVIDIA" },
+    { "ticker": "AMZN",  "name": "Amazon" },
+    { "ticker": "GOOGL", "name": "Alphabet" },
+    { "ticker": "META",  "name": "Meta Platforms" },
+    { "ticker": "TSLA",  "name": "Tesla" },
+    { "ticker": "AVGO",  "name": "Broadcom" }
+  ],
+  "IBIT": [
+    { "ticker": "MSTR", "name": "MicroStrategy" },
+    { "ticker": "COIN", "name": "Coinbase Global" },
+    { "ticker": "MARA", "name": "Marathon Digital Holdings" },
+    { "ticker": "RIOT", "name": "Riot Platforms" },
+    { "ticker": "CLSK", "name": "CleanSpark" },
+    { "ticker": "HIVE", "name": "HIVE Digital Technologies" }
+  ],
+  "SLV": [
+    { "ticker": "NEM",  "name": "Newmont" },
+    { "ticker": "GOLD", "name": "Barrick Gold" },
+    { "ticker": "AEM",  "name": "Agnico Eagle Mines" },
+    { "ticker": "WPM",  "name": "Wheaton Precious Metals" },
+    { "ticker": "FNV",  "name": "Franco-Nevada" },
+    { "ticker": "KGC",  "name": "Kinross Gold" },
+    { "ticker": "PAAS", "name": "Pan American Silver" },
+    { "ticker": "HL",   "name": "Hecla Mining" }
+  ],
+  "GLD": [
+    { "ticker": "NEM",  "name": "Newmont" },
+    { "ticker": "GOLD", "name": "Barrick Gold" },
+    { "ticker": "AEM",  "name": "Agnico Eagle Mines" },
+    { "ticker": "WPM",  "name": "Wheaton Precious Metals" },
+    { "ticker": "FNV",  "name": "Franco-Nevada" },
+    { "ticker": "KGC",  "name": "Kinross Gold" },
+    { "ticker": "AU",   "name": "AngloGold Ashanti" },
+    { "ticker": "GFI",  "name": "Gold Fields" }
+  ],
+  "USO": [
+    { "ticker": "XOM",  "name": "ExxonMobil" },
+    { "ticker": "CVX",  "name": "Chevron" },
+    { "ticker": "COP",  "name": "ConocoPhillips" },
+    { "ticker": "EOG",  "name": "EOG Resources" },
+    { "ticker": "SLB",  "name": "Schlumberger" },
+    { "ticker": "MPC",  "name": "Marathon Petroleum" },
+    { "ticker": "VLO",  "name": "Valero Energy" },
+    { "ticker": "HAL",  "name": "Halliburton" },
+    { "ticker": "DVN",  "name": "Devon Energy" },
+    { "ticker": "OXY",  "name": "Occidental Petroleum" }
+  ],
+  "UNG": [
+    { "ticker": "XOM",  "name": "ExxonMobil" },
+    { "ticker": "CVX",  "name": "Chevron" },
+    { "ticker": "COP",  "name": "ConocoPhillips" },
+    { "ticker": "EOG",  "name": "EOG Resources" },
+    { "ticker": "EQT",  "name": "EQT Corporation" },
+    { "ticker": "RRC",  "name": "Range Resources" },
+    { "ticker": "SWN",  "name": "Southwestern Energy" },
+    { "ticker": "SLB",  "name": "Schlumberger" }
+  ],
+  "WEAT": [
+    { "ticker": "MOS",  "name": "Mosaic" },
+    { "ticker": "NTR",  "name": "Nutrien" },
+    { "ticker": "CF",   "name": "CF Industries" },
+    { "ticker": "ADM",  "name": "Archer-Daniels-Midland" },
+    { "ticker": "BG",   "name": "Bunge" },
+    { "ticker": "TSN",  "name": "Tyson Foods" },
+    { "ticker": "DE",   "name": "Deere & Company" },
+    { "ticker": "FMC",  "name": "FMC Corporation" }
+  ],
+  "CORN": [
+    { "ticker": "MOS",  "name": "Mosaic" },
+    { "ticker": "NTR",  "name": "Nutrien" },
+    { "ticker": "CF",   "name": "CF Industries" },
+    { "ticker": "ADM",  "name": "Archer-Daniels-Midland" },
+    { "ticker": "BG",   "name": "Bunge" },
+    { "ticker": "TSN",  "name": "Tyson Foods" },
+    { "ticker": "DE",   "name": "Deere & Company" },
+    { "ticker": "FMC",  "name": "FMC Corporation" }
+  ]
+}

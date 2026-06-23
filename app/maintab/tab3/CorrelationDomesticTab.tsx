@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   useCustomerContext,
+  type ConfirmedPairItem,
   type CorrelationAnalysisState,
   type CorrelationInnerViewTab,
   type CorrelationPeriodRange,
@@ -40,7 +41,7 @@ export default function CorrelationDomesticTab({
   savedState?: CorrelationAnalysisState;
   onStateChange?: (state: CorrelationAnalysisState) => void;
 }) {
-  const { riskResult } = useCustomerContext();
+  const { riskResult, setConfirmedDomesticPair } = useCustomerContext();
   const initStrategy = scoreToStrategy(riskResult.score);
   const expectedStrategy = scoreToStrategy(riskResult.score);
 
@@ -51,6 +52,8 @@ export default function CorrelationDomesticTab({
   // SSR에서 Date.now() 호출 방지: 초기값 빈 문자열, 클라이언트 마운트 후 실 src 주입
   const [activeSrc, setActiveSrc] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isConfirmingDomestic, setIsConfirmingDomestic] = useState(false);
+  const [domesticConfirmed, setDomesticConfirmed] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const kRef = useRef(k);
   useEffect(() => { kRef.current = k; }, [k]);
@@ -130,6 +133,67 @@ export default function CorrelationDomesticTab({
     setActiveSrc(buildSrc(strategy, k, nextState));
     onStateChange?.(nextState);
   }, [strategy, k, savedState, onStateChange]);
+
+  const handleConfirmDomestic = useCallback(async () => {
+    setIsConfirmingDomestic(true);
+    try {
+      const iframeWin = iframeRef.current?.contentWindow ?? null;
+      let capturedItems: ConfirmedPairItem[] | null = null;
+
+      if (iframeWin) {
+        const payload = await new Promise<{
+          optimal: string[];
+          weights: Record<string, number>;
+          sectorMap: Record<string, string>;
+        } | null>((resolve) => {
+          const onMsg = (e: MessageEvent) => {
+            if (e.source !== iframeWin) return;
+            const msg = e.data as { type?: string } | null;
+            if (msg?.type === "confirm-response") {
+              window.removeEventListener("message", onMsg);
+              resolve(e.data as { optimal: string[]; weights: Record<string, number>; sectorMap: Record<string, string> });
+            }
+          };
+          window.addEventListener("message", onMsg);
+          iframeWin.postMessage({ type: "request-confirm" }, "*");
+          setTimeout(() => { window.removeEventListener("message", onMsg); resolve(null); }, 5000);
+        });
+
+        if (payload && payload.optimal.length > 0) {
+          capturedItems = payload.optimal.map((ticker) => ({
+            ticker,
+            sector: payload.sectorMap[ticker] ?? ticker,
+            weight: payload.weights[ticker] ?? 1 / payload.optimal.length,
+            isGlobal: false,
+          }));
+        }
+      }
+
+      if (capturedItems) {
+        setConfirmedDomesticPair(capturedItems);
+        setDomesticConfirmed(true);
+      } else {
+        const params = new URLSearchParams({ strategy, k: String(k), format: "json", period: "1Y" });
+        if (savedState?.lockedTicker) params.set("lockedTicker", savedState.lockedTicker);
+        const res = await fetch(`/api/etf-correlation-domestic-html?${params.toString()}`);
+        const data = await res.json() as {
+          period: { optimal: string[]; capped_weights: Record<string, number> } | null;
+          sectorMap: Record<string, string>;
+        };
+        if (data.period) {
+          const items: ConfirmedPairItem[] = data.period.optimal.map((ticker) => ({
+            ticker,
+            sector: data.sectorMap[ticker] ?? ticker,
+            weight: data.period!.capped_weights[ticker] ?? 1 / data.period!.optimal.length,
+            isGlobal: false,
+          }));
+          setConfirmedDomesticPair(items);
+          setDomesticConfirmed(true);
+        }
+      }
+    } catch {}
+    setIsConfirmingDomestic(false);
+  }, [strategy, k, savedState?.lockedTicker, setConfirmedDomesticPair]);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-soft overflow-hidden">
@@ -229,6 +293,38 @@ export default function CorrelationDomesticTab({
             sandbox="allow-scripts"
           />
         )}
+      </div>
+
+      {/* ── 국내 조합 확정 버튼 ── */}
+      <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
+        {domesticConfirmed && (
+          <span className="text-xs font-bold text-emerald-600">
+            ✓ 국내 조합이 TAB 3-3에 반영되었습니다
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={handleConfirmDomestic}
+          disabled={isConfirmingDomestic || loading}
+          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isConfirmingDomestic ? (
+            <>
+              <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              확정 중…
+            </>
+          ) : (
+            <>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              국내 조합 확정 → TAB 3-3
+            </>
+          )}
+        </button>
       </div>
     </div>
   );

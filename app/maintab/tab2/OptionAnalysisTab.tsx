@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -23,6 +23,7 @@ import type {
 } from "../../../utils/optionIndicators";
 import { usePortfolioResult } from "../PortfolioResultComponents";
 import type { PortfolioAsset } from "../CustomerContext";
+import StockSearchBox from "./StockSearchBox";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
 
@@ -166,8 +167,8 @@ function SummaryTab({ d }: { d: OptionsChainResponse }) {
           { label: "P/C 비율(OI)", val: pcOI ?? "-", sub: pcOI !== null && pcOI < 1 ? "콜 우세" : "풋 우세", color: pcOI !== null && pcOI < 1 ? "text-green-600" : "text-red-600" },
           { label: "P/C 비율(거래량)", val: pcVol ?? "-", sub: pcVol !== null && pcVol < 1 ? "콜 우세" : "풋 우세", color: pcVol !== null && pcVol < 1 ? "text-green-600" : "text-red-600" },
           { label: "Max Pain", val: `$${target.maxPain}`, sub: `${target.exp} 만기`, color: "text-slate-800" },
-          { label: "콜 벽(저항)", val: target.callWall ? `$${target.callWall}` : "N/A", sub: "콜 OI 최대", color: "text-green-700" },
-          { label: "풋 벽(지지)", val: target.putWall ? `$${target.putWall}` : "N/A", sub: "풋 OI 최대", color: "text-red-700" },
+          { label: "콜 벽(저항)", val: target.callWall ? `$${target.callWall}` : "N/A", sub: "전체만기 콜 OI 최대", color: "text-green-700" },
+          { label: "풋 벽(지지)", val: target.putWall ? `$${target.putWall}` : "N/A", sub: "전체만기 풋 OI 최대", color: "text-red-700" },
           { label: "ATM IV", val: target.atmIV ? `${target.atmIV.toFixed(0)}%` : "N/A", sub: `HV ${d.hv20}%`, color: "text-slate-800" },
         ].map((card) => (
           <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -284,6 +285,11 @@ function DistTab({ d }: { d: OptionsChainResponse }) {
 
 function PressureTab({ d }: { d: OptionsChainResponse }) {
   const { pcOI, totCOI, totPOI, target, spot } = d;
+  // 콜/풋 각각의 최대값 기준으로 0~100% 정규화 → 둘 다 시각적으로 표현
+  const maxCallWallOI = Math.max(...d.walls.callOI, 1);
+  const maxPutWallOI  = Math.max(...d.walls.putOI,  1);
+  const normCallOI = d.walls.callOI.map(v =>  (v / maxCallWallOI) * 100);
+  const normPutOI  = d.walls.putOI.map(v  => -(v / maxPutWallOI)  * 100);
   const cpPct = totCOI + totPOI > 0 ? (totCOI / (totCOI + totPOI)) * 100 : 50;
   const ppPct = 100 - cpPct;
 
@@ -292,8 +298,8 @@ function PressureTab({ d }: { d: OptionsChainResponse }) {
     type: pcOI !== null && pcOI < 1 ? "good" : "bad",
     text: `전체 미결제약정 기준 P/C <b>${pcOI}</b> — ${pcOI !== null && pcOI < 0.7 ? "콜이 압도적으로 우세(강한 강세 베팅)" : pcOI !== null && pcOI < 1 ? "콜이 우세(강세 경향)" : pcOI !== null && pcOI < 1.3 ? "풋이 다소 우세(헤지 또는 약세)" : "풋이 크게 우세(강한 약세 베팅 또는 헤지)"}합니다.`,
   });
-  rows.push({ type: "info", text: `<b>콜 벽 $${target.callWall}</b>: 콜 OI 최대 행사가 — 단기 상단 저항선으로 작용 가능. 시장조성자가 이 수준 이탈을 막으려 헤지할 수 있습니다.` });
-  rows.push({ type: "info", text: `<b>풋 벽 $${target.putWall}</b>: 풋 OI 최대 행사가 — 단기 하단 지지선으로 작용 가능.` });
+  rows.push({ type: "info", text: `<b>콜 벽 $${target.callWall}</b>: 전체 만기 합산 콜 OI 최대 행사가 — 상단 저항선으로 작용 가능. 시장조성자가 이 수준 이탈을 막으려 헤지할 수 있습니다.` });
+  rows.push({ type: "info", text: `<b>풋 벽 $${target.putWall}</b>: 전체 만기 합산 풋 OI 최대 행사가 — 하단 지지선으로 작용 가능.` });
 
   return (
     <div>
@@ -322,16 +328,19 @@ function PressureTab({ d }: { d: OptionsChainResponse }) {
       </div>
 
       <div className="mb-1 text-[13px] font-semibold text-slate-700">
-        행사가별 OI 벽 — {target.exp} 만기
+        행사가별 OI 벽 — 전체 만기 합산 (현재가 ±45% 구간)
       </div>
-      <div className="mb-1 text-[11px] text-slate-400">← 풋 OI (지지 압력)   |   콜 OI (저항 압력) →</div>
-      <div style={{ height: 360, position: "relative" }} className="mb-5">
+      <div className="mb-1 text-[11px] text-slate-400">
+        ← 풋 OI (매도 압력·지지)&nbsp;&nbsp;|&nbsp;&nbsp;콜 OI (매수 압력·저항) →&nbsp;·&nbsp;
+        각 사이드 최대값 = 100% 정규화 (콜 최대 {fmtN(maxCallWallOI)} · 풋 최대 {fmtN(maxPutWallOI)})
+      </div>
+      <div style={{ height: 400, position: "relative" }} className="mb-5">
         <Bar
           data={{
             labels: d.walls.strikes.map((s) => `$${s}`),
             datasets: [
-              { label: "콜 OI", data: d.walls.callOI, backgroundColor: "rgba(22,163,74,0.75)" },
-              { label: "풋 OI", data: d.walls.putOI.map((v) => -v), backgroundColor: "rgba(220,38,38,0.75)" },
+              { label: "콜 OI", data: normCallOI, backgroundColor: "rgba(22,163,74,0.75)", borderRadius: 2 },
+              { label: "풋 OI", data: normPutOI,  backgroundColor: "rgba(220,38,38,0.75)", borderRadius: 2 },
             ],
           }}
           options={{
@@ -339,14 +348,32 @@ function PressureTab({ d }: { d: OptionsChainResponse }) {
             responsive: true, maintainAspectRatio: false, animation: false,
             plugins: {
               legend: { position: "top", labels: { font: { size: 11 }, boxWidth: 12 } },
-              tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmtN(Math.abs(c.raw as number))}` } },
+              tooltip: {
+                callbacks: {
+                  label: (c) => {
+                    const idx = c.dataIndex;
+                    const isCall = c.datasetIndex === 0;
+                    const actualOI = isCall ? d.walls.callOI[idx] : d.walls.putOI[idx];
+                    const pct = Math.abs(c.raw as number).toFixed(1);
+                    return `${c.dataset.label}: ${fmtN(actualOI)} (${pct}%)`;
+                  },
+                },
+              },
             },
             scales: {
               x: {
-                ticks: { color: "#888", font: { size: 10 }, callback: (v) => fmtN(Math.abs(Number(v))) },
+                min: -115,
+                max:  115,
+                ticks: {
+                  color: "#888", font: { size: 10 },
+                  callback: (v) => {
+                    const abs = Math.abs(Number(v));
+                    return abs === 0 ? "0" : `${abs.toFixed(0)}%`;
+                  },
+                },
                 grid: { color: GC },
               },
-              y: { ticks: { color: "#888", font: { size: 10 } }, grid: { color: GC }, reverse: true },
+              y: { ticks: { color: "#888", font: { size: 9 } }, grid: { color: GC }, reverse: true },
             },
           } as ChartOptions<"bar">}
         />
@@ -357,8 +384,8 @@ function PressureTab({ d }: { d: OptionsChainResponse }) {
         {[
           { label: "현재가", val: `$${spot}`, sub: "Spot", color: "text-slate-800" },
           { label: "Max Pain", val: `$${target.maxPain}`, sub: `${target.exp} 기준`, color: "text-slate-800" },
-          { label: "콜 벽(저항)", val: target.callWall ? `$${target.callWall}` : "N/A", sub: "콜 OI 최대", color: "text-green-700" },
-          { label: "풋 벽(지지)", val: target.putWall ? `$${target.putWall}` : "N/A", sub: "풋 OI 최대", color: "text-red-700" },
+          { label: "콜 벽(저항)", val: target.callWall ? `$${target.callWall}` : "N/A", sub: "전체만기 콜 OI 최대", color: "text-green-700" },
+          { label: "풋 벽(지지)", val: target.putWall ? `$${target.putWall}` : "N/A", sub: "전체만기 풋 OI 최대", color: "text-red-700" },
         ].map((card) => (
           <div key={card.label} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
             <div className="text-[11px] text-slate-500">{card.label}</div>
@@ -406,13 +433,49 @@ function IVTab({ d }: { d: OptionsChainResponse }) {
         <Line
           data={{
             labels: term.map((t) => `D-${t.dte}`),
-            datasets: [{
-              label: "등가격 IV (%)", data: term.map((t) => t.iv),
-              borderColor: "#7c3aed", backgroundColor: "rgba(124,58,237,0.08)",
-              fill: true, tension: 0.3, pointRadius: 3,
-            }] as ChartDataset<"line">[],
+            datasets: [
+              {
+                label: "등가격 IV (%)", data: term.map((t) => t.iv),
+                borderColor: "#7c3aed", backgroundColor: "rgba(124,58,237,0.08)",
+                fill: true, tension: 0.3, pointRadius: 3,
+                yAxisID: "y",
+              },
+              ...(hv20 > 0 ? [{
+                label: `HV20 (${hv20}%)`,
+                data: term.map(() => hv20),
+                borderColor: "#f59e0b",
+                backgroundColor: "transparent",
+                borderDash: [6, 4],
+                fill: false,
+                tension: 0,
+                pointRadius: 0,
+                pointHoverRadius: 3,
+                yAxisID: "y1",
+              }] : []),
+            ] as ChartDataset<"line">[],
           }}
-          options={{ ...baseOpts((v) => `${Number(v).toFixed(0)}%`) }}
+          options={{
+            responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: {
+              legend: { display: true, labels: { font: { size: 11 }, color: "#888", boxWidth: 12 } },
+              tooltip: { mode: "index" as const, intersect: false },
+            },
+            scales: {
+              x: { ticks: { maxTicksLimit: 8, color: "#888", font: { size: 11 } }, grid: { color: GC } },
+              y: {
+                position: "left",
+                ticks: { color: "#7c3aed", font: { size: 11 }, callback: (v) => `${Number(v).toFixed(0)}%` },
+                grid: { color: GC },
+                title: { display: true, text: "IV (%)", color: "#7c3aed", font: { size: 10 } },
+              },
+              y1: {
+                position: "right",
+                ticks: { color: "#d97706", font: { size: 11 }, callback: (v) => `${Number(v).toFixed(0)}%` },
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: "HV20 (%)", color: "#d97706", font: { size: 10 } },
+              },
+            },
+          } as ChartOptions<"line">}
         />
       </div>
 
@@ -424,11 +487,32 @@ function IVTab({ d }: { d: OptionsChainResponse }) {
           data={{
             labels: skew.strikes.map((s) => `$${s}`),
             datasets: [
-              { label: "콜 IV", data: skew.callIV, borderColor: "#16a34a", tension: 0.2, pointRadius: 2, spanGaps: true },
-              { label: "풋 IV", data: skew.putIV, borderColor: "#dc2626", tension: 0.2, pointRadius: 2, spanGaps: true },
+              { label: "콜 IV", data: skew.callIV, borderColor: "#16a34a", tension: 0.2, pointRadius: 2, spanGaps: true, yAxisID: "y1" },
+              { label: "풋 IV", data: skew.putIV, borderColor: "#dc2626", tension: 0.2, pointRadius: 2, spanGaps: true, yAxisID: "y" },
             ] as ChartDataset<"line">[],
           }}
-          options={{ ...baseOpts((v) => `${Number(v).toFixed(0)}%`) }}
+          options={{
+            responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: {
+              legend: { display: true, labels: { font: { size: 11 }, color: "#888", boxWidth: 12 } },
+              tooltip: { mode: "index" as const, intersect: false },
+            },
+            scales: {
+              x: { ticks: { maxTicksLimit: 8, color: "#888", font: { size: 11 } }, grid: { color: GC } },
+              y: {
+                position: "left",
+                ticks: { color: "#dc2626", font: { size: 11 }, callback: (v) => `${Number(v).toFixed(0)}%` },
+                grid: { color: GC },
+                title: { display: true, text: "풋 IV (%)", color: "#dc2626", font: { size: 10 } },
+              },
+              y1: {
+                position: "right",
+                ticks: { color: "#16a34a", font: { size: 11 }, callback: (v) => `${Number(v).toFixed(0)}%` },
+                grid: { drawOnChartArea: false },
+                title: { display: true, text: "콜 IV (%)", color: "#16a34a", font: { size: 10 } },
+              },
+            },
+          } as ChartOptions<"line">}
         />
       </div>
 
@@ -642,6 +726,23 @@ export default function OptionAnalysisTab() {
   const [selectedTicker, setSelectedTicker] = useState("");
   const [selectedName, setSelectedName] = useState("");
   const [activeTab, setActiveTab] = useState<OptTab>("summary");
+
+  const [koreanNames, setKoreanNames] = useState<Record<string, string>>({});
+  const fetchedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const a of tickerableAssets) {
+      if (!a.ticker || fetchedRef.current.has(a.ticker)) continue;
+      fetchedRef.current.add(a.ticker);
+      fetch(`/api/korean-name?ticker=${encodeURIComponent(a.ticker)}`)
+        .then(r => r.json())
+        .then((d: { name?: string }) => {
+          if (d.name && a.ticker)
+            setKoreanNames(prev => ({ ...prev, [a.ticker!]: d.name! }));
+        })
+        .catch(() => {});
+    }
+  }, [tickerableAssets]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<OptionsChainResponse | null>(null);
@@ -679,55 +780,38 @@ export default function OptionAnalysisTab() {
     setActiveTab("summary");
   };
 
-  // 포트폴리오 없음
-  if (!portfolioData) {
-    return (
-      <section className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
-        <BarChart2 size={32} className="mx-auto mb-3 text-slate-300" />
-        <p className="text-[16px] font-bold text-navy">옵션 분석</p>
-        <p className="mt-2 text-sm text-slate-400">'보유 현황 및 진단' 탭에서 자산을 입력하고 분석 실행을 눌러주세요.</p>
-      </section>
-    );
-  }
-
-  // ticker 자산 없음
-  if (tickerableAssets.length === 0) {
-    return (
-      <section className="rounded-xl border border-slate-200 bg-white px-6 py-10 text-center shadow-sm">
-        <AlertTriangle size={32} className="mx-auto mb-3 text-amber-400" />
-        <p className="text-[16px] font-bold text-slate-700">분석 가능한 종목 없음</p>
-        <p className="mt-2 text-sm text-slate-400">
-          자산군이 <b className="text-slate-600">해외주식</b>이고 티커가 입력된 종목만 표시됩니다.<br />
-          국내주식·채권·현금·금·리츠 등은 옵션 분석 대상이 아닙니다.
-        </p>
-      </section>
-    );
-  }
-
   return (
     <div className="space-y-4">
       {/* 종목 선택 바 */}
-      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">분석 종목 선택 (미국 상장 종목만)</div>
-        <div className="flex flex-wrap gap-2">
-          {tickerableAssets.map((a) => (
-            <button
-              key={a.ticker}
-              onClick={() => selectAsset(a.ticker!, a.name)}
-              className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
-                selectedTicker === a.ticker
-                  ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
-                  : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
-              }`}
-            >
-              {a.name}
-              <span className={`ml-1.5 text-[10px] font-normal ${selectedTicker === a.ticker ? "text-blue-200" : "text-slate-400"}`}>
-                {a.ticker}
-              </span>
-            </button>
-          ))}
+      {tickerableAssets.length > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">분석 종목 선택 (미국 상장 종목만)</div>
+          <div className="flex flex-wrap gap-2">
+            {tickerableAssets.map((a) => (
+              <button
+                key={a.ticker}
+                onClick={() => selectAsset(a.ticker!, a.name)}
+                className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
+                  selectedTicker === a.ticker
+                    ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
+                    : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                }`}
+              >
+                {koreanNames[a.ticker!] || a.name}
+                <span className={`ml-1.5 text-[10px] font-normal ${selectedTicker === a.ticker ? "text-blue-200" : "text-slate-400"}`}>
+                  {a.ticker}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* 비보유 종목 검색 (해외주식만) */}
+      <StockSearchBox
+        market="overseas"
+        onSelect={(item) => selectAsset(item.ticker, item.name)}
+      />
 
       {/* 분석 영역 */}
       {selectedTicker && (
@@ -735,7 +819,7 @@ export default function OptionAnalysisTab() {
           {/* 헤더 */}
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <div className="text-[15px] font-bold text-slate-800">{selectedName}</div>
+              <div className="text-[15px] font-bold text-slate-800">{koreanNames[selectedTicker] || selectedName}</div>
               <div className="text-[12px] text-slate-400">
                 {selectedTicker} · 미국 상장 옵션 · {data ? `${data.nExp}개 만기 집계` : "로딩 중..."}
               </div>

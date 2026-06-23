@@ -11,26 +11,10 @@
  */
 
 import { resolveTickerWithGemini } from '@/utils/geminiTicker';
+import krAssetMaster from './kr-asset-master.json';
 
 export const runtime = 'nodejs';
 
-// ── 포괄적 검색어 차단 사전 (UX 가드 — 티커 매핑 아님) ─────────────────────
-const AMBIGUOUS_KEYWORDS = new Map([
-  ['삼성',  "'삼성전자', '삼성SDI', '삼성바이오로직스'"],
-  ['현대',  "'현대차', '현대모비스', '현대건설'"],
-  ['sk',    "'SK하이닉스', 'SK이노베이션', 'SK텔레콤'"],
-  ['lg',    "'LG전자', 'LG에너지솔루션', 'LG화학'"],
-  ['한화',  "'한화에어로스페이스', '한화솔루션', '한화오션'"],
-  ['롯데',  "'롯데쇼핑', '롯데케미칼', '롯데칠성'"],
-  ['cj',    "'CJ제일제당', 'CJ CGV', 'CJ ENM'"],
-  ['gs',    "'GS리테일', 'GS건설'"],
-  ['두산',  "'두산에너빌리티', '두산밥캣', '두산로보틱스'"],
-  ['포스코', "'POSCO홀딩스', '포스코퓨처엠', '포스코DX'"],
-  ['코오롱', "'코오롱인더', '코오롱글로벌'"],
-  ['신한',  "'신한지주', '신한라이프'"],
-  ['하나',  "'하나금융지주', '하나은행'"],
-  ['kb',    "'KB금융', 'KB증권'"],
-]);
 
 // ── 티커 패턴 기반 메타데이터 추론 ────────────────────────────────────────
 function inferMetaFromTicker(ticker) {
@@ -51,6 +35,19 @@ function inferMetaFromTicker(ticker) {
   if (t.endsWith('.HK') || t.endsWith('.SS') || t.endsWith('.SZ'))
     return { assetClass: '해외주식', productType: '주식형', country: '중국' };
   return { assetClass: '해외주식', productType: '주식형', country: '미국' };
+}
+
+// ── officialName 결정 — 마스터 데이터셋(Single Source of Truth) 우선 참조 ─────
+// 1순위: kr-asset-master.json에 티커가 존재하면 외부 API 응답값을 무시하고 공식 명칭 반환
+// 2순위: 미등재 티커(해외 자산 등)는 Yahoo chartMeta.shortName → longName 순 폴백
+function resolveOfficialName(ticker, chartMeta) {
+  const masterName = (krAssetMaster)[ticker];
+  if (masterName) return masterName;
+  if (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim())
+    return chartMeta.shortName.trim();
+  if (typeof chartMeta?.longName === 'string' && chartMeta.longName.trim())
+    return chartMeta.longName.trim();
+  return null;
 }
 
 // ── 공통 브라우저 헤더 ─────────────────────────────────────────────────────
@@ -89,6 +86,18 @@ async function safeJson(res) {
     return null;
   }
 }
+
+// ── 영문 표기 KR 종목 하드코딩 맵 (Gemini 오분류 방지) ─────────────────────
+// 영문으로만 표기되지만 실제 KOSPI/KOSDAQ 상장 종목인 케이스.
+// Gemini는 HLB→H.LUNDBECK(덴마크) 처럼 외국 동명 기업과 혼동할 수 있으므로
+// Gemini 호출 전에 선제적으로 KR 티커를 확정한다.
+const KR_ENGLISH_NAME_MAP = new Map([
+  ['hlb',           { krCode: '028300', market: 'KOSDAQ', koreanName: 'HLB' }],
+  ['hlb이노베이션',  { krCode: '067830', market: 'KOSDAQ', koreanName: 'HLB이노베이션' }],
+  ['hlb생명과학',    { krCode: '067630', market: 'KOSDAQ', koreanName: 'HLB생명과학' }],
+  ['hlb테라퓨틱스',  { krCode: '115450', market: 'KOSDAQ', koreanName: 'HLB테라퓨틱스' }],
+  ['hlb글로벌',      { krCode: '003580', market: 'KOSDAQ', koreanName: 'HLB글로벌' }],
+]);
 
 // ── 영문 알파벳 → 한글 발음 변환 맵 (회사명 ASCII 접두사 처리용) ───────────
 // 예: "HD현대" → "에이치디현대",  "SK하이닉스" → "에스케이하이닉스"
@@ -202,8 +211,9 @@ const YAHOO_ETF_TYPES   = new Set(['국내ETF',  '해외ETF']);
 async function fetchTickerFromYahoo(query, productType = null) {
   if (!query?.trim()) return null;
 
-  // 영문+공백 혼합 검색어 정규화: "Space X" → "SpaceX"
-  const normalizedQuery = /[A-Za-z]/.test(query) ? query.replace(/\s+/g, '') : query;
+  // 공백 제거 정규화를 제거 — "Meta Platforms"→"MetaPlatforms", "JPMorgan Chase"→"JPMorganChase" 처럼
+  // 다중 단어 회사명이 깨지는 문제를 방지. Yahoo Finance는 공백 포함 쿼리를 잘 처리함.
+  const normalizedQuery = query.trim();
 
   const searchUrl =
     `https://query1.finance.yahoo.com/v1/finance/search` +
@@ -275,6 +285,16 @@ async function fetchTickerFromYahoo(query, productType = null) {
       console.warn(`[proxy-finance] Yahoo Search 결과 없음: '${query}'`);
       return null;
     }
+
+    // productType 미지정 시 미국 거래소(순수 티커, 도트 없음) 우선 선택
+    // 예: 'LILY.WA'(바르샤바) 대신 'LLY'(NYSE) 반환
+    const usPrimary = quotes.find(q =>
+      (q.quoteType === 'EQUITY' || q.quoteType === 'ETF') && !String(q.symbol).includes('.')
+    );
+    if (usPrimary) {
+      console.log(`[proxy-finance] Yahoo Search 미국 거래소 우선 선택: '${query}' → '${usPrimary.symbol}'`);
+      return String(usPrimary.symbol).trim();
+    }
   }
 
   const symbol = String(quotes[0].symbol).trim();
@@ -343,6 +363,59 @@ async function fetchTickerByWebScraping(assetName) {
   return ticker;
 }
 
+// ── Naver Finance 배당수익률 조회 (국내 종목 전용) ───────────────────────────
+// 1차: api.finance.naver.com JSON API (가장 빠름)
+// 2차: finance.naver.com/item/main.naver HTML 스크래핑 (폴백)
+// 반환: 연간 배당수익률 소수 (예: 0.025 = 2.5%), 실패 시 0
+async function fetchNaverDividend(krCode) {
+  if (!krCode || !/^\d{6}$/.test(krCode)) return 0;
+
+  const NAVER_HEADERS = {
+    'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':          'text/html,application/xhtml+xml,application/json,*/*;q=0.8',
+    'Accept-Language': 'ko-KR,ko;q=0.9',
+    'Referer':         'https://finance.naver.com/',
+  };
+
+  // 1차: Naver Finance JSON API
+  try {
+    const apiUrl = `https://api.finance.naver.com/service/itemSummary.nhn?itemcode=${krCode}`;
+    const res = await fetchWithTimeout(apiUrl, { headers: NAVER_HEADERS }, 5_000);
+    if (res.ok) {
+      const data = await safeJson(res);
+      const pct = parseFloat(data?.dividend ?? 0);
+      if (pct > 0 && pct < 50) {
+        console.log(`[proxy-finance] Naver JSON 배당수익률 (${krCode}): ${pct}%`);
+        return pct / 100;
+      }
+    }
+  } catch { /* 2차로 폴백 */ }
+
+  // 2차: Naver Finance HTML 스크래핑
+  try {
+    const htmlUrl = `https://finance.naver.com/item/main.naver?code=${krCode}`;
+    const res = await fetchWithTimeout(htmlUrl, { headers: NAVER_HEADERS }, 8_000);
+    if (!res.ok) return 0;
+    const html = await res.text();
+
+    // 패턴 A: <th scope="row">배당수익률</th><td ...>2.58</td>
+    const matchA = /배당수익률[^<]*<\/[^>]+>\s*<td[^>]*>\s*([0-9]+\.?[0-9]*)\s*<\/td>/i.exec(html);
+    // 패턴 B: 배당수익률 뒤 숫자+% 형식 (어떤 태그든)
+    const matchB = /배당수익률[^0-9]*([0-9]+\.?[0-9]*)\s*%/i.exec(html);
+    const raw = matchA ?? matchB;
+    if (raw) {
+      const pct = parseFloat(raw[1]);
+      if (pct > 0 && pct < 50) {
+        console.log(`[proxy-finance] Naver HTML 배당수익률 (${krCode}): ${pct}%`);
+        return pct / 100;
+      }
+    }
+  } catch { /* 실패 무시 */ }
+
+  return 0;
+}
+
+
 // ── Route Handler ──────────────────────────────────────────────────────────
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -406,36 +479,44 @@ export async function GET(request) {
     : US_TYPES.has(userProductType) ? 'US'
     : null;
 
-  // 정규화: 소문자 + 공백 제거 (UX 가드 조회 전용)
-  const normalizedInput = assetName.toLowerCase().replace(/\s+/g, '');
-
-  // ── 포괄적 검색어 조기 차단 ────────────────────────────────────────────
-  const ambiguousExamples = AMBIGUOUS_KEYWORDS.get(normalizedInput);
-  if (ambiguousExamples) {
-    return Response.json(
-      { error: `입력하신 '${assetName}'은(는) 여러 계열사가 존재합니다. ${ambiguousExamples}처럼 정확한 종목명을 입력해주세요.`, assetName },
-      { status: 400 }
-    );
-  }
-
   // ── [KR 경로] Gemini → krCode 직접 조립 → Yahoo v7 AC 폴백 ──────────────
   let ticker = null;
+  let resolvedKoreanName = null; // Gemini에서 얻은 한국어 종목명
+
+  // [최우선] 영문 표기 KR 종목 하드코딩 확정 — Gemini 오분류 선제 차단
+  // productType 미지정 시에도 KR 티커를 정확히 반환한다.
+  const hardcodedKR = KR_ENGLISH_NAME_MAP.get(assetName.trim().toLowerCase());
+  if (hardcodedKR) {
+    const suffix = hardcodedKR.market === 'KOSDAQ' ? '.KQ' : '.KS';
+    ticker = `${hardcodedKR.krCode}${suffix}`;
+    resolvedKoreanName = hardcodedKR.koreanName;
+    console.log(`[proxy-finance] KR 하드코딩 확정: '${assetName}' → '${ticker}'`);
+  }
 
   if (forcedMarket === 'KR') {
+    // [0순위] assetName이 이미 유효한 KRX 티커 형식이면 해석 체인 전체 생략
+    // 예: "143460.KS" → Gemini·Yahoo AC 실패 위험 없이 즉시 사용
+    const KR_TICKER_DIRECT_RE = /^\d{6}\.(KS|KQ)$/;
+    if (KR_TICKER_DIRECT_RE.test(assetName)) {
+      ticker = assetName;
+      console.log(`[proxy-finance] KR 직접 티커 확정: '${assetName}'`);
+    }
+
     // [1순위] Gemini: 6자리 krCode + market → 티커 직접 조립 (Yahoo AC 완전 우회)
     let geminiMetaKR = null;
-    try {
+    if (!ticker) try {
       geminiMetaKR = await resolveTickerWithGemini(assetName, userProductType);
     } catch (geminiErr) {
       console.warn('[proxy-finance] Gemini 예외 (KR), Yahoo AC 폴백:', geminiErr?.message);
     }
 
-    if (geminiMetaKR?.krCode && (geminiMetaKR.market === 'KOSPI' || geminiMetaKR.market === 'KOSDAQ')) {
+    if (!ticker && geminiMetaKR?.krCode && (geminiMetaKR.market === 'KOSPI' || geminiMetaKR.market === 'KOSDAQ')) {
       const paddedCode = String(geminiMetaKR.krCode).padStart(6, '0');
       const suffix = geminiMetaKR.market === 'KOSDAQ' ? '.KQ' : '.KS';
       ticker = `${paddedCode}${suffix}`;
       console.log(`[proxy-finance] Gemini KR 직접 조립: '${assetName}' → '${ticker}'`);
     }
+    if (geminiMetaKR?.koreanName) resolvedKoreanName = geminiMetaKR.koreanName;
 
     // [2순위] Gemini 실패/불명 → Yahoo v7 Autocomplete 폴백
     if (!ticker) {
@@ -471,52 +552,102 @@ export async function GET(request) {
     }
   }
 
-  // ── [US·미지정 경로] Gemini isListed 검사 → Yahoo Finance Search ────────
+  // ── [US·미지정 경로] Gemini → KR 판별 우선, 아니면 Yahoo Search ──────────
   if (!ticker) {
     let searchQuery = assetName;
+    // 한글 포함 여부 — Gemini 실패 시 KR 경로 폴백 판단에 사용
+    const hasKorean = /[가-힣]/.test(assetName);
 
-    if (forcedMarket === 'US') {
-      // Gemini: 상장 여부 + 영문 사명 추출
-      let geminiMetaUS = null;
-      try {
-        geminiMetaUS = await resolveTickerWithGemini(assetName, userProductType);
-      } catch (geminiErr) {
-        console.warn('[proxy-finance] Gemini 예외 (US):', geminiErr?.message);
-      }
+    // Gemini 호출 (US·미지정 모두) — KR/US 자동 판별
+    let geminiMeta = null;
+    try {
+      geminiMeta = await resolveTickerWithGemini(assetName, userProductType);
+    } catch (geminiErr) {
+      console.warn('[proxy-finance] Gemini 예외 (US/미지정):', geminiErr?.message);
+    }
 
-      // 비상장 기업 즉시 차단 — Yahoo에 넘기지 않음
-      if (geminiMetaUS?.isListed === false) {
+    // [1] Gemini가 KR 종목으로 확인 → KR 티커 직접 조립
+    if (geminiMeta?.krCode && (geminiMeta.market === 'KOSPI' || geminiMeta.market === 'KOSDAQ')) {
+      const paddedCode = String(geminiMeta.krCode).padStart(6, '0');
+      const suffix = geminiMeta.market === 'KOSDAQ' ? '.KQ' : '.KS';
+      ticker = `${paddedCode}${suffix}`;
+      if (geminiMeta.koreanName) resolvedKoreanName = geminiMeta.koreanName;
+      console.log(`[proxy-finance] Gemini 미지정→KR 확정: '${assetName}' → '${ticker}'`);
+    } else {
+      // 비상장 기업 차단 (Gemini 명시 시만)
+      if (geminiMeta?.isListed === false) {
         return Response.json(
           { error: `'${assetName}'은(는) 주식 시장에 상장되지 않은 기업입니다. 상장 종목명을 입력해주세요.`, assetName },
           { status: 404 }
         );
       }
 
-      // 영문 사명이 있으면 Yahoo Search 정확도 향상
-      if (geminiMetaUS?.englishName) searchQuery = geminiMetaUS.englishName;
-    }
+      if (geminiMeta?.englishName) searchQuery = geminiMeta.englishName;
+      if (geminiMeta?.koreanName)  resolvedKoreanName = geminiMeta.koreanName;
 
-    try {
-      ticker = await fetchTickerFromYahoo(searchQuery, userProductType);
-    } catch (searchErr) {
-      if (searchErr.isTimeout)
-        return Response.json({ error: searchErr.message, assetName }, { status: 504 });
-      if (searchErr.isRateLimit)
-        return Response.json({ error: searchErr.message, assetName }, { status: 429 });
-      console.warn('[proxy-finance] Yahoo Search 예외:', searchErr?.message);
-      return Response.json({ error: '티커 검색 중 오류가 발생했습니다.', assetName }, { status: 500 });
-    }
+      // [2] 한글 이름 → Gemini 실패·미지정 시 Yahoo KR AC + Naver 크롤링 폴백
+      //     ("삼성전자" 처럼 한글로 입력해도 KR 티커를 찾을 수 있도록)
+      if (hasKorean && !ticker) {
+        try {
+          ticker = await fetchTickerFromKRYahoo(assetName, userProductType);
+        } catch (krErr) {
+          if (krErr.isTimeout)
+            return Response.json({ error: krErr.message, assetName }, { status: 504 });
+          if (krErr.isRateLimit)
+            return Response.json({ error: krErr.message, assetName }, { status: 429 });
+          console.warn('[proxy-finance] KR Yahoo AC 폴백 예외 (미지정):', krErr?.message);
+        }
+        if (!ticker) {
+          try {
+            ticker = await fetchTickerByWebScraping(assetName);
+          } catch { /* 폴백 실패 무시 */ }
+        }
+      }
 
-    if (!ticker) {
-      return Response.json(
-        { error: `'${assetName}'에 해당하는 티커를 찾을 수 없습니다.`, assetName },
-        { status: 404 }
-      );
+      // [3] 그래도 없으면 Yahoo US Search (영문 이름·해외 종목 처리)
+      if (!ticker) {
+        try {
+          ticker = await fetchTickerFromYahoo(searchQuery, userProductType);
+        } catch (searchErr) {
+          if (searchErr.isTimeout)
+            return Response.json({ error: searchErr.message, assetName }, { status: 504 });
+          if (searchErr.isRateLimit)
+            return Response.json({ error: searchErr.message, assetName }, { status: 429 });
+          console.warn('[proxy-finance] Yahoo Search 예외:', searchErr?.message);
+          return Response.json({ error: '티커 검색 중 오류가 발생했습니다.', assetName }, { status: 500 });
+        }
+      }
+
+      if (!ticker) {
+        return Response.json(
+          { error: `'${assetName}'에 해당하는 티커를 찾을 수 없습니다.`, assetName },
+          { status: 404 }
+        );
+      }
     }
   }
 
   // ── 티커 기반 메타데이터 추론 ──────────────────────────────────────────
   let assetMeta = inferMetaFromTicker(ticker);
+
+  // ── 국내 종목: 네이버 모바일 API로 한국어 공식명 보강 ─────────────────────
+  const isKoreanTicker = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
+
+  if (isKoreanTicker) {
+    const code = ticker.replace(/\.(KS|KQ)$/i, '');
+    try {
+      const naverRes = await fetchWithTimeout(
+        `https://m.stock.naver.com/api/stock/${code}/basic`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' } },
+        5_000
+      );
+      if (naverRes.ok) {
+        const naverData = await naverRes.json();
+        const naverKoreanName = naverData.stockName ?? naverData.corporateName ?? null;
+        if (naverKoreanName) resolvedKoreanName = naverKoreanName;
+      }
+    } catch { /* 폴백 */ }
+  }
 
   // userProductType 0순위 고정 — 추론 결과가 덮을 수 없음
   if (userProductType) {
@@ -593,10 +724,7 @@ export async function GET(request) {
     // 빈 시계열 → regularMarketPrice(현재가)는 chartMeta에 남아 있으므로 yahooJson 포함 반환
     if (closes.length === 0) {
       console.warn(`[proxy-finance] 빈 시계열 (${ticker}) — 현재가 포함 200 OK 반환`);
-      const partialName =
-        (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim()) ? chartMeta.shortName.trim()
-        : (typeof chartMeta?.longName  === 'string' && chartMeta.longName.trim())  ? chartMeta.longName.trim()
-        : null;
+      const partialName = resolveOfficialName(ticker, chartMeta);
       return Response.json({
         ...EMPTY_RESULT,
         officialName: partialName,
@@ -606,23 +734,26 @@ export async function GET(request) {
       }, { status: 200 });
     }
 
-    // ── 배당수익률 계산 (events.dividends) ────────────────────────────────
+    // ── 배당수익률 계산 (주기 감지 → 연간화) ───────────────────────────────
     const regularMarketPrice =
       typeof chartMeta?.regularMarketPrice === 'number' ? chartMeta.regularMarketPrice : 0;
 
-    const rawDividends = yahooJson?.chart?.result?.[0]?.events?.dividends ?? {};
-    const oneYearAgo   = Math.floor(Date.now() / 1000) - 365 * 24 * 3600;
+    const rawDividends  = yahooJson?.chart?.result?.[0]?.events?.dividends ?? {};
+    const nowTs      = Math.floor(Date.now() / 1000);
+    const oneYearAgo = nowTs - 365 * 24 * 3600;
 
-    const eventsTrailingRate = Object.values(rawDividends ?? {}).reduce((sum, entry) => {
-      const ts  = typeof entry?.date   === 'number' ? entry.date   : 0;
-      const amt = typeof entry?.amount === 'number' ? entry.amount : 0;
-      return ts >= oneYearAgo ? sum + amt : sum;
-    }, 0);
+    // 지난 12개월 실제 지급 합산 (trailing 12-month)
+    // date = ex-dividend date (Yahoo 기준). 미래 예정 배당 제외(e.date <= nowTs).
+    // 분기/연간 여부와 무관하게 실제 지급된 배당금만 더함 — 추정·연간화 없음
+    const recentEvents = Object.values(rawDividends)
+      .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= oneYearAgo && e.date <= nowTs);
+    const annualDividendPerShare = recentEvents.reduce((s, e) => s + e.amount, 0);
 
     const eventsDividendYield =
-      eventsTrailingRate > 0 && regularMarketPrice > 0
-        ? eventsTrailingRate / regularMarketPrice
+      annualDividendPerShare > 0 && regularMarketPrice > 0
+        ? annualDividendPerShare / regularMarketPrice
         : 0;
+    const eventsTrailingRate = annualDividendPerShare;
 
     // ── quoteSummary API로 더 정확한 배당 데이터 조회 ───────────────────
     const quoteSummaryUrls = [
@@ -641,6 +772,16 @@ export async function GET(request) {
         const summaryJson = await summaryRes.json();
         const detail = summaryJson?.quoteSummary?.result?.[0]?.summaryDetail;
         if (!detail) continue;
+        // 실제 응답 필드 확인용 — 배포 전 제거 예정
+        console.log(`[proxy-finance] summaryDetail keys (${ticker}):`, Object.keys(detail));
+        console.log(`[proxy-finance] summaryDetail dividend fields (${ticker}):`, JSON.stringify({
+          dividendYield:              detail?.dividendYield,
+          trailingAnnualDividendYield: detail?.trailingAnnualDividendYield,
+          dividendRate:               detail?.dividendRate,
+          trailingAnnualDividendRate: detail?.trailingAnnualDividendRate,
+        }));
+        // dividendYield.raw = trailingAnnualDividendYield (TTM, 연간 소수)
+        // trailingAnnualDividendRate.raw = TTM 주당 배당금 합산
         const dy   = detail?.dividendYield?.raw;
         const tadr = detail?.trailingAnnualDividendRate?.raw;
         if (typeof dy   === 'number') summaryDividendYield = dy;
@@ -651,14 +792,38 @@ export async function GET(request) {
       }
     }
 
-    const dividendYield              = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
-    const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
+    // ── Naver Finance 배당수익률 (국내 종목 폴백) ────────────────────────
+    // Yahoo 배당 데이터가 없거나 0인 KR 종목에 한해 Naver에서 추가 조회
+    const isKrTicker = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
+    const krCode = isKrTicker ? ticker.split('.')[0] : null;
+    let naverDividendYield = 0;
+    if (isKrTicker && krCode) {
+      const yahooBest = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
+      if (yahooBest === 0) {
+        naverDividendYield = await fetchNaverDividend(krCode);
+      }
+    }
 
-    // officialName: Yahoo meta.shortName → longName 순 폴백
-    const officialName =
-      (typeof chartMeta?.shortName === 'string' && chartMeta.shortName.trim()) ? chartMeta.shortName.trim()
-      : (typeof chartMeta?.longName  === 'string' && chartMeta.longName.trim())  ? chartMeta.longName.trim()
-      : null;
+    // 최종 배당수익률: quoteSummary > events 연간화 > Naver Finance
+    const dividendYield =
+      summaryDividendYield > 0 ? summaryDividendYield
+      : eventsDividendYield  > 0 ? eventsDividendYield
+      : naverDividendYield;
+    const trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
+
+    // officialName 결정 우선순위:
+    //   KR 종목 → Naver/Gemini 한국어명 우선 → kr-asset-master.json → Yahoo meta 폴백
+    //   US 종목 → Gemini 한국어명 있으면 "한국어명(TICKER)" 포맷 → 없으면 Yahoo meta 폴백
+    let officialName = resolveOfficialName(ticker, chartMeta);
+    if (resolvedKoreanName) {
+      if (forcedMarket === 'US') {
+        const baseTicker = ticker.split('.')[0];
+        officialName = `${resolvedKoreanName}(${baseTicker})`;
+      } else {
+        // KR·미지정: Naver/Gemini 한국어명이 Yahoo 영문명보다 우선
+        officialName = resolvedKoreanName;
+      }
+    }
 
     return Response.json({ ticker, officialName, ...finalMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
 

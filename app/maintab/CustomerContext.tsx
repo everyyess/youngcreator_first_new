@@ -258,6 +258,38 @@ export type SellRecord = {
   realizedGain: number;
 };
 
+// TAB 3-1/3-2 확정 조합 스냅샷 (불변성 유지, 전역 영속)
+export type ConfirmedPairItem = {
+  ticker: string;
+  sector: string;
+  weight: number;
+  isGlobal: boolean;
+};
+
+// TAB 3-3 투자금 조정 테이블 행 (전역 영속, 고객별 격리, 탭 unmount 후 복원)
+export type BuySimTickerItem = {
+  ticker: string;
+  sector: string;
+  weight: number;
+  checked: boolean;
+  customAmountStr: string;
+  isGlobal: boolean;
+};
+
+// TAB 3-3 PB 직접 매수 주문 행 (전역 영속, 탭 전환 보존)
+export type PbOrderRow = {
+  id: string;
+  productType: string;
+  name: string;
+  ticker: string;
+  amountManStr: string;        // 구버전 호환 필드 (내부 계산에서 더 이상 사용하지 않음)
+  currentPrice: number | null; // 현재가 (native currency — KRW or USD)
+  priceCurrency: string;       // "KRW" | "USD"
+  quantity: string;            // 수량(주/개)
+  bondYield: string;           // 채권수익률(%)
+  maturityYears: string;       // 만기(년)
+};
+
 export type Tab3InnerTab = "correlation-domestic" | "correlation-global" | "rebalancing";
 export type CorrelationPeriodRange = "1W" | "1M" | "3M" | "6M" | "1Y" | "3Y";
 export type CorrelationInnerViewTab = "optimal" | "heatmap" | "chart" | "weight" | "sectorlist";
@@ -1263,6 +1295,7 @@ export type CustomerContextValue = {
   isPortfolioLoaded: boolean;
   analysisResult: PortfolioAnalysisResult | null;
   addPortfolioRow: () => void;
+  bulkAddPortfolioRows: (rows: Partial<PortfolioAsset>[]) => void;
   removePortfolioRow: (index: number) => void;
   updatePortfolioRow: (index: number, patch: Partial<PortfolioAsset>) => void;
   setAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
@@ -1292,6 +1325,18 @@ export type CustomerContextValue = {
   clearSellHistory: () => void;
   // d = b + (a - c): 가용 추가 투자 의향 자금 (기획서 표준 수식)
   availableInvestmentFunds: number | null;
+  // ── TAB 3-1/3-2 확정 조합 (불변성 유지, 고객별 격리) ─────────────────────────
+  confirmedDomesticPair: ConfirmedPairItem[] | null;
+  confirmedGlobalPair: ConfirmedPairItem[] | null;
+  setConfirmedDomesticPair: (pair: ConfirmedPairItem[] | null) => void;
+  setConfirmedGlobalPair: (pair: ConfirmedPairItem[] | null) => void;
+  // ── TAB 3-3 투자금 조정 테이블 영속 (탭 unmount 후에도 유지, 고객별 격리) ────────
+  buySimTickerItems: BuySimTickerItem[];
+  buySimConfirmedSig: string;
+  setBuySimPersistedState: (items: BuySimTickerItem[], sig: string) => void;
+  // ── TAB 3-3 PB 직접 매수 (전역 영속, 고객별 격리) ───────────────────────────
+  pbOrderRows: PbOrderRow[];
+  setPbOrderRows: (rows: PbOrderRow[]) => void;
 };
 
 export const CustomerContext = createContext<CustomerContextValue | null>(null);

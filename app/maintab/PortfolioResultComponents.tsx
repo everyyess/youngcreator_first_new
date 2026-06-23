@@ -18,21 +18,25 @@ import type { FinancialIncomeSummary } from "./tab1/FinancialIncomeGauge";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 export const CLASS_COLORS: Record<string, string> = {
-  국내주식:    "#3B82F6",
-  해외주식:    "#10B981",
-  국내채권:    "#F59E0B",
-  해외채권:    "#EF4444",
-  금:          "#F97316",  // 대안자산 / 원자재
-  리츠:        "#8B5CF6",  // 부동산 / 대안자산
-  현금:        "#64748B",
-  달러:        "#06B6D4",  // 현금성자산 / 외환
-  암호화폐:    "#EC4899",  // 초고위험 대안자산
+  국내주식:    "#3B82F6",   // blue-500
+  국내ETF:     "#93C5FD",   // blue-300 — 연블루 (국내주식 계열, 더 밝음)
+  해외주식:    "#10B981",   // emerald-500
+  해외ETF:     "#6EE7B7",   // emerald-300 — 연그린 (해외주식 계열, 더 밝음)
+  국내채권:    "#F59E0B",   // amber-400
+  해외채권:    "#EF4444",   // red-500
+  금:          "#F97316",   // orange-500
+  리츠:        "#8B5CF6",   // violet-500
+  현금:        "#64748B",   // slate-500
+  달러:        "#06B6D4",   // cyan-500
+  암호화폐:    "#EC4899",   // pink-500
 };
 
 // 도넛 차트용 표시 레이블 (내부 asset_class → 사용자 표시명)
 export const CLASS_DISPLAY_LABELS: Record<string, string> = {
   국내주식: "국내주식",
+  국내ETF:  "국내ETF",
   해외주식: "해외주식",
+  해외ETF:  "해외ETF",
   국내채권: "국내채권",
   해외채권: "해외채권",
   금:       "금·원자재",
@@ -48,8 +52,8 @@ const ASSET_CLASS_ALIAS: Record<string, string> = {
   외화: "달러", usd: "달러", 달러화: "달러",
   부동산: "리츠", 리츠etf: "리츠", reits: "리츠",
   해외채권etf: "해외채권", 미국채: "해외채권", 달러채권: "해외채권",
-  // 신규 통합 상품유형 → 내부 asset_class 정규화
-  국내etf: "국내주식", 해외etf: "해외주식",
+  // 국내ETF·해외ETF는 CLASS_COLORS/DISPLAY_LABELS에 독립 항목으로 정의되어 있으므로
+  // 주식과 병합하지 않고 productType 그대로 유지 — 도넛 슬라이스 클릭 격리 필터링 보장
   "예적금/현금": "현금", 예적금: "현금",
 };
 
@@ -224,12 +228,13 @@ export function usePortfolioResult(): PortfolioAnalysisResult | null {
 // ─── Layout Primitives ───────────────────────────────────────────────────────
 
 export function ResultCard({
-  icon, title, accent, children,
+  icon, title, accent, children, headerRight,
 }: {
   icon?: React.ReactNode;
   title: string;
   accent: "blue" | "green" | "gold" | "red" | "orange" | "slate";
   children: React.ReactNode;
+  headerRight?: React.ReactNode;
 }) {
   const accentMap = {
     blue: "text-samsung bg-blue-50",
@@ -241,13 +246,14 @@ export function ResultCard({
   };
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft flex flex-col h-full">
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-4 flex items-center gap-3 flex-wrap">
         {icon && (
           <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${accentMap[accent]}`}>
             {icon}
           </div>
         )}
         <h3 className="text-base font-bold text-navy">{title}</h3>
+        {headerRight && <div className="ml-auto">{headerRight}</div>}
       </div>
       <div className="flex-1 flex flex-col">
         {children}
@@ -396,10 +402,14 @@ export function DonutChart({
     if (!Number.isFinite(value) || value <= 0) continue;
     const pct = totalValue > 0 ? (value / totalValue) * 100 : (a.weight ?? 0) * 100;
     if (!Number.isFinite(pct) || pct <= 0) continue;
-    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    const cls = a.productType ?? a.asset_class ?? "기타";
     byClass[cls] = (byClass[cls] ?? 0) + pct;
   }
   const segments = Object.entries(byClass).filter(([, pct]) => pct > 0.5).sort(([, a], [, b]) => b - a);
+  const uniqueProductTypeCount = new Set(
+    assets.filter(a => getAssetValue(a) > 0).map(a => a.productType ?? a.asset_class ?? "기타")
+  ).size;
+  const PAD_PCT = 0.8;
   const r = 15.9155;
   let cumulative = 0;
   const activeCls = hoveredCls ?? selectedClass;
@@ -411,7 +421,8 @@ export function DonutChart({
           <circle cx="18" cy="18" r={r} fill="none" stroke="#f1f5f9" strokeWidth="3.5" />
           {segments.map(([cls, pct], i) => {
             const offset = -cumulative;
-            const dash = `${pct.toFixed(2)} ${(100 - pct).toFixed(2)}`;
+            const visiblePct = Math.max(pct - PAD_PCT, 0.5);
+            const dash = `${visiblePct.toFixed(2)} ${(100 - visiblePct).toFixed(2)}`;
             cumulative += pct;
             const isActive = hoveredCls === cls || selectedClass === cls;
             return (
@@ -436,7 +447,7 @@ export function DonutChart({
             <div className="text-center leading-tight">
               <p className="text-sm text-slate-400">자산군별 비중</p>
               <p className="text-xs font-bold text-slate-500">
-                {segments.length}개 자산유형
+                {uniqueProductTypeCount}개 자산유형
               </p>
             </div>
           )}
@@ -478,11 +489,11 @@ export function AssetClassTable({
   rebalancingInfos?: Map<string, RebalancingStatusInfo>;
   onBadgeClick?: (info: RebalancingStatusInfo) => void;
 }) {
-  // 전체 자산 기준 자산군 합산 (필터 여부와 무관하게 비중 분모로 사용)
+  // 전체 자산 기준 자산군 합산 — 도넛 차트와 동일한 키(productType 우선)로 집계
   const classTotals = useMemo(() => {
     const totals: Record<string, number> = {};
     for (const a of assets) {
-      const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+      const cls = a.productType ?? a.asset_class ?? "기타";
       totals[cls] = (totals[cls] ?? 0) + getAssetValueGeneric(a);
     }
     return totals;
@@ -496,19 +507,21 @@ export function AssetClassTable({
       .filter((info): info is RebalancingStatusInfo => info?.status === "매도");
   }, [rebalancingInfos, initialAssets]);
 
+  // 도넛 차트 클릭 시 filteredClass === productType 이므로 === 엄격 비교로 격리
   const displayedActive = filteredClass
-    ? assets.filter((a) => normalizeAssetClass(a.asset_class ?? a.productType ?? "기타") === filteredClass)
+    ? assets.filter((a) => (a.productType ?? a.asset_class ?? "기타") === filteredClass)
     : assets;
-  // 선택된 자산군에 속하는 완전 매도 종목만 노출 (info.assetClass는 이미 normalizeAssetClass 적용값)
+  // 매도 종목 필터 — assetClass는 computeRebalancingInfo에서 normalizeAssetClass로 계산됨
+  // normalizeAssetClass는 "해외주식"/"해외ETF" 별칭 없음 → 직접 비교 안전
   const displayedSold = filteredClass
-    ? soldInfos.filter((info) => info.assetClass === filteredClass)
+    ? soldInfos.filter((info) => (info.productType || info.assetClass) === filteredClass)
     : soldInfos;
 
   const hasRebalancing = !!rebalancingInfos;
   const colCount = hasRebalancing ? 5 : 4;
 
   const renderRow = (a: PortfolioAsset) => {
-    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    const cls = a.productType ?? a.asset_class ?? "기타";
     const val = getAssetValueGeneric(a);
     const classTotal = classTotals[cls] ?? 0;
     // 자산군 내 비중 = 해당 종목 평가액 / 해당 자산군 총합산 평가액
@@ -834,58 +847,42 @@ export function CorrelationHeatmap({ matrix, labels }: { matrix: number[][]; lab
                      return { bg: "bg-emerald-500", text: "text-white font-bold" };
   }
   return (
-    <div className="flex items-stretch h-full gap-4">
-      <div className="overflow-hidden rounded-xl flex-1">
-        <table className="border-collapse w-full table-fixed h-full">
-          <thead>
-            <tr>
-              {/* 좌상단 빈 셀 */}
-              <th className={`bg-slate-200 ${headerPad} border border-slate-300`} style={{ width: isCompact ? "4rem" : "5rem" }} />
-              {labels.map((l, i) => (
-                <th
-                  key={i}
-                  className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
-                >
-                  {l || '자산'}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {matrix.map((row, ri) => (
-              <tr key={ri}>
-                <td
-                  className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
-                >
-                  {labels[ri] || '자산'}
-                </td>
-                {row.map((val, ci) => {
-                  const { bg, text } = cellStyles(val);
-                  return (
-                    <td key={ci} className={`${cellPad} text-center align-middle select-none border border-white/40 ${bg} ${text} ${valueFont}`}>
-                      {val.toFixed(2)}
-                    </td>
-                  );
-                })}
-              </tr>
+    <div className="overflow-hidden rounded-xl w-full">
+      <table className="border-collapse w-full table-fixed">
+        <thead>
+          <tr>
+            {/* 좌상단 빈 셀 */}
+            <th className={`bg-slate-200 ${headerPad} border border-slate-300`} style={{ width: isCompact ? "4rem" : "5rem" }} />
+            {labels.map((l, i) => (
+              <th
+                key={i}
+                className={`bg-slate-200 ${headerPad} text-center align-bottom text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
+              >
+                {l || '자산'}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex flex-col gap-2 text-xs font-semibold shrink-0 pt-1">
-        {[
-          { color: "bg-red-500",     label: "0.7 이상", sub: "고상관 (리스크 쏠림)" },
-          { color: "bg-orange-400",  label: "0.3 ~ 0.7", sub: "중상관 (동조화 주의)" },
-          { color: "bg-slate-100 border border-slate-300", label: "-0.3 ~ 0.3", sub: "저상관 (일반적)" },
-          { color: "bg-emerald-500", label: "−0.3 미만", sub: "역상관 (최우수 헷지)" },
-        ].map(({ color, label, sub }) => (
-          <span key={label} className="flex items-center gap-1.5">
-            <span className={`h-3.5 w-3.5 rounded-lg shrink-0 ${color}`} />
-            <span className="text-slate-700 font-bold">{label}</span>
-            <span className="text-slate-500 font-normal">{sub}</span>
-          </span>
-        ))}
-      </div>
+          </tr>
+        </thead>
+        <tbody>
+          {matrix.map((row, ri) => (
+            <tr key={ri}>
+              <td
+                className={`bg-slate-200 ${headerPad} text-center align-middle text-slate-700 font-bold ${labelFont} leading-tight break-words border border-slate-300`}
+              >
+                {labels[ri] || '자산'}
+              </td>
+              {row.map((val, ci) => {
+                const { bg, text } = cellStyles(val);
+                return (
+                  <td key={ci} className={`${cellPad} text-center align-middle select-none border border-white/40 ${bg} ${text} ${valueFont}`}>
+                    {val.toFixed(2)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -899,6 +896,8 @@ export const STRESS_SCENARIO_ORDER = [
 ] as const;
 
 // ─── Stress Test ─────────────────────────────────────────────────────────────
+
+const STRESS_INITIAL_COUNT = 8;
 
 export function StressScenarioBar({
   scenario,
@@ -925,14 +924,16 @@ export function StressScenarioBar({
       dedupMap.set(d.name, { ...d });
     }
   }
-  const details = Array.from(dedupMap.values()).slice(0, 8);
+  const [expanded, setExpanded] = useState(false);
+  const allDetails = Array.from(dedupMap.values());
+  const details = expanded ? allDetails : allDetails.slice(0, STRESS_INITIAL_COUNT);
+  const hasMore = allDetails.length > STRESS_INITIAL_COUNT;
   // 바 차트 스케일: 개별 종목 자체 충격률(shock) 기준
-  const maxShock = Math.max(...details.map((d) => Math.abs(d.shock ?? d.contribution)), 0.001);
+  const maxShock = Math.max(...allDetails.map((d) => Math.abs(d.shock ?? d.contribution)), 0.001);
   const CHART_DOMAIN = Math.max(maxShock * 1.1, 0.01);
   const isGain = scenario.lossRate >= 0;
   const ratePct = Math.abs(scenario.lossRate * 100).toFixed(1);
 
-  // CSS transition duration — 내부 스타일로 고정해 Tailwind 클래스 파싱 순서에 독립
   const BAR_TRANSITION = "width 0.35s ease";
 
   return (
@@ -956,11 +957,9 @@ export function StressScenarioBar({
           const valColor = isPos ? "text-emerald-600" : isNeg ? "text-red-500" : "text-slate-400";
           const sign = isPos ? "+" : "";
           return (
-            // key = 자산명 고정: 시나리오 전환 시 순서가 바뀌어도 동일 DOM 노드를 재사용
             <div key={d.name} className="grid grid-cols-[80px_1fr_2px_1fr_44px] items-center gap-x-1 text-xs">
               <span className="truncate font-semibold text-slate-700" title={d.name}>{d.name}</span>
 
-              {/* 손실 바 — 항상 DOM에 존재, width=0으로 수렴하여 unmount 없이 트랜지션 유지 */}
               <div className="flex h-4 items-center justify-end overflow-hidden">
                 <div
                   className="h-2 rounded-l-sm"
@@ -974,7 +973,6 @@ export function StressScenarioBar({
 
               <div className="h-4 w-0.5 rounded-full bg-slate-300 mx-auto" />
 
-              {/* 수익 바 — 항상 DOM에 존재, width=0으로 수렴 */}
               <div className="flex h-4 items-center justify-start overflow-hidden">
                 <div
                   className="h-2 rounded-r-sm"
@@ -993,6 +991,17 @@ export function StressScenarioBar({
           );
         })}
       </div>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded((p) => !p)}
+          className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 text-[12px] font-semibold text-slate-500 hover:bg-slate-100 transition"
+        >
+          {expanded
+            ? "접기 ▲"
+            : `더보기 (${allDetails.length - STRESS_INITIAL_COUNT}개 더) ▼`}
+        </button>
+      )}
     </div>
   );
 }
@@ -1137,7 +1146,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
   if (!healthResult) return null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { badge, badgeKo = "", totalScore, items = [] as any[] } = healthResult;
+  const { badge, badgeKo = "", items = [] as any[] } = healthResult;
 
   // badgeKo: "매도/재구성 권고 (Sell) – 포트폴리오 전면 재검토가 필요합니다."
   const dashIdx = (badgeKo as string).indexOf(" – ");
@@ -1177,21 +1186,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
 
       <div className="flex flex-col flex-1 gap-4 p-5">
 
-        {/* ── 1단: 스코어링 ── */}
-        <div className="flex items-center gap-3 rounded-lg bg-slate-50 px-4 py-3">
-          <BarChart3 size={20} className={`shrink-0 ${bs.score}`} />
-          <div className="min-w-0">
-            <div className="flex items-baseline gap-1">
-              <span className={`text-2xl font-black ${bs.score}`}>{totalScore}</span>
-              <span className="text-sm font-semibold text-slate-500">/ 14점</span>
-            </div>
-            {actionMessage && (
-              <p className="mt-0.5 text-xs font-semibold leading-snug text-slate-600">{actionMessage}</p>
-            )}
-          </div>
-        </div>
-
-        {/* ── 2단: 리스크 항목 칩 ── */}
+        {/* ── 1단: 리스크 항목 칩 ── */}
         {(problemItems.length > 0 || cautionItems.length > 0) && (
           <div className="space-y-3">
             {problemItems.length > 0 && (
@@ -1335,13 +1330,33 @@ export function DistributionAndRiskSection({ data }: { data: PortfolioAnalysisRe
         <InteractiveDonutWithTable assets={enrichedAssets} />
       </ResultCard>
 
-      <ResultCard icon={<Activity size={18} />} title="자산 간 상관관계 히트맵" accent="slate">
-          {quantResult?.risk?.correlationHeatmap?.matrix?.length ? (
-            <CorrelationHeatmap matrix={quantResult.risk.correlationHeatmap.matrix} labels={quantResult.risk.correlationHeatmap.labels} />
-          ) : (
-            <p className="text-sm text-slate-400">자산이 2개 이상일 때 표시됩니다.</p>
-          )}
-        </ResultCard>
+      <ResultCard
+        icon={<Activity size={18} />}
+        title="자산 간 상관관계 히트맵"
+        accent="slate"
+        headerRight={
+          <div className="flex items-center gap-3 flex-wrap text-xs font-semibold">
+            {[
+              { color: "bg-red-500",     label: "0.7 이상", sub: "고상관 (리스크 쏠림)" },
+              { color: "bg-orange-400",  label: "0.3 ~ 0.7", sub: "중상관 (동조화 주의)" },
+              { color: "bg-slate-100 border border-slate-300", label: "-0.3 ~ 0.3", sub: "저상관 (일반적)" },
+              { color: "bg-emerald-500", label: "−0.3 미만", sub: "역상관 (최우수 헷지)" },
+            ].map(({ color, label, sub }) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className={`h-3 w-3 rounded shrink-0 ${color}`} />
+                <span className="text-slate-700 font-bold">{label}</span>
+                <span className="text-slate-500 font-normal">{sub}</span>
+              </span>
+            ))}
+          </div>
+        }
+      >
+        {quantResult?.risk?.correlationHeatmap?.matrix?.length ? (
+          <CorrelationHeatmap matrix={quantResult.risk.correlationHeatmap.matrix} labels={quantResult.risk.correlationHeatmap.labels} />
+        ) : (
+          <p className="text-sm text-slate-400">자산이 2개 이상일 때 표시됩니다.</p>
+        )}
+      </ResultCard>
 
       {quantResult && (
         <div className="grid gap-5">
