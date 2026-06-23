@@ -85,6 +85,18 @@ const SYSTEM_INSTRUCTION =
   '애플 → {"isListed":true,"krCode":null,"market":"US","englishName":"Apple Inc.","koreanName":"애플"}\n' +
   '엔비디아 → {"isListed":true,"krCode":null,"market":"US","englishName":"Nvidia Corporation","koreanName":"엔비디아"}\n' +
   'NVDA → {"isListed":true,"krCode":null,"market":"US","englishName":"Nvidia Corporation","koreanName":"엔비디아"}\n' +
+  'Meta Platforms → {"isListed":true,"krCode":null,"market":"US","englishName":"Meta Platforms Inc.","koreanName":"메타"}\n' +
+  '메타 → {"isListed":true,"krCode":null,"market":"US","englishName":"Meta Platforms Inc.","koreanName":"메타"}\n' +
+  'JPMorgan Chase → {"isListed":true,"krCode":null,"market":"US","englishName":"JPMorgan Chase & Co.","koreanName":"JP모건체이스"}\n' +
+  'JP모건 → {"isListed":true,"krCode":null,"market":"US","englishName":"JPMorgan Chase & Co.","koreanName":"JP모건체이스"}\n' +
+  'Berkshire Hathaway → {"isListed":true,"krCode":null,"market":"US","englishName":"Berkshire Hathaway Inc.","koreanName":"버크셔해서웨이"}\n' +
+  'Eli Lilly → {"isListed":true,"krCode":null,"market":"US","englishName":"Eli Lilly and Company","koreanName":"일라이릴리"}\n' +
+  'Broadcom → {"isListed":true,"krCode":null,"market":"US","englishName":"Broadcom Inc.","koreanName":"브로드컴"}\n' +
+  'Home Depot → {"isListed":true,"krCode":null,"market":"US","englishName":"The Home Depot Inc.","koreanName":"홈디포"}\n' +
+  'Costco → {"isListed":true,"krCode":null,"market":"US","englishName":"Costco Wholesale Corporation","koreanName":"코스트코"}\n' +
+  'Amazon → {"isListed":true,"krCode":null,"market":"US","englishName":"Amazon.com Inc.","koreanName":"아마존"}\n' +
+  'Alphabet → {"isListed":true,"krCode":null,"market":"US","englishName":"Alphabet Inc.","koreanName":"알파벳"}\n' +
+  'Goldman Sachs → {"isListed":true,"krCode":null,"market":"US","englishName":"The Goldman Sachs Group Inc.","koreanName":"골드만삭스"}\n' +
   'RKLB → {"isListed":true,"krCode":null,"market":"US","englishName":"Rocket Lab USA","koreanName":"로켓랩"}\n' +
   'PLTR → {"isListed":true,"krCode":null,"market":"US","englishName":"Palantir Technologies","koreanName":"팔란티어"}\n' +
   'TSLA → {"isListed":true,"krCode":null,"market":"US","englishName":"Tesla Inc.","koreanName":"테슬라"}\n' +

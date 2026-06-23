@@ -199,8 +199,9 @@ const YAHOO_ETF_TYPES   = new Set(['국내ETF',  '해외ETF']);
 async function fetchTickerFromYahoo(query, productType = null) {
   if (!query?.trim()) return null;
 
-  // 영문+공백 혼합 검색어 정규화: "Space X" → "SpaceX"
-  const normalizedQuery = /[A-Za-z]/.test(query) ? query.replace(/\s+/g, '') : query;
+  // 공백 제거 정규화를 제거 — "Meta Platforms"→"MetaPlatforms", "JPMorgan Chase"→"JPMorganChase" 처럼
+  // 다중 단어 회사명이 깨지는 문제를 방지. Yahoo Finance는 공백 포함 쿼리를 잘 처리함.
+  const normalizedQuery = query.trim();
 
   const searchUrl =
     `https://query1.finance.yahoo.com/v1/finance/search` +
