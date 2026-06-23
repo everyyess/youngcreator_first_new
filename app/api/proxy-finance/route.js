@@ -87,6 +87,18 @@ async function safeJson(res) {
   }
 }
 
+// ── 영문 표기 KR 종목 하드코딩 맵 (Gemini 오분류 방지) ─────────────────────
+// 영문으로만 표기되지만 실제 KOSPI/KOSDAQ 상장 종목인 케이스.
+// Gemini는 HLB→H.LUNDBECK(덴마크) 처럼 외국 동명 기업과 혼동할 수 있으므로
+// Gemini 호출 전에 선제적으로 KR 티커를 확정한다.
+const KR_ENGLISH_NAME_MAP = new Map([
+  ['hlb',           { krCode: '028300', market: 'KOSDAQ', koreanName: 'HLB' }],
+  ['hlb이노베이션',  { krCode: '067830', market: 'KOSDAQ', koreanName: 'HLB이노베이션' }],
+  ['hlb생명과학',    { krCode: '067630', market: 'KOSDAQ', koreanName: 'HLB생명과학' }],
+  ['hlb테라퓨틱스',  { krCode: '115450', market: 'KOSDAQ', koreanName: 'HLB테라퓨틱스' }],
+  ['hlb글로벌',      { krCode: '003580', market: 'KOSDAQ', koreanName: 'HLB글로벌' }],
+]);
+
 // ── 영문 알파벳 → 한글 발음 변환 맵 (회사명 ASCII 접두사 처리용) ───────────
 // 예: "HD현대" → "에이치디현대",  "SK하이닉스" → "에스케이하이닉스"
 const ALPHA_SOUND = {
@@ -199,8 +211,9 @@ const YAHOO_ETF_TYPES   = new Set(['국내ETF',  '해외ETF']);
 async function fetchTickerFromYahoo(query, productType = null) {
   if (!query?.trim()) return null;
 
-  // 영문+공백 혼합 검색어 정규화: "Space X" → "SpaceX"
-  const normalizedQuery = /[A-Za-z]/.test(query) ? query.replace(/\s+/g, '') : query;
+  // 공백 제거 정규화를 제거 — "Meta Platforms"→"MetaPlatforms", "JPMorgan Chase"→"JPMorganChase" 처럼
+  // 다중 단어 회사명이 깨지는 문제를 방지. Yahoo Finance는 공백 포함 쿼리를 잘 처리함.
+  const normalizedQuery = query.trim();
 
   const searchUrl =
     `https://query1.finance.yahoo.com/v1/finance/search` +
@@ -271,6 +284,16 @@ async function fetchTickerFromYahoo(query, productType = null) {
     if (quotes.length === 0) {
       console.warn(`[proxy-finance] Yahoo Search 결과 없음: '${query}'`);
       return null;
+    }
+
+    // productType 미지정 시 미국 거래소(순수 티커, 도트 없음) 우선 선택
+    // 예: 'LILY.WA'(바르샤바) 대신 'LLY'(NYSE) 반환
+    const usPrimary = quotes.find(q =>
+      (q.quoteType === 'EQUITY' || q.quoteType === 'ETF') && !String(q.symbol).includes('.')
+    );
+    if (usPrimary) {
+      console.log(`[proxy-finance] Yahoo Search 미국 거래소 우선 선택: '${query}' → '${usPrimary.symbol}'`);
+      return String(usPrimary.symbol).trim();
     }
   }
 
@@ -460,6 +483,16 @@ export async function GET(request) {
   let ticker = null;
   let resolvedKoreanName = null; // Gemini에서 얻은 한국어 종목명
 
+  // [최우선] 영문 표기 KR 종목 하드코딩 확정 — Gemini 오분류 선제 차단
+  // productType 미지정 시에도 KR 티커를 정확히 반환한다.
+  const hardcodedKR = KR_ENGLISH_NAME_MAP.get(assetName.trim().toLowerCase());
+  if (hardcodedKR) {
+    const suffix = hardcodedKR.market === 'KOSDAQ' ? '.KQ' : '.KS';
+    ticker = `${hardcodedKR.krCode}${suffix}`;
+    resolvedKoreanName = hardcodedKR.koreanName;
+    console.log(`[proxy-finance] KR 하드코딩 확정: '${assetName}' → '${ticker}'`);
+  }
+
   if (forcedMarket === 'KR') {
     // [0순위] assetName이 이미 유효한 KRX 티커 형식이면 해석 체인 전체 생략
     // 예: "143460.KS" → Gemini·Yahoo AC 실패 위험 없이 즉시 사용
@@ -519,53 +552,102 @@ export async function GET(request) {
     }
   }
 
-  // ── [US·미지정 경로] Gemini isListed 검사 → Yahoo Finance Search ────────
+  // ── [US·미지정 경로] Gemini → KR 판별 우선, 아니면 Yahoo Search ──────────
   if (!ticker) {
     let searchQuery = assetName;
+    // 한글 포함 여부 — Gemini 실패 시 KR 경로 폴백 판단에 사용
+    const hasKorean = /[가-힣]/.test(assetName);
 
-    if (forcedMarket === 'US') {
-      // Gemini: 상장 여부 + 영문 사명 추출
-      let geminiMetaUS = null;
-      try {
-        geminiMetaUS = await resolveTickerWithGemini(assetName, userProductType);
-      } catch (geminiErr) {
-        console.warn('[proxy-finance] Gemini 예외 (US):', geminiErr?.message);
-      }
+    // Gemini 호출 (US·미지정 모두) — KR/US 자동 판별
+    let geminiMeta = null;
+    try {
+      geminiMeta = await resolveTickerWithGemini(assetName, userProductType);
+    } catch (geminiErr) {
+      console.warn('[proxy-finance] Gemini 예외 (US/미지정):', geminiErr?.message);
+    }
 
-      // 비상장 기업 즉시 차단 — Yahoo에 넘기지 않음
-      if (geminiMetaUS?.isListed === false) {
+    // [1] Gemini가 KR 종목으로 확인 → KR 티커 직접 조립
+    if (geminiMeta?.krCode && (geminiMeta.market === 'KOSPI' || geminiMeta.market === 'KOSDAQ')) {
+      const paddedCode = String(geminiMeta.krCode).padStart(6, '0');
+      const suffix = geminiMeta.market === 'KOSDAQ' ? '.KQ' : '.KS';
+      ticker = `${paddedCode}${suffix}`;
+      if (geminiMeta.koreanName) resolvedKoreanName = geminiMeta.koreanName;
+      console.log(`[proxy-finance] Gemini 미지정→KR 확정: '${assetName}' → '${ticker}'`);
+    } else {
+      // 비상장 기업 차단 (Gemini 명시 시만)
+      if (geminiMeta?.isListed === false) {
         return Response.json(
           { error: `'${assetName}'은(는) 주식 시장에 상장되지 않은 기업입니다. 상장 종목명을 입력해주세요.`, assetName },
           { status: 404 }
         );
       }
 
-      // 영문 사명이 있으면 Yahoo Search 정확도 향상
-      if (geminiMetaUS?.englishName) searchQuery = geminiMetaUS.englishName;
-      if (geminiMetaUS?.koreanName)  resolvedKoreanName = geminiMetaUS.koreanName;
-    }
+      if (geminiMeta?.englishName) searchQuery = geminiMeta.englishName;
+      if (geminiMeta?.koreanName)  resolvedKoreanName = geminiMeta.koreanName;
 
-    try {
-      ticker = await fetchTickerFromYahoo(searchQuery, userProductType);
-    } catch (searchErr) {
-      if (searchErr.isTimeout)
-        return Response.json({ error: searchErr.message, assetName }, { status: 504 });
-      if (searchErr.isRateLimit)
-        return Response.json({ error: searchErr.message, assetName }, { status: 429 });
-      console.warn('[proxy-finance] Yahoo Search 예외:', searchErr?.message);
-      return Response.json({ error: '티커 검색 중 오류가 발생했습니다.', assetName }, { status: 500 });
-    }
+      // [2] 한글 이름 → Gemini 실패·미지정 시 Yahoo KR AC + Naver 크롤링 폴백
+      //     ("삼성전자" 처럼 한글로 입력해도 KR 티커를 찾을 수 있도록)
+      if (hasKorean && !ticker) {
+        try {
+          ticker = await fetchTickerFromKRYahoo(assetName, userProductType);
+        } catch (krErr) {
+          if (krErr.isTimeout)
+            return Response.json({ error: krErr.message, assetName }, { status: 504 });
+          if (krErr.isRateLimit)
+            return Response.json({ error: krErr.message, assetName }, { status: 429 });
+          console.warn('[proxy-finance] KR Yahoo AC 폴백 예외 (미지정):', krErr?.message);
+        }
+        if (!ticker) {
+          try {
+            ticker = await fetchTickerByWebScraping(assetName);
+          } catch { /* 폴백 실패 무시 */ }
+        }
+      }
 
-    if (!ticker) {
-      return Response.json(
-        { error: `'${assetName}'에 해당하는 티커를 찾을 수 없습니다.`, assetName },
-        { status: 404 }
-      );
+      // [3] 그래도 없으면 Yahoo US Search (영문 이름·해외 종목 처리)
+      if (!ticker) {
+        try {
+          ticker = await fetchTickerFromYahoo(searchQuery, userProductType);
+        } catch (searchErr) {
+          if (searchErr.isTimeout)
+            return Response.json({ error: searchErr.message, assetName }, { status: 504 });
+          if (searchErr.isRateLimit)
+            return Response.json({ error: searchErr.message, assetName }, { status: 429 });
+          console.warn('[proxy-finance] Yahoo Search 예외:', searchErr?.message);
+          return Response.json({ error: '티커 검색 중 오류가 발생했습니다.', assetName }, { status: 500 });
+        }
+      }
+
+      if (!ticker) {
+        return Response.json(
+          { error: `'${assetName}'에 해당하는 티커를 찾을 수 없습니다.`, assetName },
+          { status: 404 }
+        );
+      }
     }
   }
 
   // ── 티커 기반 메타데이터 추론 ──────────────────────────────────────────
   let assetMeta = inferMetaFromTicker(ticker);
+
+  // ── 국내 종목: 네이버 모바일 API로 한국어 공식명 보강 ─────────────────────
+  const isKoreanTicker = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
+
+  if (isKoreanTicker) {
+    const code = ticker.replace(/\.(KS|KQ)$/i, '');
+    try {
+      const naverRes = await fetchWithTimeout(
+        `https://m.stock.naver.com/api/stock/${code}/basic`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' } },
+        5_000
+      );
+      if (naverRes.ok) {
+        const naverData = await naverRes.json();
+        const naverKoreanName = naverData.stockName ?? naverData.corporateName ?? null;
+        if (naverKoreanName) resolvedKoreanName = naverKoreanName;
+      }
+    } catch { /* 폴백 */ }
+  }
 
   // userProductType 0순위 고정 — 추론 결과가 덮을 수 없음
   if (userProductType) {
@@ -730,12 +812,17 @@ export async function GET(request) {
     const trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
 
     // officialName 결정 우선순위:
-    //   KR 종목 → kr-asset-master.json 우선 → Yahoo meta.shortName → longName 폴백
+    //   KR 종목 → Naver/Gemini 한국어명 우선 → kr-asset-master.json → Yahoo meta 폴백
     //   US 종목 → Gemini 한국어명 있으면 "한국어명(TICKER)" 포맷 → 없으면 Yahoo meta 폴백
     let officialName = resolveOfficialName(ticker, chartMeta);
-    if (resolvedKoreanName && forcedMarket === 'US') {
-      const baseTicker = ticker.split('.')[0];
-      officialName = `${resolvedKoreanName}(${baseTicker})`;
+    if (resolvedKoreanName) {
+      if (forcedMarket === 'US') {
+        const baseTicker = ticker.split('.')[0];
+        officialName = `${resolvedKoreanName}(${baseTicker})`;
+      } else {
+        // KR·미지정: Naver/Gemini 한국어명이 Yahoo 영문명보다 우선
+        officialName = resolvedKoreanName;
+      }
     }
 
     return Response.json({ ticker, officialName, ...finalMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });

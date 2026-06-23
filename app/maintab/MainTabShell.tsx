@@ -524,6 +524,16 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     }));
     setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
   };
+  const bulkAddPortfolioRows = (rows: Partial<PortfolioAsset>[]) => {
+    setPortfolioAssetsMap(prev => ({
+      ...prev,
+      [selectedCustomer]: [
+        ...(prev[selectedCustomer] ?? []),
+        ...rows.map(r => ({ ...EMPTY_PORTFOLIO_ASSET, owner_customer_id: selectedCustomer, ...r })),
+      ],
+    }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
+  };
   const removePortfolioRow = (index: number) => {
     setPortfolioAssetsMap(prev => ({
       ...prev,
@@ -1055,7 +1065,7 @@ export default function MainTabShell({ children }: { children: React.ReactNode }
     updateCustomerProfile, finishActiveConsultation, resumeLatestConsultation, activeConsultation, activeConsultationElapsedSeconds, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태
     portfolioAssets, isPortfolioLoaded, analysisResult,
-    addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
+    addPortfolioRow, bulkAddPortfolioRows, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
     // 리밸런싱 파이프라인
     rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,

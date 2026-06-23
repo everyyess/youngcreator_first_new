@@ -1290,6 +1290,7 @@ export type CustomerContextValue = {
   isPortfolioLoaded: boolean;
   analysisResult: PortfolioAnalysisResult | null;
   addPortfolioRow: () => void;
+  bulkAddPortfolioRows: (rows: Partial<PortfolioAsset>[]) => void;
   removePortfolioRow: (index: number) => void;
   updatePortfolioRow: (index: number, patch: Partial<PortfolioAsset>) => void;
   setAnalysisResult: (result: PortfolioAnalysisResult | null) => void;

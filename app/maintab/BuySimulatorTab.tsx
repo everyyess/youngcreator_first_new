@@ -456,6 +456,10 @@ function mergeBuyIntoBase(
     } else {
       const bondYieldVal = parseFloat(row.bondYield);
       const maturityVal = parseFloat(row.maturityYears);
+      // current_price는 항상 KRW로 정규화 (portfolioLogic.ts 컨벤션 동일)
+      const priceKrw = row.priceCurrency === "USD" && row.currentPrice != null
+        ? row.currentPrice * usdKrwRate
+        : (row.currentPrice ?? null);
       const newRow: PortfolioAsset = {
         name: row.name || row.ticker || "직접매수종목",
         ticker: row.ticker || "",
@@ -463,14 +467,14 @@ function mergeBuyIntoBase(
         productType: row.productType,
         theme: "기타",
         country: row.productType.includes("해외") ? "미국" : "한국",
-        buy_price: row.currentPrice,
+        buy_price: priceKrw,
         amount: qty,
         amount_type: "quantity",
         is_hedged: false,
         needs_review: false,
         bond_yield: Number.isFinite(bondYieldVal) && bondYieldVal > 0 ? bondYieldVal : null,
         bond_maturity: Number.isFinite(maturityVal) && maturityVal > 0 ? maturityVal : null,
-        current_price: row.currentPrice ?? undefined,
+        current_price: priceKrw ?? undefined,
         current_value: computeKrwAmount(row, usdKrwRate) || undefined,
       };
       merged.push(newRow);
@@ -593,6 +597,17 @@ export default function BuySimulatorTab() {
     });
   }, [baseAssets]);
 
+  const groupedAssetCards = useMemo(() => {
+    const groups: { type: string; assets: PortfolioAsset[] }[] = [];
+    for (const a of sortedAssetCards) {
+      const type = a.productType ?? a.asset_class ?? "기타";
+      const last = groups[groups.length - 1];
+      if (last && last.type === type) last.assets.push(a);
+      else groups.push({ type, assets: [a] });
+    }
+    return groups;
+  }, [sortedAssetCards]);
+
   const defaultStrategy = useMemo<Strategy>(
     () => RISK_TO_STRATEGY[riskResult.level] ?? "balanced",
     [riskResult.level],
@@ -644,6 +659,7 @@ export default function BuySimulatorTab() {
 
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmDone, setConfirmDone] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // USD/KRW 실시간 환율 (야후 파이낸스 USDKRW=X — 마운트 시 1회 조회, 기본값 1380)
   const [usdKrwRate, setUsdKrwRate] = useState<number>(1380);
@@ -1011,10 +1027,10 @@ export default function BuySimulatorTab() {
     setPbOrderRows([...pbOrderRowsRef.current, newRow]);
   }, [setPbOrderRows]);
 
-  const removePbRow = useCallback(async (id: string) => {
+  const removePbRow = useCallback((id: string) => {
     const row = pbOrderRowsRef.current.find((r) => r.id === id);
 
-    // 이미 매수 확정된 종목인지 체크 (rebalancingSellAssets↔portfolioAssets 비교)
+    // 이미 매수 확정된 종목이면 모달 팝업으로 확인 후 처리
     if (row) {
       const confirmedAsset = sellAssetsRef.current.find((a) =>
         isSameAsset(a, row.name, row.ticker),
@@ -1029,45 +1045,66 @@ export default function BuySimulatorTab() {
             confirmedAsset.amount > origAsset.amount));
 
       if (isConfirmed) {
-        const ok = window.confirm(
-          "해당 종목은 이미 신규 포트폴리오에 반영되었습니다. 시뮬레이션 데이터에서 완전히 삭제(되돌리기)하시겠습니까?",
-        );
-        if (ok) {
-          // 해당 종목만 원본 수량으로 롤백 (신규 편입이면 배열에서 제거)
-          const rolledBack = sellAssetsRef.current
+        setDeleteConfirmId(id);
+        return; // 모달에서 확인/취소 후 처리
+      }
+    }
+
+    // 미확정 행은 바로 삭제
+    clearTimeout(pbSearchTimersRef.current[id]);
+    delete pbSearchTimersRef.current[id];
+    setPbSearchState((prev) => { const next = { ...prev }; delete next[id]; return next; });
+    setPbOrderRows(pbOrderRowsRef.current.filter((r) => r.id !== id));
+  }, [setPbOrderRows]);
+
+  const confirmDeletePbRow = useCallback(async () => {
+    const id = deleteConfirmId;
+    if (!id) return;
+    setDeleteConfirmId(null);
+
+    const row = pbOrderRowsRef.current.find((r) => r.id === id);
+
+    // 롤백 자산 목록 계산 (row 존재 여부와 무관하게 항상 입력 행은 제거)
+    const rolledBack: PortfolioAsset[] | null = row
+      ? (() => {
+          const origAsset = portfolioRef.current.find((pa) =>
+            isSameAsset(pa, row.name, row.ticker),
+          );
+          return sellAssetsRef.current
             .map((a): PortfolioAsset | null => {
               if (!isSameAsset(a, row.name, row.ticker)) return a;
               if (!origAsset) return null;
               return { ...a, amount: origAsset.amount, current_value: undefined };
             })
             .filter((a): a is PortfolioAsset => a !== null);
+        })()
+      : null;
 
-          setRebalancingSellAssets(rolledBack);
-          // 롤백 즉시 입력 행도 제거 — runAnalysis 완료를 기다리지 않음
-          setPbOrderRows(pbOrderRowsRef.current.filter((r) => r.id !== id));
-          try {
-            const { runAnalysis } = await import("@/lib/portfolioLogic");
-            const result = await runAnalysis(rolledBack, {
-              tMarginal: tMarginalRef.current,
-              expectedInterestIncome:
-                formDataRef.current.rrttllu.expectedInterestIncome,
-              expectedDividendIncome:
-                formDataRef.current.rrttllu.expectedDividendIncome,
-            });
-            if (result) setNewPortfolioAnalysisResult(result);
-          } catch {
-            // 분석 실패는 비치명적 — 자산 롤백은 완료
-          }
-        }
-        // 예/아니오 모두 입력 행은 삭제
-      }
-    }
+    if (rolledBack) setRebalancingSellAssets(rolledBack);
 
     clearTimeout(pbSearchTimersRef.current[id]);
     delete pbSearchTimersRef.current[id];
     setPbSearchState((prev) => { const next = { ...prev }; delete next[id]; return next; });
     setPbOrderRows(pbOrderRowsRef.current.filter((r) => r.id !== id));
-  }, [setPbOrderRows, setRebalancingSellAssets, setNewPortfolioAnalysisResult]);
+
+    if (rolledBack) {
+      try {
+        const { runAnalysis } = await import("@/lib/portfolioLogic");
+        const result = await runAnalysis(rolledBack, {
+          tMarginal: tMarginalRef.current,
+          expectedInterestIncome: formDataRef.current.rrttllu.expectedInterestIncome,
+          expectedDividendIncome: formDataRef.current.rrttllu.expectedDividendIncome,
+        });
+        if (result) setNewPortfolioAnalysisResult(result);
+      } catch {
+        // 분석 실패는 비치명적 — 자산 롤백은 완료
+      }
+    }
+  }, [deleteConfirmId, setPbOrderRows, setRebalancingSellAssets, setNewPortfolioAnalysisResult]);
+
+  const cancelDeletePbRow = useCallback(() => {
+    setDeleteConfirmId(null);
+  }, []);
 
   const updatePbRow = useCallback((id: string, patch: Partial<PbOrderRow>) => {
     // productType 변경 시 현재가 초기화 (통화 불일치 방지)
@@ -1686,81 +1723,86 @@ export default function BuySimulatorTab() {
           <p className="mb-3 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
             보유 자산
           </p>
-          <div className="flex flex-wrap gap-3">
-            {sortedAssetCards.map((a) => {
-              const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
-              const color = CLASS_COLORS[cls] ?? "#94a3b8";
-              const key = makeAssetKey(a);
-              const isSoldOut = a.amount_type === "quantity" && a.amount <= 0;
-              const cp = getEffectiveAssetPrice(a);
-              const val = getEffectiveAssetValue(a);
-              const bp = Number(a.buy_price);
-              const gainPct = cp > 0 && bp > 0 ? ((cp - bp) / bp) * 100 : null;
-              const origAsset = portfolioAssets.find((pa) => isSameAsset(pa, a.name, a.ticker));
-              const isNewBuy = !isSoldOut && !origAsset;
-              const addedQty =
-                !isNewBuy &&
-                !isSoldOut &&
-                origAsset &&
-                a.amount_type === "quantity"
-                  ? a.amount - origAsset.amount
-                  : null;
-              return (
-                <div
-                  key={key}
-                  className={`relative flex flex-col gap-1 rounded-xl border-2 px-4 py-3 text-left ${isSoldOut ? "opacity-50" : ""}`}
-                  style={{
-                    borderColor: isSoldOut ? "#cbd5e1" : color + "55",
-                    backgroundColor: isSoldOut ? "#f8fafc" : "#ffffff",
-                    minWidth: "9rem",
-                  }}
-                >
-                  {isNewBuy && (
-                    <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
-                      신규 매수
-                    </span>
-                  )}
-                  {addedQty !== null && addedQty > 0 && (
-                    <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
-                      {addedQty.toLocaleString()}주 추가 매수
-                    </span>
-                  )}
-                  {isSoldOut ? (
-                    <span className="inline-block self-start rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold leading-none text-red-600">
-                      완전 매도
-                    </span>
-                  ) : (
-                    <span
-                      className="inline-block self-start rounded-full px-2 py-0.5 text-[10px] font-bold leading-none"
-                      style={{ backgroundColor: color + "22", color }}
+          <div className="flex flex-col gap-3">
+            {groupedAssetCards.map((group, gi) => (
+              <div key={gi} className="flex flex-wrap gap-2">
+                {group.assets.map((a) => {
+                  const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+                  const color = CLASS_COLORS[cls] ?? "#94a3b8";
+                  const key = makeAssetKey(a);
+                  const isSoldOut = a.amount_type === "quantity" && a.amount <= 0;
+                  const cp = getEffectiveAssetPrice(a);
+                  const val = getEffectiveAssetValue(a);
+                  const bp = Number(a.buy_price);
+                  const gainPct = cp > 0 && bp > 0 ? ((cp - bp) / bp) * 100 : null;
+                  const origAsset = portfolioAssets.find((pa) => isSameAsset(pa, a.name, a.ticker));
+                  const isNewBuy = !isSoldOut && !origAsset;
+                  const addedQty =
+                    !isNewBuy &&
+                    !isSoldOut &&
+                    origAsset &&
+                    a.amount_type === "quantity"
+                      ? a.amount - origAsset.amount
+                      : null;
+                  return (
+                    <div
+                      key={key}
+                      className={`relative flex flex-col gap-1 rounded-xl border-2 px-4 py-3 text-left ${isSoldOut ? "opacity-50" : ""}`}
+                      style={{
+                        width: "160px",
+                        flexShrink: 0,
+                        borderColor: isSoldOut ? "#cbd5e1" : color + "55",
+                        backgroundColor: isSoldOut ? "#f8fafc" : "#ffffff",
+                      }}
                     >
-                      {a.productType ?? cls}
-                    </span>
-                  )}
-                  <span className={`mt-1 max-w-[148px] truncate text-sm font-bold leading-tight ${isSoldOut ? "text-slate-400 line-through" : "text-navy"}`}>
-                    {formatLocalTickerName(a.name, a.ticker, portfolioAssets)}
-                  </span>
-                  <span className="text-[10px] text-slate-500">
-                    현재가 {cp > 0 ? formatKrwAmount(cp) : "—"}
-                  </span>
-                  <span className={`text-xs font-bold ${isSoldOut ? "text-slate-400" : "text-slate-700"}`}>
-                    {isSoldOut ? "—" : val > 0 ? formatKrwAmount(val) : "—"}
-                  </span>
-                  {gainPct !== null && !isSoldOut && (
-                    <span className={`text-[10px] font-semibold ${gainPct >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                      {gainPct >= 0 ? "▲" : "▼"} {Math.abs(gainPct).toFixed(1)}%
-                    </span>
-                  )}
-                  <span className={`text-[10px] ${isSoldOut ? "font-bold text-red-500" : "text-slate-400"}`}>
-                    {a.amount_type === "quantity"
-                      ? isSoldOut
-                        ? "0주 (매도 완료)"
-                        : `${a.amount.toLocaleString()}주`
-                      : "평가액 기준"}
-                  </span>
-                </div>
-              );
-            })}
+                      {isNewBuy && (
+                        <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                          신규 매수
+                        </span>
+                      )}
+                      {addedQty !== null && addedQty > 0 && (
+                        <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                          {addedQty.toLocaleString()}주 추가 매수
+                        </span>
+                      )}
+                      {isSoldOut ? (
+                        <span className="inline-block self-start rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold leading-none text-red-600">
+                          완전 매도
+                        </span>
+                      ) : (
+                        <span
+                          className="inline-block self-start rounded-full px-2 py-0.5 text-[10px] font-bold leading-none"
+                          style={{ backgroundColor: color + "22", color }}
+                        >
+                          {a.productType ?? cls}
+                        </span>
+                      )}
+                      <span className={`mt-1 w-full truncate text-sm font-bold leading-tight ${isSoldOut ? "text-slate-400 line-through" : "text-navy"}`}>
+                        {formatLocalTickerName(a.name, a.ticker, portfolioAssets)}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        현재가 {cp > 0 ? formatKrwAmount(cp) : "—"}
+                      </span>
+                      <span className={`text-xs font-bold ${isSoldOut ? "text-slate-400" : "text-slate-700"}`}>
+                        {isSoldOut ? "—" : val > 0 ? formatKrwAmount(val) : "—"}
+                      </span>
+                      {gainPct !== null && !isSoldOut && (
+                        <span className={`text-[10px] font-semibold ${gainPct >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                          {gainPct >= 0 ? "▲" : "▼"} {Math.abs(gainPct).toFixed(1)}%
+                        </span>
+                      )}
+                      <span className={`text-[10px] ${isSoldOut ? "font-bold text-red-500" : "text-slate-400"}`}>
+                        {a.amount_type === "quantity"
+                          ? isSoldOut
+                            ? "0주 (매도 완료)"
+                            : `${a.amount.toLocaleString()}주`
+                          : "평가액 기준"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -1852,6 +1894,43 @@ export default function BuySimulatorTab() {
         )}
 
       </div>
+
+      {/* ── 매수 확정 종목 삭제 확인 모달 ──────────────────────────────────── */}
+      {deleteConfirmId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={cancelDeletePbRow}
+        >
+          <div
+            className="w-80 rounded-2xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-1 text-center text-sm font-bold text-slate-800">
+              매수 확정 종목 삭제
+            </p>
+            <p className="mb-5 text-center text-xs text-slate-500 leading-relaxed">
+              해당 종목은 이미 신규 포트폴리오에 반영되었습니다.<br />
+              시뮬레이션 데이터에서 삭제(되돌리기)하시겠습니까?
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={cancelDeletePbRow}
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeletePbRow}
+                className="flex-1 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-600"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── PB 직접 추가 매수 패널 ──────────────────────────────────────── */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-soft">
