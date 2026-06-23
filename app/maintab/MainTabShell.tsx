@@ -36,8 +36,11 @@ import {
   getElapsedSeconds,
   maxConsultationSeconds,
   readActiveConsultation,
+  readCompletedConsultation,
   writeActiveConsultation,
+  writeCompletedConsultation,
   type ActiveConsultation,
+  type CompletedConsultation,
 } from "../consultationStore";
 
 const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
@@ -185,6 +188,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>(defaultCustomerProfiles[0].id);
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
   const [activeConsultationElapsedSeconds, setActiveConsultationElapsedSeconds] = useState(0);
+  const [completedConsultation, setCompletedConsultation] = useState<CompletedConsultation | null>(null);
   const [editLockDialogOpen, setEditLockDialogOpen] = useState(false);
   const [showCustomerTabs, setShowCustomerTabs] = useState(false);
   const [draggedCustomerId, setDraggedCustomerId] = useState<CustomerId | null>(null);
@@ -205,7 +209,18 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const selectedConsultationSessions = getCustomerSessions(formData);
   const latestConsultationSession = [...selectedConsultationSessions].sort((a, b) => `${b.updatedAt}${b.date}`.localeCompare(`${a.updatedAt}${a.date}`))[0] ?? null;
   const activeConsultationForSelected = activeConsultation?.customerId === selectedCustomer ? activeConsultation : null;
-  const isConsultationReadOnly = latestConsultationSession?.status === "completed" && !activeConsultationForSelected;
+  const completedConsultationForSelected = completedConsultation?.customerId === selectedCustomer ? completedConsultation : null;
+  const isConsultationReadOnly = !activeConsultationForSelected && (
+    latestConsultationSession?.status === "completed" ||
+    Boolean(completedConsultationForSelected)
+  );
+  const displayedConsultationElapsedSeconds = activeConsultation
+    ? activeConsultationElapsedSeconds
+    : completedConsultationForSelected
+      ? completedConsultationForSelected.elapsedSeconds
+    : latestConsultationSession?.status === "completed"
+      ? latestConsultationSession.durationSeconds ?? 0
+      : activeConsultationElapsedSeconds;
 
   // ── 포트폴리오 전역 상태 — Tab 1의 customerData Map 패턴과 동일 구조 ──────
   // Map keyed by customerId: 고객 전환 시 절대 삭제하지 않음 (읽는 key만 변경)
@@ -283,9 +298,17 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
     setCustomerData((prev) => ({ ...prev, [active.customerId]: nextState }));
     saveCustomerDataJsonOnly(active.customerId, nextState).catch((error) => console.error("Failed to save consultation duration", error));
+    const completed = {
+      sessionId: active.sessionId,
+      customerId: active.customerId,
+      elapsedSeconds: seconds,
+      completedAt: new Date().toISOString(),
+    };
+    writeCompletedConsultation(completed);
+    setCompletedConsultation(completed);
     writeActiveConsultation(null);
     setActiveConsultation(null);
-    setActiveConsultationElapsedSeconds(0);
+    setActiveConsultationElapsedSeconds(seconds);
   }, [activeConsultation, customerData]);
 
   const resumeLatestConsultation = useCallback(() => {
@@ -299,8 +322,18 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setCustomerData((prev) => ({ ...prev, [selectedCustomer]: nextState }));
     saveCustomerDataJsonOnly(selectedCustomer, nextState).catch((error) => console.error("Failed to resume consultation", error));
     storeSelectedCustomerId(selectedCustomer);
-    writeActiveConsultation({ sessionId: target.id, customerId: selectedCustomer, startedAt: new Date().toISOString(), returnPath: `/maintab/${currentSegment ?? "tab1"}` });
-    setActiveConsultation(readActiveConsultation());
+    const resumedElapsedSeconds = Math.max(0, Math.min(maxConsultationSeconds, target.durationSeconds ?? 0));
+    const resumedActive = {
+      sessionId: target.id,
+      customerId: selectedCustomer,
+      startedAt: new Date(Date.now() - resumedElapsedSeconds * 1000).toISOString(),
+      returnPath: `/maintab/${currentSegment ?? "tab1"}`,
+    };
+    writeCompletedConsultation(null);
+    setCompletedConsultation(null);
+    writeActiveConsultation(resumedActive);
+    setActiveConsultation(resumedActive);
+    setActiveConsultationElapsedSeconds(resumedElapsedSeconds);
   }, [customerData, currentSegment, selectedCustomer]);
 
   const requestConsultationResume = useCallback(() => {
@@ -316,7 +349,9 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   useEffect(() => {
     const syncActive = () => {
       const active = readActiveConsultation();
+      const completed = readCompletedConsultation();
       setActiveConsultation(active);
+      setCompletedConsultation(completed);
       setActiveConsultationElapsedSeconds(getElapsedSeconds(active));
     };
     syncActive();
@@ -662,8 +697,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     void saveNewAnalysisResult(cid, result); // 분석 완료 즉시 저장 (더티 플래그 없음)
   }, []); // stable
 
-  const updateTab3AnalysisState = useCallback((patch: Partial<Tab3AnalysisState>) => {
-    if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
+  const updateTab3AnalysisState = useCallback((patch: Partial<Tab3AnalysisState>, options?: { allowReadOnlyViewState?: boolean }) => {
+    if (isConsultationReadOnlyRef.current && !options?.allowReadOnlyViewState) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
     const nextState = { ...(tab3AnalysisStateMapRef.current[cid] ?? {}), ...patch };
     setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: nextState }));
@@ -1099,6 +1134,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   const isEditableElement = (target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false;
+    if (target.closest("[data-consultation-lock-exempt='true']")) return false;
     return Boolean(target.closest("input, textarea, select, button, a, [role='button'], [contenteditable='true']"));
   };
 
@@ -1117,7 +1153,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
     toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setSmartTranscript, setSmartAdditionalMemo, setAiGuidePbNote, setAiAdvisoryGuide,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
-    updateCustomerProfile, finishActiveConsultation, resumeLatestConsultation, activeConsultation, activeConsultationElapsedSeconds, isConsultationReadOnly, requestConsultationResume, setChangeHistoryExpanded,
+    updateCustomerProfile, finishActiveConsultation, resumeLatestConsultation, activeConsultation, activeConsultationElapsedSeconds: displayedConsultationElapsedSeconds, isConsultationReadOnly, requestConsultationResume, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태
     portfolioAssets, isPortfolioLoaded, analysisResult,
     addPortfolioRow, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
@@ -1143,11 +1179,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
             assetSummary={headerAssetSummary}
             storageErrorMessage={storageErrorMessage}
             activeConsultation={activeConsultation}
-            elapsedSeconds={activeConsultationElapsedSeconds}
+            elapsedSeconds={displayedConsultationElapsedSeconds}
             mode={appMode}
             onHome={() => router.push(appMode === "customer" ? "/customer-home" : "/home")}
             onFinish={() => finishActiveConsultation(false)}
-            onResume={requestConsultationResume}
+            onResume={resumeLatestConsultation}
           />
           <div className="flex flex-col gap-5 xl:flex-row">
             <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
@@ -1269,10 +1305,10 @@ function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const activeTab = (segment ? segmentToTab[segment] : null) ?? "profile";
 
   return (
-    <nav className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-56 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
+    <nav data-consultation-lock-exempt="true" className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-56 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
       {workspaceTabs.map((tab, index) => (
         <button
-          key={tab.id} type="button" onClick={() => onNavigate(tab.id)}
+          key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
           className={`min-h-11 rounded-lg px-3 py-2 text-left transition ${activeTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
         >
           <span className="block text-sm font-bold tracking-normal">{index + 1}. {tab.label}</span>
@@ -1363,6 +1399,21 @@ function CustomerDropIndicator({ index, active, onDragOverIndex, onDropIndex }: 
 
 function ConsultationEditLockDialog({ mode, onCancel, onResume }: { mode: "pb" | "customer"; onCancel: () => void; onResume: () => void }) {
   const canResume = mode === "pb";
+  if (!canResume) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+        <section className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-soft">
+          <h2 className="text-lg font-extrabold text-navy">상담 종료</h2>
+          <p className="mt-3 text-sm font-bold leading-6 text-slate-600">
+            상담이 종료되었습니다. 담당 PB에게 상담 재개를 요청해주세요.
+          </p>
+          <div className="mt-6">
+            <button type="button" onClick={onCancel} className="min-h-11 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700">확인</button>
+          </div>
+        </section>
+      </div>
+    );
+  }
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
       <section className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-soft">

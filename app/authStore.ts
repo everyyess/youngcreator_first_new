@@ -129,6 +129,26 @@ async function lookupLoginEmail(kind: "pb" | "customer", identifier: string) {
   return typeof data === "string" ? data : "";
 }
 
+async function lookupPbNameByEmployeeId(employeeId?: string) {
+  if (!authSupabase || !employeeId?.trim()) return "";
+  const { data, error } = await authSupabase.rpc("lookup_pb_name_by_employee_id", {
+    p_employee_id: employeeId.trim(),
+  });
+  if (error) return "";
+  return typeof data === "string" ? data : "";
+}
+
+async function findAuthIdentifier(kind: "pb" | "customer", name: string, email: string) {
+  if (!authSupabase) throw new Error("Supabase is not configured.");
+  const fn = kind === "pb" ? "find_pb_employee_id" : "find_customer_user_id";
+  const { data, error } = await authSupabase.rpc(fn, {
+    p_name: name.trim(),
+    p_email: email.trim(),
+  });
+  if (error) throw error;
+  return typeof data === "string" ? data : "";
+}
+
 async function selectCurrentAuthProfile(userId: string) {
   if (!authSupabase) throw new Error("Supabase is not configured.");
   const { data, error } = await authSupabase
@@ -164,7 +184,10 @@ export async function findCustomerBySignupInfo(name: string, birthDate: string) 
     const resolvedBirth = profile ? profileBirth(profile) : normalizeBirth(flatBirth);
     return resolvedName === targetName && resolvedBirth === targetBirth;
   });
-  return row?.id ?? "";
+  return {
+    customerId: row?.id ?? "",
+    pbEmployeeId: row?.pb_employee_id ?? "",
+  };
 }
 
 export const pbAuthStore = {
@@ -195,8 +218,7 @@ export const pbAuthStore = {
     return session;
   },
   async findEmployeeId(name: string, email: string) {
-    const profile = await selectAuthProfile({ role: "pb", name, email });
-    return profile?.employee_id ?? "";
+    return findAuthIdentifier("pb", name, email);
   },
   async logout() {
     removeJson(pbSessionKey);
@@ -209,9 +231,11 @@ export const customerAuthStore = {
     return readJson<CustomerSession | null>(customerSessionKey, null);
   },
   async register(name: string, birthDate: string, email: string, userId: string, password: string) {
-    const customerId = await findCustomerBySignupInfo(name, birthDate);
+    const signupInfo = await findCustomerBySignupInfo(name, birthDate);
+    const customerId = signupInfo.customerId;
     if (!customerId) throw new Error("입력하신 고객 정보를 확인할 수 없습니다. 담당 PB에게 문의해 주세요.");
     const normalizedBirth = normalizeBirth(birthDate);
+    const pbSession = readJson<PbSession | null>(pbSessionKey, null);
     await requestAuthRegistration({
       role: "customer",
       name,
@@ -219,6 +243,7 @@ export const customerAuthStore = {
       user_id: userId,
       customer_id: customerId,
       birth_date: normalizedBirth,
+      pb_employee_id: signupInfo.pbEmployeeId || pbSession?.employeeId,
     }, password);
   },
   async login(userId: string, password: string): Promise<CustomerSession> {
@@ -232,6 +257,7 @@ export const customerAuthStore = {
     if (!profile?.email || !profile.customer_id || profile.role !== "customer" || profile.user_id !== normalizedUserId) throw new Error("등록된 고객 계정을 찾을 수 없습니다.");
     const lastLoginAt = new Date().toISOString();
     await upsertAuthProfile({ ...profile, last_login_at: lastLoginAt });
+    const pbName = await lookupPbNameByEmployeeId(profile.pb_employee_id);
     const session = {
       role: "customer" as const,
       name: profile.name,
@@ -239,15 +265,14 @@ export const customerAuthStore = {
       email: profile.email,
       customerId: profile.customer_id,
       birthDate: profile.birth_date ?? "",
-      pbName: profile.pb_employee_id,
+      pbName: pbName || profile.pb_employee_id,
       lastLoginAt,
     };
     writeJson(customerSessionKey, session);
     return session;
   },
   async findUserId(name: string, email: string) {
-    const profile = await selectAuthProfile({ role: "customer", name, email });
-    return profile?.user_id ?? "";
+    return findAuthIdentifier("customer", name, email);
   },
   async logout() {
     removeJson(customerSessionKey);

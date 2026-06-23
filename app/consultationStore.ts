@@ -14,7 +14,15 @@ export type ActiveConsultation = {
   returnPath: string;
 };
 
+export type CompletedConsultation = {
+  sessionId: string;
+  customerId: CustomerId;
+  elapsedSeconds: number;
+  completedAt: string;
+};
+
 export const activeConsultationStorageKey = "samsung-vvip-active-consultation-session-v1";
+export const completedConsultationStorageKey = "samsung-vvip-completed-consultation-session-v1";
 export const consultationTimerEventName = "samsung-vvip-consultation-timer";
 export const maxConsultationSeconds = 2 * 60 * 60;
 export const autoEndedMessage =
@@ -121,6 +129,30 @@ export function writeActiveConsultation(active: ActiveConsultation | null) {
   if (typeof window === "undefined") return;
   if (active) window.localStorage.setItem(activeConsultationStorageKey, JSON.stringify(active));
   else window.localStorage.removeItem(activeConsultationStorageKey);
+  window.dispatchEvent(new Event(consultationTimerEventName));
+}
+
+export function readCompletedConsultation(): CompletedConsultation | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(completedConsultationStorageKey) ?? "null");
+    if (!parsed || typeof parsed !== "object") return null;
+    if (typeof parsed.sessionId !== "string" || typeof parsed.customerId !== "string" || typeof parsed.elapsedSeconds !== "number") return null;
+    return {
+      sessionId: parsed.sessionId,
+      customerId: parsed.customerId,
+      elapsedSeconds: Math.max(0, Math.min(maxConsultationSeconds, Math.floor(parsed.elapsedSeconds))),
+      completedAt: typeof parsed.completedAt === "string" ? parsed.completedAt : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writeCompletedConsultation(completed: CompletedConsultation | null) {
+  if (typeof window === "undefined") return;
+  if (completed) window.localStorage.setItem(completedConsultationStorageKey, JSON.stringify(completed));
+  else window.localStorage.removeItem(completedConsultationStorageKey);
   window.dispatchEvent(new Event(consultationTimerEventName));
 }
 

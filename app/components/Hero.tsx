@@ -28,19 +28,21 @@ export default function Hero() {
           }}
         />
         <div className="relative z-10 flex max-w-4xl flex-col items-center">
-          <div className="mb-12 inline-flex items-center rounded-full border border-zinc-200 bg-white/60 px-3 py-1 text-sm font-medium text-zinc-800 backdrop-blur-sm">
+          <div className="mb-14 inline-flex items-center rounded-full border border-zinc-200 bg-white/60 px-3 py-1 text-sm font-medium text-zinc-800 backdrop-blur-sm">
             <span className="mr-2 flex h-2 w-2 rounded-full bg-blue-600" />
-            Samsung Securities VVIP
+            Samsung Securities × VVIP
           </div>
-          <h1 className="mb-5 text-4xl font-black leading-tight text-zinc-900 sm:text-5xl md:text-6xl lg:text-7xl">
+          <h1 className="mb-9 text-4xl font-black leading-tight text-zinc-900 sm:text-5xl md:text-6xl lg:text-7xl">
             자산 상담의 새로운 기준
             <br />
-            <span className="bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+            <span className="mt-5 block bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent sm:mt-7">
               PB Advisor Hub
             </span>
           </h1>
-          <p className="mb-12 max-w-2xl px-4 text-base leading-relaxed text-zinc-600 sm:text-lg md:text-xl">
-            고객 상담 준비부터 포트폴리오 제안까지 한 화면에서 이어지는 VVIP 상담 워크스페이스
+          <p className="mb-12 max-w-3xl px-4 text-base leading-relaxed text-zinc-600 sm:text-lg md:text-xl">
+            세금 최적화·상품 매칭을 실시간으로.
+            <br />
+            고객과의 모든 접점에서 한발 앞선 인사이트를 제공합니다.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <button

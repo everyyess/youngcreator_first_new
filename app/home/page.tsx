@@ -487,7 +487,7 @@ export default function HomePage() {
       fallbackName: newCustomer.name || "신규 고객",
     };
     const state = createInitialState();
-    const result = await customerStorage.insertCustomer(profile, state, customers.length);
+    const result = await customerStorage.insertCustomer(profile, state, customers.length, pbSession?.employeeId);
     if (!result.ok) {
       setStorageMessage(result.message);
       return;

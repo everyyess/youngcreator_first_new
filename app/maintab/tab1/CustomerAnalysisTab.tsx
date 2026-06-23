@@ -1656,7 +1656,7 @@ export default function CustomerAnalysisTab() {
 
   return (
     <div className="space-y-5">
-      <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
+      <div data-consultation-lock-exempt="true" className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
         {[
           { id: "input" as const, label: "고객 정보 입력", icon: <ClipboardList size={15} /> },
           { id: "analysis" as const, label: "성향 및 니즈 분석", icon: <BarChart3 size={15} /> },

@@ -54,7 +54,7 @@ export default function Tab2Page() {
   return (
     <>
       {/* 서브 탭 내비게이션 바 */}
-      <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft overflow-x-auto">
+      <div data-consultation-lock-exempt="true" className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft overflow-x-auto">
         {innerTabs.map((tab) => (
           <button
             key={tab.id}
