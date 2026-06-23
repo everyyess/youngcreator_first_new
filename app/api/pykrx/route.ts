@@ -130,13 +130,6 @@ async function loginKrx(): Promise<string> {
     throw new Error(`KRX 로그인 실패 (${loginData._error_code ?? "unknown"}): ${loginData._error_message ?? ""}`);
   }
 
-  // 4단계: 통계 페이지 워밍업 (Referer 설정)
-  const r4 = await fetch(STAT_PAGE, {
-    headers: { "User-Agent": UA, "Referer": LOGIN_PAGE, "Cookie": cookieString(cookies) },
-    redirect: "follow",
-  });
-  cookies = mergeCookieHeaders(r4, cookies);
-
   return cookieString(cookies);
 }
 
