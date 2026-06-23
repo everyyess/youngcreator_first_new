@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
+import { useCustomerView } from "../CustomerViewContext";
 import {
   fmt,
   fmtPct,
@@ -86,6 +87,7 @@ function generatePdfComment(left: MetricSnapshot, right: MetricSnapshot): string
 export default function Tab4Page() {
   const data = usePortfolioResult();
   const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData, selectedCustomerProfile } = useCustomerContext();
+  const { isCustomerView } = useCustomerView();
   const [showPensionPanel, setShowPensionPanel] = useState(false);
 
   const tMarginal = useMemo(() => {
@@ -119,9 +121,11 @@ export default function Tab4Page() {
 
   useEffect(() => {
     if (!selectedCustomer) return;
+    // Clear stale state from previous customer immediately
+    setSummary(null);
+    setNewSummary(null);
     const wasReset = sessionStorage.getItem(FINANCIAL_INCOME_RESET_KEY) === '1';
     if (wasReset) {
-      setSummary(null);
       loadTaxSummaries(selectedCustomer).then(({ newSummary }) => {
         if (newSummary) setNewSummary(newSummary as FinancialIncomeSummary);
         else { try { const l = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY); if (l) setNewSummary(JSON.parse(l)); } catch {} }
@@ -137,8 +141,8 @@ export default function Tab4Page() {
   }, [selectedCustomer]);
 
   useEffect(() => {
-    const loadCurrent = () => { try { const s = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY); if (s) setSummary(JSON.parse(s)); } catch {} };
-    const loadNew = () => { try { const s = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY); if (s) setNewSummary(JSON.parse(s)); } catch {} };
+    const loadCurrent = () => { try { const s = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY); setSummary(s ? JSON.parse(s) : null); } catch {} };
+    const loadNew = () => { try { const s = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY); setNewSummary(s ? JSON.parse(s) : null); } catch {} };
     window.addEventListener("financial-income-updated", loadCurrent);
     window.addEventListener("new-financial-income-updated", loadNew);
     return () => { window.removeEventListener("financial-income-updated", loadCurrent); window.removeEventListener("new-financial-income-updated", loadNew); };
@@ -203,7 +207,7 @@ export default function Tab4Page() {
               </button>
             </div>
             <div className="p-4">
-              <PensionTaxPanel tMarginal={tMarginal} alwaysOpen />
+              <PensionTaxPanel tMarginal={tMarginal} alwaysOpen isCustomerView={isCustomerView} />
             </div>
           </div>
         </div>

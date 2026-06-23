@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { useCustomerContext } from "./CustomerContext";
 import type { PortfolioAsset, SellRecord } from "./CustomerContext";
+import { useCustomerView } from "./CustomerViewContext";
 import { TLHTabContent } from "./tab1/FinancialIncomeGauge";
 import {
   CLASS_COLORS,
@@ -102,6 +103,7 @@ export default function SellSimulatorTab() {
     setRebalancingSellAssets,
     sellHistory, addSellRecord, availableInvestmentFunds, addBuyCost,
   } = useCustomerContext();
+  const { isCustomerView } = useCustomerView();
 
   // 원본 포트폴리오 맵 — 추가 매수 배지 계산용
   const origAmountMap = useMemo(
@@ -771,7 +773,8 @@ export default function SellSimulatorTab() {
                       if (maxQty > 0 && parseFloat(sellQtyStr) > maxQty) setSellQtyStr(String(maxQty));
                     }}
                     placeholder="0"
-                    className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-samsung focus:outline-none focus:ring-1 focus:ring-samsung"
+                    disabled={isCustomerView}
+                    className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-samsung focus:outline-none focus:ring-1 focus:ring-samsung disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <span className="text-sm font-semibold text-slate-500">
                     개 매도 시
@@ -802,7 +805,7 @@ export default function SellSimulatorTab() {
                 <button
                   type="button"
                   onClick={handleConfirmSell}
-                  disabled={sellQty <= 0}
+                  disabled={sellQty <= 0 || isCustomerView}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-samsung px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CheckCircle2 size={16} />
@@ -823,8 +826,9 @@ export default function SellSimulatorTab() {
                         setBuyQtyStr(String(maxBuyQtyByFunds));
                     }}
                     placeholder="0"
-                    className={`w-28 rounded-lg border px-3 py-2.5 text-center text-lg font-bold text-navy focus:outline-none focus:ring-1 ${
-                      isBuyOverBudget
+                    disabled={isCustomerView}
+                    className={`w-28 rounded-lg border px-3 py-2.5 text-center text-lg font-bold text-navy focus:outline-none focus:ring-1 disabled:cursor-not-allowed disabled:opacity-50 ${
+                      isBuyOverBudget && !isCustomerView
                         ? "border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-400"
                         : "border-slate-300 bg-slate-50 focus:border-emerald-500 focus:ring-emerald-500"
                     }`}
@@ -864,7 +868,7 @@ export default function SellSimulatorTab() {
                 <button
                   type="button"
                   onClick={handleConfirmBuy}
-                  disabled={buyQty <= 0 || isBuyOverBudget}
+                  disabled={buyQty <= 0 || isBuyOverBudget || isCustomerView}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CheckCircle2 size={16} />

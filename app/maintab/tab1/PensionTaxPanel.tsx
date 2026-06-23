@@ -287,6 +287,8 @@ interface PensionTaxPanelProps {
   financialSummary?: FinancialIncomeSummary | null;
   /** 탭3-3의 신규 포트폴리오 자산 목록. 없으면 localStorage에서 자동 읽음. */
   portfolioAssets?: RawAsset[];
+  /** 고객 뷰에서는 납입 입력 및 ISA 체크박스 비활성화 */
+  isCustomerView?: boolean;
 }
 
 // ─────────────────────────────────────────────
@@ -297,6 +299,7 @@ export default function PensionTaxPanel({
   alwaysOpen = false,
   financialSummary: propSummary,
   portfolioAssets: propAssets,
+  isCustomerView = false,
 }: PensionTaxPanelProps) {
   const { selectedCustomer } = useCustomerContext();
   const [isOpen, setIsOpen] = useState(false);
@@ -679,7 +682,8 @@ export default function PensionTaxPanel({
                           type="number" min={0} max={600} step={10}
                           value={Math.round(priorSaving / 10000)}
                           onChange={e => handlePriorSaving(Math.max(0, Math.min(600, Number(e.target.value))) * 10000)}
-                          style={{ width: 64, fontSize: 12, padding: "2px 6px", border: `1px solid ${C.line}`, borderRadius: 6, textAlign: "right" }}
+                          disabled={isCustomerView}
+                          style={{ width: 64, fontSize: 12, padding: "2px 6px", border: `1px solid ${C.line}`, borderRadius: 6, textAlign: "right", opacity: isCustomerView ? 0.5 : 1 }}
                         />
                         <span style={{ fontSize: 11, color: C.slate }}>만원</span>
                       </div>
@@ -701,8 +705,8 @@ export default function PensionTaxPanel({
                       type="range" min={0} max={savingMax} step={100000}
                       value={savingAmount}
                       onChange={e => setSavingAmountRaw(Number(e.target.value))}
-                      disabled={savingMax === 0}
-                      style={{ width: "100%", accentColor: "#f97316" }}
+                      disabled={savingMax === 0 || isCustomerView}
+                      style={{ width: "100%", accentColor: "#f97316", opacity: isCustomerView ? 0.5 : 1 }}
                     />
                     <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{man(savingAmount)}</div>
                     <div style={{ textAlign: "right", fontSize: 10, color: C.slate, marginBottom: 4, visibility: (savingAmount > savingCreditMax && savingCreditMax >= 0) ? "visible" : "hidden" }}>
@@ -729,7 +733,8 @@ export default function PensionTaxPanel({
                           type="number" min={0} max={900} step={10}
                           value={Math.round(priorIrp / 10000)}
                           onChange={e => handlePriorIrp(Math.max(0, Math.min(900, Number(e.target.value))) * 10000)}
-                          style={{ width: 64, fontSize: 12, padding: "2px 6px", border: `1px solid ${C.line}`, borderRadius: 6, textAlign: "right" }}
+                          disabled={isCustomerView}
+                          style={{ width: 64, fontSize: 12, padding: "2px 6px", border: `1px solid ${C.line}`, borderRadius: 6, textAlign: "right", opacity: isCustomerView ? 0.5 : 1 }}
                         />
                         <span style={{ fontSize: 11, color: C.slate }}>만원</span>
                       </div>
@@ -751,8 +756,8 @@ export default function PensionTaxPanel({
                       type="range" min={0} max={irpMax} step={100000}
                       value={irpAmount}
                       onChange={e => setIrpAmountRaw(Number(e.target.value))}
-                      disabled={irpMax === 0}
-                      style={{ width: "100%", accentColor: "#f97316" }}
+                      disabled={irpMax === 0 || isCustomerView}
+                      style={{ width: "100%", accentColor: "#f97316", opacity: isCustomerView ? 0.5 : 1 }}
                     />
                     <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{man(irpAmount)}</div>
                     <div style={{ textAlign: "right", fontSize: 10, color: C.slate, marginBottom: 4, visibility: irpDeferralOnly > 0 ? "visible" : "hidden" }}>
@@ -793,7 +798,8 @@ export default function PensionTaxPanel({
                           type="number" min={0} max={2000} step={100}
                           value={Math.round(priorIsa / 10000)}
                           onChange={e => handlePriorIsa(Math.max(0, Math.min(2000, Number(e.target.value))) * 10000)}
-                          style={{ width: 64, fontSize: 12, padding: "2px 6px", border: `1px solid ${C.line}`, borderRadius: 6, textAlign: "right" }}
+                          disabled={isCustomerView}
+                          style={{ width: 64, fontSize: 12, padding: "2px 6px", border: `1px solid ${C.line}`, borderRadius: 6, textAlign: "right", opacity: isCustomerView ? 0.5 : 1 }}
                         />
                         <span style={{ fontSize: 11, color: C.slate }}>만원</span>
                       </div>
@@ -815,8 +821,8 @@ export default function PensionTaxPanel({
                       type="range" min={0} max={isaMax} step={500000}
                       value={isaAmount}
                       onChange={e => setIsaAmountRaw(Number(e.target.value))}
-                      disabled={isaMax === 0}
-                      style={{ width: "100%", accentColor: "#f97316" }}
+                      disabled={isaMax === 0 || isCustomerView}
+                      style={{ width: "100%", accentColor: "#f97316", opacity: isCustomerView ? 0.5 : 1 }}
                     />
                     <div style={{ textAlign: "right", fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{man(isaAmount)}</div>
                     <div style={{ marginBottom: 4, visibility: "hidden", fontSize: 10 }}>&nbsp;</div>
@@ -830,11 +836,12 @@ export default function PensionTaxPanel({
 
                 {/* ISA restriction toggle */}
                 <div style={{ marginBottom: 6 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.slate, cursor: "pointer" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.slate, cursor: isCustomerView ? "not-allowed" : "pointer", opacity: isCustomerView ? 0.6 : 1 }}>
                     <input
                       type="checkbox"
                       checked={isaRestricted}
                       onChange={e => setIsaRestricted(e.target.checked)}
+                      disabled={isCustomerView}
                     />
                     최근 3년 내 금융소득종합과세 대상자였음 (자동 반영 · 직접 조정 가능)
                   </label>
