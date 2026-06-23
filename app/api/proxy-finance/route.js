@@ -567,10 +567,9 @@ export async function GET(request) {
   // ── 티커 기반 메타데이터 추론 ──────────────────────────────────────────
   let assetMeta = inferMetaFromTicker(ticker);
 
-  // ── officialName: 국내 종목은 네이버 한국어 사명 우선, 해외는 Yahoo 영문명 ──
+  // ── 국내 종목: 네이버 모바일 API로 한국어 공식명 보강 ─────────────────────
   const isKoreanTicker = ticker.endsWith('.KS') || ticker.endsWith('.KQ');
 
-  let koreanName = null;
   if (isKoreanTicker) {
     const code = ticker.replace(/\.(KS|KQ)$/i, '');
     try {
@@ -581,17 +580,11 @@ export async function GET(request) {
       );
       if (naverRes.ok) {
         const naverData = await naverRes.json();
-        koreanName = naverData.stockName ?? naverData.corporateName ?? null;
+        const naverKoreanName = naverData.stockName ?? naverData.corporateName ?? null;
+        if (naverKoreanName) resolvedKoreanName = naverKoreanName;
       }
     } catch { /* 폴백 */ }
   }
-
-  const yahooPrimaryName = typeof meta.shortName === 'string' && meta.shortName.trim()
-    ? meta.shortName.trim()
-    : typeof meta.longName === 'string' && meta.longName.trim()
-      ? meta.longName.trim()
-      : null;
-  const officialName = koreanName ?? yahooPrimaryName ?? geminiEnglishName ?? null;
 
   // userProductType 0순위 고정 — 추론 결과가 덮을 수 없음
   if (userProductType) {
@@ -756,12 +749,17 @@ export async function GET(request) {
     const trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
 
     // officialName 결정 우선순위:
-    //   KR 종목 → kr-asset-master.json 우선 → Yahoo meta.shortName → longName 폴백
+    //   KR 종목 → Naver/Gemini 한국어명 우선 → kr-asset-master.json → Yahoo meta 폴백
     //   US 종목 → Gemini 한국어명 있으면 "한국어명(TICKER)" 포맷 → 없으면 Yahoo meta 폴백
     let officialName = resolveOfficialName(ticker, chartMeta);
-    if (resolvedKoreanName && forcedMarket === 'US') {
-      const baseTicker = ticker.split('.')[0];
-      officialName = `${resolvedKoreanName}(${baseTicker})`;
+    if (resolvedKoreanName) {
+      if (forcedMarket === 'US') {
+        const baseTicker = ticker.split('.')[0];
+        officialName = `${resolvedKoreanName}(${baseTicker})`;
+      } else {
+        // KR·미지정: Naver/Gemini 한국어명이 Yahoo 영문명보다 우선
+        officialName = resolvedKoreanName;
+      }
     }
 
     return Response.json({ ticker, officialName, ...finalMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });

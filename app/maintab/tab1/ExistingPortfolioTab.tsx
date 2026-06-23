@@ -610,13 +610,16 @@ export default function ExistingPortfolioTab() {
 
         const geminiAssetClass  = typeof data.assetClass  === "string" ? data.assetClass  : "";
         const geminiProductType = typeof data.productType === "string" ? data.productType : "";
-        // API 응답에서 추론한 유형 — productType(유저 선택)이 없을 때만 폴백으로 사용
+        // API 응답에서 추론한 유형 — assetClass(서버 판단)를 최우선, 단 ETF 여부는 유저 선택 보존
         const apiType = geminiAssetClass
           ? toUnifiedProductType(geminiAssetClass, geminiProductType)
           : undefined;
-        // [0순위] 유저가 드롭다운으로 선택한 productType 완전 고정
-        // API 응답이 어떤 값을 반환해도 productType만큼은 절대 덮어쓰지 않음
-        const resolvedType = productType ?? apiType;
+        // apiType(서버 추론)을 최우선 사용 — 단, 유저가 이미 ETF 유형을 선택한 경우만 보존
+        const resolvedType = apiType
+          ? (apiType === "해외주식" && productType === "해외ETF") ? "해외ETF"
+            : (apiType === "국내주식" && productType === "국내ETF") ? "국내ETF"
+            : apiType
+          : productType;
 
         const rawPrice: number | null =
           (data?.chart as Record<string, unknown>)?.result
