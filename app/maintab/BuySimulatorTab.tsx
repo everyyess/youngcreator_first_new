@@ -668,6 +668,16 @@ export default function BuySimulatorTab() {
   const [sellCardKey, setSellCardKey] = useState<string | null>(null);
   const [inlineSellQtyStr, setInlineSellQtyStr] = useState("");
 
+  // 드래그 앤 드롭
+  const [draggedTicker, setDraggedTicker] = useState<TickerItem | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  type DropModal = {
+    ticker: string; sector: string; isGlobal: boolean;
+    mode: "buy" | "sell"; qtyStr: string;
+    price: number | null; currency: "KRW" | "USD"; isLoadingPrice: boolean;
+  };
+  const [dropModal, setDropModal] = useState<DropModal | null>(null);
+
   // USD/KRW 실시간 환율 (야후 파이낸스 USDKRW=X — 마운트 시 1회 조회, 기본값 1380)
   const [usdKrwRate, setUsdKrwRate] = useState<number>(1380);
 
@@ -1109,6 +1119,36 @@ export default function BuySimulatorTab() {
     setSellCardKey(assetKey);
     setInlineSellQtyStr("");
   }, []);
+
+  // 드래그 앤 드롭 핸들러
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (!draggedTicker) return;
+    const productType = draggedTicker.isGlobal ? "해외ETF" : "국내ETF";
+    setDropModal({
+      ticker: draggedTicker.ticker,
+      sector: draggedTicker.sector,
+      isGlobal: draggedTicker.isGlobal,
+      mode: "buy",
+      qtyStr: "",
+      price: null,
+      currency: draggedTicker.isGlobal ? "USD" : "KRW",
+      isLoadingPrice: true,
+    });
+    setDraggedTicker(null);
+    fetch(`/api/proxy-finance?assetName=${encodeURIComponent(draggedTicker.ticker)}&productType=${encodeURIComponent(productType)}`)
+      .then(async (r) => {
+        if (!r.ok) return;
+        const data = (await r.json()) as Record<string, unknown>;
+        const meta = ((data?.chart as Record<string, unknown>)?.result as Record<string, unknown>[])?.[0]
+          ?.meta as Record<string, unknown> | undefined;
+        const price = typeof meta?.regularMarketPrice === "number" ? meta.regularMarketPrice : null;
+        const currency = (meta?.currency as string) ?? (draggedTicker.isGlobal ? "USD" : "KRW");
+        setDropModal((prev) => prev ? { ...prev, price, currency: currency as "KRW" | "USD", isLoadingPrice: false } : null);
+      })
+      .catch(() => setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null));
+  }, [draggedTicker]);
 
   const confirmSellCard = useCallback(() => {
     if (!sellCardKey) return;
@@ -1729,7 +1769,7 @@ export default function BuySimulatorTab() {
         </div>
       </div>
 
-      {/* ── 보유 자산 ──────────────────────────────────────────────────── */}
+      {/* ── 보유 자산 (드롭 존) ──────────────────────────────────────── */}
       {baseAssets.length === 0 ? (
         <div className="flex min-h-[160px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50">
           <p className="text-sm font-semibold text-slate-400">
@@ -1737,9 +1777,14 @@ export default function BuySimulatorTab() {
           </p>
         </div>
       ) : (
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-soft">
+        <section
+          className={`rounded-xl border-2 bg-white p-5 shadow-soft transition-colors ${isDragOver ? "border-blue-400 bg-blue-50" : "border-slate-200"}`}
+          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={handleDrop}
+        >
           <p className="mb-3 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
-            보유 자산
+            보유 자산{isDragOver && <span className="ml-2 text-blue-500">여기에 드롭하세요</span>}
           </p>
           <div className="flex flex-col gap-3">
             {groupedAssetCards.map((group, gi) => (
@@ -1862,7 +1907,10 @@ export default function BuySimulatorTab() {
               return (
                 <div
                   key={`${item.ticker}-${item.originalIdx}`}
-                  className={`flex cursor-pointer items-center gap-3 px-4 py-3 transition hover:bg-slate-50 ${
+                  draggable
+                  onDragStart={() => setDraggedTicker(item)}
+                  onDragEnd={() => setDraggedTicker(null)}
+                  className={`flex cursor-grab items-center gap-3 px-4 py-3 transition hover:bg-slate-50 active:cursor-grabbing ${
                     isChecked ? "" : "opacity-45"
                   }`}
                   onClick={() => toggleCheck(item.originalIdx)}
@@ -1959,6 +2007,168 @@ export default function BuySimulatorTab() {
         </div>
       )}
 
+      {/* ── 드래그 앤 드롭 매수/매도 모달 ──────────────────────────────── */}
+      {dropModal && (() => {
+        const productType = dropModal.isGlobal ? "해외ETF" : "국내ETF";
+        const krwPrice = dropModal.price !== null
+          ? (dropModal.currency === "USD" ? dropModal.price * usdKrwRate : dropModal.price)
+          : null;
+        const dropQty = parseFloat(dropModal.qtyStr) || 0;
+        const dropCost = krwPrice !== null && dropQty > 0 ? dropQty * krwPrice : 0;
+        const avail = availableInvestmentFunds ?? 0;
+        const dropOverBudget = dropModal.mode === "buy" && avail > 0 && dropCost > avail;
+        const maxDropQty = dropModal.mode === "buy" && krwPrice && krwPrice > 0 && avail > 0
+          ? Math.floor(avail / krwPrice)
+          : null;
+        // 포트폴리오에 이미 있으면 매도도 가능
+        const existingAsset = rebalancingSellAssets.find(
+          (a) => (a.ticker ?? "").toLowerCase() === dropModal.ticker.toLowerCase() && a.amount > 0,
+        );
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setDropModal(null)}>
+            <div className="w-96 rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <p className="mb-1 text-center text-sm font-bold text-slate-800">
+                {dropModal.sector}
+              </p>
+              <p className="mb-3 text-center font-mono text-xs text-slate-500">
+                {dropModal.ticker} · {productType}
+              </p>
+
+              {/* 매수/매도 모드 토글 */}
+              <div className="mb-4 flex rounded-lg border border-slate-200 p-0.5">
+                <button type="button"
+                  onClick={() => setDropModal((p) => p ? { ...p, mode: "buy", qtyStr: "" } : null)}
+                  className={`flex-1 rounded-md py-2 text-sm font-bold transition ${dropModal.mode === "buy" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-500 hover:text-navy"}`}>
+                  매수
+                </button>
+                <button type="button"
+                  disabled={!existingAsset}
+                  onClick={() => setDropModal((p) => p ? { ...p, mode: "sell", qtyStr: "" } : null)}
+                  className={`flex-1 rounded-md py-2 text-sm font-bold transition disabled:opacity-30 ${dropModal.mode === "sell" ? "bg-samsung text-white shadow-sm" : "text-slate-500 hover:text-navy"}`}>
+                  매도 {!existingAsset && "(미보유)"}
+                </button>
+              </div>
+
+              {dropModal.isLoadingPrice ? (
+                <div className="flex items-center justify-center gap-2 py-4 text-sm text-slate-400">
+                  <Loader2 size={14} className="animate-spin" />
+                  가격 조회 중…
+                </div>
+              ) : (
+                <>
+                  {krwPrice !== null && (
+                    <p className="mb-3 text-center text-xs text-slate-500">
+                      현재가: <span className="font-bold text-navy">{fmtKrwMan(krwPrice)}</span>
+                      {dropModal.currency === "USD" && (
+                        <span className="ml-1 text-slate-400">
+                          (${dropModal.price?.toFixed(2)} · @{usdKrwRate.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}원)
+                        </span>
+                      )}
+                    </p>
+                  )}
+
+                  <div className="mb-3 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={dropModal.mode === "buy" ? (maxDropQty ?? undefined) : (existingAsset?.amount ?? undefined)}
+                      value={dropModal.qtyStr}
+                      onChange={(e) => {
+                        const n = parseFloat(e.target.value);
+                        const cap = dropModal.mode === "buy" ? maxDropQty : (existingAsset?.amount ?? null);
+                        if (cap !== null && Number.isFinite(n) && n > cap) {
+                          setDropModal((p) => p ? { ...p, qtyStr: String(cap) } : null);
+                          return;
+                        }
+                        setDropModal((p) => p ? { ...p, qtyStr: e.target.value } : null);
+                      }}
+                      placeholder="수량 입력"
+                      className={`flex-1 rounded-xl border px-3 py-2 text-center text-sm font-bold text-navy outline-none ${
+                        dropOverBudget ? "border-red-400 bg-red-50 focus:border-red-500" : "border-slate-300 focus:border-emerald-400"
+                      }`}
+                      autoFocus
+                    />
+                    <span className="text-xs text-slate-500">주</span>
+                  </div>
+
+                  {dropQty > 0 && krwPrice !== null && (
+                    <div className={`mb-3 rounded-lg px-3 py-2 text-xs ${dropOverBudget ? "bg-red-50 text-red-700" : "bg-emerald-50 text-slate-600"}`}>
+                      <div>
+                        {dropModal.mode === "buy" ? "매수 예정" : "매도 예정"}:{" "}
+                        <span className={`font-black ${dropOverBudget ? "text-red-600" : "text-emerald-700"}`}>
+                          {fmtKrwMan(dropCost)}
+                        </span>
+                        {dropOverBudget && <span className="ml-1 font-bold text-red-500">— 가용 자금 초과!</span>}
+                      </div>
+                      {dropModal.mode === "buy" && (
+                        <div className={`mt-0.5 text-[10px] ${dropOverBudget ? "text-red-400" : "text-slate-400"}`}>
+                          잔여 가용: {fmtKrwMan(avail - dropCost)}
+                          {maxDropQty !== null && <span className="ml-1">(최대 {maxDropQty.toLocaleString()}주)</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setDropModal(null)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                  취소
+                </button>
+                <button
+                  type="button"
+                  disabled={dropQty <= 0 || dropOverBudget || dropModal.isLoadingPrice || krwPrice === null}
+                  onClick={() => {
+                    if (dropQty <= 0 || krwPrice === null) return;
+                    if (dropModal.mode === "buy") {
+                      const existing = rebalancingSellAssets.find(
+                        (a) => (a.ticker ?? "").toLowerCase() === dropModal.ticker.toLowerCase(),
+                      );
+                      let updated: PortfolioAsset[];
+                      if (existing) {
+                        updated = rebalancingSellAssets.map((a) =>
+                          (a.ticker ?? "").toLowerCase() === dropModal.ticker.toLowerCase()
+                            ? { ...a, amount: a.amount + dropQty, current_value: (a.amount + dropQty) * krwPrice }
+                            : a,
+                        );
+                      } else {
+                        const newAsset: PortfolioAsset = {
+                          name: dropModal.sector, ticker: dropModal.ticker,
+                          asset_class: productType, productType,
+                          theme: "기타", country: dropModal.isGlobal ? "미국" : "한국",
+                          buy_price: krwPrice, amount: dropQty, amount_type: "quantity" as const,
+                          is_hedged: false, needs_review: false,
+                          current_price: krwPrice, current_value: dropQty * krwPrice,
+                        };
+                        updated = [...rebalancingSellAssets, newAsset];
+                      }
+                      setRebalancingSellAssets(updated);
+                    } else if (existingAsset) {
+                      addSellRecord({
+                        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                        name: existingAsset.name,
+                        productType: existingAsset.productType ?? existingAsset.asset_class ?? "",
+                        sellPrice: krwPrice,
+                        sellQty: dropQty,
+                        buyPrice: existingAsset.buy_price,
+                        realizedGain: existingAsset.buy_price != null ? (krwPrice - existingAsset.buy_price) * dropQty : 0,
+                      });
+                    }
+                    setDropModal(null);
+                  }}
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40 ${
+                    dropModal.mode === "buy" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-samsung hover:bg-blue-700"
+                  }`}
+                >
+                  {dropModal.mode === "buy" ? "매수 확정" : "매도 확정"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── 보유 자산 카드 매도 모달 ────────────────────────────────────── */}
       {sellCardKey && (() => {
         const asset = baseAssets.find((a) => makeAssetKey(a) === sellCardKey);
@@ -1968,6 +2178,9 @@ export default function BuySimulatorTab() {
         const estGain = asset?.buy_price != null && price > 0
           ? (price - asset.buy_price) * sellQtyNum
           : null;
+        // 기존 매수 취소 버튼 표시 조건: 추가 매수 이력 있는 종목
+        const origAsset = asset ? portfolioAssets.find((pa) => isSameAsset(pa, asset.name, asset.ticker)) : null;
+        const hasAdditionalBuy = !!(origAsset && asset && asset.amount_type === "quantity" && asset.amount > origAsset.amount);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSellCardKey(null)}>
             <div className="w-80 rounded-2xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -1981,8 +2194,16 @@ export default function BuySimulatorTab() {
                   min={1}
                   max={maxQty}
                   value={inlineSellQtyStr}
-                  onChange={(e) => setInlineSellQtyStr(e.target.value)}
-                  placeholder="매도 수량"
+                  onChange={(e) => {
+                    const n = parseFloat(e.target.value);
+                    if (Number.isFinite(n) && n > maxQty) { setInlineSellQtyStr(String(Math.floor(maxQty))); return; }
+                    setInlineSellQtyStr(e.target.value);
+                  }}
+                  onBlur={() => {
+                    const n = parseFloat(inlineSellQtyStr);
+                    if (Number.isFinite(n) && n > maxQty) setInlineSellQtyStr(String(Math.floor(maxQty)));
+                  }}
+                  placeholder={`최대 ${maxQty.toLocaleString()}주`}
                   className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-center text-sm font-bold text-navy outline-none focus:border-red-400"
                   autoFocus
                 />
@@ -1993,16 +2214,34 @@ export default function BuySimulatorTab() {
                   예상 손익 {estGain >= 0 ? "+" : ""}{formatKrwAmount(estGain)}
                 </p>
               )}
-              <div className="flex gap-3">
-                <button type="button" onClick={() => setSellCardKey(null)}
-                  className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
-                  취소
-                </button>
-                <button type="button" onClick={confirmSellCard}
-                  disabled={sellQtyNum <= 0}
-                  className="flex-1 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-40">
-                  매도 확정
-                </button>
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-3">
+                  <button type="button" onClick={() => setSellCardKey(null)}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                    취소
+                  </button>
+                  <button type="button" onClick={confirmSellCard}
+                    disabled={sellQtyNum <= 0}
+                    className="flex-1 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-40">
+                    매도 확정
+                  </button>
+                </div>
+                {hasAdditionalBuy && origAsset && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rolledBack = rebalancingSellAssets.map((a) => {
+                        if (!isSameAsset(a, asset!.name, asset!.ticker)) return a;
+                        return { ...a, amount: origAsset.amount, current_value: undefined };
+                      });
+                      setRebalancingSellAssets(rolledBack);
+                      setSellCardKey(null);
+                    }}
+                    className="w-full rounded-xl border border-orange-300 bg-orange-50 px-4 py-2.5 text-sm font-bold text-orange-700 hover:bg-orange-100"
+                  >
+                    기존 매수 취소 (+{(asset!.amount - origAsset.amount).toLocaleString()}주 롤백)
+                  </button>
+                )}
               </div>
             </div>
           </div>

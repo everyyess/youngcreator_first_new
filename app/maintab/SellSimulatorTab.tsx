@@ -103,6 +103,12 @@ export default function SellSimulatorTab() {
     sellHistory, addSellRecord, availableInvestmentFunds,
   } = useCustomerContext();
 
+  // 원본 포트폴리오 맵 — 추가 매수 배지 계산용
+  const origAmountMap = useMemo(
+    () => new Map(portfolioAssets.map((a) => [makeKey(a), a.amount])),
+    [portfolioAssets],
+  );
+
   // ─── 카드 그리드 기준 자산 ───────────────────────────────────────────────
   // rebalancingSellAssets: 매도 확정마다 수량이 차감되는 working copy
   // → 카드에 잔여 수량 실시간 반영 + 완전 매도 종목 0개 마킹
@@ -226,6 +232,40 @@ export default function SellSimulatorTab() {
     const n = parseFloat(buyQtyStr);
     return Number.isFinite(n) && n > 0 ? n : 0;
   }, [buyQtyStr]);
+
+  // 매수 비용 및 예산 가드
+  const buyCost = useMemo(() => {
+    if (!selectedAsset || buyQty <= 0 || mode !== "buy") return 0;
+    return buyQty * getEffectivePrice(selectedAsset);
+  }, [selectedAsset, buyQty, mode]);
+
+  const isBuyOverBudget = useMemo(
+    () => (availableInvestmentFunds != null && availableInvestmentFunds > 0 ? buyCost > availableInvestmentFunds : false),
+    [buyCost, availableInvestmentFunds],
+  );
+
+  const remainingAfterBuy = useMemo(
+    () => (availableInvestmentFunds !== null ? availableInvestmentFunds - buyCost : null),
+    [availableInvestmentFunds, buyCost],
+  );
+
+  // 가용 자금 기준 최대 매수 수량
+  const maxBuyQtyByFunds = useMemo(() => {
+    if (!selectedAsset || !availableInvestmentFunds || availableInvestmentFunds <= 0) return null;
+    const price = getEffectivePrice(selectedAsset);
+    return price > 0 ? Math.floor(availableInvestmentFunds / price) : null;
+  }, [selectedAsset, availableInvestmentFunds]);
+
+  const handleBuyQtyChange = useCallback((val: string) => {
+    if (maxBuyQtyByFunds !== null) {
+      const n = parseFloat(val);
+      if (Number.isFinite(n) && n > maxBuyQtyByFunds) {
+        setBuyQtyStr(String(maxBuyQtyByFunds));
+        return;
+      }
+    }
+    setBuyQtyStr(val);
+  }, [maxBuyQtyByFunds]);
 
   // 매수 시뮬레이션 — 선택 종목 수량 증가 후 도넛 재계산
   const simulatedBuyAssets = useMemo<PortfolioAsset[]>(() => {
@@ -397,6 +437,11 @@ export default function SellSimulatorTab() {
             const val = getEffectiveValue(a);
             const bp = Number(a.buy_price);
             const gainPct = cp > 0 && bp > 0 ? ((cp - bp) / bp) * 100 : null;
+            const origAmt = origAmountMap.get(key);
+            const addedQty =
+              !isSoldOut && origAmt != null && a.amount_type === "quantity" && a.amount > origAmt
+                ? a.amount - origAmt
+                : null;
             return (
               <button
                 key={key}
@@ -406,8 +451,9 @@ export default function SellSimulatorTab() {
                   if (isSoldOut) return;
                   setSelectedKey(isSel ? null : key);
                   setSellQtyStr("");
+                  setBuyQtyStr("");
                 }}
-                className={`flex flex-col gap-1 rounded-xl border-2 px-4 py-3 text-left transition-all duration-150 ${
+                className={`relative flex flex-col gap-1 rounded-xl border-2 px-4 py-3 text-left transition-all duration-150 ${
                   isSoldOut
                     ? "cursor-not-allowed opacity-50"
                     : "hover:shadow-md"
@@ -418,6 +464,11 @@ export default function SellSimulatorTab() {
                   minWidth: "9rem",
                 }}
               >
+                {addedQty !== null && addedQty > 0 && (
+                  <span className="absolute right-2 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                    {addedQty.toLocaleString()}주 추가 매수
+                  </span>
+                )}
                 {isSoldOut ? (
                   <span className="inline-block self-start rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold leading-none text-red-600">
                     완전 매도
@@ -746,24 +797,44 @@ export default function SellSimulatorTab() {
                   <input
                     type="number"
                     min={1}
+                    max={maxBuyQtyByFunds ?? undefined}
                     value={buyQtyStr}
-                    onChange={(e) => setBuyQtyStr(e.target.value)}
+                    onChange={(e) => handleBuyQtyChange(e.target.value)}
+                    onBlur={() => {
+                      if (maxBuyQtyByFunds !== null && parseFloat(buyQtyStr) > maxBuyQtyByFunds)
+                        setBuyQtyStr(String(maxBuyQtyByFunds));
+                    }}
                     placeholder="0"
-                    className="w-28 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2.5 text-center text-lg font-bold text-navy focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    className={`w-28 rounded-lg border px-3 py-2.5 text-center text-lg font-bold text-navy focus:outline-none focus:ring-1 ${
+                      isBuyOverBudget
+                        ? "border-red-400 bg-red-50 focus:border-red-500 focus:ring-red-400"
+                        : "border-slate-300 bg-slate-50 focus:border-emerald-500 focus:ring-emerald-500"
+                    }`}
                   />
-                  <span className="text-sm font-semibold text-slate-500">주 추가 매수</span>
+                  <span className="text-sm font-semibold text-slate-500">
+                    주 추가 매수
+                    {maxBuyQtyByFunds !== null && (
+                      <span className="ml-1 text-slate-400">(최대 {maxBuyQtyByFunds.toLocaleString()}주)</span>
+                    )}
+                  </span>
                 </div>
 
                 {buyQty > 0 && (
-                  <div className="rounded-lg bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-slate-600">
-                    매수 예정:{" "}
-                    <span className="font-black text-emerald-700">
-                      {formatKrwAmount(buyQty * getEffectivePrice(selectedAsset))}
-                    </span>
-                    {availableInvestmentFunds !== null && (
-                      <span className="ml-2 text-slate-400">
-                        (가용: {formatKrwAmount(availableInvestmentFunds)})
+                  <div className={`rounded-lg px-4 py-2.5 text-xs font-semibold ${isBuyOverBudget ? "bg-red-50 text-red-700" : "bg-emerald-50 text-slate-600"}`}>
+                    <div className="flex flex-wrap items-center gap-x-2">
+                      <span>매수 예정: </span>
+                      <span className={`font-black ${isBuyOverBudget ? "text-red-600" : "text-emerald-700"}`}>
+                        {formatKrwAmount(buyCost)}
                       </span>
+                      {isBuyOverBudget && <span className="font-bold text-red-500">— 가용 자금 초과!</span>}
+                    </div>
+                    {remainingAfterBuy !== null && (
+                      <div className={`mt-0.5 text-[10px] ${isBuyOverBudget ? "text-red-400" : "text-slate-400"}`}>
+                        잔여 가용: {formatKrwAmount(remainingAfterBuy)}
+                        {availableInvestmentFunds !== null && (
+                          <span className="ml-1">(총 가용: {formatKrwAmount(availableInvestmentFunds)})</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -775,7 +846,7 @@ export default function SellSimulatorTab() {
                 <button
                   type="button"
                   onClick={handleConfirmBuy}
-                  disabled={buyQty <= 0}
+                  disabled={buyQty <= 0 || isBuyOverBudget}
                   className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CheckCircle2 size={16} />
