@@ -4,11 +4,6 @@ import { NextResponse } from "next/server";
 import type { Api, TelegramClient as TC } from "telegram";
 import type { StringSession as SS } from "telegram/sessions";
 
-// eslint-disable-next-line no-eval
-const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
-const TelegramClient = _tg.TelegramClient;
-const StringSession = _tg.sessions.StringSession;
-
 export async function GET() {
   const apiId      = parseInt(process.env.TELEGRAM_API_ID   ?? "", 10);
   const apiHash    = process.env.TELEGRAM_API_HASH  ?? "";
@@ -16,6 +11,17 @@ export async function GET() {
 
   if (!apiId || !apiHash || !sessionStr) {
     return NextResponse.json({ error: "텔레그램 설정 필요" }, { status: 503 });
+  }
+
+  let TelegramClient: typeof TC;
+  let StringSession: typeof SS;
+  try {
+    // eslint-disable-next-line no-eval
+    const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
+    TelegramClient = _tg.TelegramClient;
+    StringSession = _tg.sessions.StringSession;
+  } catch (e) {
+    return NextResponse.json({ error: `telegram 모듈 로드 실패: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
   }
 
   const client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, { connectionRetries: 2 });

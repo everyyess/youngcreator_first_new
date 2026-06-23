@@ -5,11 +5,6 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Api, TelegramClient as TC } from "telegram";
 import type { StringSession as SS } from "telegram/sessions";
 
-// eslint-disable-next-line no-eval
-const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
-const TelegramClient = _tg.TelegramClient;
-const StringSession = _tg.sessions.StringSession;
-
 // ── 중요도 분류 ───────────────────────────────────────────────────────────────
 
 const URGENT = [
@@ -187,6 +182,18 @@ export async function GET(req: NextRequest) {
 
   // maxDuration(60s)보다 5초 일찍 중단 → Vercel HTML 504 대신 JSON 오류 반환
   const INTERNAL_TIMEOUT_MS = 55_000;
+
+  // 모듈 레벨이 아닌 함수 내부에서 require → 초기화 실패 시 JSON 오류 반환 가능
+  let TelegramClient: typeof TC;
+  let StringSession: typeof SS;
+  try {
+    // eslint-disable-next-line no-eval
+    const _tg = eval("require")("telegram") as { TelegramClient: typeof TC; sessions: { StringSession: typeof SS } };
+    TelegramClient = _tg.TelegramClient;
+    StringSession = _tg.sessions.StringSession;
+  } catch (e) {
+    return NextResponse.json({ error: `telegram 모듈 로드 실패: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
+  }
 
   let client: TC | null = null;
   try {
