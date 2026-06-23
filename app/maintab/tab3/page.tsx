@@ -39,6 +39,8 @@ export default function Tab3Page() {
     updateTab3AnalysisState({ activeInnerTab: tab });
   };
 
+
+
   return (
     <>
       {/* 서브 탭 내비게이션 바 */}

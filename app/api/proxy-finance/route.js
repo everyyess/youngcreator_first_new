@@ -405,6 +405,7 @@ export async function GET(request) {
 
   // ── [KR 경로] Gemini → krCode 직접 조립 → Yahoo v7 AC 폴백 ──────────────
   let ticker = null;
+  let resolvedKoreanName = null; // Gemini에서 얻은 한국어 종목명
 
   if (forcedMarket === 'KR') {
     // [0순위] assetName이 이미 유효한 KRX 티커 형식이면 해석 체인 전체 생략
@@ -429,6 +430,7 @@ export async function GET(request) {
       ticker = `${paddedCode}${suffix}`;
       console.log(`[proxy-finance] Gemini KR 직접 조립: '${assetName}' → '${ticker}'`);
     }
+    if (geminiMetaKR?.koreanName) resolvedKoreanName = geminiMetaKR.koreanName;
 
     // [2순위] Gemini 실패/불명 → Yahoo v7 Autocomplete 폴백
     if (!ticker) {
@@ -487,6 +489,7 @@ export async function GET(request) {
 
       // 영문 사명이 있으면 Yahoo Search 정확도 향상
       if (geminiMetaUS?.englishName) searchQuery = geminiMetaUS.englishName;
+      if (geminiMetaUS?.koreanName)  resolvedKoreanName = geminiMetaUS.koreanName;
     }
 
     try {
@@ -644,8 +647,14 @@ export async function GET(request) {
     const dividendYield              = summaryDividendYield > 0 ? summaryDividendYield : eventsDividendYield;
     const trailingAnnualDividendRate = summaryTrailingRate  > 0 ? summaryTrailingRate  : eventsTrailingRate;
 
-    // officialName: KR 티커 → 마스터 테이블 우선 → Yahoo meta.shortName → longName 순 폴백
-    const officialName = resolveOfficialName(ticker, chartMeta);
+    // officialName 결정 우선순위:
+    //   KR 종목 → kr-asset-master.json 우선 → Yahoo meta.shortName → longName 폴백
+    //   US 종목 → Gemini 한국어명 있으면 "한국어명(TICKER)" 포맷 → 없으면 Yahoo meta 폴백
+    let officialName = resolveOfficialName(ticker, chartMeta);
+    if (resolvedKoreanName && forcedMarket === 'US') {
+      const baseTicker = ticker.split('.')[0];
+      officialName = `${resolvedKoreanName}(${baseTicker})`;
+    }
 
     return Response.json({ ticker, officialName, ...finalMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
 

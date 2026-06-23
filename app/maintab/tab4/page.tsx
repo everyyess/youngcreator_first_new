@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Download, GitCompare, TrendingUp, WalletCards } from "lucide-react";
+import { AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
+import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import {
   fmt,
   fmtPct,
@@ -25,19 +26,48 @@ import {
   calcAfterTaxReturn,
 } from "../tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary, TLHData } from "../tab1/FinancialIncomeGauge";
+import { PortfolioReportPdf, OPTIONAL_SECTIONS, type ReportSectionToggles, type ReportMode } from "./PortfolioReportPdf";
 
 // 시계열 연대기 순 키 배열 — STRESS_SCENARIO_ORDER 에서 파생 (2018→2020→2022)
 const SCENARIO_KEYS = STRESS_SCENARIO_ORDER.map((s) => s.key);
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
-  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets } = useCustomerContext();
+  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData, selectedCustomerProfile } = useCustomerContext();
+  const [showPensionPanel, setShowPensionPanel] = useState(false);
+
+  const tMarginal = useMemo(() => {
+    const raw = formData.financial.annualFixedIncome ?? "";
+    const n = raw.replace(/[^0-9.억만천]/g, "");
+    let income = 0;
+    const eok = n.match(/([0-9.]+)억/);
+    const man = n.match(/([0-9.]+)만/);
+    if (eok) income += parseFloat(eok[1]) * 1e8;
+    if (man) income += parseFloat(man[1]) * 1e4;
+    if (!eok && !man) income = parseFloat(n.replace(/[^0-9.]/g, "")) || 0;
+    if (income > 1_000_000_000) return 0.45;
+    if (income > 500_000_000)   return 0.42;
+    if (income > 300_000_000)   return 0.40;
+    if (income > 150_000_000)   return 0.38;
+    if (income > 88_000_000)    return 0.35;
+    if (income > 50_000_000)    return 0.24;
+    if (income > 14_000_000)    return 0.15;
+    return 0.06;
+  }, [formData.financial.annualFixedIncome]);
   const [summary, setSummary] = useState<FinancialIncomeSummary | null>(null);
   const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
   // 좌우 동일 시나리오 인덱스 공유 — 같은 위기 시나리오를 나란히 비교
   const [selectedScenario, setSelectedScenario] = useState(0);
-  const [pdfLoading, setPdfLoading] = useState(false);
+
   const printRef = useRef<HTMLDivElement>(null);
+  const [showReportOptions, setShowReportOptions] = useState(false);
+  const [reportMode, setReportMode] = useState<ReportMode>("normal");
+  const [reportSections, setReportSections] = useState<ReportSectionToggles>({
+    stress: true,
+    health: true,
+    taxIncome: true,
+    holdings: true,
+  });
 
   // 고객 전환 시 Supabase에서 직접 로드 (localStorage 타이밍 문제 방지)
   useEffect(() => {
@@ -164,65 +194,59 @@ export default function Tab4Page() {
     [newSummary, rightAssets] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  // ── PDF 다운로드 ───────────────────────────────────────────────────────────
-  const handleDownloadPdf = async () => {
-    if (!printRef.current) return;
-    setPdfLoading(true);
-    try {
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-
-      const canvas = await html2canvas(printRef.current, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-        // SVG 요소(도넛 차트) 정상 캡처를 위한 foreignObjectRendering
-        allowTaint: false,
-      });
-
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-
-      const pageW = pdf.internal.pageSize.getWidth();   // 210 mm
-      const pageH = pdf.internal.pageSize.getHeight();  // 297 mm
-      const margin = 8; // mm
-      const contentW = pageW - margin * 2;
-      const imgH = (canvas.height * contentW) / canvas.width;
-
-      let remaining = imgH;
-      let srcY = 0; // mm offset within the full image
-
-      while (remaining > 0) {
-        const sliceH = Math.min(remaining, pageH - margin * 2);
-        // jsPDF addImage: (data, format, x, y, w, h, alias, compression, rotation)
-        // Negative y offset lets us "scroll" through the image per page
-        pdf.addImage(imgData, "JPEG", margin, margin - srcY, contentW, imgH);
-        // Clip to page: use a white rectangle to mask overflow below the bottom margin
-        pdf.setFillColor(255, 255, 255);
-        pdf.rect(0, pageH - margin + 0.1, pageW, margin + 0.5, "F");
-        // Also mask content above the top margin on subsequent pages
-        if (srcY > 0) {
-          pdf.rect(0, 0, pageW, margin - 0.1, "F");
-        }
-        srcY += sliceH;
-        remaining -= sliceH;
-        if (remaining > 0) pdf.addPage();
-      }
-
-      const today = new Date().toLocaleDateString("sv-SE");
-      pdf.save(`포트폴리오_비교_분석_${today}.pdf`);
-    } catch (err) {
-      console.error("PDF 생성 실패", err);
-    } finally {
-      setPdfLoading(false);
-    }
-  };
+  
 
   return (
     <div className="space-y-6">
+
+{/* ── 절세 제안 전략 모달 ── */}
+{showPensionPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowPensionPanel(false)}>
+          <div
+            className="relative w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+              <div className="flex items-center gap-2 text-rose-700">
+                <Sparkles size={15} />
+                <span className="text-sm font-bold">절세 제안 전략</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPensionPanel(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {/* 본문 */}
+            <div className="p-4">
+              <PensionTaxPanel tMarginal={tMarginal} alwaysOpen />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReportOptions && (
+        <ReportOptionsModal
+          sections={reportSections}
+          setSections={setReportSections}
+          onClose={() => setShowReportOptions(false)}
+          customerName={selectedCustomerProfile?.name || selectedCustomerProfile?.fallbackName || "고객"}
+          leftData={leftData}
+          rightData={rightData}
+          leftAssets={leftAssets}
+          rightAssets={rightAssets}
+          leftAfterTaxReturn={leftAfterTaxReturn}
+          rightAfterTaxReturn={rightAfterTaxReturn}
+          summary={summary}
+          newSummary={newSummary}
+          marginalTaxRate={tMarginal}
+          mode={reportMode}
+          setMode={setReportMode}
+        />
+      )}
 
       {/* ── 페이지 헤더 + PDF 버튼 ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -237,24 +261,17 @@ export default function Tab4Page() {
         </div>
         <button
           type="button"
-          onClick={handleDownloadPdf}
-          disabled={pdfLoading || (!leftData && !rightData)}
+          onClick={() => setShowReportOptions(true)}
+          disabled={!leftData && !rightData}
           className="inline-flex items-center gap-2 rounded-lg border border-samsung bg-white px-4 py-2.5 text-sm font-bold text-samsung shadow-soft transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Download size={16} />
-          {pdfLoading ? "PDF 생성 중…" : "포트폴리오 비교안 PDF 다운로드"}
+          포트폴리오 제안서 PDF 생성
         </button>
       </div>
 
       {/* ── PDF 캡처 영역 ── */}
       <div ref={printRef} className="space-y-6 bg-white">
-
-        {/*
-          포트폴리오 구성 비교
-          — 행(row) 단위 CSS Grid로 좌우 동일 성격 카드를 같은 가로 선상에 정렬
-          — 핵심 이슈 배너 높이(위험 항목 개수·유무)가 달라도 각 행의 최대 높이로
-            두 셀이 맞춰지므로 아래 카드들이 항상 같은 기준선에서 시작함
-        */}
         <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
 
           {/* ── 헤더 행 ── */}
@@ -391,9 +408,18 @@ export default function Tab4Page() {
             </div>
 
             <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
-                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${newSummary ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
-                <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
+                <div className="flex items-center gap-2">
+                  <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${newSummary ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
+                  <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPensionPanel(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition shrink-0"
+                >
+                  <Sparkles size={11} /> 절세 제안 전략
+                </button>
               </div>
               {newSummary ? (
                 <FinancialIncomeGauge summary={newSummary} tlhData={tlhData} />
@@ -476,5 +502,199 @@ function StressTestCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ── PDF 제안서 옵션 선택 모달 ───────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ReportOptionsModal({
+  sections,
+  setSections,
+  onClose,
+  customerName,
+  leftData,
+  rightData,
+  leftAssets,
+  rightAssets,
+  leftAfterTaxReturn,
+  rightAfterTaxReturn,
+  summary,
+  newSummary,
+  marginalTaxRate,
+  mode,
+  setMode,
+}: {
+  sections: ReportSectionToggles;
+  setSections: (s: ReportSectionToggles) => void;
+  onClose: () => void;
+  customerName: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  leftData: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rightData: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  leftAssets: any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rightAssets: any[];
+  leftAfterTaxReturn: number | null;
+  rightAfterTaxReturn: number | null;
+  summary: FinancialIncomeSummary | null;
+  newSummary: FinancialIncomeSummary | null;
+  marginalTaxRate?: number;
+  mode: ReportMode;
+  setMode: (m: ReportMode) => void;
+}) {
+  const toggle = (key: keyof ReportSectionToggles) => {
+    setSections({ ...sections, [key]: !sections[key] });
+  };
+
+  const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
+  
+  const leftSide = leftData
+    ? {
+        label: "기존 포트폴리오",
+        quantResult: leftData.quantResult,
+        stressResult: (leftData as any).stressResult,
+        healthResult: leftData.healthResult,
+        enrichedAssets: leftAssets,
+        afterTaxReturn: leftAfterTaxReturn,
+        portfolioIssueSummary: leftData.portfolioIssueSummary,
+      }
+    : null;
+
+  const rightSide = rightData || rightAssets.length > 0
+    ? {
+        label: rightData ? "신규 포트폴리오" : "매도 후 잔여 포트폴리오",
+        quantResult: rightData?.quantResult,
+        stressResult: (rightData as any)?.stressResult,
+        healthResult: rightData?.healthResult,
+        enrichedAssets: rightAssets,
+        afterTaxReturn: rightAfterTaxReturn,
+        portfolioIssueSummary: rightData?.portfolioIssueSummary,
+      }
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <h3 className="text-base font-bold text-navy">제안서 PDF 옵션 선택</h3>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+
+        <div className="px-6 py-5">
+          <div>
+          <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wide">보고서 형식</p>
+            <div className="mb-4 flex gap-3">
+              {([
+                { value: "normal", label: "포트폴리오 제안서", desc: "기본 형식 · 일반 크기" },
+                { value: "easy", label: "포트폴리오 제안서 (쉬운 설명 버전)", desc: "쉬운 설명 + 용어 각주 · 큰 글자" },
+              ] as const).map((opt) => (
+                <label key={opt.value} className={`flex-1 cursor-pointer rounded-lg border-2 px-3 py-2.5 transition ${mode === opt.value ? "border-samsung bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
+                  <input type="radio" name="reportMode" value={opt.value} checked={mode === opt.value} onChange={() => setMode(opt.value)} className="sr-only" />
+                  <p className={`text-xs font-bold ${mode === opt.value ? "text-samsung" : "text-slate-600"}`}>{opt.label}</p>
+                  <p className="mt-0.5 text-[10px] text-slate-400">{opt.desc}</p>
+                </label>
+              ))}
+            </div>
+            <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wide">포함할 항목 선택</p>
+            <div className="space-y-2.5">
+              {OPTIONAL_SECTIONS.map((opt) => (
+                <label key={opt.key} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 cursor-pointer hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={sections[opt.key]}
+                    onChange={() => toggle(opt.key)}
+                    className="h-4 w-4 rounded border-slate-300 text-samsung focus:ring-samsung"
+                  />
+                  <span className="text-sm font-semibold text-navy">{opt.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50"
+          >
+            취소
+          </button>
+          <PDFDownloadLinkClient
+            customerName={customerName}
+            reportDate={today}
+            sections={sections}
+            left={leftSide}
+            right={rightSide}
+            leftTaxSummary={summary}
+            rightTaxSummary={newSummary}
+            marginalTaxRate={marginalTaxRate}
+            mode={mode}
+            onGenerated={onClose} 
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── PDFDownloadLink는 클라이언트에서만 동작 + 동적 import로 SSR 방지 ─────────
+function PDFDownloadLinkClient(props: {
+  customerName: string;
+  reportDate: string;
+  sections: ReportSectionToggles;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  left: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  right: any;
+  leftTaxSummary: FinancialIncomeSummary | null;
+  rightTaxSummary: FinancialIncomeSummary | null;
+  marginalTaxRate?: number;
+  mode?: ReportMode;
+  onGenerated: () => void;
+}) {
+  const [PDFDownloadLink, setPDFDownloadLink] = useState<any>(null);
+
+  useEffect(() => {
+    import("@react-pdf/renderer").then((mod) => {
+      setPDFDownloadLink(() => mod.PDFDownloadLink);
+    });
+  }, []);
+
+  if (!PDFDownloadLink) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60"
+      >
+        준비 중...
+      </button>
+    );
+  }
+
+  return (
+    <PDFDownloadLink
+      document={
+        <PortfolioReportPdf
+          customerName={props.customerName}
+          reportDate={props.reportDate}
+          sections={props.sections}
+          left={props.left}
+          right={props.right}
+          leftTaxSummary={props.leftTaxSummary}
+          rightTaxSummary={props.rightTaxSummary}
+          marginalTaxRate={props.marginalTaxRate}
+          mode={props.mode}
+        />
+      }
+      fileName={`${props.customerName}_포트폴리오_제안서_${props.reportDate.replace(/[^0-9]/g, "")}.pdf`}
+      className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90"
+      
+    >
+      {({ loading }: { loading: boolean }) => (loading ? "생성 중..." : "PDF 다운로드")}
+    </PDFDownloadLink>
   );
 }

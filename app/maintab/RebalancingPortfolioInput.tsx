@@ -246,6 +246,11 @@ export default function RebalancingPortfolioInput({
         }
       }
 
+      const dividendYield = typeof data.dividendYield === "number" && data.dividendYield > 0
+        ? data.dividendYield : null;
+      const trailingAnnualDividendRate = typeof data.trailingAnnualDividendRate === "number" && data.trailingAnnualDividendRate > 0
+        ? data.trailingAnnualDividendRate : null;
+
       updateRow(idx, {
         ticker,
         // officialName이 있으면 유저 입력값을 공식 사명으로 강제 보정
@@ -257,6 +262,8 @@ export default function RebalancingPortfolioInput({
         } : {}),
         ...(!resolvedType && data.country ? { country: data.country as string } : {}),
         ...(currentPriceKRW !== null ? { current_price: currentPriceKRW } : {}),
+        ...(dividendYield !== null ? { dividendYield } : {}),
+        ...(trailingAnnualDividendRate !== null ? { trailingAnnualDividendRate } : {}),
         is_hedged: false,
       });
 
@@ -264,7 +271,10 @@ export default function RebalancingPortfolioInput({
       const priceStr = currentPriceKRW !== null
         ? ` / 현재가 ${currentPriceKRW.toLocaleString("ko-KR")}원`
         : "";
-      showToast(`'${name}' → ${ticker} (${displayName}) 자동 완성${priceStr}`);
+      const yieldStr = dividendYield !== null
+        ? ` / 배당률 ${(dividendYield * 100).toFixed(2)}%`
+        : "";
+      showToast(`'${name}' → ${ticker} (${displayName}) 자동 완성${priceStr}${yieldStr}`);
     } catch (err) {
       console.warn("[SmartInference] 예외:", err);
       showToast("오류가 발생했습니다. 티커 셀을 더블클릭하여 직접 입력해주세요.");

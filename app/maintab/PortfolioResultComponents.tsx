@@ -922,9 +922,21 @@ export function StressScenarioBar({
   };
 }) {
   // 채권 자산(국내채권·해외채권)은 렌더링에서 완전 제외 — quantEngine에서 이미 필터됐더라도 이중 가드
-  const details = scenario.details
-    .filter(d => d.productType !== '국내채권' && d.productType !== '해외채권')
-    .slice(0, 8);
+  // 동일 자산명이 여러 번 입력된 경우 contribution·shock을 합산해 중복 key 방지
+  const detailsRaw = scenario.details.filter(
+    d => d.productType !== '국내채권' && d.productType !== '해외채권'
+  );
+  const dedupMap = new Map<string, { name: string; shock: number; contribution: number; productType?: string }>();
+  for (const d of detailsRaw) {
+    const prev = dedupMap.get(d.name);
+    if (prev) {
+      prev.shock += d.shock ?? d.contribution;
+      prev.contribution += d.contribution;
+    } else {
+      dedupMap.set(d.name, { ...d });
+    }
+  }
+  const details = Array.from(dedupMap.values()).slice(0, 8);
   // 바 차트 스케일: 개별 종목 자체 충격률(shock) 기준
   const maxShock = Math.max(...details.map((d) => Math.abs(d.shock ?? d.contribution)), 0.001);
   const CHART_DOMAIN = Math.max(maxShock * 1.1, 0.01);
