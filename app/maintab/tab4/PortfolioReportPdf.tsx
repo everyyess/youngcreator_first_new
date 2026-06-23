@@ -677,7 +677,7 @@ export function PortfolioReportPdf({
         </View>
 
         {/* AI PB 코멘트 — 핵심 지표 요약 바로 아래 */}
-        {right && aiComment && (
+        {aiComment && (
           <View style={styles.aiCommentBox} wrap={false}>
             <Text style={styles.aiCommentLabel}>▪ PB 코멘트</Text>
             <Text style={styles.aiCommentText}>{aiComment}</Text>
