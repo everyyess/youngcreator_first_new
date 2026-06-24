@@ -25,20 +25,27 @@ const CATEGORY_SOURCES: Record<NewsCategory, { page: string; feeds: string[] }> 
   },
 };
 
-// 경제·산업과 무관한 카테고리의 URL 세그먼트 — 해당 패턴이 링크에 포함되면 제외
+// 경제·산업과 무관한 카테고리의 URL 세그먼트
 const BLOCKED_URL_SEGMENTS = [
   "/life/", "/beauty/", "/fashion/", "/health/", "/food/",
   "/realestate/", "/politics/", "/society/", "/culture/",
   "/sports/", "/entertainment/", "/travel/", "/opinion/", "/column/",
 ];
 
-// RSS <category> 태그에 포함된 경우 제외할 한글 키워드
+// RSS <category> 태그에 포함된 경우 제외할 키워드
 const BLOCKED_CATEGORY_SUBSTRINGS = [
   "뷰티", "패션", "라이프", "부동산", "정치", "사회", "문화",
   "스포츠", "연예", "건강", "여행", "오피니언", "칼럼",
+  "소비재", "유통", "식음료", "맛집", "생활", "트렌드", "웰빙", "푸드",
 ];
 
-function isArticleBlocked(link: string, categories: string[]): boolean {
+// 제목에 포함되면 경제/산업 기사로 보기 어려운 소비·라이프스타일 키워드
+const BLOCKED_TITLE_KEYWORDS = [
+  "망고", "디저트", "맛집", "레시피", "다이어트", "맛있", "음식점",
+  "뷰티", "패션", "여행", "결혼식", "육아", "반려",
+];
+
+function isArticleBlocked(link: string, categories: string[], title = ""): boolean {
   const lowerLink = link.toLowerCase();
   if (BLOCKED_URL_SEGMENTS.some((seg) => lowerLink.includes(seg))) return true;
 
@@ -46,6 +53,8 @@ function isArticleBlocked(link: string, categories: string[]): boolean {
     const catText = categories.join(" ");
     if (BLOCKED_CATEGORY_SUBSTRINGS.some((sub) => catText.includes(sub))) return true;
   }
+
+  if (title && BLOCKED_TITLE_KEYWORDS.some((kw) => title.includes(kw))) return true;
 
   return false;
 }
@@ -100,11 +109,11 @@ function parseRss(xml: string): NewsArticle[] {
     const link = tagValue(item, "link");
     const categories = tagValues(item, "category");
 
-    // 경제·산업 외 카테고리 필터링
-    if (isArticleBlocked(link, categories)) continue;
-
     const title = tagValue(item, "title");
     if (!title || !link) continue;
+
+    // 경제·산업 외 카테고리·제목 필터링
+    if (isArticleBlocked(link, categories, title)) continue;
 
     const pubDate = tagValue(item, "pubDate");
     results.push({
@@ -119,28 +128,52 @@ function parseRss(xml: string): NewsArticle[] {
   return results;
 }
 
+// 사이드바·관련기사 영역이 시작되기 전까지의 본문만 반환
+function extractMainContent(html: string): string {
+  const cutMarkers = [
+    "관련기사",
+    "많이 본 기사",
+    "실시간 뉴스",
+    "인기 기사",
+    "<aside",
+    'id="aside',
+    'class="aside',
+    'id="sidebar',
+    'class="sidebar',
+    "이 기자의 다른 기사",
+    "함께 읽으면 좋은",
+  ];
+  let cutAt = html.length;
+  for (const marker of cutMarkers) {
+    const idx = html.indexOf(marker);
+    if (idx > 8000 && idx < cutAt) cutAt = idx;
+  }
+  return html.slice(0, cutAt);
+}
+
 function parseHankyungHtml(html: string): NewsArticle[] {
   const articles: NewsArticle[] = [];
   const seen = new Set<string>();
 
+  // 사이드바 이전 본문 영역만 파싱
+  const mainHtml = extractMainContent(html);
+
   // 한경 기사 URL 패턴: /article/숫자로 시작하는 식별자
   const anchorRegex = /<a\s[^>]*href="((?:https:\/\/www\.hankyung\.com)?\/article\/\d[\w-]*)"[^>]*>([\s\S]*?)<\/a>/gi;
 
-  for (const match of html.matchAll(anchorRegex)) {
+  for (const match of mainHtml.matchAll(anchorRegex)) {
     const [fullMatch, rawLink, innerHtml] = match;
     const link = rawLink.startsWith("http") ? rawLink : `https://www.hankyung.com${rawLink}`;
     if (seen.has(link)) continue;
 
-    // URL 세그먼트 기반 필터링 (HTML에는 category 태그가 없으므로 URL만 확인)
-    if (isArticleBlocked(link, [])) continue;
-
     const title = innerHtml.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
     if (title.length < 5) continue;
+    if (isArticleBlocked(link, [], title)) continue;
 
     seen.add(link);
 
     // 앵커 직후 400자 안에서 날짜 추출
-    const after = html.slice((match.index ?? 0) + fullMatch.length, (match.index ?? 0) + fullMatch.length + 400);
+    const after = mainHtml.slice((match.index ?? 0) + fullMatch.length, (match.index ?? 0) + fullMatch.length + 400);
     let time = "";
     const dateMatch = after.match(/(\d{4})[.\-](\d{1,2})[.\-](\d{1,2})[^\d]{0,5}(오전|오후)?\s*(\d{1,2}):(\d{2})/);
     if (dateMatch) {
