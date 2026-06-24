@@ -605,31 +605,31 @@ export default function BuySimulatorTab() {
     return src.filter((a) => a.name);
   }, [analysisResult, portfolioAssets, rebalancingSellAssets]);
 
-  const sortedAssetCards = useMemo(() => {
-    const marketGroup = (x: PortfolioAsset): number => {
-      const k = (x.productType ?? x.asset_class ?? "").trim();
-      if (k.startsWith("국내")) return 0;
-      if (k.startsWith("해외")) return 1;
-      return 2;
-    };
-    return [...baseAssets]
-      .filter((a) => !(a.amount_type === "quantity" && a.amount <= 0))
-      .sort((a, b) => {
-        const d = marketGroup(a) - marketGroup(b);
-        return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
-      });
-  }, [baseAssets]);
-
+  // 3개 독립 행: [국내주식+국내ETF] / [해외주식+해외ETF] / [채권(국내→해외 순)]
   const groupedAssetCards = useMemo(() => {
-    const groups: { type: string; assets: PortfolioAsset[] }[] = [];
-    for (const a of sortedAssetCards) {
-      const type = a.productType ?? a.asset_class ?? "기타";
-      const last = groups[groups.length - 1];
-      if (last && last.type === type) last.assets.push(a);
-      else groups.push({ type, assets: [a] });
+    const domestic: PortfolioAsset[] = [];
+    const foreign: PortfolioAsset[] = [];
+    const bonds: PortfolioAsset[] = [];
+    const others: PortfolioAsset[] = [];
+    for (const a of baseAssets) {
+      if (a.amount_type === "quantity" && a.amount <= 0) continue;
+      const pt = (a.productType ?? a.asset_class ?? "").trim();
+      if (pt === "국내주식" || pt === "국내ETF") domestic.push(a);
+      else if (pt === "해외주식" || pt === "해외ETF") foreign.push(a);
+      else if (pt.includes("채권")) bonds.push(a);
+      else others.push(a);
     }
-    return groups;
-  }, [sortedAssetCards]);
+    bonds.sort((a, b) => {
+      const o = (p: string) => p === "국내채권" ? 0 : p === "해외채권" ? 1 : 2;
+      return o(a.productType ?? "") - o(b.productType ?? "");
+    });
+    return [
+      { type: "국내", assets: domestic },
+      { type: "해외", assets: foreign },
+      { type: "채권", assets: bonds },
+      ...(others.length ? [{ type: "기타", assets: others }] : []),
+    ].filter((r) => r.assets.length > 0);
+  }, [baseAssets]);
 
   const defaultStrategy = useMemo<Strategy>(
     () => RISK_TO_STRATEGY[riskResult.level] ?? "balanced",
@@ -2090,8 +2090,10 @@ export default function BuySimulatorTab() {
           ? Math.floor(avail / krwPrice)
           : null;
         // 포트폴리오에 이미 있으면 매도도 가능
-        const existingAsset = rebalancingSellAssets.find(
-          (a) => (a.ticker ?? "").toLowerCase() === dropModal.ticker.toLowerCase() && a.amount > 0,
+        // rebalancingSellAssets가 비어 있으면 baseAssets(원본 포트폴리오)에서 검색
+        const dropWorkingBase = rebalancingSellAssets.length > 0 ? rebalancingSellAssets : baseAssets;
+        const existingAsset = dropWorkingBase.find(
+          (a) => isSameAsset(a, dropModal.sector, dropModal.ticker) && a.amount > 0,
         );
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setDropModal(null)}>
@@ -2191,13 +2193,15 @@ export default function BuySimulatorTab() {
                   onClick={() => {
                     if (dropQty <= 0 || krwPrice === null) return;
                     if (dropModal.mode === "buy") {
-                      const existing = rebalancingSellAssets.find(
-                        (a) => (a.ticker ?? "").toLowerCase() === dropModal.ticker.toLowerCase(),
+                      // rebalancingSellAssets가 비어 있으면 baseAssets(원본 포트폴리오 전체)를 기반으로 병합
+                      const base = rebalancingSellAssets.length > 0 ? rebalancingSellAssets : baseAssets;
+                      const existing = base.find(
+                        (a) => isSameAsset(a, dropModal.sector, dropModal.ticker),
                       );
                       let updated: PortfolioAsset[];
                       if (existing) {
-                        updated = rebalancingSellAssets.map((a) =>
-                          (a.ticker ?? "").toLowerCase() === dropModal.ticker.toLowerCase()
+                        updated = base.map((a) =>
+                          isSameAsset(a, dropModal.sector, dropModal.ticker)
                             ? { ...a, amount: a.amount + dropQty, current_value: (a.amount + dropQty) * krwPrice }
                             : a,
                         );
@@ -2210,7 +2214,7 @@ export default function BuySimulatorTab() {
                           is_hedged: false, needs_review: false,
                           current_price: krwPrice, current_value: dropQty * krwPrice,
                         };
-                        updated = [...rebalancingSellAssets, newAsset];
+                        updated = [...base, newAsset];
                       }
                       setRebalancingSellAssets(updated);
                       addBuyCost(dropCost);

@@ -1261,14 +1261,22 @@ export function HoldingAndDiagnosisSection({ data }: { data: PortfolioAnalysisRe
   const enrichedAssets: PortfolioAsset[] = Array.isArray(data.enrichedAssets)
     ? (data.enrichedAssets as PortfolioAsset[])
     : [];
-  const { portfolioIssueSummary, healthResult, stressResult } = data as typeof data & { stressResult?: unknown };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { healthResult, stressResult } = data as typeof data & { stressResult?: any };
+
+  // 핵심 이슈 데이터 파싱 (PortfolioIssueBanner 로직 인라인)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const issueItems: any[] = healthResult?.items ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const problemItems = issueItems.filter((it: any) => it.score === 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cautionItems = issueItems.filter((it: any) => it.score === 1);
+  const aiCommentary = extractAiCommentary(healthResult?.summary ?? "");
+  const stressDiagnosis: string = stressResult?.diagnosis ?? "";
+  const hasIssues = problemItems.length > 0 || cautionItems.length > 0 || !!aiCommentary || !!stressDiagnosis;
 
   return (
     <div className="space-y-5">
-      {portfolioIssueSummary && healthResult && (
-        <PortfolioIssueBanner healthResult={healthResult} stressResult={stressResult} />
-      )}
-
       <ResultCard icon={<WalletCards size={18} />} title="보유 자산 성과 (현재가 · 수익률)" accent="slate">
         <HoldingPerformanceTable assets={enrichedAssets} />
         {!enrichedAssets.filter((a) => a.name).length && (
@@ -1279,7 +1287,79 @@ export function HoldingAndDiagnosisSection({ data }: { data: PortfolioAnalysisRe
       {healthResult && (
         <ResultCard icon={<Activity size={18} />} title="포트폴리오 건강 진단" accent="blue">
           <div className="space-y-4">
+            {/* 1. 총합 점수 */}
             <HealthBadge badge={healthResult.badge} badgeKo={healthResult.badgeKo} totalScore={healthResult.totalScore} />
+
+            {/* 2. 핵심 이슈 — 점수 바로 아래 통합 패널 */}
+            {hasIssues && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0 text-red-500" />
+                  <span className="text-xs font-extrabold uppercase tracking-widest text-red-600">
+                    포트폴리오 핵심 이슈
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {problemItems.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1 text-xs font-bold text-red-600">
+                        <span>❌</span> 위험 항목
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {problemItems.map((it: any) => (
+                          <span
+                            key={it.key}
+                            title={it.detail}
+                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                              it.penalty
+                                ? "border-red-300 bg-red-100 text-red-800"
+                                : "border-red-200 bg-red-50 text-red-700"
+                            }`}
+                          >
+                            {it.penalty ? "🔴" : "•"} {it.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {cautionItems.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1 text-xs font-bold text-amber-600">
+                        <span>⚠️</span> 주의 항목
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {cautionItems.map((it: any) => (
+                          <span
+                            key={it.key}
+                            title={it.detail}
+                            className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800"
+                          >
+                            • {it.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(aiCommentary || stressDiagnosis) && (
+                    <div className="border-t border-slate-200 pt-3 space-y-1">
+                      <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                        AI 리밸런싱 제언
+                      </p>
+                      {aiCommentary && (
+                        <p className="text-xs font-semibold leading-relaxed text-slate-700">{aiCommentary}</p>
+                      )}
+                      {stressDiagnosis && (
+                        <p className="text-xs leading-relaxed text-slate-500">{stressDiagnosis}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 3. 진단 항목 상세 그리드 */}
             <div className="grid gap-1.5">
               {healthResult.items?.map(
                 (item: { key: string; label: string; score: number; grade: string; detail: string; penalty?: boolean }, i: number) => (
@@ -1295,6 +1375,8 @@ export function HoldingAndDiagnosisSection({ data }: { data: PortfolioAnalysisRe
                 )
               )}
             </div>
+
+            {/* 4. 진단 게이지 요약 */}
             {healthResult.summary && <HealthSummaryBox healthResult={healthResult} />}
           </div>
         </ResultCard>
