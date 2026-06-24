@@ -767,37 +767,35 @@ export async function GET(request) {
         : 0;
     const eventsTrailingRate = annualDividendPerShare;
 
-    // ── quoteSummary API로 더 정확한 배당 데이터 조회 ───────────────────
+    // ── quoteSummary API로 배당 + 섹터 데이터 통합 조회 ────────────────
     const quoteSummaryUrls = [
-      `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail`,
-      `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail`,
-      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?modules=summaryDetail`,
+      `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail%2CassetProfile`,
+      `https://query1.finance.yahoo.com/v11/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=summaryDetail%2CassetProfile`,
+      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?modules=summaryDetail%2CassetProfile`,
     ];
 
     let summaryDividendYield = 0;
     let summaryTrailingRate  = 0;
+    let sectorEn  = null;
+    let industryEn = null;
 
     for (const url of quoteSummaryUrls) {
       try {
         const summaryRes = await fetchWithTimeout(url, { headers: BROWSER_HEADERS }, 5_000);
         if (!summaryRes.ok) continue;
         const summaryJson = await summaryRes.json();
-        const detail = summaryJson?.quoteSummary?.result?.[0]?.summaryDetail;
-        if (!detail) continue;
-        // 실제 응답 필드 확인용 — 배포 전 제거 예정
-        console.log(`[proxy-finance] summaryDetail keys (${ticker}):`, Object.keys(detail));
-        console.log(`[proxy-finance] summaryDetail dividend fields (${ticker}):`, JSON.stringify({
-          dividendYield:              detail?.dividendYield,
-          trailingAnnualDividendYield: detail?.trailingAnnualDividendYield,
-          dividendRate:               detail?.dividendRate,
-          trailingAnnualDividendRate: detail?.trailingAnnualDividendRate,
-        }));
+        const detail  = summaryJson?.quoteSummary?.result?.[0]?.summaryDetail;
+        const profile = summaryJson?.quoteSummary?.result?.[0]?.assetProfile;
+        if (!detail && !profile) continue;
         // dividendYield.raw = trailingAnnualDividendYield (TTM, 연간 소수)
         // trailingAnnualDividendRate.raw = TTM 주당 배당금 합산
         const dy   = detail?.dividendYield?.raw;
         const tadr = detail?.trailingAnnualDividendRate?.raw;
         if (typeof dy   === 'number') summaryDividendYield = dy;
         if (typeof tadr === 'number') summaryTrailingRate  = tadr;
+        // assetProfile.sector / .industry (영어 글로벌 표준 섹터명)
+        if (typeof profile?.sector   === 'string' && profile.sector)   sectorEn   = profile.sector;
+        if (typeof profile?.industry === 'string' && profile.industry) industryEn = profile.industry;
         break;
       } catch {
         // 다음 URL 시도
@@ -837,7 +835,7 @@ export async function GET(request) {
       }
     }
 
-    return Response.json({ ticker, officialName, ...effectiveMeta, dividendYield, trailingAnnualDividendRate, ...yahooJson });
+    return Response.json({ ticker, officialName, ...effectiveMeta, dividendYield, trailingAnnualDividendRate, sectorEn, industryEn, ...yahooJson });
 
   } catch (blockErr) {
     // 예상치 못한 TypeError 등 블록 내 모든 예외를 포획 — 500 크래시 원천 차단

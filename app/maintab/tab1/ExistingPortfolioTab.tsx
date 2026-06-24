@@ -147,6 +147,7 @@ export default function ExistingPortfolioTab() {
     setAnalysisResult,
     setPortfolioDirty,
     pushToRebalancingSell,
+    clearSellHistory,
     saveTaxSummary,
   } = useCustomerContext();
 
@@ -264,6 +265,7 @@ export default function ExistingPortfolioTab() {
         setPortfolioStatusMsg("분석 결과 저장 중...");
         await saveAnalysisResult(selectedCustomer, result);
         setAnalysisResult(result);
+        clearSellHistory();
         pushToRebalancingSell();
         setPortfolioDirty(false);
         try {
@@ -321,7 +323,7 @@ export default function ExistingPortfolioTab() {
         setPortfolioIsRunning(false);
       }
     },
-    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty, pushToRebalancingSell]
+    [tMarginal, formData.rrttllu.expectedInterestIncome, formData.rrttllu.expectedDividendIncome, selectedCustomer, setAnalysisResult, setPortfolioDirty, clearSellHistory, pushToRebalancingSell]
   );
 
   // ── 토스트 ────────────────────────────────────────────────────────────────

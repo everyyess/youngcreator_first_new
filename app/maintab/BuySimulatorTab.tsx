@@ -396,6 +396,12 @@ function fmtKrwMan(v: number | null): string {
   return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
 }
 
+// 드래그 매수 모달 전용 — 만 원 미만 단위를 버리지 않는 정밀 원화 포맷
+function fmtKrwExact(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return "-";
+  return `${Math.round(v).toLocaleString("ko-KR")}원`;
+}
+
 // 대형 수치 포맷: 조(T) > 억(B) > 백만(M) — USD 단위
 function fmtLargeUsd(v: number | null): string {
   if (v === null || !Number.isFinite(v) || v === 0) return "-";
@@ -557,7 +563,8 @@ function computeKrwAmount(row: PbOrderRow, usdKrwRate: number): number {
   const qty = parseFloat(row.quantity);
   const price = row.currentPrice;
   if (!Number.isFinite(qty) || qty <= 0 || price === null || !Number.isFinite(price) || price <= 0) return 0;
-  const krw = row.priceCurrency === "USD" ? price * qty * usdKrwRate : price * qty;
+  const isGlobalProduct = row.productType === "해외주식" || row.productType === "해외ETF";
+  const krw = isGlobalProduct ? price * qty * usdKrwRate : price * qty;
   return Number.isFinite(krw) && krw > 0 ? Math.round(krw) : 0;
 }
 
@@ -1186,15 +1193,19 @@ export default function BuySimulatorTab() {
       isLoadingPrice: true,
     });
     setDraggedTicker(null);
-    fetch(`/api/proxy-finance?assetName=${encodeURIComponent(draggedTicker.ticker)}&productType=${encodeURIComponent(productType)}`)
+    // 이미 티커가 확정돼 있으므로 proxy-finance 해석 파이프라인(Gemini+AC)을 거치지 않고
+    // /api/price 에 직접 전달해 현재가만 경량 조회한다.
+    fetch(`/api/price?ticker=${encodeURIComponent(draggedTicker.ticker)}`)
       .then(async (r) => {
-        if (!r.ok) return;
-        const data = (await r.json()) as Record<string, unknown>;
-        const meta = ((data?.chart as Record<string, unknown>)?.result as Record<string, unknown>[])?.[0]
-          ?.meta as Record<string, unknown> | undefined;
-        const price = typeof meta?.regularMarketPrice === "number" ? meta.regularMarketPrice : null;
-        const currency = (meta?.currency as string) ?? (draggedTicker.isGlobal ? "USD" : "KRW");
-        setDropModal((prev) => prev ? { ...prev, price, currency: currency as "KRW" | "USD", isLoadingPrice: false } : null);
+        if (!r.ok) {
+          setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null);
+          return;
+        }
+        const data = (await r.json()) as { regularMarketPrice?: number; currency?: string };
+        const price = typeof data?.regularMarketPrice === "number" ? data.regularMarketPrice : null;
+        // 국내 ETF는 KRX 상장 → 항상 KRW; 해외 ETF는 USD 기준
+        const currency: "KRW" | "USD" = draggedTicker.isGlobal ? "USD" : "KRW";
+        setDropModal((prev) => prev ? { ...prev, price, currency, isLoadingPrice: false } : null);
       })
       .catch(() => setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null));
   }, [draggedTicker]);
@@ -2079,8 +2090,10 @@ export default function BuySimulatorTab() {
       {/* ── 드래그 앤 드롭 매수/매도 모달 ──────────────────────────────── */}
       {dropModal && (() => {
         const productType = dropModal.isGlobal ? "해외ETF" : "국내ETF";
+        // 환율 적용 기준: currency 필드(Yahoo API 오분류 가능)가 아닌 isGlobal 플래그로 판별
+        // [해외ETF] → 달러 현재가 × 환율, [국내ETF] → 원화 현재가 그대로
         const krwPrice = dropModal.price !== null
-          ? (dropModal.currency === "USD" ? dropModal.price * usdKrwRate : dropModal.price)
+          ? (dropModal.isGlobal ? dropModal.price * usdKrwRate : dropModal.price)
           : null;
         const dropQty = parseFloat(dropModal.qtyStr) || 0;
         const dropCost = krwPrice !== null && dropQty > 0 ? dropQty * krwPrice : 0;
@@ -2129,7 +2142,7 @@ export default function BuySimulatorTab() {
                 <>
                   {krwPrice !== null && (
                     <p className="mb-3 text-center text-xs text-slate-500">
-                      현재가: <span className="font-bold text-navy">{fmtKrwMan(krwPrice)}</span>
+                      현재가: <span className="font-bold text-navy">{fmtKrwExact(krwPrice)}</span>
                       {dropModal.currency === "USD" && (
                         <span className="ml-1 text-slate-400">
                           (${dropModal.price?.toFixed(2)} · @{usdKrwRate.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}원)
@@ -2167,13 +2180,13 @@ export default function BuySimulatorTab() {
                       <div>
                         {dropModal.mode === "buy" ? "매수 예정" : "매도 예정"}:{" "}
                         <span className={`font-black ${dropOverBudget ? "text-red-600" : "text-emerald-700"}`}>
-                          {fmtKrwMan(dropCost)}
+                          {fmtKrwExact(dropCost)}
                         </span>
                         {dropOverBudget && <span className="ml-1 font-bold text-red-500">— 가용 자금 초과!</span>}
                       </div>
                       {dropModal.mode === "buy" && (
                         <div className={`mt-0.5 text-[10px] ${dropOverBudget ? "text-red-400" : "text-slate-400"}`}>
-                          잔여 가용: {fmtKrwMan(avail - dropCost)}
+                          잔여 가용: {fmtKrwExact(avail - dropCost)}
                           {maxDropQty !== null && <span className="ml-1">(최대 {maxDropQty.toLocaleString()}주)</span>}
                         </div>
                       )}

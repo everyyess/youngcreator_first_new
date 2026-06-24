@@ -1,3 +1,237 @@
+// ─── 영어→한글 섹터 매핑 사전 ──────────────────────────────────────────────────
+// Yahoo Finance assetProfile.sector / .industry 영어명 → 국내 실정 한글명
+
+const SECTOR_EN_TO_KO: Record<string, string> = {
+  // 대분류 섹터 (assetProfile.sector)
+  Technology:                   "IT/기술",
+  Healthcare:                   "헬스케어",
+  Financials:                   "금융",
+  "Financial Services":         "금융서비스",
+  "Consumer Discretionary":     "소비재(경기민감)",
+  "Consumer Cyclical":          "소비재(경기민감)",
+  "Consumer Staples":           "소비재(필수)",
+  "Consumer Defensive":         "소비재(필수)",
+  Energy:                       "에너지",
+  Materials:                    "소재",
+  Industrials:                  "산업재",
+  Utilities:                    "유틸리티",
+  "Real Estate":                "부동산/리츠",
+  "Communication Services":     "통신서비스",
+  "Basic Materials":            "소재",
+  // 세부 산업 (assetProfile.industry)
+  Semiconductors:               "반도체",
+  "Semiconductor Equipment":    "반도체장비",
+  "Aerospace & Defense":        "방산",
+  Defense:                      "방산",
+  "Software—Application":       "소프트웨어",
+  "Software—Infrastructure":    "소프트웨어",
+  "Software - Application":     "소프트웨어",
+  "Software - Infrastructure":  "소프트웨어",
+  Biotechnology:                "바이오",
+  "Drug Manufacturers—General": "제약",
+  "Drug Manufacturers - General":"제약",
+  "Medical Devices":            "의료기기",
+  "Banks—Regional":             "은행",
+  "Banks—Diversified":          "은행",
+  "Banks - Regional":           "은행",
+  "Banks - Diversified":        "은행",
+  Insurance:                    "보험",
+  "Asset Management":           "자산운용",
+  "Oil & Gas E&P":              "에너지",
+  "Oil & Gas Integrated":       "에너지",
+  "Oil & Gas—E&P":              "에너지",
+  Steel:                        "철강",
+  "Auto Manufacturers":         "자동차",
+  "Internet Content & Information":"인터넷/플랫폼",
+  "Internet Retail":            "인터넷/플랫폼",
+  "Specialty Retail":           "유통/소매",
+  "Electronic Components":      "전자부품",
+  "Consumer Electronics":       "전자제품",
+  Marine:                       "조선",
+  "Shipbuilding":               "조선",
+  "Electrical Equipment":       "전기장비",
+  "Electric Utilities":         "유틸리티",
+  "Renewable Utilities":        "신재생에너지",
+  "Diversified Industrials":    "복합산업재",
+  "Capital Markets":            "자본시장",
+  "Credit Services":            "금융서비스",
+  "Industrial Distribution":    "산업재",
+  "Specialty Chemicals":        "화학",
+  Chemicals:                    "화학",
+  "Agricultural Products":      "농업",
+  "Food Distribution":          "식품유통",
+  "Food Confectioners":         "식품",
+  Restaurants:                  "외식",
+  "Packaged Foods":             "식품",
+  Telecommunications:           "통신",
+  "Telecom Services":           "통신",
+  "Wireless Telecom Services":  "통신",
+};
+
+// theme 한글 값 → 표준 한글 섹터명 폴백 매핑
+const THEME_TO_SECTOR_KO: Record<string, string> = {
+  기술주:     "IT/기술",
+  반도체:     "반도체",
+  방산:       "방산",
+  방산주:     "방산",
+  헬스케어:   "헬스케어",
+  바이오:     "바이오",
+  제약:       "제약",
+  금융주:     "금융",
+  은행:       "은행",
+  에너지:     "에너지",
+  원자재:     "소재",
+  소비재:     "소비재(경기민감)",
+  필수소비재: "소비재(필수)",
+  산업재:     "산업재",
+  조선:       "조선",
+  유틸리티:   "유틸리티",
+  통신:       "통신서비스",
+  부동산:     "부동산/리츠",
+  리츠:       "부동산/리츠",
+  철강:       "철강",
+  화학:       "화학",
+  자동차:     "자동차",
+  플랫폼:     "인터넷/플랫폼",
+  인터넷:     "인터넷/플랫폼",
+  "2차전지":  "2차전지",
+  배터리:     "2차전지",
+  우주:       "우주/항공",
+  항공우주:   "우주/항공",
+};
+
+// 종목명·티커 키워드 → 섹터 매핑 (API 실패 시 최후 폴백)
+// 패턴 순서: 긴 패턴 / 더 구체적인 패턴이 앞에 오도록 정렬
+const KEYWORD_SECTOR_MAP: Array<[RegExp, string]> = [
+  // ── 반도체 ─────────────────────────────────────────────
+  [/hynix|하이닉스|sk.?hynix/i,                "반도체"],
+  [/삼성전자|samsung.?electron/i,              "반도체"],
+  [/micron|SEMICON|반도체|semiconductor/i,      "반도체"],
+  [/nvda|nvidia/i,                              "반도체"],
+  [/amd|advanced.?micro/i,                     "반도체"],
+  [/tsmc|台積電/i,                              "반도체"],
+  [/qualcomm|qcom/i,                            "반도체"],
+  [/intel|intc/i,                               "반도체"],
+  [/sandisk|sndisk|wdc|western.?digital/i,      "반도체"],
+  [/kioxia/i,                                   "반도체"],
+  // ── 2차전지 ────────────────────────────────────────────
+  [/energy.?solution|에너지솔루션|LG.?ENS/i,   "2차전지"],
+  [/삼성SDI|samsung.?sdi/i,                    "2차전지"],
+  [/SK이노베이션|SKINO|sk.?innov/i,            "2차전지"],
+  [/포스코퓨처엠|posco.?future/i,              "2차전지"],
+  [/2차전지|배터리|battery|TIGER.*(2차|배터리)|KODEX.*(2차|배터리)/i, "2차전지"],
+  // ── IT/기술 ────────────────────────────────────────────
+  [/apple|aapl/i,                               "IT/기술"],
+  [/삼성SDS|samsung.?sds/i,                    "IT/기술"],
+  [/SK텔레콤|SKT|sk.?telecom/i,               "통신서비스"],
+  [/KT(?!\w)|kt.?corp/i,                       "통신서비스"],
+  [/LGU\+|lg.?uplus|lg유플러스/i,             "통신서비스"],
+  // ── 소프트웨어 ─────────────────────────────────────────
+  [/microsoft|msft/i,                           "소프트웨어"],
+  [/salesforce|crm/i,                           "소프트웨어"],
+  [/oracle|orcl/i,                              "소프트웨어"],
+  [/adobe|adbe/i,                               "소프트웨어"],
+  // ── 인터넷/플랫폼 ──────────────────────────────────────
+  [/alphabet|googl|google/i,                    "인터넷/플랫폼"],
+  [/meta.?(platform)?|facebook/i,              "인터넷/플랫폼"],
+  [/amazon|amzn/i,                              "인터넷/플랫폼"],
+  [/naver|NAVER/i,                              "인터넷/플랫폼"],
+  [/kakao(?!bank|pay)/i,                        "인터넷/플랫폼"],
+  [/coupang|쿠팡/i,                             "인터넷/플랫폼"],
+  // ── 방산/우주 ──────────────────────────────────────────
+  [/rocket.?lab|rklb/i,                        "우주/항공"],
+  [/lockheed|lmt/i,                            "방산"],
+  [/boeing|ba(?=\b)/i,                         "방산"],
+  [/raytheon|rtx/i,                            "방산"],
+  [/한화에어로|hanwha.?aero/i,                 "방산"],
+  [/LIG넥스원|LIG.?nex/i,                     "방산"],
+  [/현대로템|hyundai.?rotem/i,                 "방산"],
+  [/방산|defense|defence/i,                    "방산"],
+  [/KODEX.*방산|TIGER.*방산/i,                 "방산"],
+  // ── 자동차 ─────────────────────────────────────────────
+  [/tesla|tsla/i,                               "자동차"],
+  [/현대차|hyundai.?motor/i,                   "자동차"],
+  [/기아(?!타이거)|KIA.?motor/i,               "자동차"],
+  [/GM|general.?motors/i,                      "자동차"],
+  [/토요타|toyota/i,                            "자동차"],
+  // ── 조선 ───────────────────────────────────────────────
+  [/HD현대중공업|HHI|현대중공업/i,             "조선"],
+  [/한국조선해양|korea.?shipbuild/i,           "조선"],
+  [/삼성중공업|samsung.?heavy/i,              "조선"],
+  [/대우조선|대우건설/i,                        "조선"],
+  // ── 철강/소재 ──────────────────────────────────────────
+  [/포스코|POSCO/i,                            "철강"],
+  [/현대제철|hyundai.?steel/i,                 "철강"],
+  // ── 금융/은행 ──────────────────────────────────────────
+  [/카카오뱅크|kakaobank/i,                    "금융서비스"],
+  [/KB금융|kb.?financial/i,                   "은행"],
+  [/신한|shinhan/i,                            "은행"],
+  [/하나금융|hana.?financial/i,               "은행"],
+  [/우리금융|woori.?financial/i,              "은행"],
+  [/berkshire|brk/i,                           "금융"],
+  // ── 헬스케어/바이오 ────────────────────────────────────
+  [/셀트리온|celltrion/i,                      "바이오"],
+  [/삼성바이오|samsung.?bio/i,                 "바이오"],
+  [/johnson.?\&.?johnson|jnj/i,               "헬스케어"],
+  [/pfizer|pfe/i,                              "제약"],
+  [/merck|mrk/i,                               "제약"],
+  // ── 에너지 ─────────────────────────────────────────────
+  [/exxon|xom/i,                               "에너지"],
+  [/chevron|cvx/i,                             "에너지"],
+  // ── 유통/소매 ──────────────────────────────────────────
+  [/walmart|wmt/i,                             "유통/소매"],
+  [/costco|cost/i,                             "유통/소매"],
+  // ── ETF 섹터 패턴 ──────────────────────────────────────
+  [/TIGER.*반도체|KODEX.*반도체|ACE.*반도체/i, "반도체"],
+  [/TIGER.*바이오|KODEX.*바이오/i,             "바이오"],
+  [/TIGER.*헬스케어|KODEX.*헬스케어/i,        "헬스케어"],
+  [/TIGER.*에너지|KODEX.*에너지/i,            "에너지"],
+  [/TIGER.*금융|KODEX.*금융/i,               "금융"],
+  [/TIGER.*소비|KODEX.*소비/i,               "소비재(경기민감)"],
+  [/TIGER.*미국S&P500|KODEX.*미국S&P500|SPY|IVV|VOO/i, "IT/기술"],
+  [/TIGER.*나스닥|KODEX.*나스닥|QQQ/i,       "IT/기술"],
+];
+
+function resolveSectorByKeyword(name: string | undefined, ticker: string | undefined): string {
+  const haystack = [name, ticker].filter(Boolean).join(" ");
+  if (!haystack) return "";
+  for (const [pattern, sector] of KEYWORD_SECTOR_MAP) {
+    if (pattern.test(haystack)) return sector;
+  }
+  return "";
+}
+
+function resolveSectorKo(
+  sectorEn: string | null | undefined,
+  industryEn: string | null | undefined,
+  theme: string | null | undefined,
+  name?: string,
+  ticker?: string,
+): string {
+  // 1순위: industry(세부) 영어 매핑
+  if (industryEn) {
+    const mapped = SECTOR_EN_TO_KO[industryEn];
+    if (mapped) return mapped;
+  }
+  // 2순위: sector(대분류) 영어 매핑
+  if (sectorEn) {
+    const mapped = SECTOR_EN_TO_KO[sectorEn];
+    if (mapped) return mapped;
+    return sectorEn; // 매핑 없으면 영어 그대로
+  }
+  // 3순위: theme 한글 폴백
+  if (theme) {
+    const t = theme.trim();
+    const mapped = THEME_TO_SECTOR_KO[t];
+    if (mapped) return mapped;
+    if (t && t !== "기타") return t;
+  }
+  // 4순위: 종목명/티커 키워드 기반 강력 폴백
+  const fromKeyword = resolveSectorByKeyword(name, ticker);
+  if (fromKeyword) return fromKeyword;
+  return "";
+}
+
 // ─── Korean number parsing utility ───────────────────────────────────────────
 
 export const parseKoreanNumber = (str: string): number => {
@@ -39,6 +273,7 @@ export interface PortfolioAssetInput {
   bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만
   dividendYield?: number;              // Yahoo Finance 연간 배당수익률 (소수)
   trailingAnnualDividendRate?: number; // Yahoo Finance 주당 연간 배당금
+  sector?: string;           // 한글 변환 섹터명 (Yahoo Finance assetProfile.sector/industry → 매핑)
 }
 
 export interface RunAnalysisResult {
@@ -98,11 +333,18 @@ export const runAnalysis = async (
   // 이 방식은 FOREIGN_CLASSES 열거 없이도 금·암호화폐·해외ETF 등을 자동 처리한다.
   const enrichedAssets = await Promise.all(
     assets.map(async (a) => {
-      if (a.amount_type !== "quantity" || !a.name) return a;
+      // 모든 조기 리턴 경로에서도 키워드 폴백 섹터를 적용하는 헬퍼
+      const withKeywordSector = (asset: typeof a) => {
+        if (asset.sector) return asset; // 이미 섹터 있으면 그대로
+        const s = resolveSectorKo(null, null, asset.theme, asset.name, asset.ticker) || undefined;
+        return s ? { ...asset, sector: s } : asset;
+      };
+
+      if (a.amount_type !== "quantity" || !a.name) return withKeywordSector(a);
       // 채권은 Yahoo Finance 조회 불가 — enrichedWithBonds 단계에서 buy_price × amount로 처리
-      if (a.productType === '국내채권' || a.productType === '해외채권') return a;
-      // 현재가와 배당수익률이 모두 있으면 API 재요청 생략
-      if (a.current_price != null && a.current_price > 0 && a.dividendYield != null) return a;
+      if (a.productType === '국내채권' || a.productType === '해외채권') return withKeywordSector(a);
+      // 현재가와 배당수익률이 모두 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
+      if (a.current_price != null && a.current_price > 0 && a.dividendYield != null) return withKeywordSector(a);
 
       try {
         const TICKER_RE = /^[\w.\-=^]+$/;
@@ -124,13 +366,19 @@ export const runAnalysis = async (
         const tadr = typeof json.trailingAnnualDividendRate === "number" && json.trailingAnnualDividendRate > 0
           ? json.trailingAnnualDividendRate : undefined;
 
-        // 현재가가 이미 있으면 배당 데이터만 보완하고 리턴
+        // 섹터 — proxy-finance 응답의 sectorEn/industryEn → 한글 변환 (name/ticker 키워드 폴백 포함)
+        const sectorEnVal   = typeof json.sectorEn   === "string" ? json.sectorEn   : null;
+        const industryEnVal = typeof json.industryEn === "string" ? json.industryEn : null;
+        const resolvedSector = resolveSectorKo(sectorEnVal, industryEnVal, a.theme, a.name, a.ticker) || undefined;
+
+        // 현재가가 이미 있으면 배당 + 섹터 데이터만 보완하고 리턴
         if (a.current_price != null && a.current_price > 0) {
           return {
             ...a,
             current_value: a.amount * a.current_price,
-            ...(dy   != null ? { dividendYield:              dy   } : {}),
-            ...(tadr != null ? { trailingAnnualDividendRate: tadr } : {}),
+            ...(dy             != null ? { dividendYield:              dy             } : {}),
+            ...(tadr           != null ? { trailingAnnualDividendRate: tadr           } : {}),
+            ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
           };
         }
 
@@ -151,14 +399,17 @@ export const runAnalysis = async (
             ...a,
             current_price: priceKrw,
             current_value: cvKrw,
-            ...(dy   != null ? { dividendYield:              dy   } : {}),
-            ...(tadr != null ? { trailingAnnualDividendRate: tadr } : {}),
+            ...(dy             != null ? { dividendYield:              dy             } : {}),
+            ...(tadr           != null ? { trailingAnnualDividendRate: tadr           } : {}),
+            ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
           };
         }
       } catch {
-        /* 조회 실패 시 기존 값 유지 */
+        /* API 조회 실패 — 키워드 기반 섹터 폴백만 적용하고 나머지 값 유지 */
       }
-      return a;
+      // API 전체 실패 시에도 name/ticker 키워드로 섹터 추론 시도
+      const fallbackSector = resolveSectorKo(null, null, a.theme, a.name, a.ticker) || undefined;
+      return fallbackSector ? { ...a, sector: fallbackSector } : a;
     })
   );
 
