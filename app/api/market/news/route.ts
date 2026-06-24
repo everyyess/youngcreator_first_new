@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchHankyungNews, type NewsCategory } from "@/lib/newsData";
 
+export const runtime = "edge";
+
 function normalizeCategory(value: string | null): NewsCategory {
   return value === "industry" ? "industry" : "economy";
 }
