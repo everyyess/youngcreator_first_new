@@ -54,8 +54,12 @@ function toSector(value: unknown) {
 export async function fetchMarketHeatmap(): Promise<HeatmapItem[]> {
   const results = await Promise.allSettled(
     LARGE_CAP_TICKERS.map(async (symbol) => {
-      const quote = await yahooFinance.quote(symbol);
+      const [quote, summary] = await Promise.all([
+        yahooFinance.quote(symbol),
+        yahooFinance.quoteSummary(symbol, { modules: ["assetProfile"] }),
+      ]);
       const data = quote as Record<string, unknown>;
+      const profile = (summary as Record<string, unknown>).assetProfile as Record<string, unknown> | undefined;
       const marketCap = toNumber(data.marketCap);
       const changePercent = toNumber(data.regularMarketChangePercent);
       if (marketCap == null || changePercent == null) return null;
@@ -63,7 +67,7 @@ export async function fetchMarketHeatmap(): Promise<HeatmapItem[]> {
       return {
         symbol,
         name: typeof data.shortName === "string" ? data.shortName : symbol,
-        sector: toSector(data.sector),
+        sector: toSector(profile?.sector),
         changePercent,
         weight: marketCap,
       };

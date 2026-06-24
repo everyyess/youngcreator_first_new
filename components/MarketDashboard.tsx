@@ -24,6 +24,14 @@ const emptyIndices: LoadState<MarketIndexItem[]> = { data: [], loading: true, er
 const emptyCalendar: LoadState<MarketCalendarEvent[]> = { data: [], loading: true, error: "" };
 const emptyNews: LoadState<NewsArticle[]> = { data: [], loading: true, error: "" };
 const emptyHeatmap: LoadState<HeatmapItem[]> = { data: [], loading: true, error: "" };
+const MARKET_INDEX_CACHE_KEY = "market-dashboard:indices:v1";
+const MARKET_INDEX_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type MarketIndexCache = {
+  data: MarketIndexItem[];
+  refreshedAt: string;
+  cachedAt: number;
+};
 
 function formatNumber(value: number | null, digits = 2) {
   if (value == null) return "-";
@@ -38,13 +46,42 @@ function directionClass(value: number | null) {
 }
 
 function heatmapClass(value: number) {
-  if (value >= 3) return "bg-red-700 text-white";
-  if (value >= 1) return "bg-red-600 text-white";
-  if (value > 0) return "bg-red-400 text-white";
-  if (value <= -3) return "bg-blue-800 text-white";
-  if (value <= -1) return "bg-blue-600 text-white";
-  if (value < 0) return "bg-blue-400 text-white";
+  if (value >= 3) return "bg-green-700 text-white";
+  if (value >= 1) return "bg-green-600 text-white";
+  if (value > 0) return "bg-green-500 text-white";
+  if (value <= -3) return "bg-red-800 text-white";
+  if (value <= -1) return "bg-red-700 text-white";
+  if (value < 0) return "bg-red-500 text-white";
   return "bg-slate-600 text-white";
+}
+
+function heatmapColor(value: number) {
+  if (value >= 2) return "#166534";
+  if (value >= 1) return "#15803d";
+  if (value >= 0.5) return "#16a34a";
+  if (value > 0.2) return "#86efac";
+  if (value <= -2) return "#991b1b";
+  if (value <= -1) return "#b91c1c";
+  if (value <= -0.5) return "#dc2626";
+  if (value < -0.2) return "#fca5a5";
+  return "#94a3b8";
+}
+
+function heatmapTilePadding(width: number, height: number) {
+  return width >= 120 && height >= 70 ? 8 : 4;
+}
+
+function heatmapSymbolFontSize(width: number, height: number, symbol: string) {
+  const padding = heatmapTilePadding(width, height);
+  const usableWidth = Math.max(4, width - padding * 2);
+  const usableHeight = Math.max(4, height - padding * 2);
+  const byWidth = usableWidth / Math.max(symbol.length * 0.82, 1);
+  const byHeight = usableHeight / 1.35;
+  return Math.max(5, Math.min(24, Math.floor(Math.min(byWidth, byHeight))));
+}
+
+function fitsHeatmapText(width: number, text: string, fontSize: number, padding: number) {
+  return text.length * fontSize * 0.72 <= Math.max(0, width - padding * 2);
 }
 
 function sparklinePoints(values: number[]) {
@@ -68,6 +105,36 @@ function msUntilNextFiveMinuteBoundary(now = new Date()) {
   const intervalMs = 5 * 60 * 1000;
   const current = now.getTime();
   return Math.ceil(current / intervalMs) * intervalMs - current;
+}
+
+function readMarketIndexCache(): MarketIndexCache | null {
+  try {
+    const raw = window.localStorage.getItem(MARKET_INDEX_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<MarketIndexCache>;
+    if (!Array.isArray(parsed.data) || !parsed.refreshedAt || typeof parsed.cachedAt !== "number") return null;
+    if (Date.now() - parsed.cachedAt > MARKET_INDEX_CACHE_TTL_MS) return null;
+    return {
+      data: parsed.data,
+      refreshedAt: parsed.refreshedAt,
+      cachedAt: parsed.cachedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeMarketIndexCache(data: MarketIndexItem[], refreshedAt: Date) {
+  try {
+    const cache: MarketIndexCache = {
+      data,
+      refreshedAt: refreshedAt.toISOString(),
+      cachedAt: Date.now(),
+    };
+    window.localStorage.setItem(MARKET_INDEX_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // localStorage may be unavailable in private browsing or quota-limited contexts.
+  }
 }
 
 function splitTreemap<T extends { weight: number }>(items: T[], x = 0, y = 0, width = 100, height = 100): TreemapRect<T>[] {
@@ -105,6 +172,19 @@ function splitTreemap<T extends { weight: number }>(items: T[], x = 0, y = 0, wi
     ...splitTreemap(first, x, y, width, firstHeight),
     ...splitTreemap(second, x, y + firstHeight, width, height - firstHeight),
   ];
+}
+
+function toTreemapStyle(rect: { x: number; y: number; width: number; height: number }) {
+  const left = Math.max(0, Math.min(100, rect.x));
+  const top = Math.max(0, Math.min(100, rect.y));
+  const width = Math.max(0, Math.min(100 - left, rect.width));
+  const height = Math.max(0, Math.min(100 - top, rect.height));
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    width: `${width}%`,
+    height: `${height}%`,
+  };
 }
 
 function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]>; refreshedAt: Date | null }) {
@@ -150,7 +230,7 @@ function HeatmapPanel() {
   }, []);
 
   return (
-    <section className="min-h-[360px] w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
+    <section className="h-[460px] w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
         <p className="text-sm font-black text-navy">미국 대형주 히트맵</p>
         <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">1D</span>
@@ -194,7 +274,7 @@ function TreemapHeatmapPanel({ state }: { state: LoadState<HeatmapItem[]> }) {
   const sectorRects = useMemo(() => splitTreemap(sectors), [sectors]);
 
   return (
-    <section className="min-h-[420px] w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
+    <section className="flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm" style={{ height: 460 }}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-black text-navy">미국 대형주 히트맵</p>
@@ -202,7 +282,7 @@ function TreemapHeatmapPanel({ state }: { state: LoadState<HeatmapItem[]> }) {
         </div>
         <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-700">Treemap</span>
       </div>
-      <div className="relative h-[360px] overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-1 shadow-inner">
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-800 bg-slate-950 p-1 shadow-inner">
         {state.loading ? (
           <div className="flex h-full items-center justify-center text-sm font-black text-slate-300">
             히트맵 데이터를 불러오는 중입니다.
@@ -217,32 +297,34 @@ function TreemapHeatmapPanel({ state }: { state: LoadState<HeatmapItem[]> }) {
             <div
               key={sector.sector}
               className="absolute overflow-hidden border border-slate-950 bg-slate-900"
-              style={{ left: `${sector.x}%`, top: `${sector.y}%`, width: `${sector.width}%`, height: `${sector.height}%` }}
+              style={toTreemapStyle(sector)}
             >
-              <div className="absolute inset-x-0 top-0 z-10 h-5 bg-slate-950/75 px-1.5 py-0.5">
-                <p className="truncate text-[10px] font-black uppercase tracking-normal text-white">{sector.sector}</p>
-              </div>
-              <div className="absolute inset-x-0 bottom-0 top-5">
+              <div className="absolute min-h-0 overflow-hidden" style={{ left: 0, right: 0, top: 0, bottom: 0 }}>
                 {itemRects.map((item) => {
-                  const area = item.width * item.height;
-                  const showLargeLabel = area > 190;
-                  const showSmallLabel = area > 60;
+                  const tileWidth = (sector.width / 100) * (item.width / 100) * 420;
+                  const tileHeight = (sector.height / 100) * (item.height / 100) * 386;
+                  const percentText = `${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`;
+                  const padding = heatmapTilePadding(tileWidth, tileHeight);
+                  const symbolFontSize = heatmapSymbolFontSize(tileWidth, tileHeight, item.symbol);
+                  const percentFontSize = Math.max(7, Math.min(18, Math.floor(symbolFontSize * 0.62)));
+                  const showSymbol = symbolFontSize >= 6 && tileHeight >= padding * 2 + symbolFontSize && fitsHeatmapText(tileWidth, item.symbol, symbolFontSize, padding);
+                  const showFull = showSymbol && tileHeight >= padding * 2 + symbolFontSize + percentFontSize + 4 && fitsHeatmapText(tileWidth, percentText, percentFontSize, padding);
                   return (
                     <div
                       key={item.symbol}
-                      className={`absolute flex flex-col items-center justify-center overflow-hidden border border-slate-950/45 p-1 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] ${heatmapClass(item.changePercent)}`}
-                      style={{ left: `${item.x}%`, top: `${item.y}%`, width: `${item.width}%`, height: `${item.height}%` }}
+                      className="absolute flex flex-col items-center justify-center overflow-hidden border border-slate-950/45 text-center text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
+                      style={{ ...toTreemapStyle(item), backgroundColor: heatmapColor(item.changePercent), boxSizing: "border-box", padding }}
                       title={`${item.name} ${item.changePercent > 0 ? "+" : ""}${item.changePercent.toFixed(2)}%`}
                     >
-                      {showSmallLabel ? (
-                        <>
-                          <span className={`${showLargeLabel ? "text-2xl" : "text-xs"} max-w-full truncate font-black leading-tight drop-shadow-sm`}>
-                            {item.symbol}
-                          </span>
-                          <span className={`${showLargeLabel ? "text-base" : "text-[10px]"} max-w-full truncate font-black leading-tight drop-shadow-sm`}>
-                            {item.changePercent > 0 ? "+" : ""}{item.changePercent.toFixed(2)}%
-                          </span>
-                        </>
+                      {showSymbol ? (
+                        <span className="whitespace-nowrap font-black leading-none drop-shadow-sm" style={{ fontSize: symbolFontSize }}>
+                          {item.symbol}
+                        </span>
+                      ) : null}
+                      {showFull ? (
+                        <span className="mt-1 whitespace-nowrap font-black leading-none drop-shadow-sm" style={{ fontSize: percentFontSize }}>
+                          {percentText}
+                        </span>
                       ) : null}
                     </div>
                   );
@@ -264,7 +346,7 @@ function CalendarPanel({ state }: { state: LoadState<MarketCalendarEvent[]> }) {
   };
 
   return (
-    <section className="min-h-[360px] w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
+    <section className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm" style={{ height: 460 }}>
       <div className="mb-3 flex items-center gap-2">
         <CalendarDays size={17} className="text-blue-600" />
         <p className="text-sm font-black text-navy">주요 일정</p>
@@ -274,7 +356,7 @@ function CalendarPanel({ state }: { state: LoadState<MarketCalendarEvent[]> }) {
       ) : state.error ? (
         <div className="rounded-lg bg-slate-50 px-3 py-8 text-center text-sm font-bold text-slate-400">일정 데이터를 불러오지 못했습니다.</div>
       ) : state.data.length ? (
-        <div className="grid max-h-[310px] gap-2 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="grid max-h-[410px] gap-2 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {state.data.map((event) => (
             <div key={event.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
               <div className="mb-1 flex items-center gap-1.5">
@@ -350,21 +432,34 @@ export default function MarketDashboard() {
   useEffect(() => {
     let cancelled = false;
     let intervalId: number | null = null;
+    const cached = readMarketIndexCache();
+    if (cached) {
+      setIndices({ data: cached.data, loading: false, error: "" });
+      setIndicesRefreshedAt(new Date(cached.refreshedAt));
+    }
+
     async function load() {
       try {
         const response = await fetch("/api/market/indices");
         const body = await response.json();
         if (!cancelled) {
-          setIndices({ data: body.data ?? [], loading: false, error: response.ok ? "" : body.error ?? "error" });
-          setIndicesRefreshedAt(new Date());
+          if (response.ok && Array.isArray(body.data) && body.data.length) {
+            const refreshedAt = new Date();
+            setIndices({ data: body.data, loading: false, error: "" });
+            setIndicesRefreshedAt(refreshedAt);
+            writeMarketIndexCache(body.data, refreshedAt);
+          } else {
+            setIndices((prev) => prev.data.length ? { ...prev, loading: false, error: "" } : { data: [], loading: false, error: body.error ?? "error" });
+          }
         }
       } catch {
         if (!cancelled) {
-          setIndices({ data: [], loading: false, error: "error" });
-          setIndicesRefreshedAt(new Date());
+          setIndices((prev) => prev.data.length ? { ...prev, loading: false, error: "" } : { data: [], loading: false, error: "error" });
         }
       }
     }
+
+    void load();
     const timeoutId = window.setTimeout(() => {
       void load();
       intervalId = window.setInterval(load, 5 * 60 * 1000);
@@ -425,7 +520,7 @@ export default function MarketDashboard() {
   return (
     <div className="grid h-full min-h-[520px] w-full min-w-0 max-w-full gap-4 overflow-hidden">
       <IndexStrip state={indices} refreshedAt={indicesRefreshedAt} />
-      <div className="grid min-w-0 max-w-full gap-4 overflow-hidden xl:grid-cols-[minmax(0,65fr)_minmax(0,35fr)]">
+      <div className="grid min-w-0 max-w-full items-stretch gap-4 overflow-hidden" style={{ gridTemplateColumns: "minmax(0, 65fr) minmax(0, 35fr)" }}>
         <TreemapHeatmapPanel state={heatmap} />
         <CalendarPanel state={calendar} />
       </div>
