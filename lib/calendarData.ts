@@ -1,5 +1,6 @@
 export type MarketCalendarEvent = {
   id: string;
+  startsAt: string;
   date: string;
   time: string;
   market: string;
@@ -41,6 +42,7 @@ export async function fetchMarketCalendar(): Promise<MarketCalendarEvent[]> {
     .slice(0, 12)
     .map((item, index) => ({
       id: `${item.date ?? ""}-${item.country ?? ""}-${item.title ?? index}`,
+      startsAt: item.date ?? new Date().toISOString(),
       date: formatDate(item.date),
       time: item.time ?? "",
       market: item.country ?? "Global",

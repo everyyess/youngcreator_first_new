@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronLeft, ChevronRight, Home, LogOut, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
 import MarketDashboard from "@/components/MarketDashboard";
+import type { MarketCalendarEvent } from "@/lib/calendarData";
 import {
   createInitialCustomerData,
   createInitialState,
@@ -230,6 +231,27 @@ function combineSessionDateTime(date: string, time: string) {
   return `${date || todayDate()}T${(time || "09:00").slice(0, 5)}`;
 }
 
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function dateKeyFromDate(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function dateKeyFromValue(value: string) {
+  const date = sessionDateTime(value);
+  return date ? dateKeyFromDate(date) : "";
+}
+
+function formatPopupDateTime(value: string) {
+  const date = sessionDateTime(value);
+  if (!date) return value;
+  const period = date.getHours() < 12 ? "오전" : "오후";
+  const hour = date.getHours() % 12 || 12;
+  return `${date.getFullYear()}.${pad2(date.getMonth() + 1)}.${pad2(date.getDate())}. ${period} ${pad2(hour)}:${pad2(date.getMinutes())}`;
+}
+
 function pastRelativeLabel(value: string) {
   const date = sessionDateTime(value);
   if (!date) return "";
@@ -286,6 +308,7 @@ export default function HomePage() {
   const [customerDeleteTarget, setCustomerDeleteTarget] = useState<CustomerProfile | null>(null);
   const [sessionDeleteTarget, setSessionDeleteTarget] = useState<ConsultationSession | null>(null);
   const [pbSession, setPbSession] = useState<PbSession | null>(null);
+  const [marketCalendarEvents, setMarketCalendarEvents] = useState<MarketCalendarEvent[]>([]);
 
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
@@ -314,6 +337,21 @@ export default function HomePage() {
     setPbSession(pbAuthStore.readSession());
     loadCustomers();
   }, [loadCustomers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMarketCalendar() {
+      try {
+        const response = await fetch("/api/market/calendar");
+        const body = await response.json();
+        if (!cancelled && response.ok && Array.isArray(body.data)) setMarketCalendarEvents(body.data);
+      } catch {
+        if (!cancelled) setMarketCalendarEvents([]);
+      }
+    }
+    loadMarketCalendar();
+    return () => { cancelled = true; };
+  }, []);
 
   const logout = async () => {
     await pbAuthStore.logout();
@@ -441,7 +479,6 @@ export default function HomePage() {
   const selectedSessions = useMemo(() => sessions.filter((session) => session.customerId === selectedCustomerId).sort(sortSessionsNewest), [sessions, selectedCustomerId]);
   const today = todayDate();
   const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && session.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions, today]);
-  const recent = useMemo(() => [...sessions].filter((session) => session.status === "completed" || session.date < today).sort(sortSessionsNewest).slice(0, 3), [sessions, today]);
   const expandedSession = sessions.find((session) => session.id === expandedSessionId) ?? null;
 
   const openCreateForm = () => {
@@ -576,7 +613,7 @@ export default function HomePage() {
                 </button>
               ) : null}
               <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} startSession={startSession} />
-              <SideSection title="최근 상담 내역" sessions={recent} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} startSession={startSession} />
+              <RightPanelCalendar sessions={sessions} customers={customers} marketEvents={marketCalendarEvents} />
             </div>
           ) : null}
         </aside>
@@ -860,6 +897,166 @@ function SideSection({ title, sessions, customers, expandedSessionId, setExpande
             <SessionCard key={session.id} session={session} customer={customer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={() => {}} onStart={() => startSession(session)} />
           );
         }) : <EmptyBox text="표시할 상담이 없습니다." />}
+      </div>
+    </section>
+  );
+}
+
+type CalendarPopupItem = {
+  id: string;
+  line: string;
+  type: "consultation" | "market";
+};
+
+function formatCalendarItemTime(value: string) {
+  const date = sessionDateTime(value);
+  if (!date) return value;
+  return `(${pad2(date.getHours())}:${pad2(date.getMinutes())})`;
+}
+
+function rightPanelMarketTitle(event: MarketCalendarEvent) {
+  if (event.market === "유로존") return event.title;
+  if (event.title.startsWith(event.market)) return event.title;
+  return `${event.market} ${event.title}`;
+}
+
+function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: ConsultationSession[]; customers: CustomerProfile[]; marketEvents: MarketCalendarEvent[] }) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+
+  const consultationByDate = useMemo(() => {
+    const map = new Map<string, ConsultationSession[]>();
+    sessions.forEach((session) => {
+      const key = dateKeyFromValue(session.date);
+      if (!key) return;
+      map.set(key, [...(map.get(key) ?? []), session]);
+    });
+    return map;
+  }, [sessions]);
+
+  const marketByDate = useMemo(() => {
+    const map = new Map<string, MarketCalendarEvent[]>();
+    marketEvents.forEach((event) => {
+      const key = dateKeyFromValue(event.startsAt);
+      if (!key) return;
+      map.set(key, [...(map.get(key) ?? []), event]);
+    });
+    return map;
+  }, [marketEvents]);
+
+  const monthCells = useMemo(() => {
+    const first = new Date(viewYear, viewMonth, 1);
+    const startOffset = first.getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const cellCount = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+    return Array.from({ length: cellCount }, (_, index) => {
+      const day = index - startOffset + 1;
+      if (day < 1 || day > daysInMonth) return null;
+      const date = new Date(viewYear, viewMonth, day);
+      return {
+        day,
+        key: dateKeyFromDate(date),
+      };
+    });
+  }, [viewMonth, viewYear]);
+
+  const selectedItems = useMemo<CalendarPopupItem[]>(() => {
+    if (!selectedDateKey) return [];
+    const consultationItems = (consultationByDate.get(selectedDateKey) ?? []).map((session) => {
+      const customer = customers.find((item) => item.id === session.customerId);
+      return {
+        id: `consultation-${session.id}`,
+        line: `${formatCalendarItemTime(session.date)} ${customerDisplay(customer)} 상담`,
+        type: "consultation" as const,
+      };
+    });
+    const marketItems = (marketByDate.get(selectedDateKey) ?? []).map((event) => ({
+      id: `market-${event.id}`,
+      line: `${formatCalendarItemTime(event.startsAt)} ${rightPanelMarketTitle(event)}`,
+      type: "market" as const,
+    }));
+    return [...consultationItems, ...marketItems].sort((a, b) => a.line.localeCompare(b.line, "ko-KR"));
+  }, [consultationByDate, customers, marketByDate, selectedDateKey]);
+
+  const moveMonth = (offset: number) => {
+    const next = new Date(viewYear, viewMonth + offset, 1);
+    setViewYear(next.getFullYear());
+    setViewMonth(next.getMonth());
+  };
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs font-extrabold uppercase tracking-wide text-slate-500">캘린더</p>
+        <CalendarDays size={15} className="text-blue-600" />
+      </div>
+      <div className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex items-center gap-1.5">
+          <select
+            className="h-8 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-extrabold text-slate-700"
+            value={viewYear}
+            onChange={(event) => setViewYear(Number(event.target.value))}
+          >
+            {Array.from({ length: 7 }, (_, index) => today.getFullYear() - 3 + index).map((year) => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => moveMonth(-1)} className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-600 hover:bg-blue-50">‹</button>
+          <p className="min-w-0 flex-1 text-center text-sm font-black text-blue-950">{viewMonth + 1}월</p>
+          <button type="button" onClick={() => moveMonth(1)} className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-600 hover:bg-blue-50">›</button>
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400">
+          {["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}
+        </div>
+        <div className="mt-1 grid grid-cols-7 gap-1">
+          {monthCells.map((cell, index) => {
+            const hasConsultation = cell ? consultationByDate.has(cell.key) : false;
+            const hasMarket = cell ? marketByDate.has(cell.key) : false;
+            const isToday = cell?.key === dateKeyFromDate(today);
+            const isSelected = cell?.key === selectedDateKey;
+            return (
+              <button
+                key={cell?.key ?? `empty-${index}`}
+                type="button"
+                disabled={!cell}
+                onClick={() => cell && setSelectedDateKey(cell.key)}
+                className={`relative h-8 rounded-lg text-[11px] font-extrabold transition ${cell ? "bg-slate-50 text-slate-700 hover:bg-blue-50" : "bg-transparent"} ${isToday ? "ring-1 ring-blue-500" : ""} ${isSelected ? "border border-slate-950" : ""}`}
+              >
+                {cell?.day ?? ""}
+                {cell ? (
+                  <span className="absolute bottom-1 left-1/2 flex -translate-x-1/2 gap-0.5">
+                    {hasConsultation ? <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> : null}
+                    {hasMarket ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> : null}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-slate-500">
+          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> 상담</span>
+          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> 주요 일정</span>
+        </div>
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          <p className="mb-1 text-[10px] font-black text-slate-400">{selectedDateKey ? selectedDateKey.replaceAll("-", ".") : "날짜를 선택해주세요"}</p>
+          {selectedDateKey ? (
+            selectedItems.length ? (
+              <div className="grid max-h-[140px] gap-1 overflow-y-auto pr-1">
+                {selectedItems.map((item) => (
+                  <p key={item.id} className={`line-clamp-2 break-keep rounded-lg px-2 py-1 text-[10px] font-extrabold leading-4 ${item.type === "consultation" ? "bg-blue-50 text-blue-900" : "bg-amber-50 text-amber-900"}`} title={item.line}>
+                    {item.line}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg bg-slate-50 px-2 py-3 text-center text-[10px] font-bold text-slate-400">표시할 일정이 없습니다.</p>
+            )
+          ) : (
+            <p className="rounded-lg bg-slate-50 px-2 py-3 text-center text-[10px] font-bold text-slate-400">날짜를 선택하면 일정이 표시됩니다.</p>
+          )}
+        </div>
       </div>
     </section>
   );
