@@ -14,6 +14,12 @@ export type ActiveConsultation = {
   returnPath: string;
 };
 
+export type PreRecordConsultation = {
+  sessionId: string;
+  customerId: CustomerId;
+  returnPath: string;
+};
+
 export type CompletedConsultation = {
   sessionId: string;
   customerId: CustomerId;
@@ -22,6 +28,7 @@ export type CompletedConsultation = {
 };
 
 export const activeConsultationStorageKey = "samsung-vvip-active-consultation-session-v1";
+export const preRecordConsultationStorageKey = "samsung-vvip-pre-record-consultation-session-v1";
 export const completedConsultationStorageKey = "samsung-vvip-completed-consultation-session-v1";
 export const consultationTimerEventName = "samsung-vvip-consultation-timer";
 export const maxConsultationSeconds = 2 * 60 * 60;
@@ -129,6 +136,29 @@ export function writeActiveConsultation(active: ActiveConsultation | null) {
   if (typeof window === "undefined") return;
   if (active) window.localStorage.setItem(activeConsultationStorageKey, JSON.stringify(active));
   else window.localStorage.removeItem(activeConsultationStorageKey);
+  window.dispatchEvent(new Event(consultationTimerEventName));
+}
+
+export function readPreRecordConsultation(): PreRecordConsultation | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(preRecordConsultationStorageKey) ?? "null");
+    if (!parsed || typeof parsed !== "object") return null;
+    if (typeof parsed.sessionId !== "string" || typeof parsed.customerId !== "string") return null;
+    return {
+      sessionId: parsed.sessionId,
+      customerId: parsed.customerId,
+      returnPath: typeof parsed.returnPath === "string" ? parsed.returnPath : "/maintab/tab1",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writePreRecordConsultation(preRecord: PreRecordConsultation | null) {
+  if (typeof window === "undefined") return;
+  if (preRecord) window.localStorage.setItem(preRecordConsultationStorageKey, JSON.stringify(preRecord));
+  else window.localStorage.removeItem(preRecordConsultationStorageKey);
   window.dispatchEvent(new Event(consultationTimerEventName));
 }
 

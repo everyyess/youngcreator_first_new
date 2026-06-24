@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronLeft, ChevronRight, Home, LogOut, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
 import MarketDashboard from "@/components/MarketDashboard";
+import type { MarketCalendarEvent } from "@/lib/calendarData";
 import {
   createInitialCustomerData,
   createInitialState,
@@ -13,12 +14,17 @@ import {
   customerStorage,
   defaultCustomerProfiles,
   getStoredSelectedCustomerId,
+  loadAnalysisResult,
+  loadNewAnalysisResult,
+  loadPortfolioAssets,
+  loadRebalancingState,
   saveCustomerDataJsonOnly,
   saveCustomerProfileColumns,
   storeSelectedCustomerId,
   type AppState,
   type CustomerId,
   type CustomerProfile,
+  type PortfolioAsset,
 } from "../maintab/CustomerContext";
 import { formatLiquiditySummary } from "../maintab/liquidityFields";
 import {
@@ -36,6 +42,7 @@ import {
   sortSessionsNewest,
   todayDate,
   writeActiveConsultation,
+  writePreRecordConsultation,
   type ActiveConsultation,
   type ConsultationSession,
 } from "../consultationStore";
@@ -116,7 +123,22 @@ function buildSummarySnapshot(state?: AppState) {
   };
 }
 
-type SummarySnapshot = NonNullable<ReturnType<typeof buildSummarySnapshot>>;
+type PortfolioSnapshotRow = {
+  name: string;
+  assetClass: string;
+  amount: number | null;
+  buyPrice: number | null;
+  currentPrice: number | null;
+  returnPct: number | null;
+  weight: number;
+};
+
+type SummarySnapshot = NonNullable<ReturnType<typeof buildSummarySnapshot>> & {
+  portfolioTables?: {
+    existing?: PortfolioSnapshotRow[];
+    proposed?: PortfolioSnapshotRow[];
+  };
+};
 
 function summaryRows(snapshot?: SummarySnapshot | null) {
   if (!snapshot) return [["요약", "상담 종료 후 요약 내용을 확인할 수 있습니다."]] as [string, string][];
@@ -230,6 +252,27 @@ function combineSessionDateTime(date: string, time: string) {
   return `${date || todayDate()}T${(time || "09:00").slice(0, 5)}`;
 }
 
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function dateKeyFromDate(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function dateKeyFromValue(value: string) {
+  const date = sessionDateTime(value);
+  return date ? dateKeyFromDate(date) : "";
+}
+
+function formatPopupDateTime(value: string) {
+  const date = sessionDateTime(value);
+  if (!date) return value;
+  const period = date.getHours() < 12 ? "오전" : "오후";
+  const hour = date.getHours() % 12 || 12;
+  return `${date.getFullYear()}.${pad2(date.getMonth() + 1)}.${pad2(date.getDate())}. ${period} ${pad2(hour)}:${pad2(date.getMinutes())}`;
+}
+
 function pastRelativeLabel(value: string) {
   const date = sessionDateTime(value);
   if (!date) return "";
@@ -286,6 +329,7 @@ export default function HomePage() {
   const [customerDeleteTarget, setCustomerDeleteTarget] = useState<CustomerProfile | null>(null);
   const [sessionDeleteTarget, setSessionDeleteTarget] = useState<ConsultationSession | null>(null);
   const [pbSession, setPbSession] = useState<PbSession | null>(null);
+  const [marketCalendarEvents, setMarketCalendarEvents] = useState<MarketCalendarEvent[]>([]);
 
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
@@ -314,6 +358,21 @@ export default function HomePage() {
     setPbSession(pbAuthStore.readSession());
     loadCustomers();
   }, [loadCustomers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMarketCalendar() {
+      try {
+        const response = await fetch("/api/market/calendar");
+        const body = await response.json();
+        if (!cancelled && response.ok && Array.isArray(body.data)) setMarketCalendarEvents(body.data);
+      } catch {
+        if (!cancelled) setMarketCalendarEvents([]);
+      }
+    }
+    loadMarketCalendar();
+    return () => { cancelled = true; };
+  }, []);
 
   const logout = async () => {
     await pbAuthStore.logout();
@@ -416,7 +475,17 @@ export default function HomePage() {
     const activeSession = { ...session, status: "active" as const, updatedAt: new Date().toISOString() };
     upsertSession(activeSession);
     storeSelectedCustomerId(session.customerId);
+    writePreRecordConsultation(null);
     writeActiveConsultation({ sessionId: session.id, customerId: session.customerId, startedAt: new Date().toISOString(), returnPath: "/maintab/tab1" });
+    router.push("/maintab/tab1");
+  }
+
+  function preRecordSession(session: ConsultationSession) {
+    const draftSession = { ...session, status: "draft" as const, updatedAt: new Date().toISOString() };
+    upsertSession(draftSession);
+    storeSelectedCustomerId(session.customerId);
+    writeActiveConsultation(null);
+    writePreRecordConsultation({ sessionId: session.id, customerId: session.customerId, returnPath: "/maintab/tab1" });
     router.push("/maintab/tab1");
   }
 
@@ -441,7 +510,7 @@ export default function HomePage() {
   const selectedSessions = useMemo(() => sessions.filter((session) => session.customerId === selectedCustomerId).sort(sortSessionsNewest), [sessions, selectedCustomerId]);
   const today = todayDate();
   const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && session.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions, today]);
-  const recent = useMemo(() => [...sessions].filter((session) => session.status === "completed" || session.date < today).sort(sortSessionsNewest).slice(0, 3), [sessions, today]);
+  const recentCompleted = useMemo(() => [...sessions].filter((session) => session.status === "completed").sort(sortSessionsNewest).slice(0, 3), [sessions]);
   const expandedSession = sessions.find((session) => session.id === expandedSessionId) ?? null;
 
   const openCreateForm = () => {
@@ -450,12 +519,13 @@ export default function HomePage() {
     setShowCreateForm(true);
   };
 
-  const saveDraftSession = (start = false) => {
+  const saveDraftSession = (mode: "save" | "preRecord" | "start" = "save") => {
     if (!draftSession) return;
     upsertSession(draftSession);
     setExpandedSessionId(draftSession.id);
     setShowCreateForm(false);
-    if (start) startSession(draftSession);
+    if (mode === "preRecord") preRecordSession(draftSession);
+    if (mode === "start") startSession(draftSession);
   };
 
   const selectCustomer = (id: CustomerId) => {
@@ -537,13 +607,13 @@ export default function HomePage() {
               {showAddCustomerForm ? <CustomerProfileEditor profile={newCustomer} setProfile={setNewCustomer} onSave={addCustomer} onCancel={() => setShowAddCustomerForm(false)} /> : null}
               {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} onCreate={openCreateForm} onDelete={() => setCustomerDeleteTarget(selectedCustomer)} /> : null}
               {showCreateForm && draftSession ? (
-                <CreateSessionForm draft={draftSession} setDraft={(updater) => setDraftSession((prev) => prev ? updater(prev) : prev)} onCancel={() => setShowCreateForm(false)} onSave={() => saveDraftSession(false)} onStart={() => saveDraftSession(true)} />
+                <CreateSessionForm draft={draftSession} setDraft={(updater) => setDraftSession((prev) => prev ? updater(prev) : prev)} onCancel={() => setShowCreateForm(false)} onSave={() => saveDraftSession("save")} onPreRecord={() => saveDraftSession("preRecord")} onStart={() => saveDraftSession("start")} />
               ) : null}
               <section className={`${leftPanelInnerWidthClass} min-w-0 overflow-hidden`}>
                 <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">상담 내역</p>
                 <div className="grid max-h-[440px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {selectedSessions.length ? selectedSessions.map((session) => (
-                    <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onStart={() => startSession(session)} />
+                    <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onPreRecord={() => preRecordSession(session)} onStart={() => startSession(session)} />
                   )) : <EmptyBox text="상담 내역이 없습니다." />}
                 </div>
               </section>
@@ -575,8 +645,9 @@ export default function HomePage() {
                   <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
                 </button>
               ) : null}
-              <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} startSession={startSession} />
-              <SideSection title="최근 상담 내역" sessions={recent} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} startSession={startSession} />
+              <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
+              <SideSection title="최근 상담 내역" sessions={recentCompleted} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
+              <RightPanelCalendar sessions={sessions} customers={customers} marketEvents={marketCalendarEvents} />
             </div>
           ) : null}
         </aside>
@@ -587,6 +658,7 @@ export default function HomePage() {
           customer={customers.find((customer) => customer.id === expandedSession.customerId)}
           sessions={sessions}
           onUpdate={(patch) => updateSession(expandedSession.id, patch)}
+          onPreRecord={() => preRecordSession(expandedSession)}
           onStart={() => startSession(expandedSession)}
           onClose={() => setExpandedSessionId(null)}
         />
@@ -708,30 +780,31 @@ function ProfileInput({ label, value, placeholder, onChange, compact = false, na
   );
 }
 
-function CreateSessionForm({ draft, setDraft, onCancel, onSave, onStart }: { draft: ConsultationSession; setDraft: (updater: (prev: ConsultationSession) => ConsultationSession) => void; onCancel: () => void; onSave: () => void; onStart: () => void }) {
+function CreateSessionForm({ draft, setDraft, onCancel, onSave, onPreRecord, onStart }: { draft: ConsultationSession; setDraft: (updater: (prev: ConsultationSession) => ConsultationSession) => void; onCancel: () => void; onSave: () => void; onPreRecord: () => void; onStart: () => void }) {
   const { date, time } = splitSessionDateTime(draft.date);
   return (
     <section className="box-border w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-slate-900 bg-blue-50/70 p-3">
       <p className="mb-3 text-sm font-extrabold text-blue-900">신규 상담 생성</p>
       <div className="grid min-w-0 gap-2">
         <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="상담 제목" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} />
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_48px] gap-1.5">
+        <div className="grid min-w-0 gap-1.5">
           <div className="grid min-h-[76px] gap-1 rounded-lg border border-slate-200 bg-white p-2">
             <input className="h-7 min-w-0 bg-transparent text-xs font-bold outline-none" type="date" value={date} onChange={(e) => setDraft((prev) => ({ ...prev, date: combineSessionDateTime(e.target.value, splitSessionDateTime(prev.date).time) }))} />
             <input className="h-7 min-w-0 bg-transparent text-xs font-bold outline-none" type="time" value={time} onChange={(e) => setDraft((prev) => ({ ...prev, date: combineSessionDateTime(splitSessionDateTime(prev.date).date, e.target.value) }))} />
           </div>
-          <button type="button" onClick={onCancel} className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">취소</button>
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-1.5">
-          <button type="button" onClick={onSave} className="min-w-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-1 py-2 text-[10px] font-extrabold text-slate-700">임시저장</button>
-          <button type="button" onClick={onStart} className="min-w-0 whitespace-nowrap rounded-lg bg-blue-600 px-1 py-2 text-[10px] font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+          <button type="button" onClick={onCancel} className="min-w-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">취소</button>
+          <button type="button" onClick={onSave} className="min-w-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">임시저장</button>
+          <button type="button" onClick={onPreRecord} className="min-w-0 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100">사전 기록</button>
+          <button type="button" onClick={onStart} className="min-w-0 whitespace-nowrap rounded-lg bg-blue-600 px-2 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
         </div>
       </div>
     </section>
   );
 }
 
-function SessionCard({ session, customer, expanded, onExpand, onDelete, onStart }: { session: ConsultationSession; customer?: CustomerProfile | null; expanded: boolean; onExpand: () => void; onDelete: () => void; onUpdate: (patch: Partial<ConsultationSession>) => void; onStart?: () => void }) {
+function SessionCard({ session, customer, expanded, onExpand, onDelete, onPreRecord, onStart }: { session: ConsultationSession; customer?: CustomerProfile | null; expanded: boolean; onExpand: () => void; onDelete: () => void; onUpdate: (patch: Partial<ConsultationSession>) => void; onPreRecord?: () => void; onStart?: () => void }) {
   const upcomingLabel = upcomingRelativeLabel(session);
   const pastLabel = pastRelativeLabel(session.date);
   return (
@@ -751,17 +824,99 @@ function SessionCard({ session, customer, expanded, onExpand, onDelete, onStart 
         </div>
       </div>
       {expanded && session.status === "draft" && onStart ? (
-        <button type="button" onClick={onStart} className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {onPreRecord ? <button type="button" onClick={onPreRecord} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100">사전 기록</button> : null}
+          <button type="button" onClick={onStart} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+        </div>
       ) : null}
     </article>
   );
 }
 
-function SummaryModal({ session, customer, sessions, onUpdate, onStart, onClose }: { session: ConsultationSession; customer?: CustomerProfile; sessions: ConsultationSession[]; onUpdate: (patch: Partial<ConsultationSession>) => void; onStart: () => void; onClose: () => void }) {
+function toFiniteSnapshotNumber(value: unknown) {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function buildPortfolioSnapshotRows(assets: PortfolioAsset[]): PortfolioSnapshotRow[] {
+  const values = assets.map((asset) => {
+    const amount = toFiniteSnapshotNumber(asset.amount);
+    const currentPrice = toFiniteSnapshotNumber(asset.current_price);
+    const fallbackValue = amount > 0 && currentPrice > 0 ? amount * currentPrice : 0;
+    return toFiniteSnapshotNumber(asset.current_value) || fallbackValue;
+  });
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return assets
+    .map((asset, index) => {
+      const amount = toFiniteSnapshotNumber(asset.amount);
+      const buyPrice = toFiniteSnapshotNumber(asset.buy_price);
+      const currentPrice = toFiniteSnapshotNumber(asset.current_price);
+      const returnPct = buyPrice > 0 && currentPrice > 0 ? (currentPrice - buyPrice) / buyPrice : null;
+      return {
+        name: asset.name?.trim() || asset.ticker?.trim() || "-",
+        assetClass: asset.asset_class || asset.productType || "-",
+        amount: amount > 0 ? amount : null,
+        buyPrice: buyPrice > 0 ? buyPrice : null,
+        currentPrice: currentPrice > 0 ? currentPrice : null,
+        returnPct,
+        weight: total > 0 ? (values[index] ?? 0) / total : 0,
+      };
+    })
+    .filter((row) => row.name !== "-")
+    .slice(0, 25);
+}
+
+function hasPortfolioTableRows(tables?: SummarySnapshot["portfolioTables"] | null) {
+  return Boolean((tables?.existing?.length ?? 0) > 0 || (tables?.proposed?.length ?? 0) > 0);
+}
+
+function SummaryModal({ session, customer, sessions, onUpdate, onPreRecord, onStart, onClose }: { session: ConsultationSession; customer?: CustomerProfile; sessions: ConsultationSession[]; onUpdate: (patch: Partial<ConsultationSession>) => void; onPreRecord: () => void; onStart: () => void; onClose: () => void }) {
   const snapshot = sessionSummarySnapshot(session);
-  const previous = previousSessionFor(session, sessions);
-  const changes = snapshotChangeRows(snapshot, previous ? sessionSummarySnapshot(previous) : null);
+  const [fallbackPortfolioTables, setFallbackPortfolioTables] = useState<SummarySnapshot["portfolioTables"] | null>(null);
   const dateTimeValue = session.date.includes("T") ? session.date : `${session.date || todayDate()}T00:00`;
+  const portfolioTables = hasPortfolioTableRows(snapshot?.portfolioTables) ? snapshot?.portfolioTables : fallbackPortfolioTables ?? undefined;
+
+  useEffect(() => {
+    if (hasPortfolioTableRows(snapshot?.portfolioTables)) {
+      setFallbackPortfolioTables(null);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      loadAnalysisResult(session.customerId),
+      loadPortfolioAssets(session.customerId),
+      loadRebalancingState(session.customerId),
+      loadNewAnalysisResult(session.customerId),
+    ]).then(([leftResult, portfolioAssets, rebalancing, rightResult]) => {
+      if (cancelled) return;
+      const leftResultRecord = leftResult as { enrichedAssets?: PortfolioAsset[] } | null;
+      const rightResultRecord = rightResult as { enrichedAssets?: PortfolioAsset[] } | null;
+      const existingAssets = Array.isArray(leftResultRecord?.enrichedAssets) && leftResultRecord.enrichedAssets.length > 0
+        ? leftResultRecord.enrichedAssets
+        : portfolioAssets;
+      const remainingMap = new Map(existingAssets.map((asset) => [`${asset.name ?? ""}::${asset.ticker ?? ""}`, asset]));
+      const remainingAssets = rebalancing.sellAssets.map((asset) => {
+        const enriched = remainingMap.get(`${asset.name ?? ""}::${asset.ticker ?? ""}`);
+        return {
+          ...asset,
+          current_price: enriched?.current_price ?? asset.current_price,
+          current_value: enriched?.current_value ?? asset.current_value,
+        };
+      });
+      const proposedAssets = Array.isArray(rightResultRecord?.enrichedAssets) && rightResultRecord.enrichedAssets.length > 0
+        ? rightResultRecord.enrichedAssets
+        : remainingAssets.filter((asset) => toFiniteSnapshotNumber(asset.amount) > 0);
+      setFallbackPortfolioTables({
+        existing: buildPortfolioSnapshotRows(existingAssets),
+        proposed: buildPortfolioSnapshotRows(proposedAssets),
+      });
+    }).catch((error) => {
+      console.error("Failed to load portfolio tables for session modal", error);
+      if (!cancelled) setFallbackPortfolioTables(null);
+    });
+    return () => { cancelled = true; };
+  }, [session.customerId, snapshot?.portfolioTables]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
       <section className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
@@ -773,7 +928,10 @@ function SummaryModal({ session, customer, sessions, onUpdate, onStart, onClose 
           </div>
           <div className="flex flex-wrap gap-2">
             {session.status === "draft" ? (
-              <button type="button" onClick={onStart} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+              <>
+                <button type="button" onClick={onPreRecord} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-extrabold text-blue-700 hover:bg-blue-100">사전 기록</button>
+                <button type="button" onClick={onStart} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+              </>
             ) : null}
             <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-extrabold text-slate-600 hover:bg-slate-50">닫기</button>
           </div>
@@ -793,26 +951,75 @@ function SummaryModal({ session, customer, sessions, onUpdate, onStart, onClose 
           </label>
         </div>
         {session.autoEnded ? <p className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-extrabold text-red-700">{session.autoEndedMessage || autoEndedMessage}</p> : null}
-        <div className="mb-5 rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
-          <p className="mb-3 text-sm font-extrabold text-blue-900">변경 이력</p>
-          {changes.length ? (
-            <div className="grid gap-2">
-              {changes.map((change) => (
-                <p key={change.label} className="text-sm font-bold text-slate-700">
-                  {change.label} {change.before} <span className="text-slate-400">→</span> <span className="font-black text-red-600">{change.after}</span>
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm font-bold text-slate-500">{previous ? "직전 상담 대비 변경된 요약 항목이 없습니다." : "비교할 직전 상담 기록이 없습니다."}</p>
-          )}
-        </div>
+        <PortfolioTables tables={portfolioTables} />
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="mb-4 text-sm font-extrabold text-blue-900">성향 및 니즈 분석 요약</p>
           <SummaryTable snapshot={snapshot} />
         </div>
       </section>
     </div>
+  );
+}
+
+function formatSnapshotNumber(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return Math.round(value).toLocaleString("ko-KR");
+}
+
+function formatSnapshotPercent(value: number | null | undefined, digits = 1) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)}%`;
+}
+
+function PortfolioTables({ tables }: { tables?: SummarySnapshot["portfolioTables"] }) {
+  const existing = tables?.existing ?? [];
+  const proposed = tables?.proposed ?? [];
+  if (!existing.length && !proposed.length) return null;
+  return (
+    <div className="mb-5 grid gap-5">
+      {existing.length ? <PortfolioSnapshotTable title="기존 포트폴리오" rows={existing} /> : null}
+      {proposed.length ? <PortfolioSnapshotTable title="신규 포트폴리오" rows={proposed} /> : null}
+    </div>
+  );
+}
+
+function PortfolioSnapshotTable({ title, rows }: { title: string; rows: PortfolioSnapshotRow[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="border-b border-amber-200 px-4 py-3">
+        <p className="text-base font-black text-amber-700">{title}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-blue-900 text-left text-xs font-black text-white">
+              <th className="px-3 py-3">종목명</th>
+              <th className="px-3 py-3">자산군</th>
+              <th className="px-3 py-3 text-right">수량</th>
+              <th className="px-3 py-3 text-right">매입가</th>
+              <th className="px-3 py-3 text-right">현재가</th>
+              <th className="px-3 py-3 text-right">손익률</th>
+              <th className="px-3 py-3 text-right">비중</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.name}-${index}`} className={index % 2 ? "bg-slate-50" : "bg-white"}>
+                <td className="px-3 py-3 font-bold text-slate-900">{row.name}</td>
+                <td className="px-3 py-3 font-bold text-slate-600">{row.assetClass}</td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.amount)}</td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.buyPrice)}</td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.currentPrice)}</td>
+                <td className={`px-3 py-3 text-right font-black ${row.returnPct == null ? "text-slate-400" : row.returnPct >= 0 ? "text-red-600" : "text-blue-700"}`}>
+                  {formatSnapshotPercent(row.returnPct)}
+                </td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotPercent(row.weight, 1).replace("+", "")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -849,7 +1056,7 @@ function SummaryTable({ snapshot }: { snapshot: SummarySnapshot | null }) {
   );
 }
 
-function SideSection({ title, sessions, customers, expandedSessionId, setExpandedSessionId, deleteSession, startSession }: { title: string; sessions: ConsultationSession[]; customers: CustomerProfile[]; expandedSessionId: string | null; setExpandedSessionId: (id: string | null) => void; deleteSession: (session: ConsultationSession) => void; startSession: (session: ConsultationSession) => void }) {
+function SideSection({ title, sessions, customers, expandedSessionId, setExpandedSessionId, deleteSession, preRecordSession, startSession }: { title: string; sessions: ConsultationSession[]; customers: CustomerProfile[]; expandedSessionId: string | null; setExpandedSessionId: (id: string | null) => void; deleteSession: (session: ConsultationSession) => void; preRecordSession: (session: ConsultationSession) => void; startSession: (session: ConsultationSession) => void }) {
   return (
     <section>
       <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">{title}</p>
@@ -857,9 +1064,169 @@ function SideSection({ title, sessions, customers, expandedSessionId, setExpande
         {sessions.length ? sessions.map((session) => {
           const customer = customers.find((item) => item.id === session.customerId);
           return (
-            <SessionCard key={session.id} session={session} customer={customer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={() => {}} onStart={() => startSession(session)} />
+            <SessionCard key={session.id} session={session} customer={customer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={() => {}} onPreRecord={() => preRecordSession(session)} onStart={() => startSession(session)} />
           );
         }) : <EmptyBox text="표시할 상담이 없습니다." />}
+      </div>
+    </section>
+  );
+}
+
+type CalendarPopupItem = {
+  id: string;
+  line: string;
+  type: "consultation" | "market";
+};
+
+function formatCalendarItemTime(value: string) {
+  const date = sessionDateTime(value);
+  if (!date) return value;
+  return `(${pad2(date.getHours())}:${pad2(date.getMinutes())})`;
+}
+
+function rightPanelMarketTitle(event: MarketCalendarEvent) {
+  if (event.market === "유로존") return event.title;
+  if (event.title.startsWith(event.market)) return event.title;
+  return `${event.market} ${event.title}`;
+}
+
+function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: ConsultationSession[]; customers: CustomerProfile[]; marketEvents: MarketCalendarEvent[] }) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+
+  const consultationByDate = useMemo(() => {
+    const map = new Map<string, ConsultationSession[]>();
+    sessions.forEach((session) => {
+      const key = dateKeyFromValue(session.date);
+      if (!key) return;
+      map.set(key, [...(map.get(key) ?? []), session]);
+    });
+    return map;
+  }, [sessions]);
+
+  const marketByDate = useMemo(() => {
+    const map = new Map<string, MarketCalendarEvent[]>();
+    marketEvents.forEach((event) => {
+      const key = dateKeyFromValue(event.startsAt);
+      if (!key) return;
+      map.set(key, [...(map.get(key) ?? []), event]);
+    });
+    return map;
+  }, [marketEvents]);
+
+  const monthCells = useMemo(() => {
+    const first = new Date(viewYear, viewMonth, 1);
+    const startOffset = first.getDay();
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const cellCount = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+    return Array.from({ length: cellCount }, (_, index) => {
+      const day = index - startOffset + 1;
+      if (day < 1 || day > daysInMonth) return null;
+      const date = new Date(viewYear, viewMonth, day);
+      return {
+        day,
+        key: dateKeyFromDate(date),
+      };
+    });
+  }, [viewMonth, viewYear]);
+
+  const selectedItems = useMemo<CalendarPopupItem[]>(() => {
+    if (!selectedDateKey) return [];
+    const consultationItems = (consultationByDate.get(selectedDateKey) ?? []).map((session) => {
+      const customer = customers.find((item) => item.id === session.customerId);
+      return {
+        id: `consultation-${session.id}`,
+        line: `${formatCalendarItemTime(session.date)} ${customerDisplay(customer)} 상담`,
+        type: "consultation" as const,
+      };
+    });
+    const marketItems = (marketByDate.get(selectedDateKey) ?? []).map((event) => ({
+      id: `market-${event.id}`,
+      line: `${formatCalendarItemTime(event.startsAt)} ${rightPanelMarketTitle(event)}`,
+      type: "market" as const,
+    }));
+    return [...consultationItems, ...marketItems].sort((a, b) => a.line.localeCompare(b.line, "ko-KR"));
+  }, [consultationByDate, customers, marketByDate, selectedDateKey]);
+
+  const moveMonth = (offset: number) => {
+    const next = new Date(viewYear, viewMonth + offset, 1);
+    setViewYear(next.getFullYear());
+    setViewMonth(next.getMonth());
+  };
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-xs font-extrabold uppercase tracking-wide text-slate-500">캘린더</p>
+        <CalendarDays size={15} className="text-blue-600" />
+      </div>
+      <div className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex items-center gap-1.5">
+          <select
+            className="h-8 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-extrabold text-slate-700"
+            value={viewYear}
+            onChange={(event) => setViewYear(Number(event.target.value))}
+          >
+            {Array.from({ length: 7 }, (_, index) => today.getFullYear() - 3 + index).map((year) => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+          <button type="button" onClick={() => moveMonth(-1)} className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-600 hover:bg-blue-50">‹</button>
+          <p className="min-w-0 flex-1 text-center text-sm font-black text-blue-950">{viewMonth + 1}월</p>
+          <button type="button" onClick={() => moveMonth(1)} className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-600 hover:bg-blue-50">›</button>
+        </div>
+        <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400">
+          {["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}
+        </div>
+        <div className="mt-1 grid grid-cols-7 gap-1">
+          {monthCells.map((cell, index) => {
+            const hasConsultation = cell ? consultationByDate.has(cell.key) : false;
+            const hasMarket = cell ? marketByDate.has(cell.key) : false;
+            const isToday = cell?.key === dateKeyFromDate(today);
+            const isSelected = cell?.key === selectedDateKey;
+            return (
+              <button
+                key={cell?.key ?? `empty-${index}`}
+                type="button"
+                disabled={!cell}
+                onClick={() => cell && setSelectedDateKey(cell.key)}
+                className={`relative h-8 rounded-lg text-[11px] font-extrabold transition ${cell ? "bg-slate-50 text-slate-700 hover:bg-blue-50" : "bg-transparent"} ${isToday ? "ring-1 ring-blue-500" : ""} ${isSelected ? "border border-slate-950" : ""}`}
+              >
+                {cell?.day ?? ""}
+                {cell ? (
+                  <span className="absolute bottom-1 left-1/2 flex -translate-x-1/2 gap-0.5">
+                    {hasConsultation ? <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> : null}
+                    {hasMarket ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> : null}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-slate-500">
+          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> 상담</span>
+          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> 주요 일정</span>
+        </div>
+        <div className="mt-3 border-t border-slate-100 pt-2">
+          <p className="mb-1 text-[10px] font-black text-slate-400">{selectedDateKey ? selectedDateKey.replaceAll("-", ".") : "날짜를 선택해주세요"}</p>
+          {selectedDateKey ? (
+            selectedItems.length ? (
+              <div className="grid max-h-[140px] gap-1 overflow-y-auto pr-1">
+                {selectedItems.map((item) => (
+                  <p key={item.id} className={`line-clamp-2 break-keep rounded-lg px-2 py-1 text-[10px] font-extrabold leading-4 ${item.type === "consultation" ? "bg-blue-50 text-blue-900" : "bg-amber-50 text-amber-900"}`} title={item.line}>
+                    {item.line}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-lg bg-slate-50 px-2 py-3 text-center text-[10px] font-bold text-slate-400">표시할 일정이 없습니다.</p>
+            )
+          ) : (
+            <p className="rounded-lg bg-slate-50 px-2 py-3 text-center text-[10px] font-bold text-slate-400">날짜를 선택하면 일정이 표시됩니다.</p>
+          )}
+        </div>
       </div>
     </section>
   );

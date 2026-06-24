@@ -146,6 +146,7 @@ export default function ExistingPortfolioTab() {
     updatePortfolioRow: updateRow,
     setAnalysisResult,
     setPortfolioDirty,
+    resetPortfolioDerivedState,
     pushToRebalancingSell,
     clearSellHistory,
     saveTaxSummary,
@@ -172,19 +173,9 @@ export default function ExistingPortfolioTab() {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const pendingInferenceRef = useRef<{ start: number; count: number } | null>(null);
 
-  const clearAllAssets = () => {
-    // 마지막 인덱스부터 역순 삭제 → React 18 배치로 한 번의 렌더/저장으로 처리됨
-    for (let i = portfolioAssets.length - 1; i >= 0; i--) {
-      removeRow(i);
-    }
-    setAnalysisResult(null);
+  const clearAllAssets = async () => {
+    await resetPortfolioDerivedState();
     setClearConfirm(false);
-    try {
-      localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY);
-      sessionStorage.setItem(FINANCIAL_INCOME_RESET_KEY, '1');
-      window.dispatchEvent(new CustomEvent("financial-income-updated"));
-    } catch {}
-    saveTaxSummary('current', null as never);
   };
 
   const [portfolioIsRunning, setPortfolioIsRunning] = useState(false);

@@ -602,7 +602,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation, selectedCustomer } = useCustomerContext();
+  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation, isPreRecordMode, selectedCustomer } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
@@ -1119,7 +1119,7 @@ const additionalInvestmentAmount = (() => {
           })()}
         </section>
       )}
-      {appMode === "pb" ? (
+      {appMode === "pb" && !isPreRecordMode ? (
       <div className="flex justify-end gap-2">
         <button
           type="button"
