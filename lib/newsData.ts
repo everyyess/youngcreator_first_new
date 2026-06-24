@@ -192,10 +192,54 @@ function parseHankyungHtml(html: string): NewsArticle[] {
   return articles;
 }
 
+type Rss2JsonItem = {
+  title: string;
+  link: string;
+  pubDate: string;
+  categories: string[];
+};
+
+type Rss2JsonResponse = {
+  status: string;
+  items: Rss2JsonItem[];
+};
+
+async function fetchViaRss2Json(rssUrl: string): Promise<NewsArticle[]> {
+  const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&count=20`;
+  const response = await fetch(proxyUrl, { next: { revalidate: 600 } });
+  if (!response.ok) return [];
+
+  const data = await response.json() as Rss2JsonResponse;
+  if (data.status !== "ok" || !Array.isArray(data.items)) return [];
+
+  const results: NewsArticle[] = [];
+  for (const item of data.items) {
+    if (results.length >= 8) break;
+    if (!item.title || !item.link) continue;
+    if (isArticleBlocked(item.link, item.categories ?? [], item.title)) continue;
+    results.push({
+      title: item.title,
+      summary: "",
+      time: formatKoreanDateTime(item.pubDate),
+      source: "한국경제",
+      link: item.link,
+    });
+  }
+  return results;
+}
+
 export async function fetchHankyungNews(category: NewsCategory): Promise<NewsArticle[]> {
   const { feeds, page } = CATEGORY_SOURCES[category];
 
-  // 1차: 카테고리 전용 RSS 피드
+  // 1차: rss2json 프록시 — Vercel에서 Hankyung IP 차단 우회
+  for (const url of feeds) {
+    try {
+      const articles = await fetchViaRss2Json(url);
+      if (articles.length) return articles;
+    } catch {}
+  }
+
+  // 2차: 직접 RSS (로컬 등 직접 접근 가능한 환경 fallback)
   for (const url of feeds) {
     try {
       const response = await fetch(url, { next: { revalidate: 600 } });
@@ -205,7 +249,7 @@ export async function fetchHankyungNews(category: NewsCategory): Promise<NewsArt
     } catch {}
   }
 
-  // 2차: 카테고리 HTML 페이지 직접 파싱 (RSS 실패 시)
+  // 3차: HTML 직접 파싱 (최후 수단)
   try {
     const response = await fetch(page, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; bot/1.0)" },
