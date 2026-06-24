@@ -204,6 +204,16 @@ type Rss2JsonResponse = {
   items: Rss2JsonItem[];
 };
 
+const CF_PROXY = "https://hankyung-proxy.nayunkim5.workers.dev";
+
+async function fetchViaProxy(rssUrl: string): Promise<NewsArticle[]> {
+  const proxyUrl = `${CF_PROXY}?url=${encodeURIComponent(rssUrl)}`;
+  const response = await fetch(proxyUrl, { next: { revalidate: 600 } });
+  if (!response.ok) return [];
+  const xml = await response.text();
+  return parseRss(xml);
+}
+
 async function fetchViaRss2Json(rssUrl: string): Promise<NewsArticle[]> {
   const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&count=20`;
   const response = await fetch(proxyUrl, { next: { revalidate: 600 } });
@@ -231,7 +241,15 @@ async function fetchViaRss2Json(rssUrl: string): Promise<NewsArticle[]> {
 export async function fetchHankyungNews(category: NewsCategory): Promise<NewsArticle[]> {
   const { feeds, page } = CATEGORY_SOURCES[category];
 
-  // 1차: rss2json 프록시 — Vercel에서 Hankyung IP 차단 우회
+  // 1차: Cloudflare Worker 프록시 — Vercel AWS IP 차단 우회
+  for (const url of feeds) {
+    try {
+      const articles = await fetchViaProxy(url);
+      if (articles.length) return articles;
+    } catch {}
+  }
+
+  // 2차: rss2json 프록시 — fallback
   for (const url of feeds) {
     try {
       const articles = await fetchViaRss2Json(url);
@@ -239,7 +257,7 @@ export async function fetchHankyungNews(category: NewsCategory): Promise<NewsArt
     } catch {}
   }
 
-  // 2차: 직접 RSS (로컬 등 직접 접근 가능한 환경 fallback)
+  // 3차: 직접 RSS (로컬 등 직접 접근 가능한 환경 fallback)
   for (const url of feeds) {
     try {
       const response = await fetch(url, { next: { revalidate: 600 } });
@@ -249,7 +267,7 @@ export async function fetchHankyungNews(category: NewsCategory): Promise<NewsArt
     } catch {}
   }
 
-  // 3차: HTML 직접 파싱 (최후 수단)
+  // 4차: HTML 직접 파싱 (최후 수단)
   try {
     const response = await fetch(page, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; bot/1.0)" },
