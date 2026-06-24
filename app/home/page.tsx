@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronLeft, ChevronRight, Home, LogOut, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
+import MarketDashboard from "@/components/MarketDashboard";
 import {
   createInitialCustomerData,
   createInitialState,
@@ -550,10 +551,8 @@ export default function HomePage() {
           ) : null}
         </aside>
 
-        <section className="rounded-2xl border border-white/70 bg-white/75 p-6 shadow-xl shadow-blue-900/5 backdrop-blur">
-          <div className="flex h-full min-h-[520px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70">
-            <p className="text-lg font-extrabold text-slate-400">추후 구현할 예정입니다</p>
-          </div>
+        <section className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/70 bg-white/75 p-4 shadow-xl shadow-blue-900/5 backdrop-blur">
+          <MarketDashboard />
         </section>
 
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>
