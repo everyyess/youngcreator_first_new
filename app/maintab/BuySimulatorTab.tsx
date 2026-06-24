@@ -804,6 +804,12 @@ export default function BuySimulatorTab() {
   // confirmedDomesticPair / confirmedGlobalPair 가 하나라도 있으면 항상 이 데이터로 빌드.
   // 탭 재마운트 포함 모든 경우에 confirmedPair를 1순위로 강제 반영.
   useEffect(() => {
+    if (baseAssets.length === 0) {
+      setTickerItems([]);
+      setBuySimPersistedState([], "");
+      setConfirmDone(false);
+      return;
+    }
     const hasConfirmedGlobal = (confirmedGlobalPair?.length ?? 0) > 0;
     const hasConfirmedDomestic = (confirmedDomesticPair?.length ?? 0) > 0;
     if (!hasConfirmedGlobal && !hasConfirmedDomestic) return; // Effect B 담당
@@ -841,11 +847,16 @@ export default function BuySimulatorTab() {
     setTickerItems(items);
     setBuySimPersistedState(items, confirmedSig);
     setConfirmDone(false);
-  }, [confirmedSig, confirmedDomesticPair, confirmedGlobalPair, availableInvestmentFunds, activeStrategy, setBuySimPersistedState]);
+  }, [baseAssets.length, confirmedSig, confirmedDomesticPair, confirmedGlobalPair, availableInvestmentFunds, activeStrategy, setBuySimPersistedState]);
 
   // ── Effect B: API 폴백 모드 (확정 조합 없을 때만) ────────────────────────────
   // 확정 조합이 하나라도 있으면 실행 안 함 → API 데이터가 확정 조합을 덮어쓰지 않음
   useEffect(() => {
+    if (baseAssets.length === 0) {
+      setTickerItems([]);
+      setConfirmDone(false);
+      return;
+    }
     if ((confirmedGlobalPair?.length ?? 0) > 0 || (confirmedDomesticPair?.length ?? 0) > 0) return;
 
     const gData = globalData[activeStrategy];
@@ -892,7 +903,7 @@ export default function BuySimulatorTab() {
 
     setTickerItems(items);
     setConfirmDone(false);
-  }, [globalData, domesticData, availableInvestmentFunds, activeStrategy, confirmedDomesticPair, confirmedGlobalPair]);
+  }, [baseAssets.length, globalData, domesticData, availableInvestmentFunds, activeStrategy, confirmedDomesticPair, confirmedGlobalPair]);
 
   // ── 전략 카드 지표 (해외 ETF 기준 — 글로벌 포트폴리오가 주도) ─────────────
 

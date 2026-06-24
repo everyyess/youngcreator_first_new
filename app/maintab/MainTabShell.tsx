@@ -22,6 +22,7 @@ import {
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
   loadTab3AnalysisState, saveTab3AnalysisState,
+  resetPortfolioDerivedState as resetPortfolioDerivedStateInDb,
   noLegalConstraint, noneExperience, nullableText, parseKrwAmount, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
@@ -39,10 +40,13 @@ import {
   maxConsultationSeconds,
   readActiveConsultation,
   readCompletedConsultation,
+  readPreRecordConsultation,
   writeActiveConsultation,
   writeCompletedConsultation,
+  writePreRecordConsultation,
   type ActiveConsultation,
   type CompletedConsultation,
+  type PreRecordConsultation,
 } from "../consultationStore";
 
 const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
@@ -124,7 +128,7 @@ function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetS
   return { operatingAssets, additionalAssets };
 }
 
-function buildConsultationSummarySnapshot(state: AppState) {
+function buildConsultationSummarySnapshot(state: AppState, portfolioTables?: ReturnType<typeof buildPortfolioTablesSnapshot>) {
   const { financial, rrttllu } = state;
   const risk = calculateRiskResult(rrttllu);
   return {
@@ -153,6 +157,54 @@ function buildConsultationSummarySnapshot(state: AppState) {
     emergencyReservePlan: formatLiquiditySummary(rrttllu.emergencyReservePlan, "emergency"),
     legalConstraints: Array.isArray(rrttllu.legalConstraints) ? rrttllu.legalConstraints.join(", ") : "",
     uniqueOther: rrttllu.uniqueOther,
+    portfolioTables,
+  };
+}
+
+type PortfolioSnapshotRow = {
+  name: string;
+  assetClass: string;
+  amount: number | null;
+  buyPrice: number | null;
+  currentPrice: number | null;
+  returnPct: number | null;
+  weight: number;
+};
+
+function buildPortfolioSnapshotRows(assets: PortfolioAsset[]): PortfolioSnapshotRow[] {
+  const values = assets.map((asset) => {
+    const amount = toFiniteNumber(asset.amount);
+    const buyPrice = toFiniteNumber(asset.buy_price);
+    const currentPrice = toFiniteNumber(asset.current_price);
+    const fallbackValue = amount > 0 && currentPrice > 0 ? amount * currentPrice : 0;
+    return toFiniteNumber(asset.current_value) || fallbackValue;
+  });
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return assets
+    .map((asset, index) => {
+      const amount = toFiniteNumber(asset.amount);
+      const buyPrice = toFiniteNumber(asset.buy_price);
+      const currentPrice = toFiniteNumber(asset.current_price);
+      const value = values[index] ?? 0;
+      const returnPct = buyPrice > 0 && currentPrice > 0 ? (currentPrice - buyPrice) / buyPrice : null;
+      return {
+        name: asset.name?.trim() || asset.ticker?.trim() || "-",
+        assetClass: asset.asset_class || asset.productType || "-",
+        amount: amount > 0 ? amount : null,
+        buyPrice: buyPrice > 0 ? buyPrice : null,
+        currentPrice: currentPrice > 0 ? currentPrice : null,
+        returnPct,
+        weight: total > 0 ? value / total : 0,
+      };
+    })
+    .filter((row) => row.name !== "-")
+    .slice(0, 25);
+}
+
+function buildPortfolioTablesSnapshot(existingAssets: PortfolioAsset[], proposedAssets: PortfolioAsset[]) {
+  return {
+    existing: buildPortfolioSnapshotRows(existingAssets),
+    proposed: buildPortfolioSnapshotRows(proposedAssets),
   };
 }
 
@@ -172,6 +224,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [isMounted, setIsMounted] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>(defaultCustomerProfiles[0].id);
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
+  const [preRecordConsultation, setPreRecordConsultation] = useState<PreRecordConsultation | null>(null);
   const [activeConsultationElapsedSeconds, setActiveConsultationElapsedSeconds] = useState(0);
   const [completedConsultation, setCompletedConsultation] = useState<CompletedConsultation | null>(null);
   const [editLockDialogOpen, setEditLockDialogOpen] = useState(false);
@@ -196,6 +249,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const selectedConsultationSessions = getCustomerSessions(formData);
   const latestConsultationSession = [...selectedConsultationSessions].sort((a, b) => `${b.updatedAt}${b.date}`.localeCompare(`${a.updatedAt}${a.date}`))[0] ?? null;
   const activeConsultationForSelected = activeConsultation?.customerId === selectedCustomer ? activeConsultation : null;
+  const isPreRecordMode = !activeConsultationForSelected && preRecordConsultation?.customerId === selectedCustomer;
   const completedConsultationForSelected = completedConsultation?.customerId === selectedCustomer ? completedConsultation : null;
   const isConsultationReadOnly = !activeConsultationForSelected && (
     latestConsultationSession?.status === "completed" ||
@@ -295,7 +349,24 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       setActiveConsultationElapsedSeconds(0);
       return;
     }
-    const snapshot = buildConsultationSummarySnapshot(state);
+    const leftResult = analysisResultMap[active.customerId];
+    const existingAssets = Array.isArray(leftResult?.enrichedAssets) && leftResult.enrichedAssets.length > 0
+      ? leftResult.enrichedAssets as PortfolioAsset[]
+      : portfolioAssetsMapRef.current[active.customerId] ?? [];
+    const rightResult = newPortfolioAnalysisResultMap[active.customerId];
+    const remainingMap = new Map(existingAssets.map((asset) => [`${asset.name ?? ""}::${asset.ticker ?? ""}`, asset]));
+    const remainingAssets = (rebalancingSellMap[active.customerId] ?? []).map((asset) => {
+      const enriched = remainingMap.get(`${asset.name ?? ""}::${asset.ticker ?? ""}`);
+      return {
+        ...asset,
+        current_price: enriched?.current_price ?? asset.current_price,
+        current_value: enriched?.current_value ?? asset.current_value,
+      };
+    });
+    const proposedAssets = Array.isArray(rightResult?.enrichedAssets) && rightResult.enrichedAssets.length > 0
+      ? rightResult.enrichedAssets as PortfolioAsset[]
+      : remainingAssets.filter((asset) => toFiniteNumber(asset.amount) > 0);
+    const snapshot = buildConsultationSummarySnapshot(state, buildPortfolioTablesSnapshot(existingAssets, proposedAssets));
     const nextSessions = sessions.map((session) => session.id === active.sessionId ? { ...finishSession(session, seconds, autoEnded), summarySnapshot: snapshot } : session);
     const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
     setCustomerData((prev) => ({ ...prev, [active.customerId]: nextState }));
@@ -306,6 +377,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       elapsedSeconds: seconds,
       completedAt: new Date().toISOString(),
     };
+    writePreRecordConsultation(null);
+    setPreRecordConsultation(null);
     writeCompletedConsultation(completed);
     setCompletedConsultation(completed);
     writeActiveConsultation(null);
@@ -313,7 +386,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setConsultationEnded(true);
     setActiveConsultation(null);
     setActiveConsultationElapsedSeconds(seconds);
-  }, [activeConsultation, customerData]);
+  }, [activeConsultation, analysisResultMap, customerData, newPortfolioAnalysisResultMap, rebalancingSellMap]);
 
   const resumeLatestConsultation = useCallback(() => {
     const state = customerData[selectedCustomer] ?? createInitialState();
@@ -335,6 +408,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     };
     window.localStorage.removeItem(CONSULTATION_ENDED_STORAGE_KEY);
     setConsultationEnded(false);
+    writePreRecordConsultation(null);
+    setPreRecordConsultation(null);
     writeCompletedConsultation(null);
     setCompletedConsultation(null);
     writeActiveConsultation(resumedActive);
@@ -355,8 +430,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   useEffect(() => {
     const syncActive = () => {
       const active = readActiveConsultation();
+      const preRecord = readPreRecordConsultation();
       const completed = readCompletedConsultation();
       setActiveConsultation(active);
+      setPreRecordConsultation(preRecord);
       setCompletedConsultation(completed);
       setActiveConsultationElapsedSeconds(getElapsedSeconds(active));
     };
@@ -789,6 +866,50 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       };
     });
   }, []);
+
+  const resetPortfolioDerivedState = useCallback(async () => {
+    if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
+    const cid = selectedCustomerRef.current;
+
+    setPortfolioAssetsMap(prev => ({ ...prev, [cid]: [] }));
+    setPortfolioLoadedMap(prev => ({ ...prev, [cid]: true }));
+    setDirtyPortfolioMap(prev => ({ ...prev, [cid]: false }));
+    setAnalysisResultMap(prev => ({ ...prev, [cid]: null }));
+
+    setRebalancingSellMap(prev => ({ ...prev, [cid]: [] }));
+    setRebalancingBuyMap(prev => ({ ...prev, [cid]: [] }));
+    setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [cid]: null }));
+    setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: {} }));
+    setRebalancingLoadedMap(prev => ({ ...prev, [cid]: true }));
+    setRebalancingDirtyMap(prev => ({ ...prev, [cid]: false }));
+
+    setSellHistoryMap(prev => ({ ...prev, [cid]: [] }));
+    setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: false }));
+    setBuySimPersistedStateMap(prev => ({ ...prev, [cid]: { items: [], sig: "" } }));
+    setPbOrderRowsMap(prev => ({ ...prev, [cid]: [] }));
+
+    updateHeaderAssetSummary(cid, () => ({
+      confirmedOperatingAssetsAfterSell: null,
+      confirmedOperatingAssetsAfterBuy: null,
+      confirmedBuyAmount: null,
+    }));
+
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(PORTFOLIO_RESULT_STORAGE_KEY);
+        localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY);
+        localStorage.removeItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY);
+        localStorage.removeItem("new-portfolio-assets-v1");
+        window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
+        window.dispatchEvent(new CustomEvent("financial-income-updated"));
+        window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
+      } catch {}
+    }
+
+    await resetPortfolioDerivedStateInDb(cid).catch((error) => {
+      console.error("Failed to reset portfolio derived state", { customerId: cid, error });
+    });
+  }, [updateHeaderAssetSummary]);
 
   const pushToRebalancingSell = useCallback(() => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
@@ -1355,10 +1476,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setFinancial, setRrttllu, setIrregularIncome, toggleNoIrregularIncome, setExpectedReturn,
     toggleExpectedReturnUnknown, toggleInvestmentExperience, toggleLegalConstraint, setSmartInputNote, setSmartTranscript, setSmartAdditionalMemo, setAiGuidePbNote, setAiAdvisoryGuide,
     analyzeRrttllu, resetSelectedCustomer, resetSelectedCustomerInputs, applySmartExtraction,
-    updateCustomerProfile, finishActiveConsultation, resumeLatestConsultation, activeConsultation, activeConsultationElapsedSeconds: displayedConsultationElapsedSeconds, isConsultationReadOnly, requestConsultationResume, setChangeHistoryExpanded,
+    updateCustomerProfile, finishActiveConsultation, resumeLatestConsultation, activeConsultation, activeConsultationElapsedSeconds: displayedConsultationElapsedSeconds, isPreRecordMode, isConsultationReadOnly, requestConsultationResume, setChangeHistoryExpanded,
     // 포트폴리오 전역 상태
     portfolioAssets, isPortfolioLoaded, analysisResult,
-    addPortfolioRow, bulkAddPortfolioRows, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty,
+    addPortfolioRow, bulkAddPortfolioRows, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty, resetPortfolioDerivedState,
     // 리밸런싱 파이프라인
     rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
@@ -1390,6 +1511,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
               activeConsultation={activeConsultation}
               elapsedSeconds={displayedConsultationElapsedSeconds}
               mode={appMode}
+              isPreRecordMode={isPreRecordMode}
               onHome={() => router.push(appMode === "customer" ? "/customer-home" : "/home")}
               onFinish={() => finishActiveConsultation(false)}
               onResume={resumeLatestConsultation}
@@ -1445,7 +1567,7 @@ const segmentToTab: Record<string, string> = {
 
 function HeaderSummary({
   currentCustomer, recentUpdatedAt, assetSummary, storageErrorMessage,
-  activeConsultation, elapsedSeconds, mode, onHome, onFinish, onResume,
+  activeConsultation, elapsedSeconds, mode, isPreRecordMode, onHome, onFinish, onResume,
 }: {
   currentCustomer?: CustomerProfile;
   recentUpdatedAt: number;
@@ -1454,6 +1576,7 @@ function HeaderSummary({
   activeConsultation: ActiveConsultation | null;
   elapsedSeconds: number;
   mode: "pb" | "customer";
+  isPreRecordMode: boolean;
   onHome: () => void;
   onFinish: () => void;
   onResume: () => void;
@@ -1488,17 +1611,19 @@ function HeaderSummary({
           <button type="button" onClick={onHome} aria-label="HOME" className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-navy transition hover:border-blue-200 hover:bg-blue-50">
             <Home size={17} /> HOME
           </button>
-          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 font-mono text-sm font-extrabold text-blue-800">
-            {formatTimer(elapsedSeconds)}
-          </div>
-          {mode === "pb" ? (
+          {!isPreRecordMode ? (
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 font-mono text-sm font-extrabold text-blue-800">
+              {formatTimer(elapsedSeconds)}
+            </div>
+          ) : null}
+          {mode === "pb" && !isPreRecordMode ? (
             <>
           <button type="button" onClick={onFinish} disabled={!activeConsultation} className="h-10 rounded-lg bg-red-600 px-3 text-sm font-extrabold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
             상담 종료
           </button>
             </>
           ) : null}
-          {mode === "pb" ? (
+          {mode === "pb" && !isPreRecordMode ? (
           <button type="button" onClick={onResume} disabled={Boolean(activeConsultation)} className="h-10 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">
             상담 재개
           </button>
