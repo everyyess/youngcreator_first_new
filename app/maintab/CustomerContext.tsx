@@ -726,7 +726,23 @@ export const customerStorage = {
     }
   },
   async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number, pbEmployeeId?: string): Promise<StorageResult> {
-    return insertEmptyCustomerRow(profile.id, normalizeAppState(appState), sortOrder, pbEmployeeId);
+    if (!supabase) return { ok: false, message: "Supabase not configured." };
+    const profileColumns = customerProfileColumnPayload(profile);
+    const ownerPayload = pbEmployeeId?.trim() ? { pb_employee_id: pbEmployeeId.trim() } : {};
+    const dataPayload = normalizeAppState(appState);
+    const candidates: Record<string, unknown>[] = [
+      { id: profile.id, ...profileColumns, data: dataPayload, sort_order: sortOrder, updated_at: new Date().toISOString(), ...ownerPayload },
+      { id: profile.id, ...profileColumns, data: dataPayload, updated_at: new Date().toISOString() },
+      { id: profile.id, ...profileColumns, data: dataPayload },
+    ];
+    let lastErr = "";
+    for (const candidate of candidates) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase.from("customers") as any).insert(candidate);
+      if (!error) return { ok: true, message: "Customer row created." };
+      lastErr = (error as { message: string }).message;
+    }
+    return { ok: false, message: `Supabase insert failed: ${lastErr}` };
   },
   async insertDefaults(state: StoredCustomerState): Promise<StorageResult> {
     let final: StorageResult = { ok: true, message: "기본 고객 생성 완료" };
@@ -1310,6 +1326,20 @@ export async function saveProductSelections(customerId: CustomerId, selectedIds:
   );
 }
 
+export async function resetPortfolioDerivedState(customerId: CustomerId): Promise<void> {
+  await Promise.all([
+    savePortfolioAssets(customerId, []),
+    saveAnalysisResult(customerId, null),
+    saveRebalancingState(customerId, []),
+    saveRebalancingBuyAssets(customerId, []),
+    saveNewAnalysisResult(customerId, null),
+    saveTab3AnalysisState(customerId, {}),
+    saveSellHistory(customerId, []),
+  ]);
+  await saveTaxSummaryToDb(customerId, "current", null);
+  await saveTaxSummaryToDb(customerId, "new", null);
+}
+
 // ── Context ────────────────────────────────────────────────────────────────
 export type CustomerContextValue = {
   appMode: "pb" | "customer";
@@ -1348,6 +1378,7 @@ export type CustomerContextValue = {
   resumeLatestConsultation: () => void;
   activeConsultation: unknown;
   activeConsultationElapsedSeconds: number;
+  isPreRecordMode: boolean;
   isConsultationReadOnly: boolean;
   requestConsultationResume: () => void;
   setChangeHistoryExpanded: React.Dispatch<React.SetStateAction<boolean>>;
@@ -1361,6 +1392,7 @@ export type CustomerContextValue = {
   updatePortfolioRow: (index: number, patch: Partial<PortfolioAsset>) => void;
   setAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
   setPortfolioDirty: (dirty: boolean) => void;
+  resetPortfolioDerivedState: () => Promise<void>;
   // ── 리밸런싱 파이프라인 (탭2보유현황 → 탭2리밸런싱 → 탭3매수 → 탭5비교) ──
   rebalancingSellAssets: PortfolioAsset[];
   rebalancingBuyAssets: PortfolioAsset[];

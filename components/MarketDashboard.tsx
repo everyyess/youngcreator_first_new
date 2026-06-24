@@ -114,6 +114,7 @@ const MARKET_FLAG_CODES: Record<string, string> = {
   "덴마크": "dk", "싱가포르": "sg", "인도": "in", "브라질": "br", "멕시코": "mx",
 };
 
+
 function importanceStars(value: MarketCalendarEvent["importance"]) {
   if (value === "high") return "★★★";
   if (value === "medium") return "★★☆";

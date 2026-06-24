@@ -17,8 +17,11 @@ const INDEX_TICKERS = [
   { symbol: "^IXIC", name: "NASDAQ" },
   { symbol: "^GSPC", name: "S&P500" },
   { symbol: "^SOX", name: "SOX" },
-  { symbol: "KRW=X", name: "원/달러" },
   { symbol: "^TNX", name: "미국 10년물" },
+  { symbol: "KRW=X", name: "원/달러" },
+  { symbol: "CL=F", name: "WTI" },
+  { symbol: "BZ=F", name: "브렌트유" },
+  { symbol: "^KS200", name: "K200 야선" },
 ];
 
 const yahooFinance = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
