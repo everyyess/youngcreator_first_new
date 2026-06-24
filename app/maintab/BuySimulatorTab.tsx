@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Building2,
@@ -111,9 +112,11 @@ const THEME_KEYWORDS_MAP: Record<string, { en: string; kr: string }> = {
   "자율주행":         { en: "Autonomous Driving",              kr: "자율주행차"   },
   "인프라":           { en: "Infrastructure Engineering",       kr: "건설대표주"   },
   "달러·외환":        { en: "Global Banking",                   kr: "은행"         },
+  "금융":             { en: "Global Banking",                   kr: "은행"         },
   "귀금속":           { en: "Gold Silver Mining",               kr: "비철금속"     },
   "농산물원자재":     { en: "Agriculture Fertilizer",           kr: "사료"         },
   "에너지원자재":     { en: "Oil Gas Exploration",              kr: "정유"         },
+  "원유":             { en: "Oil Gas Exploration",              kr: "정유"         },
   "채권(단기)":       { en: "Short Term Treasury",              kr: "은행"         },
   "채권":             { en: "Fixed Income Asset",               kr: "증권"         },
   "암호화폐":         { en: "Cryptocurrency Blockchain",        kr: "가상화폐"     },
@@ -592,8 +595,10 @@ export default function BuySimulatorTab() {
     setPbOrderRows,
     addSellRecord,
     addBuyCost,
+    appMode,
   } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
+  const router = useRouter();
 
   // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
   const baseAssets = useMemo<PortfolioAsset[]>(() => {
@@ -1717,6 +1722,8 @@ export default function BuySimulatorTab() {
           saveTaxSummary("new", newTaxSummary);
         }
         setConfirmDone(true);
+        const tab4Path = appMode === "customer" ? "/customer-maintab/tab4" : "/maintab/tab4";
+        router.push(tab4Path);
       }
     } catch (err) {
       console.error("[BuySimulatorTab] 매수 확정 오류:", err);
@@ -1724,6 +1731,8 @@ export default function BuySimulatorTab() {
       setIsConfirming(false);
     }
   }, [
+    appMode,
+    router,
     setRebalancingBuyAssets,
     setRebalancingSellAssets,
     confirmRebalancingBuy,
@@ -2580,7 +2589,7 @@ export default function BuySimulatorTab() {
                 </span>
                 <button
                   type="button"
-                  disabled={!hasPbItems || isOverBudget}
+                  disabled={!hasPbItems}
                   onClick={handlePbConfirm}
                   className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -2624,7 +2633,7 @@ export default function BuySimulatorTab() {
               완료 — TAB4에서 확인
             </>
           ) : (
-            "매수 확정 → TAB4 반영"
+            "리밸런싱 확정 → TAB4 반영"
           )}
         </button>
       </div>

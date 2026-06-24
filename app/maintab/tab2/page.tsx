@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Activity, BarChart2, Bell, BookOpen, FolderOpen, GitBranch, RefreshCcw, TrendingUp } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
@@ -15,7 +16,8 @@ import SupplyDemandAnalysis from "./SupplyDemandAnalysisTab";
 import DartAnalysisTab from "./DartAnalysisTab";
 import FundamentalAnalysisTab from "./FundamentalAnalysisTab";
 import SellSimulatorTab from "../SellSimulatorTab";
-import { useCustomerContext } from "../CustomerContext";
+import { useCustomerContext, type PortfolioAsset } from "../CustomerContext";
+import { sectorToDomesticTicker, sectorToGlobalTicker } from "../sectorTickerMap";
 
 type InnerTab = "holding" | "risk" | "fundamental" | "technical" | "supply" | "options" | "dart" | "rebalancing";
 
@@ -27,13 +29,67 @@ const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
   { id: "supply", label: "수급 분석", icon: <TrendingUp size={15} /> },
   { id: "fundamental", label: "외부자료 분석", icon: <BookOpen size={15} /> },
   { id: "dart", label: "공시 분석", icon: <Bell size={15} /> },
-  { id: "rebalancing", label: "리밸런싱(매도/유지)", icon: <RefreshCcw size={15} /> },
+  { id: "rebalancing", label: "리밸런싱", icon: <RefreshCcw size={15} /> },
 ];
+
+function dominantSector(assets: PortfolioAsset[]): string | null {
+  const totals: Record<string, number> = {};
+  for (const a of assets) {
+    const s = a.sector;
+    if (!s || s === "기타") continue;
+    totals[s] = (totals[s] ?? 0) + (a.current_value ?? a.weight ?? 1);
+  }
+  const entries = Object.entries(totals);
+  if (!entries.length) return null;
+  return entries.sort((x, y) => y[1] - x[1])[0][0];
+}
 
 export default function Tab2Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
   const data = usePortfolioResult();
-  const { appMode } = useCustomerContext();
+  const {
+    appMode,
+    analysisResult,
+    rebalancingSellAssets,
+    tab3AnalysisState,
+    updateTab3AnalysisState,
+  } = useCustomerContext();
+  const router = useRouter();
+
+  const goToTab3 = () => {
+    // 리밸런싱(매도/유지) 탭과 동일 기준으로 베이스 자산 결정
+    // rebalancingSellAssets는 raw 자산(sector 없음) → enrichedAssets에서 sector 보완
+    const enriched = (analysisResult?.enrichedAssets ?? []) as PortfolioAsset[];
+    const sectorMap = new Map(enriched.map(a => [`${a.name}::${a.ticker ?? ""}`, a.sector]));
+    const rawBase = rebalancingSellAssets.length > 0 ? rebalancingSellAssets : enriched;
+    const base = rawBase.map(a => ({
+      ...a,
+      sector: a.sector ?? sectorMap.get(`${a.name}::${a.ticker ?? ""}`),
+    }));
+    const held = base.filter((a) => a.name && !(a.amount_type === "quantity" && a.amount <= 0));
+
+    const byPt = (types: string[]) =>
+      held.filter((a) => types.includes((a.productType ?? a.asset_class ?? "").trim()));
+
+    const domDomesticSector = dominantSector(byPt(["국내주식", "국내ETF"]));
+    const domGlobalSector   = dominantSector(byPt(["해외주식", "해외ETF"]));
+
+    // 섹터명 → API가 수용하는 ETF 티커로 변환
+    const domesticTicker = sectorToDomesticTicker(domDomesticSector);
+    const globalTicker   = sectorToGlobalTicker(domGlobalSector);
+
+    if (domesticTicker || globalTicker) {
+      updateTab3AnalysisState(
+        {
+          domestic: { ...tab3AnalysisState.domestic, lockedTicker: domesticTicker },
+          global:   { ...tab3AnalysisState.global,   lockedTicker: globalTicker },
+        },
+        { allowReadOnlyViewState: true },
+      );
+    }
+
+    router.push(appMode === "customer" ? "/customer-maintab/tab3" : "/maintab/tab3");
+  };
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
@@ -111,7 +167,18 @@ export default function Tab2Page() {
       )}
 
       {activeInnerTab === "rebalancing" && (
-        <SellSimulatorTab />
+        <div className="space-y-4">
+          <SellSimulatorTab />
+          <div className="flex items-center justify-end rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-soft">
+            <button
+              type="button"
+              onClick={goToTab3}
+              className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a]"
+            >
+              리밸런싱 확정 → TAB3 반영
+            </button>
+          </div>
+        </div>
       )}
     </>
   );

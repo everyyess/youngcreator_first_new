@@ -112,10 +112,10 @@ function formatHeaderKrw(value: number) {
   return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
 }
 
-function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetSummaryState, assets: PortfolioAsset[]) {
-  // 추가 투자 의향 = TAB 1 입력 원본 b 값 (기획서 수식 b = financial.investableAssets)
-  // 매도/매수 시뮬레이션 단계와 무관하게 고정 — 파생 잔여액(b+(a-d))이 아닌 고객 선언값을 표시
-  const baseAdditionalAssets = parseKrwAmount(financial.investableAssets) ?? 0;
+function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetSummaryState, assets: PortfolioAsset[], availableInvestmentFunds: number | null) {
+  // 추가 투자 의향 = 가용 투자 자금(b + 매도대금 - 확정매수비용) 계산값 우선,
+  // 미계산(null) 시 TAB1 원본 b값(investableAssets) 폴백
+  const baseAdditionalAssets = availableInvestmentFunds ?? (parseKrwAmount(financial.investableAssets) ?? 0);
   const additionalAssets = formatHeaderKrw(baseAdditionalAssets);
 
   // 운용 자산 = 최신 확정 단계 값 우선 (매수 완료 > 매도 완료 > 현재 평가액)
@@ -1128,8 +1128,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const warnings = internalJsonPayload.rrttllu.warnings;
   const customerDataJsonPayload = useMemo(() => ({ appState: formData, analysis: { riskResult, internalJsonPayload, financialCompletion, rrttlluCompletion } }), [financialCompletion, formData, internalJsonPayload, riskResult, rrttlluCompletion]);
   const headerAssetSummary = useMemo(
-    () => buildHeaderAssetSummary(formData.financial, formData.headerAssetSummary, portfolioAssets),
-    [formData.financial, formData.headerAssetSummary, portfolioAssets],
+    () => buildHeaderAssetSummary(formData.financial, formData.headerAssetSummary, portfolioAssets, availableInvestmentFunds),
+    [formData.financial, formData.headerAssetSummary, portfolioAssets, availableInvestmentFunds],
   );
 
   useEffect(() => {

@@ -109,6 +109,11 @@ const PRIORITY_KEYWORD_MAP: Array<[RegExp, string]> = [
   [/휴림로봇|휴림|hwirim/i,                                                        "로봇/기계"],
   [/뉴스케일.?파워|뉴스케일|nuscale|\bsmr\b/i,                                    "에너지/전력"],
   [/treasury|\bbond\b|채권|\bTLT\b|\bAGG\b|\bBND\b|\bIEF\b|\bSHY\b|\bTIPS\b/i,  "채권"],
+  [/주성엔지니어링|주성\s*엔지/i,                                                  "반도체"],
+  [/\bHPSP\b/i,                                                                    "반도체"],
+  [/(?:^|[ ])테스(?:[ ]|$)/,                                                      "반도체"],
+  [/씨게이트|seagate|\bSTX\b/i,                                                    "반도체"],
+  [/proshares.?ultrapro.?qqq|\bTQQQ\b/i,                                          "시장"],
 ];
 
 // 종목명·티커 키워드 → 섹터 매핑 (API 실패 시 최후 폴백)

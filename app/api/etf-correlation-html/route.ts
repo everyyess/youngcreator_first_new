@@ -107,7 +107,7 @@ const SECTOR_MAP: Record<string, string> = {
   VGLT: '채권(장기)', VGIT: '채권(중기)',   VGSH: '채권(단기)',   AGG:  '채권(종합)',
   VTI:  '시장전체',   VOO:  '시장전체',     IBIT: '암호화폐',
   SLV:  '귀금속·원자재', GLD: '귀금속·원자재',
-  USO:  '에너지원자재', UNG: '에너지원자재',
+  USO:  '원유',         UNG: '에너지원자재',
   WEAT: '농산물원자재', CORN: '농산물원자재',
   QQQ:  '시장전체',   '069500.KS': '한국시장', '229200.KS': '한국시장',
 };
@@ -230,7 +230,8 @@ function broadClass(sector: string): string {
     sector.includes('원자재') ||
     sector.includes('귀금속') ||
     sector.includes('희토류') ||
-    sector.includes('농산물')
+    sector.includes('농산물') ||
+    sector === '원유'
   ) return '원자재';
   if (sector.includes('암호화폐')) return '암호화폐';
   if (sector.includes('시장전체') || sector.includes('주식시장')) return '시장전체';

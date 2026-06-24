@@ -73,14 +73,15 @@ export default function CorrelationGlobalTab({
     if (!isMounted) return;
     const nextStrategy = savedState?.strategy;
     const nextK = savedState?.k;
+    const nextLockedTicker = savedState?.lockedTicker ?? "";
     if (nextStrategy && nextStrategy !== strategy) setStrategy(nextStrategy);
     if (typeof nextK === "number" && nextK !== k) setK(nextK);
-    if (nextStrategy || typeof nextK === "number") {
+    if (nextStrategy || typeof nextK === "number" || nextLockedTicker) {
       setLoading(true);
       setActiveSrc(buildSrc(nextStrategy ?? strategy, nextK ?? k, savedState?.lockedTicker));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [savedState?.strategy, savedState?.k, isMounted]);
+  }, [savedState?.strategy, savedState?.k, savedState?.lockedTicker, isMounted]);
 
   // riskResult.score / 고객 변경 시 전략 동기화 — 마운트 완료 후 실행
   useEffect(() => {
@@ -221,6 +222,38 @@ export default function CorrelationGlobalTab({
             ⚠ 고객 투자 성향 결과는 ‘{preferenceLabel(expectedStrategy)}’입니다. 현재 ‘{preferenceLabel(strategy)}’ 포트폴리오를 조회 중입니다.
           </p>
         ) : null}
+
+        {/* 해외 조합 확정 버튼 */}
+        <div className="ml-auto flex items-center gap-2">
+          {globalConfirmed && (
+            <span className="text-xs font-bold text-emerald-600">
+              ✓ 반영됨
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleConfirmGlobal}
+            disabled={isConfirmingGlobal || loading}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isConfirmingGlobal ? (
+              <>
+                <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                확정 중…
+              </>
+            ) : (
+              <>
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                해외 조합 확정 → TAB3-3 반영
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* ── iframe 영역 ───────────────────────────────────────────────── */}
@@ -249,37 +282,6 @@ export default function CorrelationGlobalTab({
         )}
       </div>
 
-      {/* ── 해외 조합 확정 버튼 ── */}
-      <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
-        {globalConfirmed && (
-          <span className="text-xs font-bold text-emerald-600">
-            ✓ 해외 조합이 TAB 3-3에 반영되었습니다
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={handleConfirmGlobal}
-          disabled={isConfirmingGlobal || loading}
-          className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isConfirmingGlobal ? (
-            <>
-              <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-              </svg>
-              확정 중…
-            </>
-          ) : (
-            <>
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              해외 조합 확정 → TAB 3-3
-            </>
-          )}
-        </button>
-      </div>
     </div>
   );
 }

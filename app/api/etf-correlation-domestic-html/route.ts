@@ -128,7 +128,7 @@ const SECTOR_MAP: Record<string, string> = {
   '261220.KS': '에너지원자재',
   '459580.KS': '현금성',
   '453850.KS': '해외채권',
-  '138230.KS': '달러·외환',
+  '138230.KS': '금융',
 };
 
 const TICKERS_ORDERED = [
