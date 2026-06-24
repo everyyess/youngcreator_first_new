@@ -961,25 +961,43 @@ export default function ExistingPortfolioTab() {
                   const totalValue = portfolioAssets.reduce(
                     (sum, a) => sum + effectiveValueOf(a), 0
                   );
-                  return portfolioAssets.map((a, i) => {
-                    const assetValue = effectiveValueOf(a);
-                    const weight = totalValue > 0 ? (assetValue / totalValue) * 100 : 0;
-                    return (
-                      <AssetRow
-                        key={i}
-                        idx={i}
-                        asset={a}
-                        weight={weight}
-                        isInferring={inferringIdx === i}
-                        editingTicker={editingTickerIdx === i}
-                        onUpdate={updateRow}
-                        onRemove={removeRow}
-                        onInfer={handleSmartInference}
-                        onStartEditTicker={() => setEditingTickerIdx(i)}
-                        onEndEditTicker={() => setEditingTickerIdx(null)}
-                      />
-                    );
-                  });
+                  // 1차 정렬 기준: 자산군별 총 평가액 집계
+                  const classTotals: Record<string, number> = {};
+                  for (const a of portfolioAssets) {
+                    const cls = a.productType ?? a.asset_class ?? "기타";
+                    classTotals[cls] = (classTotals[cls] ?? 0) + effectiveValueOf(a);
+                  }
+                  return portfolioAssets
+                    .map((a, i) => ({ a, i }))
+                    .sort(({ a: a1 }, { a: a2 }) => {
+                      const cls1 = a1.productType ?? a1.asset_class ?? "기타";
+                      const cls2 = a2.productType ?? a2.asset_class ?? "기타";
+                      // 1차: 자산군 총 비중 내림차순
+                      const w1 = classTotals[cls1] ?? 0;
+                      const w2 = classTotals[cls2] ?? 0;
+                      if (w1 !== w2) return w2 - w1;
+                      // 2차: 동일 자산군 내 개별 종목 평가액 내림차순
+                      return effectiveValueOf(a2) - effectiveValueOf(a1);
+                    })
+                    .map(({ a, i }) => {
+                      const assetValue = effectiveValueOf(a);
+                      const weight = totalValue > 0 ? (assetValue / totalValue) * 100 : 0;
+                      return (
+                        <AssetRow
+                          key={i}
+                          idx={i}
+                          asset={a}
+                          weight={weight}
+                          isInferring={inferringIdx === i}
+                          editingTicker={editingTickerIdx === i}
+                          onUpdate={updateRow}
+                          onRemove={removeRow}
+                          onInfer={handleSmartInference}
+                          onStartEditTicker={() => setEditingTickerIdx(i)}
+                          onEndEditTicker={() => setEditingTickerIdx(null)}
+                        />
+                      );
+                    });
                 })()}
               </tbody>
             </table>
