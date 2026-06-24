@@ -98,13 +98,17 @@ const THEME_TO_SECTOR_KO: Record<string, string> = {
   배터리:     "2차전지",
   우주:       "우주/항공",
   항공우주:   "우주/항공",
+  채권:       "채권",
+  채권형:     "채권",
+  채권ETF:    "채권",
 };
 
 // 브랜드·종목명 강제 매핑: API 결과와 무관하게 최우선 적용
 const PRIORITY_KEYWORD_MAP: Array<[RegExp, string]> = [
-  [/카카오(?!뱅크|페이)|kakao(?!bank|pay)/i,        "IT/기술"],
-  [/휴림로봇|휴림|hwirim/i,                          "로봇/기계"],
-  [/뉴스케일.?파워|뉴스케일|nuscale|\bsmr\b/i,       "에너지/전력"],
+  [/카카오(?!뱅크|페이)|kakao(?!bank|pay)/i,                                      "IT/기술"],
+  [/휴림로봇|휴림|hwirim/i,                                                        "로봇/기계"],
+  [/뉴스케일.?파워|뉴스케일|nuscale|\bsmr\b/i,                                    "에너지/전력"],
+  [/treasury|\bbond\b|채권|\bTLT\b|\bAGG\b|\bBND\b|\bIEF\b|\bSHY\b|\bTIPS\b/i,  "채권"],
 ];
 
 // 종목명·티커 키워드 → 섹터 매핑 (API 실패 시 최후 폴백)
@@ -362,7 +366,8 @@ export const runAnalysis = async (
 
       if (a.amount_type !== "quantity" || !a.name) return withKeywordSector(a);
       // 채권은 Yahoo Finance 조회 불가 — enrichedWithBonds 단계에서 buy_price × amount로 처리
-      if (a.productType === '국내채권' || a.productType === '해외채권') return withKeywordSector(a);
+      if (a.productType === '국내채권' || a.productType === '해외채권')
+        return withKeywordSector({ ...a, sector: a.sector || '채권' });
       // 현재가와 배당수익률이 모두 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
       if (a.current_price != null && a.current_price > 0 && a.dividendYield != null) return withKeywordSector(a);
 
