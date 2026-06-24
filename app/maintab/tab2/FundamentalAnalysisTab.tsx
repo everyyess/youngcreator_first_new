@@ -176,7 +176,7 @@ function TelegramDetailPanel({ state, stockName, onClose }: { state: TelegramDet
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-[13px] font-semibold text-slate-600 hover:bg-slate-100 transition"
           >
             <Send size={13} />
-            텔레그램 원문 보기
+            텔레그램 인사이트 원문 보기
           </a>
           <button
             onClick={onClose}
@@ -817,7 +817,7 @@ export default function FundamentalAnalysisTab() {
             <div>
               <p className="text-[15px] font-bold text-slate-800">{resolvedName}</p>
               <p className="text-[12px] text-slate-400">
-                {activeTab === "naver" ? "네이버 증권 리서치 리포트 · 최신 순 · 클릭하면 AI 요약" : "텔레그램 채널 · 국내·해외 증시 정보"}
+                {activeTab === "naver" ? "네이버 증권 리서치 리포트 · 최신 순 · 클릭하면 AI 요약" : "텔레그램 인사이트 채널 · 국내·해외 증시 정보"}
                 {` · 종목코드 ${selectedTicker}`}
               </p>
             </div>
@@ -859,7 +859,7 @@ export default function FundamentalAnalysisTab() {
               }`}
             >
               <Send size={13} />
-              텔레그램
+              텔레그램 인사이트
             </button>
           </div>
 
@@ -873,7 +873,7 @@ export default function FundamentalAnalysisTab() {
                   <p className="text-[15px] font-semibold text-slate-600">국내 종목 전용 서비스</p>
                   <p className="mt-2 text-[13px] text-slate-400">
                     네이버 리포트는 KOSPI·KOSDAQ 국내 상장 종목만 지원합니다.<br />
-                    해외 종목 정보는 <span className="font-semibold text-[#2f2f9d]">텔레그램</span> 탭을 이용해 주세요.
+                    해외 종목 정보는 <span className="font-semibold text-[#2f2f9d]">텔레그램 인사이트</span> 탭을 이용해 주세요.
                   </p>
                   <button
                     type="button"
@@ -881,7 +881,7 @@ export default function FundamentalAnalysisTab() {
                     className="mt-4 flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#26268a] transition"
                   >
                     <Send size={14} />
-                    텔레그램으로 이동
+                    텔레그램 인사이트로 이동
                   </button>
                 </div>
               ) : (

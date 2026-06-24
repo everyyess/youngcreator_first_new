@@ -230,6 +230,7 @@ export type PortfolioAsset = {
   productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
   bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만 사용
   bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만 사용
+  sector?: string;           // 한글 변환 섹터명 (Yahoo Finance assetProfile.sector → SECTOR_EN_TO_KO 매핑)
   // 데이터 소유권 낙인 — 로드 시 해당 고객 ID로 강제 찍힘, null이면 미확정 상태
   owner_customer_id?: string | null;
 };
@@ -577,7 +578,13 @@ async function upsertScopedPayload(
     if (!error) return;
     lastError = error.message;
   }
-  console.error(`Supabase ${table} upsert failed`, lastError, { customerId, payload });
+  // RLS 정책 위반 또는 tax_summaries 테이블 오류는 프론트엔드 동작에 영향이 없으므로 warn으로 낮춤
+  const isRls = lastError.includes("row-level security") || lastError.includes("violates row-level security");
+  if (isRls || table === "tax_summaries") {
+    console.warn(`[Supabase] ${table} upsert RLS/권한 정책으로 건너뜀 (정상 동작에 무영향)`);
+  } else {
+    console.error(`Supabase ${table} upsert failed`, lastError, { customerId, payload });
+  }
 }
 
 function rowToCustomerProfile(row: CustomerRow): CustomerProfile {
@@ -1129,10 +1136,15 @@ export async function loadAnalysisResult(customerId: CustomerId): Promise<unknow
 
 export async function saveAnalysisResult(customerId: CustomerId, result: unknown): Promise<void> {
   if (!supabase) return;
-  await narSB().upsert(
-    { customer_id: customerId, portfolio_analysis_result: result, updated_at: new Date().toISOString() },
-    { onConflict: "customer_id" },
-  );
+  try {
+    await narSB().upsert(
+      { customer_id: customerId, portfolio_analysis_result: result, updated_at: new Date().toISOString() },
+      { onConflict: "customer_id" },
+    );
+  } catch (err) {
+    // RLS 정책 위반 등 DB 저장 실패 → 콘솔 경고만 남기고 호출 측 파이프라인 계속 진행
+    console.warn("[saveAnalysisResult] Supabase 저장 실패(계속 진행):", err);
+  }
 }
 
 // ── Rebalancing State Helpers ─────────────────────────────────────────────
@@ -1263,17 +1275,22 @@ export async function loadTaxSummaries(customerId: CustomerId): Promise<{ curren
 }
 
 export async function saveTaxSummaryToDb(customerId: CustomerId, type: 'current' | 'new', summary: unknown): Promise<void> {
-  const current = await loadTaxSummaries(customerId);
-  const payload = {
-    currentSummary: type === "current" ? summary : current.currentSummary,
-    newSummary: type === "new" ? summary : current.newSummary,
-  };
-  await upsertScopedPayload(
-    "tax_summaries",
-    customerId,
-    payload,
-    [{ current_summary: payload.currentSummary, new_summary: payload.newSummary }],
-  );
+  try {
+    const current = await loadTaxSummaries(customerId);
+    const payload = {
+      currentSummary: type === "current" ? summary : current.currentSummary,
+      newSummary: type === "new" ? summary : current.newSummary,
+    };
+    await upsertScopedPayload(
+      "tax_summaries",
+      customerId,
+      payload,
+      [{ current_summary: payload.currentSummary, new_summary: payload.newSummary }],
+    );
+  } catch (err) {
+    // RLS 정책 위반 등 DB 저장 실패 → 경고만 남기고 호출 측 파이프라인 계속 진행
+    console.warn("[saveTaxSummaryToDb] Supabase 저장 실패(계속 진행):", err);
+  }
 }
 
 // ── Product Selection Helpers ─────────────────────────────────────────────

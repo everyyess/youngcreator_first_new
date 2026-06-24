@@ -57,6 +57,57 @@ const ASSET_CLASS_ALIAS: Record<string, string> = {
   "예적금/현금": "현금", 예적금: "현금",
 };
 
+// ─── 섹터 도넛 차트용 색상 팔레트 ──────────────────────────────────────────────
+const SECTOR_COLORS: Record<string, string> = {
+  "IT/기술":          "#6366F1",  // indigo
+  "반도체":           "#A855F7",  // purple
+  "반도체장비":       "#C084FC",  // purple-300
+  "소프트웨어":       "#818CF8",  // indigo-400
+  "헬스케어":         "#EC4899",  // pink
+  "바이오":           "#F472B6",  // pink-400
+  "제약":             "#FB7185",  // rose-400
+  "의료기기":         "#FDA4AF",  // rose-300
+  "금융":             "#F59E0B",  // amber
+  "금융서비스":       "#FBBF24",  // amber-400
+  "은행":             "#FCD34D",  // amber-300
+  "보험":             "#FDE68A",  // amber-200
+  "자본시장":         "#D97706",  // amber-600
+  "자산운용":         "#B45309",  // amber-700
+  "에너지":           "#EF4444",  // red
+  "신재생에너지":     "#F87171",  // red-400
+  "소재":             "#14B8A6",  // teal
+  "철강":             "#0D9488",  // teal-600
+  "화학":             "#5EEAD4",  // teal-300
+  "산업재":           "#0EA5E9",  // sky
+  "방산":             "#0284C7",  // sky-600
+  "조선":             "#38BDF8",  // sky-400
+  "전기장비":         "#BAE6FD",  // sky-200
+  "복합산업재":       "#7DD3FC",  // sky-300
+  "소비재(경기민감)": "#F97316",  // orange
+  "소비재(필수)":     "#FB923C",  // orange-400
+  "자동차":           "#FDBA74",  // orange-300
+  "유통/소매":        "#FED7AA",  // orange-200
+  "식품":             "#D4522A",  // orange-700
+  "유틸리티":         "#64748B",  // slate
+  "통신서비스":       "#334155",  // slate-700
+  "부동산/리츠":      "#8B5CF6",  // violet
+  "인터넷/플랫폼":    "#10B981",  // emerald
+  "전자제품":         "#34D399",  // emerald-400
+  "전자부품":         "#6EE7B7",  // emerald-300
+  "농업":             "#84CC16",  // lime
+  "2차전지":          "#22C55E",  // green
+  "우주/항공":        "#0EA5E9",  // sky (방산과 구분)
+  "기타":             "#94A3B8",  // slate-400
+};
+
+function getSectorColor(sector: string): string {
+  return SECTOR_COLORS[sector] ?? "#94A3B8";
+}
+
+function getSectorKo(a: PortfolioAsset): string {
+  return (a as PortfolioAsset & { sector?: string }).sector ?? "";
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function fmt(n: number, decimals = 2) { return n.toFixed(decimals); }
@@ -472,12 +523,124 @@ export function DonutChart({
   );
 }
 
+// ─── Sector Donut Chart ───────────────────────────────────────────────────────
+
+export function SectorDonutChart({
+  assets,
+  selectedSector = null,
+  onSectorClick,
+}: {
+  assets: PortfolioAsset[];
+  selectedSector?: string | null;
+  onSectorClick?: (sector: string | null) => void;
+}) {
+  const [hoveredSector, setHoveredSector] = useState<string | null>(null);
+
+  const getAssetValue = (a: PortfolioAsset): number => {
+    if (a.current_value != null && a.current_value > 0) return a.current_value;
+    if (a.amount_type === "quantity" && a.buy_price != null && a.buy_price > 0 && a.amount > 0)
+      return a.buy_price * a.amount;
+    return a.amount ?? 0;
+  };
+
+  const totalValue = assets.reduce((s, a) => s + getAssetValue(a), 0);
+
+  const bySector: Record<string, number> = {};
+  for (const a of assets) {
+    const value = getAssetValue(a);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    const pct = totalValue > 0 ? (value / totalValue) * 100 : 0;
+    if (!Number.isFinite(pct) || pct <= 0) continue;
+    const sector = getSectorKo(a) || "기타";
+    bySector[sector] = (bySector[sector] ?? 0) + pct;
+  }
+
+  const segments = Object.entries(bySector)
+    .filter(([, pct]) => pct > 0.5)
+    .sort(([, a], [, b]) => b - a);
+
+  const hasSectorData = segments.some(([s]) => s !== "기타");
+
+  const PAD_PCT = 0.8;
+  const r = 15.9155;
+  let cumulative = 0;
+  const activeSector = hoveredSector ?? selectedSector;
+  const activeSegment = activeSector ? (segments.find(([s]) => s === activeSector) ?? null) : null;
+
+  if (!hasSectorData) {
+    return (
+      <div className="flex flex-col items-center gap-6">
+        <div className="relative h-56 w-56 flex items-center justify-center">
+          <p className="text-xs text-slate-400 text-center">분석 실행 후<br />섹터 데이터가 표시됩니다.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-6">
+      <div className="relative h-56 w-56">
+        <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90" style={{ overflow: "visible" }} onMouseLeave={() => setHoveredSector(null)}>
+          <circle cx="18" cy="18" r={r} fill="none" stroke="#f1f5f9" strokeWidth="3.5" />
+          {segments.map(([sector, pct], i) => {
+            const offset = -cumulative;
+            const visiblePct = Math.max(pct - PAD_PCT, 0.5);
+            const dash = `${visiblePct.toFixed(2)} ${(100 - visiblePct).toFixed(2)}`;
+            cumulative += pct;
+            const isActive = hoveredSector === sector || selectedSector === sector;
+            return (
+              <circle key={i} cx="18" cy="18" r={r} fill="none"
+                stroke={getSectorColor(sector)}
+                strokeWidth={isActive ? "5" : "3.5"}
+                strokeDasharray={dash}
+                strokeDashoffset={offset}
+                style={{ pointerEvents: "stroke", cursor: onSectorClick ? "pointer" : "default", transition: "stroke-width 0.15s" }}
+                onMouseEnter={() => setHoveredSector(sector)}
+                onClick={() => onSectorClick?.(selectedSector === sector ? null : sector)}
+              />
+            );
+          })}
+        </svg>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          {activeSegment ? (
+            <div className="text-center leading-tight">
+              <p className="text-sm font-bold text-navy">{activeSegment[0]}</p>
+              <p className="text-base font-bold text-samsung">{activeSegment[1].toFixed(1)}%</p>
+            </div>
+          ) : (
+            <div className="text-center leading-tight">
+              <p className="text-sm text-slate-400">섹터별 비중</p>
+              <p className="text-xs font-bold text-slate-500">{segments.length}개 섹터</p>
+            </div>
+          )}
+        </div>
+      </div>
+      {/* 섹터 범례 */}
+      <div className="grid w-full max-w-sm grid-cols-2 gap-x-4 gap-y-1.5 text-xs font-semibold">
+        {segments.map(([sector, pct]) => (
+          <div key={sector}
+            className={`flex items-center gap-1.5 rounded px-1.5 py-1 transition-colors ${hoveredSector === sector || selectedSector === sector ? "bg-slate-100" : ""} ${onSectorClick ? "cursor-pointer" : "cursor-default"}`}
+            onMouseEnter={() => setHoveredSector(sector)}
+            onMouseLeave={() => setHoveredSector(null)}
+            onClick={() => onSectorClick?.(selectedSector === sector ? null : sector)}
+          >
+            <span className="h-3 w-3 shrink-0 rounded-lg" style={{ backgroundColor: getSectorColor(sector) }} />
+            <span className="truncate text-slate-600">{sector}</span>
+            <span className="ml-auto shrink-0 font-bold text-navy">{pct.toFixed(1)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Asset Class Table (도넛 연동 사이드 테이블) ──────────────────────────────
 
 export function AssetClassTable({
   assets,
   initialAssets,
   filteredClass,
+  filteredSector,
   totalPortfolioValue,
   rebalancingInfos,
   onBadgeClick,
@@ -485,6 +648,7 @@ export function AssetClassTable({
   assets: PortfolioAsset[];
   initialAssets?: PortfolioAsset[];
   filteredClass: string | null;
+  filteredSector: string | null;
   totalPortfolioValue: number;
   rebalancingInfos?: Map<string, RebalancingStatusInfo>;
   onBadgeClick?: (info: RebalancingStatusInfo) => void;
@@ -507,26 +671,26 @@ export function AssetClassTable({
       .filter((info): info is RebalancingStatusInfo => info?.status === "매도");
   }, [rebalancingInfos, initialAssets]);
 
-  // 도넛 차트 클릭 시 filteredClass === productType 이므로 === 엄격 비교로 격리
-  const displayedActive = filteredClass
-    ? assets.filter((a) => (a.productType ?? a.asset_class ?? "기타") === filteredClass)
-    : assets;
-  // 매도 종목 필터 — assetClass는 computeRebalancingInfo에서 normalizeAssetClass로 계산됨
-  // normalizeAssetClass는 "해외주식"/"해외ETF" 별칭 없음 → 직접 비교 안전
-  const displayedSold = filteredClass
-    ? soldInfos.filter((info) => (info.productType || info.assetClass) === filteredClass)
-    : soldInfos;
+  // AND 교차 필터링: filteredClass AND filteredSector 동시 적용
+  const displayedActive = assets.filter((a) => {
+    const matchClass  = !filteredClass  || (a.productType ?? a.asset_class ?? "기타") === filteredClass;
+    const matchSector = !filteredSector || (getSectorKo(a) || "기타") === filteredSector;
+    return matchClass && matchSector;
+  });
+  const displayedSold = soldInfos.filter((info) => {
+    const matchClass = !filteredClass || (info.productType || info.assetClass) === filteredClass;
+    return matchClass; // 매도 종목은 sector 데이터 없으므로 class만 필터
+  });
 
   const hasRebalancing = !!rebalancingInfos;
-  const colCount = hasRebalancing ? 5 : 4;
+  const colCount = hasRebalancing ? 6 : 5;
 
   const renderRow = (a: PortfolioAsset) => {
     const cls = a.productType ?? a.asset_class ?? "기타";
+    const sectorKo = getSectorKo(a);
     const val = getAssetValueGeneric(a);
     const classTotal = classTotals[cls] ?? 0;
-    // 자산군 내 비중 = 해당 종목 평가액 / 해당 자산군 총합산 평가액
     const classWeight = classTotal > 0 ? (val / classTotal) * 100 : 0;
-    // 전체 비중 = 해당 종목 평가액 / 포트폴리오 전체 총 가치액
     const totalWeight = totalPortfolioValue > 0 ? (val / totalPortfolioValue) * 100 : 0;
     const key = assetKey(a) || `${a.name}-${cls}`;
     const info = rebalancingInfos?.get(assetKey(a));
@@ -534,6 +698,18 @@ export function AssetClassTable({
     return (
       <tr key={key} className="bg-white hover:bg-slate-50">
         <td className="px-2 py-2 text-left text-xs font-semibold text-navy max-w-0 truncate">{a.name}</td>
+        <td className="px-2 py-2 text-center">
+          {sectorKo ? (
+            <span
+              className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
+              style={{ backgroundColor: getSectorColor(sectorKo) + "22", color: getSectorColor(sectorKo) }}
+            >
+              {sectorKo}
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-300">—</span>
+          )}
+        </td>
         <td className="px-2 py-2 text-center">
           <span
             className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
@@ -567,6 +743,7 @@ export function AssetClassTable({
   const renderSoldRow = (info: RebalancingStatusInfo) => (
     <tr key={info.key} className="opacity-55 bg-white hover:bg-red-50">
       <td className="px-2 py-2 text-left text-xs font-semibold text-slate-500 max-w-0 truncate">{info.name}</td>
+      <td className="px-2 py-2 text-center text-[10px] text-slate-300">—</td>
       <td className="px-2 py-2 text-center">
         <span
           className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap"
@@ -589,27 +766,41 @@ export function AssetClassTable({
     </tr>
   );
 
+  // 필터 안내 문구 생성
+  const filterLabel = (() => {
+    const parts: string[] = [];
+    if (filteredClass)  parts.push(CLASS_DISPLAY_LABELS[filteredClass]  ?? filteredClass);
+    if (filteredSector) parts.push(filteredSector);
+    return parts.join(" 및 ");
+  })();
+
   return (
     <div className="flex flex-col gap-1.5">
-      {filteredClass && (
+      {(filteredClass || filteredSector) && (
         <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5">
-          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: CLASS_COLORS[filteredClass] ?? "#94a3b8" }} />
+          {filteredClass && (
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: CLASS_COLORS[filteredClass] ?? "#94a3b8" }} />
+          )}
+          {filteredSector && (
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: getSectorColor(filteredSector) }} />
+          )}
           <span className="text-xs font-bold text-samsung">
-            {CLASS_DISPLAY_LABELS[filteredClass] ?? filteredClass} 필터링 중
+            {filterLabel} 필터링 중
           </span>
-          <span className="ml-auto text-[10px] text-slate-400">슬라이스를 다시 클릭하면 전체 보기로 복귀</span>
+          <span className="ml-auto text-[10px] text-slate-400">슬라이스를 다시 클릭하면 해제</span>
         </div>
       )}
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full table-fixed text-xs">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
-              <th className="w-[30%] px-2 py-2 text-left text-[10px] font-bold text-slate-500 whitespace-nowrap">종목명</th>
-              <th className="w-[22%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">종목유형</th>
-              <th className="w-[18%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">자산군 내 비중</th>
-              <th className="w-[15%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">전체 비중</th>
+              <th className="w-[24%] px-2 py-2 text-left text-[10px] font-bold text-slate-500 whitespace-nowrap">종목명</th>
+              <th className="w-[14%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">섹터</th>
+              <th className="w-[16%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">종목유형</th>
+              <th className="w-[16%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">자산군 내</th>
+              <th className="w-[14%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">전체 비중</th>
               {hasRebalancing && (
-                <th className="w-[15%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">변동 상태</th>
+                <th className="w-[16%] px-2 py-2 text-center text-[10px] font-bold text-slate-500 whitespace-nowrap">변동 상태</th>
               )}
             </tr>
           </thead>
@@ -621,7 +812,7 @@ export function AssetClassTable({
               : (
                 <tr>
                   <td colSpan={colCount} className="py-5 text-center text-xs text-slate-400">
-                    {filteredClass ? "해당 자산군에 속한 종목이 없습니다." : "표시할 종목이 없습니다."}
+                    {(filteredClass || filteredSector) ? "선택한 필터 조건에 해당하는 종목이 없습니다." : "표시할 종목이 없습니다."}
                   </td>
                 </tr>
               )}
@@ -659,7 +850,8 @@ export function InteractiveDonutWithTable({
   initialAssets?: PortfolioAsset[];
   showRebalancing?: boolean;
 }) {
-  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+  const [selectedClass,  setSelectedClass]  = useState<string | null>(null);
+  const [selectedSector, setSelectedSector] = useState<string | null>(null);
   const [modalInfo, setModalInfo] = useState<RebalancingStatusInfo | null>(null);
 
   const rebalancingInfos = useMemo<Map<string, RebalancingStatusInfo> | undefined>(() => {
@@ -673,16 +865,34 @@ export function InteractiveDonutWithTable({
   );
 
   return (
-    <div className="flex flex-col gap-5">
-      <DonutChart
-        assets={assets}
-        selectedClass={selectedClass}
-        onSegmentClick={setSelectedClass}
-      />
+    <div className="flex flex-col gap-6">
+      {/* 두 도넛 차트 50:50 나란히 배치 */}
+      <div className="grid grid-cols-2 gap-6">
+        {/* 왼쪽: 자산군별 비중 (50%) */}
+        <div className="flex min-w-0 flex-col items-center gap-2">
+          <p className="text-center text-[11px] font-bold uppercase tracking-wider text-slate-400">자산군별 비중</p>
+          <DonutChart
+            assets={assets}
+            selectedClass={selectedClass}
+            onSegmentClick={setSelectedClass}
+          />
+        </div>
+        {/* 오른쪽: 섹터별 비중 (50%) */}
+        <div className="flex min-w-0 flex-col items-center gap-2">
+          <p className="text-center text-[11px] font-bold uppercase tracking-wider text-slate-400">보유 종목 섹터 비중</p>
+          <SectorDonutChart
+            assets={assets}
+            selectedSector={selectedSector}
+            onSectorClick={setSelectedSector}
+          />
+        </div>
+      </div>
+      {/* AND 교차 필터 연동 하단 테이블 */}
       <AssetClassTable
         assets={assets}
         initialAssets={initialAssets}
         filteredClass={selectedClass}
+        filteredSector={selectedSector}
         totalPortfolioValue={totalPortfolioValue}
         rebalancingInfos={rebalancingInfos}
         onBadgeClick={setModalInfo}
@@ -1261,14 +1471,22 @@ export function HoldingAndDiagnosisSection({ data }: { data: PortfolioAnalysisRe
   const enrichedAssets: PortfolioAsset[] = Array.isArray(data.enrichedAssets)
     ? (data.enrichedAssets as PortfolioAsset[])
     : [];
-  const { portfolioIssueSummary, healthResult, stressResult } = data as typeof data & { stressResult?: unknown };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { healthResult, stressResult } = data as typeof data & { stressResult?: any };
+
+  // 핵심 이슈 데이터 파싱 (PortfolioIssueBanner 로직 인라인)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const issueItems: any[] = healthResult?.items ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const problemItems = issueItems.filter((it: any) => it.score === 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cautionItems = issueItems.filter((it: any) => it.score === 1);
+  const aiCommentary = extractAiCommentary(healthResult?.summary ?? "");
+  const stressDiagnosis: string = stressResult?.diagnosis ?? "";
+  const hasIssues = problemItems.length > 0 || cautionItems.length > 0 || !!aiCommentary || !!stressDiagnosis;
 
   return (
     <div className="space-y-5">
-      {portfolioIssueSummary && healthResult && (
-        <PortfolioIssueBanner healthResult={healthResult} stressResult={stressResult} />
-      )}
-
       <ResultCard icon={<WalletCards size={18} />} title="보유 자산 성과 (현재가 · 수익률)" accent="slate">
         <HoldingPerformanceTable assets={enrichedAssets} />
         {!enrichedAssets.filter((a) => a.name).length && (
@@ -1279,7 +1497,79 @@ export function HoldingAndDiagnosisSection({ data }: { data: PortfolioAnalysisRe
       {healthResult && (
         <ResultCard icon={<Activity size={18} />} title="포트폴리오 건강 진단" accent="blue">
           <div className="space-y-4">
+            {/* 1. 총합 점수 */}
             <HealthBadge badge={healthResult.badge} badgeKo={healthResult.badgeKo} totalScore={healthResult.totalScore} />
+
+            {/* 2. 핵심 이슈 — 점수 바로 아래 통합 패널 */}
+            {hasIssues && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0 text-red-500" />
+                  <span className="text-xs font-extrabold uppercase tracking-widest text-red-600">
+                    포트폴리오 핵심 이슈
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  {problemItems.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1 text-xs font-bold text-red-600">
+                        <span>❌</span> 위험 항목
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {problemItems.map((it: any) => (
+                          <span
+                            key={it.key}
+                            title={it.detail}
+                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                              it.penalty
+                                ? "border-red-300 bg-red-100 text-red-800"
+                                : "border-red-200 bg-red-50 text-red-700"
+                            }`}
+                          >
+                            {it.penalty ? "🔴" : "•"} {it.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {cautionItems.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 flex items-center gap-1 text-xs font-bold text-amber-600">
+                        <span>⚠️</span> 주의 항목
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                        {cautionItems.map((it: any) => (
+                          <span
+                            key={it.key}
+                            title={it.detail}
+                            className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800"
+                          >
+                            • {it.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(aiCommentary || stressDiagnosis) && (
+                    <div className="border-t border-slate-200 pt-3 space-y-1">
+                      <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+                        AI 리밸런싱 제언
+                      </p>
+                      {aiCommentary && (
+                        <p className="text-xs font-semibold leading-relaxed text-slate-700">{aiCommentary}</p>
+                      )}
+                      {stressDiagnosis && (
+                        <p className="text-xs leading-relaxed text-slate-500">{stressDiagnosis}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 3. 진단 항목 상세 그리드 */}
             <div className="grid gap-1.5">
               {healthResult.items?.map(
                 (item: { key: string; label: string; score: number; grade: string; detail: string; penalty?: boolean }, i: number) => (
@@ -1295,6 +1585,8 @@ export function HoldingAndDiagnosisSection({ data }: { data: PortfolioAnalysisRe
                 )
               )}
             </div>
+
+            {/* 4. 진단 게이지 요약 */}
             {healthResult.summary && <HealthSummaryBox healthResult={healthResult} />}
           </div>
         </ResultCard>

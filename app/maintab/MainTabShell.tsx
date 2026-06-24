@@ -832,7 +832,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
     const confirmedOperatingAssetsAfterBuy = sumPortfolioCurrentValue(rebalancingBuyMapRef.current[cid] ?? []);
-    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterBuy, confirmedBuyAmount: null }));
+    updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterBuy }));
   }, [updateHeaderAssetSummary]);
 
   const resetRebalancingBuySummary = useCallback(() => {
@@ -920,7 +920,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       ...current,
       confirmedOperatingAssetsAfterSell: c,
       confirmedOperatingAssetsAfterBuy: null,
-      confirmedBuyAmount: null,
+      // confirmedBuyAmount는 리셋하지 않음 — 매도와 매수 비용은 독립 누적 (수식: d = b + (a-c) - buySpent)
     }));
   }, [updateHeaderAssetSummary]); // stable — 모든 읽기는 Ref 기반
 

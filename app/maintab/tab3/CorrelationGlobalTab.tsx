@@ -29,7 +29,7 @@ export default function CorrelationGlobalTab({
   savedState?: CorrelationAnalysisState;
   onStateChange?: (state: CorrelationAnalysisState) => void;
 }) {
-  const { riskResult, setConfirmedGlobalPair } = useCustomerContext();
+  const { riskResult, setConfirmedGlobalPair, selectedCustomer } = useCustomerContext();
   const initStrategy = scoreToStrategy(riskResult.score);
   const expectedStrategy = scoreToStrategy(riskResult.score);
 
@@ -82,16 +82,16 @@ export default function CorrelationGlobalTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedState?.strategy, savedState?.k, isMounted]);
 
-  // riskResult.score 변경 시 전략 동기화 — 마운트 전 스킵
+  // riskResult.score / 고객 변경 시 전략 동기화 — 마운트 완료 후 실행
   useEffect(() => {
     if (!isMounted) return;
-    if (savedState?.strategy) return;
     const next = scoreToStrategy(riskResult.score);
+    if (next === strategy) return;
     setStrategy(next);
     setLoading(true);
     setActiveSrc(buildSrc(next, kRef.current, savedState?.lockedTicker));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [riskResult.score]);
+  }, [riskResult.score, selectedCustomer, isMounted]);
 
   const handleApply = useCallback(() => {
     setLoading(true);

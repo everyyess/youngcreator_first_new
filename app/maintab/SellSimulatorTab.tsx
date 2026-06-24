@@ -154,31 +154,30 @@ export default function SellSimulatorTab() {
     [baseAssets, selectedKey],
   );
 
-  // 탭 3-3과 동일 기준: 국내 → 해외 → 기타, 같은 유형 내 productType 알파벳순
-  const sortedCards = useMemo(() => {
-    const marketGroup = (x: PortfolioAsset): number => {
-      const k = (x.productType ?? x.asset_class ?? "").trim();
-      if (k.startsWith("국내")) return 0;
-      if (k.startsWith("해외")) return 1;
-      return 2;
-    };
-    return [...baseAssets].sort((a, b) => {
-      const d = marketGroup(a) - marketGroup(b);
-      return d !== 0 ? d : (a.productType ?? "").localeCompare(b.productType ?? "");
-    });
-  }, [baseAssets]);
-
-  // 탭 3-3과 동일하게 productType별 그룹화
+  // 3개 독립 행: [국내주식+국내ETF] / [해외주식+해외ETF] / [채권(국내→해외 순)]
   const groupedCards = useMemo(() => {
-    const groups: { type: string; assets: PortfolioAsset[] }[] = [];
-    for (const a of sortedCards) {
-      const type = a.productType ?? a.asset_class ?? "기타";
-      const last = groups[groups.length - 1];
-      if (last && last.type === type) last.assets.push(a);
-      else groups.push({ type, assets: [a] });
+    const domestic: PortfolioAsset[] = [];
+    const foreign: PortfolioAsset[] = [];
+    const bonds: PortfolioAsset[] = [];
+    const others: PortfolioAsset[] = [];
+    for (const a of baseAssets) {
+      const pt = (a.productType ?? a.asset_class ?? "").trim();
+      if (pt === "국내주식" || pt === "국내ETF") domestic.push(a);
+      else if (pt === "해외주식" || pt === "해외ETF") foreign.push(a);
+      else if (pt.includes("채권")) bonds.push(a);
+      else others.push(a);
     }
-    return groups;
-  }, [sortedCards]);
+    bonds.sort((a, b) => {
+      const o = (p: string) => p === "국내채권" ? 0 : p === "해외채권" ? 1 : 2;
+      return o(a.productType ?? "") - o(b.productType ?? "");
+    });
+    return [
+      { type: "국내", assets: domestic },
+      { type: "해외", assets: foreign },
+      { type: "채권", assets: bonds },
+      ...(others.length ? [{ type: "기타", assets: others }] : []),
+    ].filter((r) => r.assets.length > 0);
+  }, [baseAssets]);
 
   const maxQty = selectedAsset?.amount_type === "quantity" ? (selectedAsset.amount ?? 0) : 0;
 
