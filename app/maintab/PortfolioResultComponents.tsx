@@ -100,6 +100,7 @@ const SECTOR_COLORS: Record<string, string> = {
   "농업":             "#84CC16",  // lime
   "2차전지":          "#22C55E",  // green
   "우주/항공":        "#0EA5E9",  // sky (방산과 구분)
+  "채권":             "#3B82F6",  // blue-500
   "기타":             "#94A3B8",  // slate-400
 };
 
@@ -353,6 +354,50 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
   const rows = [...assets.filter((a) => a.name)]
     .sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? ""));
   if (!rows.length) return null;
+
+  // 행별 계산을 사전 집계 → 합계 행 연산에 재사용
+  const computed = rows.map((a) => {
+    const cpRaw = Number(a.current_price);
+    const cp: number | null = Number.isFinite(cpRaw) && cpRaw > 0 ? cpRaw : null;
+    const bpRaw = Number(a.buy_price);
+    const bp: number | null = Number.isFinite(bpRaw) && bpRaw > 0 ? bpRaw : null;
+    const qty = a.amount;
+    const totalCost: number | null = a.amount_type === "value" ? qty : bp !== null ? qty * bp : null;
+    const totalCurrentValue: number | null = cp === null ? null : a.amount_type === "quantity" ? qty * cp : bp !== null ? (qty / bp) * cp : null;
+    const costBasis: number | null = a.amount_type === "quantity" && bp !== null && qty > 0 ? qty * bp : null;
+    const displayValue: number | null = totalCurrentValue !== null
+      ? totalCurrentValue
+      : a.amount_type === "value"
+        ? (typeof a.current_value === "number" ? a.current_value : typeof a.amount === "number" ? a.amount : null)
+        : costBasis;
+    const gainPct: number | null = cp !== null && bp !== null ? ((cp - bp) / bp) * 100 : null;
+    const gainAmt: number | null = totalCurrentValue !== null && totalCost !== null ? totalCurrentValue - totalCost : null;
+    return { a, cp, bp, displayValue, gainPct, gainAmt };
+  });
+
+  // 합계 집계
+  let sumDisplayValue = 0;
+  let sumGainAmt = 0;
+  let sumValueForReturn = 0; // gainAmt도 있는 행의 displayValue 합산
+  let sumCostForReturn = 0;  // gainAmt도 있는 행의 (displayValue - gainAmt) 합산
+  let hasAnyValue = false;
+  let hasAnyGain = false;
+  for (const { displayValue, gainAmt } of computed) {
+    if (displayValue !== null) { sumDisplayValue += displayValue; hasAnyValue = true; }
+    if (gainAmt !== null) { sumGainAmt += gainAmt; hasAnyGain = true; }
+    if (displayValue !== null && gainAmt !== null) {
+      sumValueForReturn += displayValue;
+      sumCostForReturn  += displayValue - gainAmt;
+    }
+  }
+  // 포트폴리오 총 수익률: (전체 평가금액 / 전체 매수금액) - 1
+  const totalReturnPct: number | null =
+    sumCostForReturn > 0 ? (sumValueForReturn / sumCostForReturn - 1) * 100 : null;
+  const sumIsPos = hasAnyGain && sumGainAmt > 0;
+  const sumIsNeg = hasAnyGain && sumGainAmt < 0;
+  const retIsPos = totalReturnPct !== null && totalReturnPct > 0;
+  const retIsNeg = totalReturnPct !== null && totalReturnPct < 0;
+
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200">
       {/* table-fixed: 열 너비를 th 기준으로 고정 → 셀 내용 길이에 따른 열 가변 차단 */}
@@ -369,24 +414,7 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {rows.map((a, i) => {
-            // Number() 변환으로 JSON/Supabase에서 문자열로 역직렬화된 경우도 처리
-            const cpRaw = Number(a.current_price);
-            const cp: number | null = Number.isFinite(cpRaw) && cpRaw > 0 ? cpRaw : null;
-            const bpRaw = Number(a.buy_price);
-            const bp: number | null = Number.isFinite(bpRaw) && bpRaw > 0 ? bpRaw : null;
-            const qty = a.amount;
-            const totalCost: number | null = a.amount_type === "value" ? qty : bp !== null ? qty * bp : null;
-            const totalCurrentValue: number | null = cp === null ? null : a.amount_type === "quantity" ? qty * cp : bp !== null ? (qty / bp) * cp : null;
-            // 현재가 없을 때 매수 원가(bp × qty)를 평가금액 폴백으로 사용 → 열이 빈 것처럼 보이는 문제 해소
-            const costBasis: number | null = a.amount_type === "quantity" && bp !== null && qty > 0 ? qty * bp : null;
-            const displayValue: number | null = totalCurrentValue !== null
-              ? totalCurrentValue
-              : a.amount_type === "value"
-                ? (typeof a.current_value === "number" ? a.current_value : typeof a.amount === "number" ? a.amount : null)
-                : costBasis;
-            const gainPct: number | null = cp !== null && bp !== null ? ((cp - bp) / bp) * 100 : null;
-            const gainAmt: number | null = totalCurrentValue !== null && totalCost !== null ? totalCurrentValue - totalCost : null;
+          {computed.map(({ a, cp, bp, displayValue, gainPct, gainAmt }, i) => {
             const isPos = gainAmt !== null && gainAmt > 0;
             const isNeg = gainAmt !== null && gainAmt < 0;
             return (
@@ -426,6 +454,31 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
             );
           })}
         </tbody>
+        <tfoot className="border-t-2 border-slate-300 bg-slate-50">
+          <tr>
+            <td className="px-3 py-2.5 text-left text-xs font-bold text-slate-700">합계</td>
+            <td className="px-2 py-2.5 bg-white"></td>
+            <td className="pl-2 pr-4 py-2.5 bg-white"></td>
+            <td className="pl-2 pr-4 py-2.5 bg-white"></td>
+            <td className="pl-2 pr-4 py-2.5 text-right text-xs font-bold text-navy">
+              {hasAnyValue ? fmtWon(sumDisplayValue) : <span className="text-slate-300">—</span>}
+            </td>
+            <td className="pl-2 pr-4 py-2.5 text-right text-xs font-bold">
+              {totalReturnPct !== null ? (
+                <span className={retIsPos ? "text-emerald-600" : retIsNeg ? "text-red-600" : "text-slate-400"}>
+                  {totalReturnPct >= 0 ? "+" : ""}{totalReturnPct.toFixed(2)}%
+                </span>
+              ) : <span className="text-slate-300">—</span>}
+            </td>
+            <td className="pl-2 pr-4 py-2.5 text-right text-xs font-bold">
+              {hasAnyGain ? (
+                <span className={sumIsPos ? "text-emerald-600" : sumIsNeg ? "text-red-600" : "text-slate-400"}>
+                  {sumGainAmt >= 0 ? "+" : ""}{fmtWon(sumGainAmt)}
+                </span>
+              ) : <span className="text-slate-300">—</span>}
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
