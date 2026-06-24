@@ -8,15 +8,15 @@ const SECTOR_EN_TO_KO: Record<string, string> = {
   Financials:                   "금융",
   "Financial Services":         "금융서비스",
   "Consumer Discretionary":     "소비재(경기민감)",
-  "Consumer Cyclical":          "소비재(경기민감)",
+  "Consumer Cyclical":          "경기소비재",
   "Consumer Staples":           "소비재(필수)",
   "Consumer Defensive":         "소비재(필수)",
   Energy:                       "에너지",
   Materials:                    "소재",
   Industrials:                  "산업재",
-  Utilities:                    "유틸리티",
+  Utilities:                    "에너지/전력",
   "Real Estate":                "부동산/리츠",
-  "Communication Services":     "통신서비스",
+  "Communication Services":     "IT/기술",
   "Basic Materials":            "소재",
   // 세부 산업 (assetProfile.industry)
   Semiconductors:               "반도체",
@@ -50,7 +50,7 @@ const SECTOR_EN_TO_KO: Record<string, string> = {
   Marine:                       "조선",
   "Shipbuilding":               "조선",
   "Electrical Equipment":       "전기장비",
-  "Electric Utilities":         "유틸리티",
+  "Electric Utilities":         "에너지/전력",
   "Renewable Utilities":        "신재생에너지",
   "Diversified Industrials":    "복합산업재",
   "Capital Markets":            "자본시장",
@@ -100,6 +100,13 @@ const THEME_TO_SECTOR_KO: Record<string, string> = {
   항공우주:   "우주/항공",
 };
 
+// 브랜드·종목명 강제 매핑: API 결과와 무관하게 최우선 적용
+const PRIORITY_KEYWORD_MAP: Array<[RegExp, string]> = [
+  [/카카오(?!뱅크|페이)|kakao(?!bank|pay)/i,        "IT/기술"],
+  [/휴림로봇|휴림|hwirim/i,                          "로봇/기계"],
+  [/뉴스케일.?파워|뉴스케일|nuscale|\bsmr\b/i,       "에너지/전력"],
+];
+
 // 종목명·티커 키워드 → 섹터 매핑 (API 실패 시 최후 폴백)
 // 패턴 순서: 긴 패턴 / 더 구체적인 패턴이 앞에 오도록 정렬
 const KEYWORD_SECTOR_MAP: Array<[RegExp, string]> = [
@@ -136,7 +143,7 @@ const KEYWORD_SECTOR_MAP: Array<[RegExp, string]> = [
   [/meta.?(platform)?|facebook/i,              "인터넷/플랫폼"],
   [/amazon|amzn/i,                              "인터넷/플랫폼"],
   [/naver|NAVER/i,                              "인터넷/플랫폼"],
-  [/kakao(?!bank|pay)/i,                        "인터넷/플랫폼"],
+  [/카카오(?!뱅크|페이)|kakao(?!bank|pay)/i,     "IT/기술"],
   [/coupang|쿠팡/i,                             "인터넷/플랫폼"],
   // ── 방산/우주 ──────────────────────────────────────────
   [/rocket.?lab|rklb/i,                        "우주/항공"],
@@ -201,6 +208,15 @@ function resolveSectorByKeyword(name: string | undefined, ticker: string | undef
   return "";
 }
 
+function resolveSectorByPriorityKeyword(name: string | undefined, ticker: string | undefined): string {
+  const haystack = [name, ticker].filter(Boolean).join(" ");
+  if (!haystack) return "";
+  for (const [pattern, sector] of PRIORITY_KEYWORD_MAP) {
+    if (pattern.test(haystack)) return sector;
+  }
+  return "";
+}
+
 function resolveSectorKo(
   sectorEn: string | null | undefined,
   industryEn: string | null | undefined,
@@ -208,6 +224,9 @@ function resolveSectorKo(
   name?: string,
   ticker?: string,
 ): string {
+  // 0순위: 브랜드 강제 매핑 (API 무관 최우선 적용)
+  const priority = resolveSectorByPriorityKeyword(name, ticker);
+  if (priority) return priority;
   // 1순위: industry(세부) 영어 매핑
   if (industryEn) {
     const mapped = SECTOR_EN_TO_KO[industryEn];
@@ -229,7 +248,8 @@ function resolveSectorKo(
   // 4순위: 종목명/티커 키워드 기반 강력 폴백
   const fromKeyword = resolveSectorByKeyword(name, ticker);
   if (fromKeyword) return fromKeyword;
-  return "";
+  // 5순위: 기본값 — 섹터 미분류 종목도 도넛 차트 합산에 포함
+  return "기타";
 }
 
 // ─── Korean number parsing utility ───────────────────────────────────────────

@@ -88,7 +88,10 @@ const SECTOR_COLORS: Record<string, string> = {
   "자동차":           "#FDBA74",  // orange-300
   "유통/소매":        "#FED7AA",  // orange-200
   "식품":             "#D4522A",  // orange-700
-  "유틸리티":         "#64748B",  // slate
+  "유틸리티":         "#64748B",  // slate (구 매핑 호환)
+  "에너지/전력":      "#DC2626",  // red-600
+  "경기소비재":       "#F97316",  // orange (Consumer Cyclical)
+  "로봇/기계":        "#7C3AED",  // violet-700
   "통신서비스":       "#334155",  // slate-700
   "부동산/리츠":      "#8B5CF6",  // violet
   "인터넷/플랫폼":    "#10B981",  // emerald
@@ -807,7 +810,16 @@ export function AssetClassTable({
           <tbody className="divide-y divide-slate-100">
             {displayedActive.length > 0
               ? [...displayedActive]
-                  .sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? ""))
+                  .sort((a, b) => {
+                    const clsA = a.productType ?? a.asset_class ?? "기타";
+                    const clsB = b.productType ?? b.asset_class ?? "기타";
+                    // 1차: 자산군 총 비중 내림차순 (도넛 차트 범례 순서와 일치)
+                    const wA = classTotals[clsA] ?? 0;
+                    const wB = classTotals[clsB] ?? 0;
+                    if (wA !== wB) return wB - wA;
+                    // 2차: 동일 자산군 내 개별 종목 평가액(= 자산군 내 비중) 내림차순
+                    return getAssetValueGeneric(b) - getAssetValueGeneric(a);
+                  })
                   .map((a) => renderRow(a))
               : (
                 <tr>
@@ -828,7 +840,12 @@ export function AssetClassTable({
                   </td>
                 </tr>
                 {[...displayedSold]
-                  .sort((a, b) => (a.productType ?? "").localeCompare(b.productType ?? ""))
+                  .sort((a, b) => {
+                    const wA = classTotals[a.productType ?? "기타"] ?? 0;
+                    const wB = classTotals[b.productType ?? "기타"] ?? 0;
+                    if (wA !== wB) return wB - wA;
+                    return (b.prevTotalWeight ?? 0) - (a.prevTotalWeight ?? 0);
+                  })
                   .map((info) => renderSoldRow(info))}
               </>
             )}
