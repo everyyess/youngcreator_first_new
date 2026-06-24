@@ -25,20 +25,27 @@ const CATEGORY_SOURCES: Record<NewsCategory, { page: string; feeds: string[] }> 
   },
 };
 
-// 경제·산업과 무관한 카테고리의 URL 세그먼트 — 해당 패턴이 링크에 포함되면 제외
+// 경제·산업과 무관한 카테고리의 URL 세그먼트
 const BLOCKED_URL_SEGMENTS = [
   "/life/", "/beauty/", "/fashion/", "/health/", "/food/",
   "/realestate/", "/politics/", "/society/", "/culture/",
   "/sports/", "/entertainment/", "/travel/", "/opinion/", "/column/",
 ];
 
-// RSS <category> 태그에 포함된 경우 제외할 한글 키워드
+// RSS <category> 태그에 포함된 경우 제외할 키워드
 const BLOCKED_CATEGORY_SUBSTRINGS = [
   "뷰티", "패션", "라이프", "부동산", "정치", "사회", "문화",
   "스포츠", "연예", "건강", "여행", "오피니언", "칼럼",
+  "소비재", "유통", "식음료", "맛집", "생활", "트렌드", "웰빙", "푸드",
 ];
 
-function isArticleBlocked(link: string, categories: string[]): boolean {
+// 제목에 포함되면 경제/산업 기사로 보기 어려운 소비·라이프스타일 키워드
+const BLOCKED_TITLE_KEYWORDS = [
+  "망고", "디저트", "맛집", "레시피", "다이어트", "맛있", "음식점",
+  "뷰티", "패션", "여행", "결혼식", "육아", "반려",
+];
+
+function isArticleBlocked(link: string, categories: string[], title = ""): boolean {
   const lowerLink = link.toLowerCase();
   if (BLOCKED_URL_SEGMENTS.some((seg) => lowerLink.includes(seg))) return true;
 
@@ -46,6 +53,8 @@ function isArticleBlocked(link: string, categories: string[]): boolean {
     const catText = categories.join(" ");
     if (BLOCKED_CATEGORY_SUBSTRINGS.some((sub) => catText.includes(sub))) return true;
   }
+
+  if (title && BLOCKED_TITLE_KEYWORDS.some((kw) => title.includes(kw))) return true;
 
   return false;
 }
@@ -100,11 +109,11 @@ function parseRss(xml: string): NewsArticle[] {
     const link = tagValue(item, "link");
     const categories = tagValues(item, "category");
 
-    // 경제·산업 외 카테고리 필터링
-    if (isArticleBlocked(link, categories)) continue;
-
     const title = tagValue(item, "title");
     if (!title || !link) continue;
+
+    // 경제·산업 외 카테고리·제목 필터링
+    if (isArticleBlocked(link, categories, title)) continue;
 
     const pubDate = tagValue(item, "pubDate");
     results.push({
@@ -126,7 +135,6 @@ function extractMainContent(html: string): string {
     "많이 본 기사",
     "실시간 뉴스",
     "인기 기사",
-    "주요 기사",
     "<aside",
     'id="aside',
     'class="aside',
@@ -160,6 +168,7 @@ function parseHankyungHtml(html: string): NewsArticle[] {
 
     const title = innerHtml.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
     if (title.length < 5) continue;
+    if (isArticleBlocked(link, [], title)) continue;
 
     seen.add(link);
 
