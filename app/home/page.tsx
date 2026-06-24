@@ -363,7 +363,7 @@ export default function HomePage() {
     let cancelled = false;
     async function loadMarketCalendar() {
       try {
-        const response = await fetch("/api/market/calendar");
+        const response = await fetch("/api/market/calendar/all");
         const body = await response.json();
         if (!cancelled && response.ok && Array.isArray(body.data)) setMarketCalendarEvents(body.data);
       } catch {
@@ -510,7 +510,6 @@ export default function HomePage() {
   const selectedSessions = useMemo(() => sessions.filter((session) => session.customerId === selectedCustomerId).sort(sortSessionsNewest), [sessions, selectedCustomerId]);
   const today = todayDate();
   const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && session.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions, today]);
-  const recentCompleted = useMemo(() => [...sessions].filter((session) => session.status === "completed").sort(sortSessionsNewest).slice(0, 3), [sessions]);
   const expandedSession = sessions.find((session) => session.id === expandedSessionId) ?? null;
 
   const openCreateForm = () => {
@@ -646,7 +645,6 @@ export default function HomePage() {
                 </button>
               ) : null}
               <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
-              <SideSection title="최근 상담 내역" sessions={recentCompleted} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
               <RightPanelCalendar sessions={sessions} customers={customers} marketEvents={marketCalendarEvents} />
             </div>
           ) : null}

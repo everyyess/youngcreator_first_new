@@ -140,40 +140,60 @@ function translateTitle(title: string | undefined, country: string | undefined) 
   return TITLE_TRANSLATIONS[normalizedTitle] ?? TITLE_TRANSLATIONS[title] ?? normalizedTitle;
 }
 
-export async function fetchMarketCalendar(): Promise<MarketCalendarEvent[]> {
-  const response = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
-    next: { revalidate: 60 * 60 },
-  });
-  if (!response.ok) throw new Error(`Calendar fetch failed: ${response.status}`);
-
-  const now = Date.now();
-  const data = await response.json() as ForexFactoryEvent[];
-
+function mapEvents(data: ForexFactoryEvent[]): MarketCalendarEvent[] {
+  const seen = new Set<string>();
   return data
     .map((item, index) => {
       const timestamp = toTimestamp(item.date);
       const importance = normalizeImportance(item.impact);
-      return {
-        item,
-        index,
-        timestamp,
-        importance,
-      };
+      return { item, index, timestamp, importance };
     })
-    .filter((entry) => entry.item.title && entry.timestamp != null && entry.timestamp >= now)
+    .filter((entry) => entry.item.title && entry.timestamp != null)
     .sort((a, b) => {
       const timeDiff = (a.timestamp ?? 0) - (b.timestamp ?? 0);
       if (timeDiff !== 0) return timeDiff;
       return IMPORTANCE_RANK[b.importance] - IMPORTANCE_RANK[a.importance];
     })
-    .slice(0, 15)
-    .map(({ item, index, timestamp, importance }) => ({
-      id: `${item.date ?? ""}-${item.country ?? ""}-${item.title ?? index}`,
-      startsAt: new Date(timestamp ?? now).toISOString(),
-      date: formatDate(timestamp ?? now),
-      time: formatTime(timestamp ?? now),
-      market: translateMarket(item.country),
-      title: translateTitle(item.title, item.country),
-      importance,
-    }));
+    .flatMap(({ item, index, timestamp, importance }) => {
+      const id = `${item.date ?? ""}-${item.country ?? ""}-${item.title ?? index}`;
+      if (seen.has(id)) return [];
+      seen.add(id);
+      const ts = timestamp ?? 0;
+      return [{
+        id,
+        startsAt: new Date(ts).toISOString(),
+        date: formatDate(ts),
+        time: formatTime(ts),
+        market: translateMarket(item.country),
+        title: translateTitle(item.title, item.country),
+        importance,
+      }];
+    });
+}
+
+async function fetchWeek(url: string): Promise<ForexFactoryEvent[]> {
+  try {
+    const response = await fetch(url, { next: { revalidate: 60 * 60 } });
+    if (!response.ok) return [];
+    return response.json() as Promise<ForexFactoryEvent[]>;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchMarketCalendar(): Promise<MarketCalendarEvent[]> {
+  const data = await fetchWeek("https://nfs.faireconomy.media/ff_calendar_thisweek.json");
+  if (!data.length) throw new Error("Calendar fetch failed");
+  const now = Date.now();
+  return mapEvents(data)
+    .filter((e) => new Date(e.startsAt).getTime() >= now)
+    .slice(0, 15);
+}
+
+export async function fetchMarketCalendarAll(): Promise<MarketCalendarEvent[]> {
+  const [thisWeek, nextWeek] = await Promise.all([
+    fetchWeek("https://nfs.faireconomy.media/ff_calendar_thisweek.json"),
+    fetchWeek("https://nfs.faireconomy.media/ff_calendar_nextweek.json"),
+  ]);
+  return mapEvents([...thisWeek, ...nextWeek]);
 }
