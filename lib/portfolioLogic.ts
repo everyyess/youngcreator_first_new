@@ -101,6 +101,8 @@ const THEME_TO_SECTOR_KO: Record<string, string> = {
   채권:       "채권",
   채권형:     "채권",
   채권ETF:    "채권",
+  보험:       "보험",
+  농산물원자재: "농산물원자재",
 };
 
 // 브랜드·종목명 강제 매핑: API 결과와 무관하게 최우선 적용
@@ -114,6 +116,8 @@ const PRIORITY_KEYWORD_MAP: Array<[RegExp, string]> = [
   [/(?:^|[ ])테스(?:[ ]|$)/,                                                      "반도체"],
   [/씨게이트|seagate|\bSTX\b/i,                                                    "반도체"],
   [/proshares.?ultrapro.?qqq|\bTQQQ\b/i,                                          "시장"],
+  [/삼성생명|samsung.?life|\b032830\b/i,                                           "보험"],
+  [/농산물.?원자재|농산물원자재/i,                                                  "농산물원자재"],
 ];
 
 // 종목명·티커 키워드 → 섹터 매핑 (API 실패 시 최후 폴백)
