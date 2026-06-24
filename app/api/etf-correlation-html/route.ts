@@ -11,6 +11,64 @@ export const runtime = 'nodejs';
 import path from 'path';
 import fs from 'fs';
 
+// ── Yahoo Finance 실시간 데이터 페칭 ──────────────────────────────────────────
+
+const YAHOO_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+async function fetchYahooTicker(ticker: string, period1: number, period2: number): Promise<{ dates: string[]; prices: (number | null)[] } | null> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?period1=${period1}&period2=${period2}&interval=1d&events=history&includePrePost=false`;
+    const res = await fetch(url, { headers: YAHOO_HEADERS, signal: AbortSignal.timeout(12000) });
+    if (!res.ok) return null;
+    const json = await res.json() as { chart?: { result?: Array<{ timestamp?: number[]; indicators?: { quote?: Array<{ close?: (number | null)[] }> } }> } };
+    const result = json?.chart?.result?.[0];
+    if (!result?.timestamp?.length) return null;
+    const dates = result.timestamp.map((t: number) => new Date(t * 1000).toISOString().slice(0, 10));
+    const prices = (result.indicators?.quote?.[0]?.close ?? Array(dates.length).fill(null)) as (number | null)[];
+    return { dates, prices };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLiveData(tickers: string[]): Promise<ETFBatch | null> {
+  const now = Math.floor(Date.now() / 1000);
+  const period1 = now - 400 * 24 * 3600;
+
+  const settled = await Promise.allSettled(tickers.map((t) => fetchYahooTicker(t, period1, now)));
+
+  const tickerDataMap = new Map<string, { dates: string[]; prices: (number | null)[] }>();
+  let successCount = 0;
+  settled.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value) {
+      tickerDataMap.set(tickers[i], r.value);
+      successCount++;
+    }
+  });
+
+  if (successCount < Math.ceil(tickers.length * 0.5)) return null;
+
+  const allDatesSet = new Set<string>();
+  for (const data of tickerDataMap.values()) data.dates.forEach((d) => allDatesSet.add(d));
+  const allDates = [...allDatesSet].sort();
+  if (allDates.length === 0) return null;
+
+  const dateIdx = new Map(allDates.map((d, i) => [d, i]));
+  const prices: Record<string, (number | null)[]> = {};
+  for (const t of tickers) {
+    const td = tickerDataMap.get(t);
+    const arr: (number | null)[] = new Array(allDates.length).fill(null);
+    if (td) td.dates.forEach((d, j) => { const idx = dateIdx.get(d); if (idx !== undefined) arr[idx] = td.prices[j]; });
+    prices[t] = arr;
+  }
+
+  return { tickers, dates: allDates, prices };
+}
+
 // ── 타입 ──────────────────────────────────────────────────────────────────────
 type Strategy = 'conservative' | 'balanced' | 'aggressive';
 
@@ -304,7 +362,7 @@ function computePeriodData(
   }
 
   const PERIOD_SLICES: Record<string, number> = {
-    '1W': 5, '1M': 21, '3M': 63, '6M': 126, '1Y': 252, '3Y': N,
+    '1W': 5, '1M': 21, '3M': 63, '6M': 126, '1Y': N,
   };
 
   const result: Record<string, PeriodResult> = {};
@@ -457,8 +515,24 @@ export async function GET(request: Request): Promise<Response> {
     if (hit && Date.now() - hit.ts < CACHE_TTL) {
       periodData = hit.data;
     } else {
-      const b1: ETFBatch = JSON.parse(fs.readFileSync(path.join(dataDir, 'etf_b1.json'), 'utf-8'));
-      const b2: ETFBatch = JSON.parse(fs.readFileSync(path.join(dataDir, 'etf_b2.json'), 'utf-8'));
+      let b1: ETFBatch, b2: ETFBatch;
+      const liveBatch = await fetchLiveData(TICKERS_ORDERED);
+      if (liveBatch) {
+        const half = Math.ceil(TICKERS_ORDERED.length / 2);
+        b1 = {
+          tickers: TICKERS_ORDERED.slice(0, half),
+          dates: liveBatch.dates,
+          prices: Object.fromEntries(TICKERS_ORDERED.slice(0, half).map((t) => [t, liveBatch.prices[t]])),
+        };
+        b2 = {
+          tickers: TICKERS_ORDERED.slice(half),
+          dates: liveBatch.dates,
+          prices: Object.fromEntries(TICKERS_ORDERED.slice(half).map((t) => [t, liveBatch.prices[t]])),
+        };
+      } else {
+        b1 = JSON.parse(fs.readFileSync(path.join(dataDir, 'etf_b1.json'), 'utf-8'));
+        b2 = JSON.parse(fs.readFileSync(path.join(dataDir, 'etf_b2.json'), 'utf-8'));
+      }
       periodData = computePeriodData(b1, b2, strategy, k) as Record<string, unknown>;
       dataCache.set(cacheKey, { data: periodData, ts: Date.now() });
     }

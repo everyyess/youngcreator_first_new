@@ -88,8 +88,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
   <button class="period-btn" onclick="setPeriod('1M',this)">1개월</button>
   <button class="period-btn" onclick="setPeriod('3M',this)">3개월</button>
   <button class="period-btn" onclick="setPeriod('6M',this)">6개월</button>
-  <button class="period-btn" onclick="setPeriod('1Y',this)">1년</button>
-  <button class="period-btn active" onclick="setPeriod('3Y',this)">3년 (전체)</button>
+  <button class="period-btn active" onclick="setPeriod('1Y',this)">1년</button>
   <span class="period-info" id="period-info"></span>
 </div>
 <div id="warn-banner" style="display:none;align-items:center;gap:8px;padding:8px 20px;background:#fef3c7;border-bottom:1px solid #fde68a;font-size:12px;color:#92400e;font-weight:500"></div>
@@ -127,7 +126,7 @@ const ETF_HOLDINGS = {"SOXX":[{"name":"Nvidia (NVDA)","weight":8.4},{"name":"Bro
 const PALETTE = ['#3B82F6','#EF4444','#22C55E','#F59E0B','#8B5CF6','#0EA5E9','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16','#A855F7','#CA8A04','#6B7280','#16A34A','#374151','#1D4ED8','#15803D','#166534','#14532D','#EA580C'];
 const CHIP_LABELS = {"VTI":"전체 시장(VTI)","VOO":"S&P500(VOO)","QQQ":"나스닥(QQQ)","SLV":"귀금속(SLV)","GLD":"귀금속(GLD)","USO":"원유(USO)","UNG":"천연가스(UNG)","WEAT":"농산물(WEAT)","CORN":"농산물(CORN)","069500.KS":"한국시장(코스피)","229200.KS":"한국시장(코스닥)"};
 const INITIAL_LOCKED_TICKER = "##INITIAL_LOCKED_TICKER##";
-let curPeriod='3Y', chartView='optimal', lockedTicker=INITIAL_LOCKED_TICKER || null;
+let curPeriod='1Y', chartView='optimal', lockedTicker=INITIAL_LOCKED_TICKER || null;
 let activeTab = 'optimal';
 const charts={};
 
