@@ -551,7 +551,7 @@ export default function HomePage() {
           ) : null}
         </aside>
 
-        <section className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/70 bg-white/75 p-4 shadow-xl shadow-blue-900/5 backdrop-blur">
+        <section className="flex flex-col min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/70 bg-white/75 p-4 shadow-xl shadow-blue-900/5 backdrop-blur">
           <MarketDashboard />
         </section>
 
