@@ -234,7 +234,7 @@ export default function CorrelationGlobalTab({
             type="button"
             onClick={handleConfirmGlobal}
             disabled={isConfirmingGlobal || loading}
-            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white transition hover:bg-[#252285] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isConfirmingGlobal ? (
               <>

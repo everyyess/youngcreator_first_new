@@ -196,9 +196,9 @@ export default function CorrelationDomesticTab({
   }, [strategy, k, savedState?.lockedTicker, setConfirmedDomesticPair]);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-soft overflow-hidden">
+    <div className="rounded-lg bg-white overflow-hidden">
       {/* ── 컨트롤 바 ─────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50">
         {/* 전략 선택 */}
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">투자 성향</span>
@@ -248,9 +248,6 @@ export default function CorrelationDomesticTab({
           </div>
         </div>
 
-        <span className="text-xs text-slate-400">
-          국내 KODEX ETF 30종목 · 30×30 상관행렬 · 섹터 다양성 제약
-        </span>
         {showMismatchWarning ? (
           <p className="basis-full text-xs font-bold text-red-600">
             ⚠ 고객 투자 성향 결과는 ‘{preferenceLabel(expectedStrategy)}’입니다. 현재 ‘{preferenceLabel(strategy)}’ 포트폴리오를 조회 중입니다.
@@ -268,7 +265,7 @@ export default function CorrelationDomesticTab({
             type="button"
             onClick={handleConfirmDomestic}
             disabled={isConfirmingDomestic || loading}
-            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white transition hover:bg-[#252285] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isConfirmingDomestic ? (
               <>
