@@ -4,10 +4,19 @@ import { getGeminiApiKey } from "@/lib/geminiServerEnv";
 // ─── 데모 데이터 (SK하이닉스 · 발표용 즉시 반환) ────────────────────────────────
 
 const DEMO_KEYWORD = "SK하이닉스";
-const DEMO_TG_SUMMARY =
+const DEMO_TG_SUMMARIES = [
   "JP모건이 SK하이닉스 목표주가를 310,000원으로 상향 조정했습니다. " +
   "HBM4 출하량이 기존 전망 대비 30% 초과 달성이 예상되고, NVIDIA Blackwell Ultra 단독 공급이 확정됐으며, " +
-  "2분기 HBM ASP가 전분기 대비 12% 상승한 것이 주요 근거입니다.";
+  "2분기 HBM ASP가 전분기 대비 12% 상승한 것이 주요 근거입니다.",
+
+  "블룸버그에 따르면, SK하이닉스의 290억 달러 규모 나스닥 ADR 상장의 핵심 쟁점은 ADR과 서울 상장 주식 간 " +
+  "'펀저빌리티(상호전환 가능성)'입니다. 전환이 자유롭지 않을 경우 TSMC처럼 ADR이 국내 주식 대비 지속적인 " +
+  "프리미엄을 형성할 수 있으며, 차익거래 투자자들은 ADR 배정 참여 여부를 놓고 촉각을 곤두세우고 있습니다.",
+
+  "SK하이닉스의 30일 이동평균 이격도가 +30.49%를 기록하며 단기 과열 구간에 진입했습니다. " +
+  "종가 291만 7천 원 대비 MA30은 223만 5천 원으로 乖離가 확대된 상태이며, " +
+  "기간 최대 이격도 +60.51% 대비 현재 위치를 고려 시 추가 상승 여력과 조정 가능성을 함께 점검할 필요가 있습니다.",
+];
 
 // ─── 실제 라우트 ──────────────────────────────────────────────────────────────
 
@@ -72,9 +81,9 @@ export async function POST(req: NextRequest) {
 
   if (texts.length === 0) return NextResponse.json({ summaries: [] });
 
-  // SK하이닉스: 첫 번째 메시지만 즉시 요약 반환, 나머지는 null (원문 클릭 유도)
+  // SK하이닉스: 첫 3개 메시지 즉시 요약 반환
   if (keyword === DEMO_KEYWORD) {
-    return NextResponse.json({ summaries: texts.map((_, i) => i === 0 ? DEMO_TG_SUMMARY : null) });
+    return NextResponse.json({ summaries: texts.map((_, i) => DEMO_TG_SUMMARIES[i] ?? null) });
   }
 
   const apiKey = getGeminiApiKey();
