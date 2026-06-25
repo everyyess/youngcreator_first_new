@@ -416,12 +416,12 @@ async function batchFetchSummaries(
   stocks: { ticker: string; name: string; rank: number; marketCap: number }[],
   nocache = false
 ): Promise<(StockSummary | null)[]> {
-  const BATCH = 2;
+  const BATCH = 3;
   const results: (StockSummary | null)[] = [];
   for (let i = 0; i < stocks.length; i += BATCH) {
     const batch = await Promise.all(stocks.slice(i, i + BATCH).map((s) => fetchOneSummary(s, nocache)));
     results.push(...batch);
-    if (i + BATCH < stocks.length) await new Promise((r) => setTimeout(r, 700));
+    if (i + BATCH < stocks.length) await new Promise((r) => setTimeout(r, 200));
   }
   return results;
 }

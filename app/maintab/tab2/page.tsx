@@ -46,6 +46,7 @@ function dominantSector(assets: PortfolioAsset[]): string | null {
 
 export default function Tab2Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
+  const [mountedTabs, setMountedTabs] = useState<Set<InnerTab>>(new Set(["holding"]));
   const data = usePortfolioResult();
   const {
     appMode,
@@ -100,8 +101,17 @@ export default function Tab2Page() {
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
+    setMountedTabs((prev) => new Set([...prev, tab]));
     if (appMode === "pb") updateSharedUiState({ tab2: { activeInnerTab: tab } });
   };
+
+  useEffect(() => {
+    if (appMode === "customer") return;
+    const timer = setTimeout(() => {
+      setMountedTabs((prev) => new Set([...prev, "supply", "fundamental", "dart"]));
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [appMode]);
 
   if (appMode === "customer") {
     return <SellSimulatorTab />;
@@ -144,32 +154,32 @@ export default function Tab2Page() {
         </div>
       )}
 
-      {activeInnerTab === "fundamental" && (
-        <div className="space-y-5">
+      {mountedTabs.has("fundamental") && (
+        <div className="space-y-5" style={{ display: activeInnerTab === "fundamental" ? undefined : "none" }}>
           <FundamentalAnalysisTab />
         </div>
       )}
 
-      {activeInnerTab === "technical" && (
-        <div className="space-y-5">
+      {mountedTabs.has("technical") && (
+        <div className="space-y-5" style={{ display: activeInnerTab === "technical" ? undefined : "none" }}>
           <TechnicalAnalysisTab />
         </div>
       )}
 
-      {activeInnerTab === "supply" && (
-        <div className="space-y-5">
+      {mountedTabs.has("supply") && (
+        <div className="space-y-5" style={{ display: activeInnerTab === "supply" ? undefined : "none" }}>
           <SupplyDemandAnalysis />
         </div>
       )}
 
-      {activeInnerTab === "options" && (
-        <div className="space-y-5">
+      {mountedTabs.has("options") && (
+        <div className="space-y-5" style={{ display: activeInnerTab === "options" ? undefined : "none" }}>
           <OptionAnalysisTab />
         </div>
       )}
 
-      {activeInnerTab === "dart" && (
-        <div className="space-y-5">
+      {mountedTabs.has("dart") && (
+        <div className="space-y-5" style={{ display: activeInnerTab === "dart" ? undefined : "none" }}>
           <DartAnalysisTab />
         </div>
       )}
