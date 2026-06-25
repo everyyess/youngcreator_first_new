@@ -358,7 +358,6 @@ function buildDivInsight(la: AnyResult[] | undefined, ra: AnyResult[] | undefine
 
 type HealthItem = { key: string; label: string; score: number; detail: string };
 
-// 위험/주의 항목별 안심 코멘트
 const RISK_COMMENTS: Record<string, string> = {
   "단일 종목 집중도": "특정 종목 집중은 단기 수익 기회가 될 수 있으며, 분산 편입을 병행하면 리스크를 효과적으로 관리할 수 있습니다.",
   "단일 섹터 집중도": "섹터 집중도가 높으나, 해당 섹터의 성장성이 유효한 구간에서는 수익 극대화에 유리할 수 있습니다.",
@@ -468,7 +467,7 @@ function PBRecommendationPair({ left, right, styles }: {
                 alignItems: "center",
                 justifyContent: "center",
               }}>
-                <Text style={{ fontSize: 6, fontWeight: "bold", color: "#FFFFFF" }}>{badge.label}</Text>
+                <Text style={{ fontSize: 6, fontWeight: "bold", color: "#FFFFFF", lineHeight: 1 }}>{badge.label}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.recLabel, { color: badge.color }]}>{it.label}</Text>

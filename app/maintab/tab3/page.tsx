@@ -111,7 +111,7 @@ export default function Tab3Page() {
             className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${
               activeInnerTab === tab.id
                 ? "bg-[#2f2f9d] text-white shadow-soft"
-                : "text-slate-600 hover:bg-slate-100 hover:text-navy"
+                : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"
             }`}
           >
             {tab.icon}

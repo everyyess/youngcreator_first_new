@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X } from "lucide-react";
+import SodaPopLogoImage from "./SodaPopLogoImage";
 import {
   customerAuthStore,
   pbAuthStore,
@@ -32,13 +33,16 @@ export default function Hero() {
             <span className="mr-2 flex h-2 w-2 rounded-full bg-blue-600" />
             Samsung Securities × VVIP
           </div>
-          <h1 className="mb-9 text-4xl font-black leading-tight text-zinc-900 sm:text-5xl md:text-6xl lg:text-7xl">
-            자산 상담의 새로운 기준
-            <br />
-            <span className="mt-5 block bg-gradient-to-br from-blue-600 to-indigo-600 bg-clip-text text-transparent sm:mt-7">
-              PB Advisor Hub
-            </span>
+          <h1 className="mb-7 text-4xl font-black leading-tight text-zinc-900 sm:text-5xl md:text-6xl lg:text-7xl">
+            <span className="block text-4xl font-black leading-tight text-zinc-900 sm:text-5xl md:text-6xl lg:text-7xl">자산 상담의 새로운 기준</span>
           </h1>
+          <SodaPopLogoImage className="mb-5 h-auto w-[min(68vw,620px)]" />
+          <p className="mb-10 text-base font-black tracking-[0.16em] text-zinc-400 sm:text-lg md:text-xl">
+            <span className="text-blue-600">S</span>amsung Securities Team{" "}
+            <span className="text-blue-600">O</span>ne{" "}
+            <span className="text-blue-600">D</span>igital{" "}
+            <span className="text-blue-600">A</span>dvisor
+          </p>
           <p className="mb-12 max-w-3xl px-4 text-base leading-relaxed text-zinc-600 sm:text-lg md:text-xl">
             세금 최적화·상품 매칭을 실시간으로.
             <br />

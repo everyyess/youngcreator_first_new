@@ -3,6 +3,7 @@
 import { type DragEvent, type SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Home, Trash2 } from "lucide-react";
+import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile, type CustomerRow,
@@ -21,8 +22,13 @@ import {
   loadNewAnalysisResult, saveNewAnalysisResult,
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
+  loadProductSelectionsFromNar, saveProductSelectionsToNar,
   loadTab3AnalysisState, saveTab3AnalysisState,
   loadSharedMaintabUiState, saveSharedMaintabUiState,
+  loadBuySimUncheckedTickers,
+  loadPensionIsaRestricted,
+  loadNewTaxSummaryFromNar,
+  saveNewTaxSummaryToNar,
   resetPortfolioDerivedState as resetPortfolioDerivedStateInDb,
   noLegalConstraint, noneExperience, nullableText, parseKrwAmount, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
@@ -307,6 +313,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [buySimPersistedStateMap, setBuySimPersistedStateMap] = useState<
     Record<CustomerId, { items: BuySimTickerItem[]; sig: string }>
   >({});
+  // ── TAB 3-3 체크박스 해제 목록 (PB→고객 실시간 동기화, Supabase 영속) ─────────
+  const [buySimUncheckedTickersMap, setBuySimUncheckedTickersMap] = useState<Record<CustomerId, string[]>>({});
+  // ── ISA 제한 상태 (PB→고객 실시간 동기화, Supabase 영속) ─────────────────────
+  const [pensionIsaRestrictedMap, setPensionIsaRestrictedMap] = useState<Record<CustomerId, boolean | null>>({});
   // ── TAB 3-3 PB 직접 매수 주문 Maps (고객별 격리, 탭 전환 보존) ───────────────
   const [pbOrderRowsMap, setPbOrderRowsMap] = useState<Record<CustomerId, PbOrderRow[]>>({});
 
@@ -337,6 +347,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const confirmedGlobalPair = confirmedGlobalPairMap[selectedCustomer] ?? null;
   const buySimTickerItems = buySimPersistedStateMap[selectedCustomer]?.items ?? [];
   const buySimConfirmedSig = buySimPersistedStateMap[selectedCustomer]?.sig ?? '';
+  const buySimUncheckedTickers = buySimUncheckedTickersMap[selectedCustomer] ?? [];
+  const pensionIsaRestricted = pensionIsaRestrictedMap[selectedCustomer] ?? null;
   const pbOrderRows = pbOrderRowsMap[selectedCustomer] ?? [];
 
   // Ref 동기화 — 렌더마다 최신 커밋 값 기록 (useEffect 없이 동기 할당)
@@ -483,8 +495,14 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
         loadTab3AnalysisState(customerId),
         loadSharedMaintabUiState(customerId),
         loadSellHistory(customerId),
-      ]).then(([assets, rebalancing, newResult, tab3State, sharedUiState, sellHistoryRows]) => {
+        loadBuySimUncheckedTickers(customerId),
+        loadPensionIsaRestricted(customerId),
+        loadNewTaxSummaryFromNar(customerId),
+        loadAnalysisResult(customerId),
+        loadProductSelectionsFromNar(customerId),
+      ]).then(([assets, rebalancing, newResult, tab3State, sharedUiState, sellHistoryRows, uncheckedTickers, isaRestricted, newTaxSummary, currentAnalysisResult, narProductIds]) => {
         setPortfolioAssetsMap(prev => ({ ...prev, [customerId]: assets }));
+        setAnalysisResultMap(prev => ({ ...prev, [customerId]: currentAnalysisResult as PortfolioAnalysisResult | null }));
         setRebalancingSellMap(prev => ({ ...prev, [customerId]: rebalancing.sellAssets }));
         setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
         setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
@@ -497,11 +515,19 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
           setPbOrderRowsMap(prev => ({ ...prev, [customerId]: sharedUiState.tab3?.pbOrderRows ?? [] }));
         }
         setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
+        setBuySimUncheckedTickersMap(prev => ({ ...prev, [customerId]: uncheckedTickers }));
+        setPensionIsaRestrictedMap(prev => ({ ...prev, [customerId]: isaRestricted }));
+        if (narProductIds !== null) setProductSelectionsMap(prev => ({ ...prev, [customerId]: narProductIds }));
         if (typeof window !== "undefined") {
           const buyAssets = rebalancing.buyAssets as unknown[];
           try {
             if (buyAssets?.length > 0) localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(buyAssets));
             else localStorage.removeItem("new-portfolio-assets-v1");
+          } catch {}
+          // 신규 세금 요약 → Tab4 신규 포트폴리오 세금 점검 반영
+          try {
+            if (newTaxSummary) { localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newTaxSummary)); window.dispatchEvent(new CustomEvent("new-financial-income-updated")); }
+            else { localStorage.removeItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY); window.dispatchEvent(new CustomEvent("new-financial-income-updated")); }
           } catch {}
         }
       });
@@ -513,9 +539,17 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       loadTaxSummaries(customerId).then(({ currentSummary, newSummary }) => {
         if (typeof window === "undefined") return;
         if (currentSummary) {
-          try { localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(currentSummary)); window.dispatchEvent(new CustomEvent("financial-income-updated")); } catch {}
+          try { localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(currentSummary)); localStorage.setItem("financial-income-owner", customerId); window.dispatchEvent(new CustomEvent("financial-income-updated")); } catch {}
         } else {
-          try { localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY); window.dispatchEvent(new CustomEvent("financial-income-updated")); } catch {}
+          // Only clear localStorage if it belongs to a different customer — never wipe fresh analysis data
+          try {
+            const owner = localStorage.getItem("financial-income-owner");
+            if (!owner || owner !== customerId) {
+              localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY);
+              localStorage.removeItem("financial-income-owner");
+              window.dispatchEvent(new CustomEvent("financial-income-updated"));
+            }
+          } catch {}
         }
         if (newSummary) {
           try { localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newSummary)); window.dispatchEvent(new CustomEvent("new-financial-income-updated")); } catch {}
@@ -585,6 +619,26 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       )
       .subscribe();
 
+    return () => { supabase!.removeChannel(channel); };
+  }, [appMode]);
+
+  // ── PB 모드 상품 선택 실시간 동기화 (고객 화면 → 메인탭) ─────────────────────
+  useEffect(() => {
+    if (appMode !== "pb" || !supabase) return;
+    const channel = supabase
+      .channel("pb-product-selections-realtime")
+      .on(
+        "postgres_changes" as any,
+        { event: "*", schema: "public", table: "new_analysis_results" },
+        (payload: { new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+          const cid = ((payload.new ?? payload.old)?.customer_id) as CustomerId | undefined;
+          if (!cid) return;
+          void loadProductSelectionsFromNar(cid).then(ids => {
+            if (ids !== null) setProductSelectionsMap(prev => ({ ...prev, [cid]: ids }));
+          });
+        },
+      )
+      .subscribe();
     return () => { supabase!.removeChannel(channel); };
   }, [appMode]);
 
@@ -676,7 +730,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       loadTaxSummaries(customerId),
       loadProductSelections(customerId),
       loadSellHistory(customerId),
-    ]).then(([assets, result, rebalancing, newResult, tab3State, sharedUiState, taxSummaries, productIds, sellHistoryRows]) => {
+      loadBuySimUncheckedTickers(customerId),
+      loadPensionIsaRestricted(customerId),
+      loadNewTaxSummaryFromNar(customerId),
+    ]).then(([assets, result, rebalancing, newResult, tab3State, sharedUiState, taxSummaries, productIds, sellHistoryRows, uncheckedTickers, isaRestricted, newTaxSummaryFromNar]) => {
       if (cancelled) {
         portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
         return;
@@ -703,6 +760,9 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       setProductSelectionsMap(prev => ({ ...prev, [customerId]: productIds }));
       setProductSelectionsLoadedMap(prev => ({ ...prev, [customerId]: true }));
 
+      setBuySimUncheckedTickersMap(prev => ({ ...prev, [customerId]: uncheckedTickers }));
+      setPensionIsaRestrictedMap(prev => ({ ...prev, [customerId]: isaRestricted }));
+
       // 세금 요약 + 신규 포트폴리오 자산 → localStorage 복원 (고객별 격리)
       // ※ 이벤트보다 먼저 localStorage를 기록해야 PensionTaxPanel이 올바른 데이터를 읽음
       const { currentSummary, newSummary } = taxSummaries;
@@ -720,14 +780,22 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
         if (currentSummary) {
           try {
             localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(currentSummary));
+            localStorage.setItem("financial-income-owner", customerId);
             window.dispatchEvent(new CustomEvent("financial-income-updated"));
           } catch {}
         } else {
-          try { localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY); } catch {}
-        }
-        if (newSummary) {
           try {
-            localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newSummary));
+            const owner = localStorage.getItem("financial-income-owner");
+            if (!owner || owner !== customerId) {
+              localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY);
+              localStorage.removeItem("financial-income-owner");
+            }
+          } catch {}
+        }
+        const effectiveNewSummary = newSummary ?? newTaxSummaryFromNar;
+        if (effectiveNewSummary) {
+          try {
+            localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(effectiveNewSummary));
             window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
           } catch {}
         } else {
@@ -781,7 +849,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
     const customerId = selectedCustomer;
     const ids = productSelectionsMap[customerId] ?? [];
-    void saveProductSelections(customerId, ids).then(() => {
+    void Promise.all([
+      saveProductSelections(customerId, ids),
+      saveProductSelectionsToNar(customerId, ids),
+    ]).then(() => {
       setProductSelectionsDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
   }, [productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
@@ -917,6 +988,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setSellHistoryMap(prev => ({ ...prev, [cid]: [] }));
     setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: false }));
     setBuySimPersistedStateMap(prev => ({ ...prev, [cid]: { items: [], sig: "" } }));
+    setBuySimUncheckedTickersMap(prev => ({ ...prev, [cid]: [] }));
+    setPensionIsaRestrictedMap(prev => ({ ...prev, [cid]: null }));
     setPbOrderRowsMap(prev => ({ ...prev, [cid]: [] }));
     setSharedUiStateMap(prev => ({ ...prev, [cid]: {} }));
 
@@ -930,6 +1003,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       try {
         localStorage.removeItem(PORTFOLIO_RESULT_STORAGE_KEY);
         localStorage.removeItem(FINANCIAL_INCOME_STORAGE_KEY);
+        localStorage.removeItem("financial-income-owner");
         localStorage.removeItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY);
         localStorage.removeItem("new-portfolio-assets-v1");
         window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
@@ -1048,6 +1122,9 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
     void saveTaxSummaryToDb(cid, type, summary);
+    if (type === 'new') {
+      void saveNewTaxSummaryToNar(cid, summary);
+    }
   }, []); // stable
 
   // ── TAB2-5 매도 시뮬레이터 callbacks ───────────────────────────────────────
@@ -1135,6 +1212,16 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setBuySimPersistedStateMap(prev => ({ ...prev, [cid]: { items, sig } }));
     updateSharedUiState({ tab3: { buySim: { items, sig } } });
   }, [updateSharedUiState]);
+
+  const setBuySimUncheckedTickersFn = useCallback((tickers: string[]) => {
+    const cid = selectedCustomerRef.current;
+    setBuySimUncheckedTickersMap(prev => ({ ...prev, [cid]: tickers }));
+  }, []);
+
+  const setPensionIsaRestrictedFn = useCallback((v: boolean) => {
+    const cid = selectedCustomerRef.current;
+    setPensionIsaRestrictedMap(prev => ({ ...prev, [cid]: v }));
+  }, []);
 
   const setPbOrderRows = useCallback((rows: PbOrderRow[]) => {
     const cid = selectedCustomerRef.current;
@@ -1547,6 +1634,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     confirmedDomesticPair, confirmedGlobalPair, setConfirmedDomesticPair, setConfirmedGlobalPair,
     // TAB 3-3 투자금 조정 테이블 영속 (고객별 격리, 탭 전환 보존)
     buySimTickerItems, buySimConfirmedSig, setBuySimPersistedState,
+    // TAB 3-3 체크박스 해제 상태 (PB→고객 실시간 동기화, Supabase 영속)
+    buySimUncheckedTickers, setBuySimUncheckedTickers: setBuySimUncheckedTickersFn,
+    // ISA 제한 상태 (PB→고객 실시간 동기화, Supabase 영속)
+    pensionIsaRestricted, setPensionIsaRestricted: setPensionIsaRestrictedFn,
     // TAB 3-3 PB 직접 매수 (고객별 격리, 탭 전환 보존)
     pbOrderRows, setPbOrderRows,
   };
@@ -1554,7 +1645,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   return (
     <CustomerViewContext.Provider value={{ isCustomerView, consultationEnded }}>
       <CustomerContext.Provider value={contextValue}>
-        <main className="min-h-screen px-5 py-6 text-ink lg:px-8">
+        <main className="min-h-screen bg-[#F7F8FC] px-5 py-6 text-ink lg:px-8" style={{ backgroundColor: "#F7F8FC" }}>
           <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
             <HeaderSummary
               currentCustomer={selectedCustomerProfile}
@@ -1569,7 +1660,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
               onFinish={() => finishActiveConsultation(false)}
               onResume={resumeLatestConsultation}
             />
-            <div className="flex flex-col gap-5 xl:flex-row">
+            <div className="flex flex-col gap-5 xl:min-h-[calc(100vh-9rem)] xl:flex-row">
               <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
               <section
                 className="min-w-0 flex-1"
@@ -1660,7 +1751,9 @@ function HeaderSummary({
           </p>
           <p className="mt-1 text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-col items-end gap-4">
+          <SodaPopLogoImage className="h-auto w-44" />
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <button type="button" onClick={onHome} aria-label="HOME" className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-navy transition hover:border-blue-200 hover:bg-blue-50">
             <Home size={17} /> HOME
           </button>
@@ -1681,6 +1774,7 @@ function HeaderSummary({
             상담 재개
           </button>
           ) : null}
+          </div>
         </div>
       </div>
       {storageErrorMessage ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{storageErrorMessage}</div> : null}
@@ -1694,14 +1788,20 @@ function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
 
   return (
     <nav data-consultation-lock-exempt="true" className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-56 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
-      {workspaceTabs.map((tab, index) => (
-        <button
-          key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
-          className={`min-h-11 rounded-lg px-3 py-2 text-left transition ${activeTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
-        >
-          <span className="block text-sm font-bold tracking-normal">{index + 1}. {tab.label}</span>
-        </button>
-      ))}
+      {workspaceTabs.map((tab, index) => {
+        const selected = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
+            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
+          >
+            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#5656c7] text-white" : "bg-[#eef0ff] text-[#2f2f9d]"}`}>
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="min-w-0 whitespace-nowrap text-sm font-bold leading-tight tracking-normal">{tab.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

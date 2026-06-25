@@ -1669,7 +1669,7 @@ export default function CustomerAnalysisTab() {
             className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${
               activeSubTab === tab.id
                 ? "bg-samsung text-white shadow-soft"
-                : "text-slate-600 hover:bg-slate-100 hover:text-navy"
+                : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"
             }`}
           >
             {tab.icon}

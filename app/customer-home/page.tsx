@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Home, LogOut } from "lucide-react";
+import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import { customerAuthStore, formatLoginTime, type CustomerSession } from "../authStore";
 import {
   customerRowsToStoredState,
@@ -336,7 +337,9 @@ export default function CustomerHomePage() {
               <p className="mt-2 text-sm font-bold text-slate-500">마지막 로그인: {formatLoginTime(session.lastLoginAt)}</p>
               {customerBirth(profile, session) ? <p className="mt-1 text-sm font-bold text-slate-500">고객 정보: {customerDisplay(profile, session)}</p> : null}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex min-w-[280px] flex-col items-end gap-4">
+              <SodaPopLogoImage className="h-auto w-48" />
+              <div className="flex flex-wrap items-center justify-end gap-2">
               {activeForCustomer ? (
                 <button type="button" onClick={() => router.push(activeForCustomer.returnPath?.replace("/maintab", "/customer-maintab") || "/customer-maintab/tab1")} className="grid h-11 justify-items-center gap-0.5 rounded-xl bg-blue-600 px-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20">
                   <span className="inline-flex items-center gap-1.5"><Home size={13} /> 상담 화면으로 돌아가기</span>
@@ -346,6 +349,7 @@ export default function CustomerHomePage() {
               <button type="button" onClick={logout} className="inline-flex h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
                 <LogOut size={16} /> 로그아웃
               </button>
+              </div>
             </div>
           </div>
           {message ? <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-extrabold text-red-700">{message}</p> : null}
