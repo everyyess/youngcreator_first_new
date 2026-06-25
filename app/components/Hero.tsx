@@ -17,6 +17,7 @@ const inputClass = "h-11 rounded-xl border border-slate-200 bg-white px-3 text-s
 
 export default function Hero() {
   const [role, setRole] = useState<AuthRole | null>(null);
+  const [showTeam, setShowTeam] = useState(false);
 
   return (
     <>
@@ -28,7 +29,7 @@ export default function Hero() {
               "radial-gradient(ellipse 85% 65% at 8% 0%, rgba(99,102,241,0.11) 0%, transparent 55%), radial-gradient(ellipse 65% 65% at 98% 100%, rgba(59,130,246,0.18) 0%, transparent 55%), radial-gradient(ellipse 45% 40% at 80% 92%, rgba(139,92,246,0.10) 0%, transparent 50%)",
           }}
         />
-        <div className="relative z-10 flex max-w-4xl flex-col items-center">
+        <div className="animate-hero-enter relative z-10 flex max-w-4xl flex-col items-center">
           <div className="mb-14 inline-flex items-center rounded-full border border-zinc-200 bg-white/60 px-3 py-1 text-sm font-medium text-zinc-800 backdrop-blur-sm">
             <span className="mr-2 flex h-2 w-2 rounded-full bg-blue-600" />
             Samsung Securities × VVIP
@@ -36,7 +37,14 @@ export default function Hero() {
           <h1 className="mb-7 text-4xl font-black leading-tight text-zinc-900 sm:text-5xl md:text-6xl lg:text-7xl">
             <span className="block text-4xl font-black leading-tight text-zinc-900 sm:text-5xl md:text-6xl lg:text-7xl">자산 상담의 새로운 기준</span>
           </h1>
-          <SodaPopLogoImage className="mb-5 h-auto w-[min(68vw,620px)]" />
+          <button
+            type="button"
+            onClick={() => setShowTeam(true)}
+            className="mb-5 cursor-pointer transition-opacity hover:opacity-80 focus:outline-none"
+            aria-label="SODA POP 팀 소개 보기"
+          >
+            <SodaPopLogoImage className="h-auto w-[min(68vw,620px)]" />
+          </button>
           <p className="mb-10 text-base font-black tracking-[0.16em] text-zinc-400 sm:text-lg md:text-xl">
             <span className="text-blue-600">S</span>amsung Securities Team{" "}
             <span className="text-blue-600">O</span>ne{" "}
@@ -67,7 +75,62 @@ export default function Hero() {
         </div>
       </div>
       {role ? <LoginModal role={role} onClose={() => setRole(null)} /> : null}
+      {showTeam ? <TeamModal onClose={() => setShowTeam(false)} /> : null}
     </>
+  );
+}
+
+function TeamModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute -right-3 -top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-lg transition hover:bg-slate-100"
+          aria-label="닫기"
+        >
+          <X size={18} className="text-slate-600" />
+        </button>
+        <div className="overflow-hidden rounded-2xl bg-slate-100 shadow-2xl">
+          <div className="flex flex-col items-center gap-4 bg-white mx-4 my-4 rounded-xl px-10 py-8 shadow-sm">
+            <svg width="80" height="72" viewBox="0 0 80 72" fill="none">
+              {/* sparkles */}
+              <path d="M10 10v5M7.5 12.5h5" stroke="#93c5fd" strokeWidth="1.8" strokeLinecap="round"/>
+              <path d="M64 7v4M62 9h4" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round"/>
+              <path d="M73 28v4M71 30h4" stroke="#93c5fd" strokeWidth="1.6" strokeLinecap="round"/>
+              <path d="M4 36v4M2 38h4" stroke="#bfdbfe" strokeWidth="1.6" strokeLinecap="round"/>
+              <path d="M68 50v4M66 52h4" stroke="#93c5fd" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M12 60v4M10 62h4" stroke="#bfdbfe" strokeWidth="1.4" strokeLinecap="round"/>
+              {/* back/left person */}
+              <circle cx="27" cy="22" r="8" stroke="#60a5fa" strokeWidth="2" fill="none"/>
+              <path d="M13 54c0-7.5 6-12 14-12" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              {/* front/right person */}
+              <circle cx="46" cy="20" r="10" stroke="#1e40af" strokeWidth="2.2" fill="none"/>
+              <path d="M30 58c0-8.8 7-15 16-15s16 6.2 16 15" stroke="#1e40af" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+            </svg>
+            <img
+              src="/brand/soda-pop-ver2.png"
+              alt="SODA POP"
+              className="mx-auto h-auto w-72"
+              draggable={false}
+            />
+            <p className="text-base font-black text-slate-800">Created by</p>
+            <div className="h-px w-full bg-slate-100" />
+            <p className="text-sm font-bold text-slate-500">삼성증권 Young Creator 15기</p>
+            <p className="text-sm font-extrabold text-slate-700">
+              1조&nbsp;&nbsp;곽준호 · 김나윤 · 박상훈 · 이현규 · 정다예
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

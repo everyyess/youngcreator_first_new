@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import {
   Activity,
@@ -484,6 +484,43 @@ export function HoldingPerformanceTable({ assets }: { assets: PortfolioAsset[] }
   );
 }
 
+// ─── Donut animation helpers ──────────────────────────────────────────────────
+
+function easeOutBack(t: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+function useDonutAnimation() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [progress, setProgress] = useState(0);
+  const hasAnimated = useRef(false);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !hasAnimated.current) {
+          hasAnimated.current = true;
+          const duration = 1000;
+          const start = performance.now();
+          const tick = (now: number) => {
+            const t = Math.min((now - start) / duration, 1);
+            setProgress(easeOutBack(t));
+            if (t < 1) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }
+      },
+      { threshold: 0.3 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return { containerRef, progress };
+}
+
 // ─── Donut Chart ─────────────────────────────────────────────────────────────
 
 export function DonutChart({
@@ -496,6 +533,8 @@ export function DonutChart({
   onSegmentClick?: (cls: string | null) => void;
 }) {
   const [hoveredCls, setHoveredCls] = useState<string | null>(null);
+  const { containerRef, progress } = useDonutAnimation();
+  const clampedProgress = Math.max(0, Math.min(progress, 1));
   const getAssetValue = (a: PortfolioAsset): number => {
     if (a.current_value != null && a.current_value > 0) return a.current_value;
     if (a.amount_type === 'quantity' && a.buy_price != null && a.buy_price > 0 && a.amount > 0)
@@ -518,19 +557,20 @@ export function DonutChart({
   ).size;
   const PAD_PCT = 0.8;
   const r = 15.9155;
-  let cumulative = 0;
+  let animCumulative = 0;
   const activeCls = hoveredCls ?? selectedClass;
   const activeSegment = activeCls ? (segments.find(([cls]) => cls === activeCls) ?? null) : null;
   return (
-    <div className="flex flex-col items-center gap-6">
+    <div ref={containerRef} className="flex flex-col items-center gap-6">
       <div className="relative h-56 w-56">
         <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90" style={{ overflow: "visible" }} onMouseLeave={() => setHoveredCls(null)}>
           <circle cx="18" cy="18" r={r} fill="none" stroke="#f1f5f9" strokeWidth="3.5" />
           {segments.map(([cls, pct], i) => {
-            const offset = -cumulative;
-            const visiblePct = Math.max(pct - PAD_PCT, 0.5);
-            const dash = `${visiblePct.toFixed(2)} ${(100 - visiblePct).toFixed(2)}`;
-            cumulative += pct;
+            const animPct = pct * clampedProgress;
+            const offset = -animCumulative;
+            const visiblePct = Math.max(animPct - PAD_PCT * clampedProgress, 0.1);
+            const dash = animPct < 0.2 ? "0 100" : `${visiblePct.toFixed(3)} ${(100 - visiblePct).toFixed(3)}`;
+            animCumulative += animPct;
             const isActive = hoveredCls === cls || selectedClass === cls;
             return (
               <circle key={i} cx="18" cy="18" r={r} fill="none"
@@ -544,7 +584,8 @@ export function DonutChart({
             );
           })}
         </svg>
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          style={{ opacity: Math.min(progress, 1) }}>
           {activeSegment ? (
             <div className="text-center leading-tight">
               <p className="text-sm font-bold text-navy">{CLASS_DISPLAY_LABELS[activeSegment[0]] ?? activeSegment[0]}</p>
@@ -591,6 +632,8 @@ export function SectorDonutChart({
   onSectorClick?: (sector: string | null) => void;
 }) {
   const [hoveredSector, setHoveredSector] = useState<string | null>(null);
+  const { containerRef, progress } = useDonutAnimation();
+  const clampedProgress = Math.max(0, Math.min(progress, 1));
 
   const getAssetValue = (a: PortfolioAsset): number => {
     if (a.current_value != null && a.current_value > 0) return a.current_value;
@@ -619,7 +662,7 @@ export function SectorDonutChart({
 
   const PAD_PCT = 0.8;
   const r = 15.9155;
-  let cumulative = 0;
+  let animCumulative = 0;
   const activeSector = hoveredSector ?? selectedSector;
   const activeSegment = activeSector ? (segments.find(([s]) => s === activeSector) ?? null) : null;
 
@@ -634,15 +677,16 @@ export function SectorDonutChart({
   }
 
   return (
-    <div className="flex flex-col items-center gap-6">
+    <div ref={containerRef} className="flex flex-col items-center gap-6">
       <div className="relative h-56 w-56">
         <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90" style={{ overflow: "visible" }} onMouseLeave={() => setHoveredSector(null)}>
           <circle cx="18" cy="18" r={r} fill="none" stroke="#f1f5f9" strokeWidth="3.5" />
           {segments.map(([sector, pct], i) => {
-            const offset = -cumulative;
-            const visiblePct = Math.max(pct - PAD_PCT, 0.5);
-            const dash = `${visiblePct.toFixed(2)} ${(100 - visiblePct).toFixed(2)}`;
-            cumulative += pct;
+            const animPct = pct * clampedProgress;
+            const offset = -animCumulative;
+            const visiblePct = Math.max(animPct - PAD_PCT * clampedProgress, 0.1);
+            const dash = animPct < 0.2 ? "0 100" : `${visiblePct.toFixed(3)} ${(100 - visiblePct).toFixed(3)}`;
+            animCumulative += animPct;
             const isActive = hoveredSector === sector || selectedSector === sector;
             return (
               <circle key={i} cx="18" cy="18" r={r} fill="none"
@@ -657,7 +701,8 @@ export function SectorDonutChart({
             );
           })}
         </svg>
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center"
+          style={{ opacity: Math.min(progress, 1) }}>
           {activeSegment ? (
             <div className="text-center leading-tight">
               <p className="text-sm font-bold text-navy">{activeSegment[0]}</p>
