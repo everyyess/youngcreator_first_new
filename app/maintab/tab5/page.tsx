@@ -35,6 +35,7 @@ interface Client {
   liquidityNeeds: LiquidityNeed[];
   taxExcessAmount: number;
   hasTab4TaxData: boolean;
+  isTaxAlertFromTab1: boolean;
 }
 
 type LiquidityNeed = {
@@ -232,8 +233,11 @@ function calcWeights(c: Client) {
   const uG = Math.max(c.targetReturn * (6 - c.riskAppetite) + c.investmentPeriod * 2, 1);
   const uI = Math.max((c.age / 100) * 50 + (6 - c.riskAppetite) * 5, 1);
   const uH = Math.max(c.riskAppetite * 15, 1);
-  const uT = c.taxExcessAmount > 50_000_000 ? 150 : c.taxExcessAmount > 0 ? 100 : 5;
-  const uL = calcLiquidityPriorityScore(c);
+  const uT = c.taxExcessAmount > 50_000_000 ? 200
+    : c.taxExcessAmount > 0 ? 150
+    : c.isTaxAlertFromTab1 ? 120
+    : c.isTaxTarget ? 100 : 50;
+    const uL = Math.min(calcLiquidityPriorityScore(c), uG * 0.8);
   const total = uG + uI + uH + uL + uT;
   const arr: { bucket: BucketType; w: number }[] = [
     { bucket:"자본증식", w:uG/total }, { bucket:"인컴창출", w:uI/total },
@@ -628,9 +632,11 @@ const client: Client = useMemo(() => {
     liquidityNeeds: [],
     taxExcessAmount: 0,
     hasTab4TaxData: false,
+    isTaxAlertFromTab1: false,
   };
   const hasTab4TaxData = newSummary != null;
-    const taxExcessAmount = Math.max(0, (newSummary?.totalFinancialIncome ?? 0) - 20_000_000);
+  const taxExcessAmount = Math.max(0, (newSummary?.totalFinancialIncome ?? 0) - 20_000_000);
+  const isTaxAlertFromTab1 = internalJsonPayload.rrttllu.tax.financial_income_tax_alert?.includes("초과") ?? false;
     // TAB4 데이터가 있으면 정밀 계산, 없으면 TAB1 설문 판단으로 안전하게 폴백
     const isTaxTarget = hasTab4TaxData
       ? taxExcessAmount > 0
@@ -668,6 +674,7 @@ const additionalInvestmentAmount = (() => {
       liquidityNeeds,
       taxExcessAmount,
       hasTab4TaxData,
+      isTaxAlertFromTab1,
     };
   }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady,newSummary]);
 
