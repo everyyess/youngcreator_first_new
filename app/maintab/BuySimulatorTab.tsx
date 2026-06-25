@@ -27,6 +27,7 @@ import {
 } from "recharts";
 import {
   useCustomerContext,
+  saveBuySimUncheckedTickers,
   type BuySimTickerItem,
   type PortfolioAsset,
   type PbOrderRow,
@@ -591,6 +592,8 @@ export default function BuySimulatorTab() {
     confirmedGlobalPair,
     buySimTickerItems,
     setBuySimPersistedState,
+    buySimUncheckedTickers,
+    setBuySimUncheckedTickers,
     pbOrderRows,
     setPbOrderRows,
     addSellRecord,
@@ -660,6 +663,9 @@ export default function BuySimulatorTab() {
   // 언마운트 시 컨텍스트에 동기화하기 위한 최신값 refs
   const tickerItemsRef = useRef<TickerItem[]>(buySimTickerItems);
   const confirmedSigRef = useRef<string>('');
+  // 렌더마다 최신 uncheckedTickers를 읽기 위한 ref (Effect A/B에서 deps 없이 사용)
+  const uncheckedTickersRef = useRef<string[]>(buySimUncheckedTickers);
+  uncheckedTickersRef.current = buySimUncheckedTickers;
 
   // 확정 조합 시그니처 — 같으면 영속 상태 재사용, 다르면 재빌드
   const confirmedSig = useMemo(() => {
@@ -805,6 +811,17 @@ export default function BuySimulatorTab() {
     setConfirmDone(false);
   }, [selectedCustomer, buySimTickerItems]);
 
+  // ── Effect: 컨텍스트의 uncheckedTickers 변경 시 로컬 tickerItems에 반영 (고객 화면 실시간 동기화) ──
+  useEffect(() => {
+    setTickerItems(prev => {
+      if (prev.length === 0) return prev;
+      const uncheckedSet = new Set(buySimUncheckedTickers);
+      const needsUpdate = prev.some(t => t.checked === uncheckedSet.has(t.ticker));
+      if (!needsUpdate) return prev;
+      return prev.map(t => ({ ...t, checked: !uncheckedSet.has(t.ticker) }));
+    });
+  }, [buySimUncheckedTickers]);
+
   // ── Effect A: 확정 조합 모드 (1순위 무조건 바인딩) ──────────────────────────
   // confirmedDomesticPair / confirmedGlobalPair 가 하나라도 있으면 항상 이 데이터로 빌드.
   // 탭 재마운트 포함 모든 경우에 confirmedPair를 1순위로 강제 반영.
@@ -843,10 +860,11 @@ export default function BuySimulatorTab() {
     rawItems.forEach((i) => { rawWeights[i.ticker] = i.weight; });
     const adjusted = enforceClassCap(rawWeights, combinedSectorMap, CLASS_CAP[activeStrategy]);
 
+    const uncheckedSet = new Set(uncheckedTickersRef.current);
     const items: TickerItem[] = rawItems.map((item) => {
       const weight = adjusted[item.ticker] ?? item.weight;
       const amountMan = totalFunds > 0 ? Math.floor((totalFunds * weight) / 10000) : 0;
-      return { ...item, weight, customAmountStr: amountMan > 0 ? String(amountMan) : "" };
+      return { ...item, weight, customAmountStr: amountMan > 0 ? String(amountMan) : "", checked: !uncheckedSet.has(item.ticker) };
     });
 
     setTickerItems(items);
@@ -900,10 +918,11 @@ export default function BuySimulatorTab() {
     rawItems.forEach((i) => { rawWeights[i.ticker] = i.weight; });
     const adjusted = enforceClassCap(rawWeights, combinedSectorMap, CLASS_CAP[activeStrategy]);
 
+    const uncheckedSet = new Set(uncheckedTickersRef.current);
     const items: TickerItem[] = rawItems.map((item) => {
       const weight = adjusted[item.ticker] ?? item.weight;
       const amountMan = totalFunds > 0 ? Math.floor((totalFunds * weight) / 10000) : 0;
-      return { ...item, weight, customAmountStr: amountMan > 0 ? String(amountMan) : "" };
+      return { ...item, weight, customAmountStr: amountMan > 0 ? String(amountMan) : "", checked: !uncheckedSet.has(item.ticker) };
     });
 
     setTickerItems(items);
@@ -1018,13 +1037,18 @@ export default function BuySimulatorTab() {
 
   // ── 핸들러 ───────────────────────────────────────────────────────────────
 
-  // 체크박스 — 시각 효과 전용 (totalAllocated·handleConfirm 비개입)
+  // 체크박스 — 시각 효과 전용 (totalAllocated·handleConfirm 비개입) + 고객 화면 실시간 동기화
   const toggleCheck = useCallback(
-    (idx: number) =>
-      setTickerItems((prev) =>
-        prev.map((t, i) => (i === idx ? { ...t, checked: !t.checked } : t)),
-      ),
-    [],
+    (idx: number) => {
+      setTickerItems((prev) => {
+        const next = prev.map((t, i) => (i === idx ? { ...t, checked: !t.checked } : t));
+        const unchecked = next.filter(t => !t.checked).map(t => t.ticker);
+        setBuySimUncheckedTickers(unchecked);
+        void saveBuySimUncheckedTickers(selectedCustomer, unchecked);
+        return next;
+      });
+    },
+    [setBuySimUncheckedTickers, selectedCustomer],
   );
 
   const updateAmount = useCallback(

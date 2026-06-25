@@ -299,6 +299,7 @@ export default function ExistingPortfolioTab() {
         const summary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
         try {
           localStorage.setItem(FINANCIAL_INCOME_STORAGE_KEY, JSON.stringify(summary));
+          localStorage.setItem("financial-income-owner", selectedCustomer);
           sessionStorage.removeItem(FINANCIAL_INCOME_RESET_KEY);
           window.dispatchEvent(new CustomEvent("financial-income-updated"));
         } catch {}
