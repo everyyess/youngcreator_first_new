@@ -7,8 +7,8 @@ import {
 Font.register({
   family: "Pretendard",
   fonts: [
-    { src: "https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/public/static/Pretendard-Regular.subset.woff", fontWeight: "normal" },
-    { src: "https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/public/static/Pretendard-Bold.subset.woff", fontWeight: "bold" },
+    { src: "https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Regular.otf", fontWeight: "normal" },
+    { src: "https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Bold.otf", fontWeight: "bold" },
   ],
 });
 
