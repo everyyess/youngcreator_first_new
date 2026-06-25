@@ -937,7 +937,7 @@ export function InteractiveDonutWithTable({
   return (
     <div className="flex flex-col gap-6">
       {/* 두 도넛 차트 50:50 나란히 배치 */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-2 gap-6 min-h-[400px] items-start">
         {/* 왼쪽: 자산군별 비중 (50%) */}
         <div className="flex min-w-0 flex-col items-center gap-2">
           <p className="text-center text-[11px] font-bold uppercase tracking-wider text-slate-400">자산군별 비중</p>
@@ -1208,7 +1208,9 @@ export function StressScenarioBar({
     }
   }
   const [expanded, setExpanded] = useState(false);
-  const allDetails = Array.from(dedupMap.values());
+  const allDetails = Array.from(dedupMap.values()).sort(
+    (a, b) => (a.shock ?? a.contribution) - (b.shock ?? b.contribution)
+  );
   const details = expanded ? allDetails : allDetails.slice(0, STRESS_INITIAL_COUNT);
   const hasMore = allDetails.length > STRESS_INITIAL_COUNT;
   // 바 차트 스케일: 개별 종목 자체 충격률(shock) 기준

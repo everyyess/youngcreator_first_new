@@ -8,17 +8,17 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;background:#f8fafc;color:#1e293b;font-size:14px}
-.header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:white;padding:20px 24px}
-.header h1{font-size:20px;font-weight:700;margin-bottom:4px}
-.header .sub{font-size:12px;opacity:.85}
+.header{background:#F9FAFB;color:#1e293b;padding:20px 24px;border-bottom:1px solid #e2e8f0}
+.header h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#0f172a;display:flex;align-items:center}
+.header .sub{font-size:12px;color:#6b7280;margin-top:3px}
 .period-bar{display:flex;gap:8px;padding:16px 24px;background:white;border-bottom:1px solid #e2e8f0;flex-wrap:wrap;align-items:center}
 .period-bar .label{font-size:12px;color:#64748b;margin-right:4px}
 .period-btn{padding:5px 14px;min-width:68px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;background:white;cursor:pointer;font-size:12px;color:#475569;transition:all .15s}
-.period-btn.active{background:#3b82f6;color:white;border-color:#3b82f6;font-weight:600}
+.period-btn.active{background:#2f2f9d;color:white;border-color:#2f2f9d;font-weight:600}
 .period-info{margin-left:auto;font-size:11px;color:#94a3b8}
-.tabs{display:flex;gap:0;padding:0 20px;background:white;border-bottom:1px solid #e2e8f0}
+.tabs{display:flex;gap:0;padding:0 20px;background:#F9FAFB;border-bottom:1px solid #e2e8f0}
 .tab-btn{padding:12px 18px;border:none;background:none;cursor:pointer;font-size:13px;color:#64748b;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}
-.tab-btn.active{color:#3b82f6;border-bottom-color:#3b82f6;font-weight:600}
+.tab-btn.active{color:#1e293b;border-bottom-color:#1e293b;font-weight:700}
 .tab-pane{display:none;padding:28px 24px}
 .tab-pane.active{display:block}
 .summary-block{margin-bottom:22px}
@@ -28,7 +28,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .summary-body{padding-left:30px;font-size:13px;color:#475569;line-height:1.8}
 .summary-divider{border:none;border-top:1px solid #e2e8f0;margin:26px 0}
 .opt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;padding-left:30px;margin-bottom:8px}
-.opt-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;transition:all .15s}
+.opt-card{background:white;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;transition:all .15s;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
 .opt-card .ticker{font-size:20px;font-weight:700;margin-bottom:4px}
 .opt-card .etf-name{font-size:11px;color:#64748b;margin-bottom:6px;line-height:1.4}
 .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;color:white;font-weight:500}
@@ -79,7 +79,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 </head>
 <body>
 <div class="header">
-  <h1>📊 ETF 분산투자 최적화 스크리너 <span style="font-size:14px;background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:4px;margin-left:10px;font-weight:600">##STRATEGY_TXT##</span></h1>
+  <h1><svg style="display:inline;vertical-align:text-bottom;margin-right:8px" width="22" height="22" viewBox="0 0 24 24" fill="none"><line x1="3" y1="21" x2="21" y2="21" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/><line x1="3" y1="3" x2="3" y2="21" stroke="#94a3b8" stroke-width="1.5" stroke-linecap="round"/><rect x="5" y="14" width="3.5" height="7" rx="0.5" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1.2"/><rect x="10.5" y="9" width="3.5" height="12" rx="0.5" fill="#dbeafe" stroke="#93c5fd" stroke-width="1.2"/><rect x="16" y="4" width="3.5" height="17" rx="0.5" fill="#bfdbfe" stroke="#3b82f6" stroke-width="1.5"/></svg>ETF 분산투자 최적화 스크리너 <span style="font-size:11px;border:1px solid #475569;color:#475569;background:transparent;padding:3px 10px;border-radius:20px;margin-left:12px;font-weight:700;letter-spacing:0.01em">##STRATEGY_TXT##</span></h1>
   <div class="sub">국내 KODEX ETF 30종목 · 30×30 상관행렬 · 섹터 다양성 제약 고정 · 자산 비중 최대 40% 제한 제약</div>
 </div>
 <div class="period-bar">
@@ -93,10 +93,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 </div>
 <div id="warn-banner" style="display:none;align-items:center;gap:8px;padding:8px 20px;background:#fef3c7;border-bottom:1px solid #fde68a;font-size:12px;color:#92400e;font-weight:500"></div>
 <div class="tabs">
-  <button class="tab-btn active" onclick="showTab('optimal',this)">🎯 최적 조합</button>
-  <button class="tab-btn" onclick="showTab('heatmap',this)">🌡️ 상관 히트맵</button>
-  <button class="tab-btn" onclick="showTab('chart',this)">📈 수익률 차트</button>
-  <button class="tab-btn" onclick="showTab('sectorlist',this)">📋 섹터별 ETF 리스트</button>
+  <button class="tab-btn active" onclick="showTab('optimal',this)"><svg style="display:inline;vertical-align:text-bottom;margin-right:5px" width="14" height="14" viewBox="0 0 24 24" fill="none"><line x1="3" y1="21" x2="21" y2="21" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/><line x1="3" y1="3" x2="3" y2="21" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/><path d="M4 19H9V14H14V9H19V4" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="4" r="1.8" fill="#3b82f6"/></svg>최적 조합</button>
+  <button class="tab-btn" onclick="showTab('heatmap',this)"><svg style="display:inline;vertical-align:text-bottom;margin-right:5px" width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="8.5" height="8.5" rx="1" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/><rect x="12.5" y="3" width="8.5" height="8.5" rx="1" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/><rect x="3" y="12.5" width="8.5" height="8.5" rx="1" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/><rect x="12.5" y="12.5" width="8.5" height="8.5" rx="1" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/></svg>상관 히트맵</button>
+  <button class="tab-btn" onclick="showTab('chart',this)"><svg style="display:inline;vertical-align:text-bottom;margin-right:5px" width="14" height="14" viewBox="0 0 24 24" fill="none"><line x1="3" y1="21" x2="21" y2="21" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/><line x1="3" y1="3" x2="3" y2="21" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/><path d="M4 18C7 16 8 14 10 12S14 8 20 6" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" fill="none"/><circle cx="20" cy="6" r="1.8" fill="#3b82f6"/></svg>수익률 차트</button>
+  <button class="tab-btn" onclick="showTab('sectorlist',this)"><svg style="display:inline;vertical-align:text-bottom;margin-right:5px" width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 3L3 9h18L12 3z" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.4" stroke-linejoin="round"/><line x1="3" y1="21" x2="21" y2="21" stroke="#94a3b8" stroke-width="1.6" stroke-linecap="round"/><line x1="3" y1="9" x2="21" y2="9" stroke="#94a3b8" stroke-width="1.3"/><line x1="7" y1="9" x2="7" y2="21" stroke="#94a3b8" stroke-width="1.3"/><line x1="12" y1="9" x2="12" y2="21" stroke="#3b82f6" stroke-width="1.3"/><line x1="17" y1="9" x2="17" y2="21" stroke="#94a3b8" stroke-width="1.3"/></svg>섹터별 ETF 리스트</button>
 </div>
 <div class="tab-pane active" id="tab-optimal"><div id="optimal-content"></div></div>
 <div class="tab-pane" id="tab-heatmap">

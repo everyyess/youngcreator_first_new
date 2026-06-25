@@ -72,19 +72,24 @@ function SummaryBox({
   bgColor: string; borderColor: string; rows: SumRow[];
 }) {
   return (
-    <div className="mb-5 rounded-lg border p-4" style={{ borderColor, background: bgColor }}>
-      <div className="mb-3 flex items-center gap-2">
+    <div className="rounded-xl border p-5" style={{ borderColor, background: bgColor }}>
+      <div className="mb-4 flex items-center gap-2">
         <span className="text-lg">{icon}</span>
-        <span className="text-[13px] font-bold text-slate-800">{title}</span>
-        <span className="ml-auto rounded-full px-3 py-0.5 text-[11px] font-bold text-white" style={{ background: badgeColor }}>
-          {badge}
-        </span>
+        <span className="text-[14px] font-bold text-slate-800">{title}</span>
+        {badge && (
+          <span
+            className="ml-auto rounded-full px-3.5 py-1 text-[12px] font-bold text-white shadow-sm"
+            style={{ background: badgeColor }}
+          >
+            {badge}
+          </span>
+        )}
       </div>
-      <div className="space-y-1.5 text-[13px] text-slate-700 leading-relaxed">
+      <div className="space-y-2.5 text-[13px] text-slate-700">
         {rows.map((r, i) => (
-          <div key={i} className="flex gap-2 items-start">
+          <div key={i} className="flex gap-2.5 items-start leading-relaxed">
             <div
-              className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+              className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
               style={{ background: r.type === "good" ? "#16a34a" : r.type === "bad" ? "#dc2626" : r.type === "info" ? "#3b82f6" : "#f59e0b" }}
             />
             <div dangerouslySetInnerHTML={{ __html: r.text }} />
@@ -147,43 +152,90 @@ function SummaryTab({ d }: { d: OptionsChainResponse }) {
       )}
 
       {/* 히어로 */}
-      <div className="mb-5 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-        <div className="text-[56px] font-extrabold leading-none" style={{ color: scoreColor }}>
+      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+        <div className="text-[72px] font-extrabold leading-none" style={{ color: scoreColor }}>
           {score > 0 ? "+" : ""}{score}
         </div>
-        <div className="mt-1 text-[13px] text-slate-400">/ ±100 (옵션 심리 점수)</div>
-        <div className="relative mx-auto mt-4 h-3 max-w-xs overflow-hidden rounded-full" style={{ background: "linear-gradient(90deg,#dc2626,#f59e0b,#e2e8f0,#84cc16,#16a34a)" }}>
-          <div className="absolute top-[-2px] h-7 w-1 -translate-x-1/2 rounded bg-slate-800" style={{ left: `${pos}%` }} />
+        <div className="mt-1 text-[12px] text-slate-400">/ ±100 (옵션 심리 점수)</div>
+
+        {/* 게이지 */}
+        <div className="relative mx-auto mt-5 max-w-xs">
+          <div
+            className="relative h-4 overflow-visible rounded-full"
+            style={{ background: "linear-gradient(90deg,#dc2626 0%,#f59e0b 33%,#e2e8f0 50%,#84cc16 67%,#16a34a 100%)" }}
+          >
+            <div className="absolute inset-y-0 w-0.5 bg-white/60" style={{ left: "33%" }} />
+            <div className="absolute inset-y-0 w-0.5 bg-white/60" style={{ left: "67%" }} />
+            <div
+              className="absolute top-1/2 h-7 w-3 -translate-x-1/2 -translate-y-1/2 rounded"
+              style={{
+                left: `${pos}%`,
+                background: "#0f172a",
+                boxShadow: "0 0 0 2.5px white, 0 2px 8px rgba(0,0,0,0.35)",
+              }}
+            />
+          </div>
+          <div className="mt-2 flex justify-between text-[10px] text-slate-400">
+            <span>풋 우세(약세)</span><span>중립</span><span>콜 우세(강세)</span>
+          </div>
         </div>
-        <div className="mt-1 flex justify-between text-[10px] text-slate-400 max-w-xs mx-auto">
-          <span>풋 우세(약세)</span><span>중립</span><span>콜 우세(강세)</span>
-        </div>
-        <div className="mt-3 text-[17px] font-bold" style={{ color: scoreColor }}>{scoreLabel}</div>
+
+        <div className="mt-3 text-[14px] font-semibold" style={{ color: scoreColor }}>{scoreLabel}</div>
       </div>
 
       {/* 키 카드 */}
-      <div className="mb-5 grid grid-cols-3 gap-2 sm:grid-cols-6">
+      <div className="mb-6 grid grid-cols-3 gap-3 sm:grid-cols-6">
         {[
-          { label: "P/C 비율(OI)", val: pcOI ?? "-", sub: pcOI !== null && pcOI < 1 ? "콜 우세" : "풋 우세", color: pcOI !== null && pcOI < 1 ? "text-green-600" : "text-red-600" },
-          { label: "P/C 비율(거래량)", val: pcVol ?? "-", sub: pcVol !== null && pcVol < 1 ? "콜 우세" : "풋 우세", color: pcVol !== null && pcVol < 1 ? "text-green-600" : "text-red-600" },
-          { label: "Max Pain", val: `$${target.maxPain}`, sub: `${target.exp} 만기`, color: "text-slate-800" },
-          { label: "콜 벽(저항)", val: target.callWall ? `$${target.callWall}` : "N/A", sub: "전체만기 콜 OI 최대", color: "text-green-700" },
-          { label: "풋 벽(지지)", val: target.putWall ? `$${target.putWall}` : "N/A", sub: "전체만기 풋 OI 최대", color: "text-red-700" },
-          { label: "ATM IV", val: target.atmIV ? `${target.atmIV.toFixed(0)}%` : "N/A", sub: `HV ${d.hv20}%`, color: "text-slate-800" },
+          {
+            label: "P/C 비율(OI)",
+            val: pcOI ?? "-",
+            sub: pcOI !== null && pcOI < 1 ? "콜 우세" : "풋 우세",
+            valColor: pcOI !== null && pcOI < 1 ? "#16a34a" : "#dc2626",
+          },
+          {
+            label: "P/C 비율(거래량)",
+            val: pcVol ?? "-",
+            sub: pcVol !== null && pcVol < 1 ? "콜 우세" : "풋 우세",
+            valColor: pcVol !== null && pcVol < 1 ? "#16a34a" : "#dc2626",
+          },
+          {
+            label: "Max Pain",
+            val: `$${target.maxPain}`,
+            sub: `${target.exp} 만기`,
+            valColor: "#1e293b",
+          },
+          {
+            label: "콜 벽(저항)",
+            val: target.callWall ? `$${target.callWall}` : "N/A",
+            sub: "콜 OI 최대",
+            valColor: "#15803d",
+          },
+          {
+            label: "풋 벽(지지)",
+            val: target.putWall ? `$${target.putWall}` : "N/A",
+            sub: "풋 OI 최대",
+            valColor: "#b91c1c",
+          },
+          {
+            label: "ATM IV",
+            val: target.atmIV ? `${target.atmIV.toFixed(0)}%` : "N/A",
+            sub: `HV ${d.hv20}%`,
+            valColor: "#1e293b",
+          },
         ].map((card) => (
-          <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="text-[10px] text-slate-500 leading-tight">{card.label}</div>
-            <div className={`mt-1 text-[16px] font-bold ${card.color}`}>{card.val}</div>
-            <div className="text-[10px] text-slate-400">{card.sub}</div>
+          <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+            <div className="text-[10px] font-medium text-slate-400 leading-tight">{card.label}</div>
+            <div className="mt-1.5 text-[17px] font-bold leading-none" style={{ color: card.valColor }}>{card.val}</div>
+            <div className="mt-1.5 text-[9px] text-slate-400 leading-snug">{card.sub}</div>
           </div>
         ))}
       </div>
 
       <SummaryBox
-        title="옵션 심리 핵심 요약" icon="🧭" badge={badge}
-        badgeColor={score >= 20 ? "#16a34a" : score <= -20 ? "#dc2626" : "#64748b"}
-        bgColor={score >= 20 ? "#f0fdf4" : score <= -20 ? "#fef2f2" : "#f8fafc"}
-        borderColor={score >= 20 ? "#86efac" : score <= -20 ? "#fecaca" : "#e2e8f0"}
+        title="옵션 심리 핵심 요약" icon="🧭" badge=""
+        badgeColor="transparent"
+        bgColor="white"
+        borderColor="#e5e7eb"
         rows={rows}
       />
     </div>
