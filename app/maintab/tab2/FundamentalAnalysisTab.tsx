@@ -673,12 +673,21 @@ export default function FundamentalAnalysisTab() {
     });
   }, [portfolioData]);
 
-  const domesticList  = useMemo(() => allStocks.filter(a =>  isDomestic(a.ticker!)), [allStocks]);
-  // 국내 먼저, 해외 나중 정렬
+  const isSKHynix = (a: PortfolioAsset) => /^000660/.test(a.ticker ?? "");
+  const domesticList  = useMemo(() => {
+    const domestic = allStocks.filter(a => isDomestic(a.ticker!));
+    return [...domestic].sort((a, b) => {
+      if (isSKHynix(a) && !isSKHynix(b)) return -1;
+      if (!isSKHynix(a) && isSKHynix(b)) return 1;
+      return 0;
+    });
+  }, [allStocks]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 국내 먼저(SK하이닉스 최우선), 해외 나중 정렬
   const sortedStocks = useMemo(() => [
-    ...allStocks.filter(a =>  isDomestic(a.ticker!)),
+    ...allStocks.filter(isSKHynix),
+    ...allStocks.filter(a =>  isDomestic(a.ticker!) && !isSKHynix(a)),
     ...allStocks.filter(a => !isDomestic(a.ticker!)),
-  ], [allStocks]);
+  ], [allStocks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 한국어 종목명 맵 { ticker → koreanName }
   const [koreanNames, setKoreanNames] = useState<Record<string, string>>({});
@@ -713,6 +722,11 @@ export default function FundamentalAnalysisTab() {
   const resolvedName = koreanNames[selectedTicker] || selectedName;
 
   const openSummary = (report: NaverReport) => {
+    // 서버에서 미리 주입된 요약이 있으면 API 호출 없이 즉시 표시
+    if (report.summary) {
+      setSummaryState({ report, currentPrice: selectedCurrentPrice, loading: false, summary: report.summary, error: null });
+      return;
+    }
     setSummaryState({ report, currentPrice: selectedCurrentPrice, loading: true, summary: null, error: null });
     if (!report.pdfUrl) {
       setSummaryState(prev => prev ? { ...prev, loading: false, error: "PDF URL이 없어 요약할 수 없습니다." } : null);

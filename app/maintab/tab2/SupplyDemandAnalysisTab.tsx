@@ -939,11 +939,17 @@ const TABS: { id: TabId; label: string; sharedHeader: boolean }[] = [
 export default function SupplyDemandAnalysisTab() {
   const portfolioData = usePortfolioResult();
 
-  // 국내주식 중 ticker 있는 종목만
+  // 국내주식 중 ticker 있는 종목만 (SK하이닉스 최우선)
   const domesticAssets = useMemo<PortfolioAsset[]>(() => {
-    return (portfolioData?.enrichedAssets ?? []).filter(
+    const assets = (portfolioData?.enrichedAssets ?? []).filter(
       (a) => a.asset_class === "국내주식" && a.ticker && cleanTicker(a.ticker) !== ""
     );
+    return [...assets].sort((a, b) => {
+      const aH = /^000660/.test(a.ticker!), bH = /^000660/.test(b.ticker!);
+      if (aH && !bH) return -1;
+      if (!aH && bH) return 1;
+      return 0;
+    });
   }, [portfolioData]);
 
   const [selectedTicker, setSelectedTicker] = useState("");

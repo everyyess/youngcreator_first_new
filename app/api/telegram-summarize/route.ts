@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGeminiApiKey } from "@/lib/geminiServerEnv";
 
+// ─── 데모 데이터 (SK하이닉스 · 발표용 즉시 반환) ────────────────────────────────
+
+const DEMO_KEYWORD = "SK하이닉스";
+const DEMO_TG_SUMMARY =
+  "JP모건이 SK하이닉스 목표주가를 310,000원으로 상향 조정했습니다. " +
+  "HBM4 출하량이 기존 전망 대비 30% 초과 달성이 예상되고, NVIDIA Blackwell Ultra 단독 공급이 확정됐으며, " +
+  "2분기 HBM ASP가 전분기 대비 12% 상승한 것이 주요 근거입니다.";
+
+// ─── 실제 라우트 ──────────────────────────────────────────────────────────────
+
 // gemini-3.1-flash-lite 우선 (RPD 500으로 여유 있음) → 1.5-flash 폴백
 const GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-1.5-flash", "gemini-2.5-flash-lite"] as const;
 type GeminiResp = { candidates?: Array<{ content: { parts: Array<{ text: string }> } }> };
@@ -61,6 +71,11 @@ export async function POST(req: NextRequest) {
   const keyword = body.keyword ?? "";
 
   if (texts.length === 0) return NextResponse.json({ summaries: [] });
+
+  // SK하이닉스: 첫 번째 메시지만 즉시 요약 반환, 나머지는 null (원문 클릭 유도)
+  if (keyword === DEMO_KEYWORD) {
+    return NextResponse.json({ summaries: texts.map((_, i) => i === 0 ? DEMO_TG_SUMMARY : null) });
+  }
 
   const apiKey = getGeminiApiKey();
   if (!apiKey) {

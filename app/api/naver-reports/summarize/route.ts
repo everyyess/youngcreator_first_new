@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGeminiApiKey } from '@/lib/geminiServerEnv';
+import { DEMO_NAVER_PDF_URL, DEMO_NAVER_SUMMARY } from '../route';
+
+// ─── 실제 라우트 ──────────────────────────────────────────────────────────────
 
 // Next.js App Router 라우트 핸들러 최대 실행 시간 (초)
 // PDF 다운로드 + Gemini 분석이 기본 10초를 초과할 수 있음
@@ -28,6 +31,11 @@ export async function GET(req: NextRequest) {
 
   if (!pdfUrl) {
     return NextResponse.json({ error: 'PDF URL이 필요합니다.' }, { status: 400 });
+  }
+
+  // 데모 PDF 즉시 반환
+  if (pdfUrl === DEMO_NAVER_PDF_URL) {
+    return NextResponse.json({ summary: DEMO_NAVER_SUMMARY });
   }
 
   const apiKey = getGeminiApiKey();

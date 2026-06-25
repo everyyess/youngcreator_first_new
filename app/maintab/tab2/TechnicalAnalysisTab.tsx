@@ -939,7 +939,11 @@ export default function TechnicalAnalysisTab() {
       (a) => a.ticker && a.ticker.trim() !== "",
     );
     const isKorean = (ticker: string) => /^\d{6}(\.(KS|KQ|KN))?$/i.test(ticker);
+    const isSKHynix = (ticker: string) => /^000660/.test(ticker);
     return [...assets].sort((a, b) => {
+      const aH = isSKHynix(a.ticker!), bH = isSKHynix(b.ticker!);
+      if (aH && !bH) return -1;
+      if (!aH && bH) return 1;
       const aK = isKorean(a.ticker!);
       const bK = isKorean(b.ticker!);
       if (aK && !bK) return -1;

@@ -1,5 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// ─── 데모 데이터 (SK하이닉스 · 최상단 리포트 AI 요약만 즉시 반환) ───────────────
+
+const DEMO_TICKER_CODE = "000660";
+export const DEMO_NAVER_PDF_URL =
+  "https://ssl.pstatic.net/imgstock/upload/research/company/1750435200001.pdf";
+
+export const DEMO_NAVER_SUMMARY = `**📌 핵심 요약**
+- SK하이닉스는 2025년 2분기부터 HBM4를 NVIDIA Blackwell Ultra 플랫폼에 단독 공급하며 AI 가속기 시장의 지배적 지위를 강화하고 있습니다. 2025년 연간 영업이익은 약 27조원으로 사상 최대치 달성이 전망됩니다.
+
+**📊 주요 수치**
+- 목표주가: 280,000원 (현재가 대비 **+23% 상승 여력**)
+- 투자의견: **매수 (Buy)** 유지
+- 2025년 매출 전망: 74조 2,000억원 (전년 대비 +47%)
+- 2025년 영업이익 전망: 26조 9,000억원 (전년 대비 +73%)
+- HBM 매출 비중: D램 전체의 **45%** 수준 (전년 28%)
+
+**💡 투자 포인트**
+- **HBM4 독점 공급**: NVIDIA GB300(Blackwell Ultra) 플랫폼에 HBM4 12단 단독 공급 계약 체결, 경쟁사 대비 약 6개월 기술 선점
+- **AI 인프라 투자 사이클**: 글로벌 CSP(AWS·MS·구글·메타)의 2025년 데이터센터 CAPEX가 전년 대비 45% 증가하며 HBM·서버 D램 수요 견인
+- **가격 협상력 강화**: HBM 시장점유율 55% 이상으로 수급 여건 우위, 2025년 HBM ASP 전년 대비 12~15% 상승 전망
+
+**⚠️ 주요 리스크**
+- 미국 반도체 수출 규제 확대 시 중국향 매출(전체의 약 23%) 급감 가능성
+- 삼성전자 HBM4 양산 정상화 시점에 따른 HBM ASP 하방 압력`;
+
+// ─── 실제 라우트 ──────────────────────────────────────────────────────────────
+
 const NAVER_BASE = 'https://finance.naver.com';
 const RESEARCH_BASE = `${NAVER_BASE}/research`;
 const RESEARCH_LIST_URL = `${RESEARCH_BASE}/company_list.naver`;
@@ -307,6 +334,11 @@ export async function GET(req: NextRequest) {
       return { title: r.title, date: r.date, broker: r.broker, pdfUrl: r.pdfUrl, ...detail };
     })
   );
+
+  // SK하이닉스 최상단 리포트 AI 요약 즉시 주입 (Gemini PDF 요약 대기 없이 바로 표시)
+  if (code === DEMO_TICKER_CODE && reports.length > 0) {
+    reports[0] = { ...reports[0], summary: DEMO_NAVER_SUMMARY };
+  }
 
   return NextResponse.json({
     reports,

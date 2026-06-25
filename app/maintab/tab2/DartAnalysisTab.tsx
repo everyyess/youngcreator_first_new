@@ -291,7 +291,7 @@ function DisclosureList({
 export default function DartAnalysisTab() {
   const { portfolioAssets } = useCustomerContext();
 
-  // 국내주식 (DART)
+  // 국내주식 (DART, SK하이닉스 최우선)
   const domesticStocks = useMemo<StockEntry[]>(() => {
     const seen = new Set<string>();
     return portfolioAssets
@@ -310,6 +310,12 @@ export default function DartAnalysisTab() {
           ticker: a.ticker ?? "",
           searchKey: numericTicker || a.name,
         };
+      })
+      .sort((a, b) => {
+        const aH = /^000660/.test(a.searchKey), bH = /^000660/.test(b.searchKey);
+        if (aH && !bH) return -1;
+        if (!aH && bH) return 1;
+        return 0;
       });
   }, [portfolioAssets]);
 
@@ -388,6 +394,11 @@ export default function DartAnalysisTab() {
 
   // AI 요약 (DART / SEC 자동 라우팅)
   const openSummary = (item: DartDisclosure) => {
+    // 서버에서 미리 주입된 요약이 있으면 API 호출 없이 즉시 표시
+    if (item.preloadedSummary) {
+      setSummaryState({ item, loading: false, summary: item.preloadedSummary, error: null });
+      return;
+    }
     const endpoint = market === "domestic" ? "/api/dart-summary" : "/api/sec-summary";
     setSummaryState({ item, loading: true, summary: null, error: null });
     fetch(`${endpoint}?rcpNo=${encodeURIComponent(item.rcpNo)}&title=${encodeURIComponent(item.title)}`)
