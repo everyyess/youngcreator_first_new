@@ -710,6 +710,14 @@ export default function FundamentalAnalysisTab() {
   const kName = (a: PortfolioAsset) => koreanNames[a.ticker!] || a.name;
 
   const [activeTab, setActiveTab] = useState<FundamentalTab>("naver");
+  const [mountedSubTabs, setMountedSubTabs] = useState<Set<FundamentalTab>>(new Set(["naver"]));
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMountedSubTabs((prev) => new Set([...prev, "telegram"]));
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
   const [selectedTicker, setSelectedTicker] = useState("");
   const [selectedName, setSelectedName]     = useState("");  // 원본
   const [selectedCurrentPrice, setSelectedCurrentPrice] = useState<number | undefined>();
@@ -867,7 +875,7 @@ export default function FundamentalAnalysisTab() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab("telegram")}
+              onClick={() => { setActiveTab("telegram"); setMountedSubTabs((prev) => new Set([...prev, "telegram"])); }}
               className={`relative shrink-0 flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold transition ${
                 activeTab === "telegram" ? "bg-white text-[#2f2f9d] shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}
@@ -891,7 +899,7 @@ export default function FundamentalAnalysisTab() {
                   </p>
                   <button
                     type="button"
-                    onClick={() => setActiveTab("telegram")}
+                    onClick={() => { setActiveTab("telegram"); setMountedSubTabs((prev) => new Set([...prev, "telegram"])); }}
                     className="mt-4 flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#26268a] transition"
                   >
                     <Send size={14} />
@@ -943,12 +951,14 @@ export default function FundamentalAnalysisTab() {
           )}
 
           {/* ── 텔레그램 콘텐츠 ── */}
-          {activeTab === "telegram" && (
-            <TelegramSearchPanel
-              stockName={resolvedName}
-              ticker={selectedTicker}
-              isOverseas={!selectedIsDomestic}
-            />
+          {mountedSubTabs.has("telegram") && (
+            <div style={{ display: activeTab === "telegram" ? undefined : "none" }}>
+              <TelegramSearchPanel
+                stockName={resolvedName}
+                ticker={selectedTicker}
+                isOverseas={!selectedIsDomestic}
+              />
+            </div>
           )}
         </div>
       )}

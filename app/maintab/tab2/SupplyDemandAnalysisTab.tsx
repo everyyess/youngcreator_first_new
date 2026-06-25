@@ -985,6 +985,14 @@ export default function SupplyDemandAnalysisTab() {
 
   // 수급 분석 내부 탭 상태
   const [activeTab, setActiveTab]       = useState<TabId>("holdings");
+  const [mountedSubTabs, setMountedSubTabs] = useState<Set<TabId>>(new Set(["holdings"]));
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMountedSubTabs((prev) => new Set([...prev, "investor", "smart"]));
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
   const [market, setMarket]             = useState<Market>("KOSPI");
   const [investorType, setInvestorType] = useState<InvestorKey>("frgn");
   const [displayMode, setDisplayMode]   = useState<DisplayMode>("amount");
@@ -1069,7 +1077,7 @@ export default function SupplyDemandAnalysisTab() {
         {/* 하위 탭 바 */}
         <div className="mx-4 mt-4 mb-4 flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1">
           {TABS.map((t) => (
-            <button key={t.id} type="button" onClick={() => setActiveTab(t.id)}
+            <button key={t.id} type="button" onClick={() => { setActiveTab(t.id); setMountedSubTabs((prev) => new Set([...prev, t.id])); }}
               className={`shrink-0 flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold transition whitespace-nowrap ${
                 activeTab === t.id
                   ? "bg-white text-[#2f2f9d] shadow-sm"
@@ -1114,13 +1122,19 @@ export default function SupplyDemandAnalysisTab() {
             error={sumError} onRefresh={handleRefresh}
           />
         )}
-        {activeTab === "investor" && (
-          <InvestorAnalysisContent
-            market={market} displayMode={displayMode}
-            investorType={investorType} orgSubType={orgSubType}
-          />
+        {mountedSubTabs.has("investor") && (
+          <div style={{ display: activeTab === "investor" ? undefined : "none" }}>
+            <InvestorAnalysisContent
+              market={market} displayMode={displayMode}
+              investorType={investorType} orgSubType={orgSubType}
+            />
+          </div>
         )}
-        {activeTab === "smart" && <SmartMoneyContent market={market} />}
+        {mountedSubTabs.has("smart") && (
+          <div style={{ display: activeTab === "smart" ? undefined : "none" }}>
+            <SmartMoneyContent market={market} />
+          </div>
+        )}
       </div>
     </div>
   );
