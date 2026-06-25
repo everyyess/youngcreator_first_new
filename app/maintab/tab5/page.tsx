@@ -606,7 +606,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation, isPreRecordMode, selectedCustomer } = useCustomerContext();
+  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, finishActiveConsultation, resumeLatestConsultation, activeConsultation, isPreRecordMode, selectedCustomer, sharedUiState, updateSharedUiState } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const portfolioData = usePortfolioResult();
   const rrttlluReady = hasRrttllu(formData);
@@ -615,6 +615,28 @@ export default function Tab5Page() {
   const [activeEffectId, setActiveEffectId] = useState<string|null>(null);
   const [unsuitableWarning, setUnsuitableWarning] = useState<Product|null>(null);
   const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
+
+  const syncedTab5Ui = sharedUiState.tab5;
+
+  useEffect(() => {
+    if (!isCustomerView || !syncedTab5Ui) return;
+    setBucketOffset(syncedTab5Ui.bucketOffset ?? {});
+    setActiveEffectId(syncedTab5Ui.activeEffectId ?? null);
+    setModalProduct(PRODUCTS.find((product) => product.id === syncedTab5Ui.modalProductId) ?? null);
+    setUnsuitableWarning(PRODUCTS.find((product) => product.id === syncedTab5Ui.unsuitableWarningProductId) ?? null);
+  }, [isCustomerView, syncedTab5Ui]);
+
+  useEffect(() => {
+    if (isCustomerView) return;
+    updateSharedUiState({
+      tab5: {
+        bucketOffset: bucketOffset as Record<string, number>,
+        modalProductId: modalProduct?.id ?? null,
+        activeEffectId,
+        unsuitableWarningProductId: unsuitableWarning?.id ?? null,
+      },
+    });
+  }, [isCustomerView, bucketOffset, modalProduct, activeEffectId, unsuitableWarning, updateSharedUiState]);
 
 useEffect(() => {
   if (!selectedCustomer) return;

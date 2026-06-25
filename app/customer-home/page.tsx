@@ -3,13 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Home, LogOut } from "lucide-react";
+import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import { customerAuthStore, formatLoginTime, type CustomerSession } from "../authStore";
 import {
   customerRowsToStoredState,
   customerStorage,
+  loadAnalysisResult,
+  loadNewAnalysisResult,
+  loadPortfolioAssets,
+  loadRebalancingState,
   storeSelectedCustomerId,
   type AppState,
   type CustomerProfile,
+  type PortfolioAsset,
 } from "../maintab/CustomerContext";
 import {
   displayKoreanDate,
@@ -25,7 +31,22 @@ import {
   type ConsultationSession,
 } from "../consultationStore";
 
-type SummarySnapshot = Record<string, unknown>;
+type PortfolioSnapshotRow = {
+  name: string;
+  assetClass: string;
+  amount: number | null;
+  buyPrice: number | null;
+  currentPrice: number | null;
+  returnPct: number | null;
+  weight: number;
+};
+
+type SummarySnapshot = Record<string, unknown> & {
+  portfolioTables?: {
+    existing?: PortfolioSnapshotRow[];
+    proposed?: PortfolioSnapshotRow[];
+  };
+};
 type SummarySection = {
   title: string;
   risk?: boolean;
@@ -52,6 +73,43 @@ function isUpcoming(session: ConsultationSession) {
 function sessionSnapshot(session?: ConsultationSession | null): SummarySnapshot | null {
   const snapshot = session?.summarySnapshot;
   return snapshot && typeof snapshot === "object" ? snapshot as SummarySnapshot : null;
+}
+
+function toFiniteSnapshotNumber(value: unknown) {
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function buildPortfolioSnapshotRows(assets: PortfolioAsset[]): PortfolioSnapshotRow[] {
+  const values = assets.map((asset) => {
+    const amount = toFiniteSnapshotNumber(asset.amount);
+    const currentPrice = toFiniteSnapshotNumber(asset.current_price);
+    const fallbackValue = amount > 0 && currentPrice > 0 ? amount * currentPrice : 0;
+    return toFiniteSnapshotNumber(asset.current_value) || fallbackValue;
+  });
+  const total = values.reduce((sum, value) => sum + value, 0);
+  return assets
+    .map((asset, index) => {
+      const amount = toFiniteSnapshotNumber(asset.amount);
+      const buyPrice = toFiniteSnapshotNumber(asset.buy_price);
+      const currentPrice = toFiniteSnapshotNumber(asset.current_price);
+      const returnPct = buyPrice > 0 && currentPrice > 0 ? (currentPrice - buyPrice) / buyPrice : null;
+      return {
+        name: asset.name?.trim() || asset.ticker?.trim() || "-",
+        assetClass: asset.asset_class || asset.productType || "-",
+        amount: amount > 0 ? amount : null,
+        buyPrice: buyPrice > 0 ? buyPrice : null,
+        currentPrice: currentPrice > 0 ? currentPrice : null,
+        returnPct,
+        weight: total > 0 ? (values[index] ?? 0) / total : 0,
+      };
+    })
+    .filter((row) => row.name !== "-")
+    .slice(0, 25);
+}
+
+function hasPortfolioTableRows(tables?: SummarySnapshot["portfolioTables"] | null) {
+  return Boolean((tables?.existing?.length ?? 0) > 0 || (tables?.proposed?.length ?? 0) > 0);
 }
 
 function valueAsText(value: unknown) {
@@ -279,7 +337,9 @@ export default function CustomerHomePage() {
               <p className="mt-2 text-sm font-bold text-slate-500">마지막 로그인: {formatLoginTime(session.lastLoginAt)}</p>
               {customerBirth(profile, session) ? <p className="mt-1 text-sm font-bold text-slate-500">고객 정보: {customerDisplay(profile, session)}</p> : null}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex min-w-[280px] flex-col items-end gap-4">
+              <SodaPopLogoImage className="h-auto w-48" />
+              <div className="flex flex-wrap items-center justify-end gap-2">
               {activeForCustomer ? (
                 <button type="button" onClick={() => router.push(activeForCustomer.returnPath?.replace("/maintab", "/customer-maintab") || "/customer-maintab/tab1")} className="grid h-11 justify-items-center gap-0.5 rounded-xl bg-blue-600 px-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20">
                   <span className="inline-flex items-center gap-1.5"><Home size={13} /> 상담 화면으로 돌아가기</span>
@@ -289,6 +349,7 @@ export default function CustomerHomePage() {
               <button type="button" onClick={logout} className="inline-flex h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
                 <LogOut size={16} /> 로그아웃
               </button>
+              </div>
             </div>
           </div>
           {message ? <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-extrabold text-red-700">{message}</p> : null}
@@ -385,8 +446,49 @@ function ConsultationSummaryModal({
   onClose: () => void;
 }) {
   const snapshot = sessionSnapshot(session);
-  const previous = previousSessionFor(session, sessions);
-  const changes = snapshotChangeRows(snapshot, previous ? sessionSnapshot(previous) : null);
+  const [fallbackPortfolioTables, setFallbackPortfolioTables] = useState<SummarySnapshot["portfolioTables"] | null>(null);
+  const portfolioTables = hasPortfolioTableRows(snapshot?.portfolioTables) ? snapshot?.portfolioTables : fallbackPortfolioTables ?? undefined;
+
+  useEffect(() => {
+    if (hasPortfolioTableRows(snapshot?.portfolioTables)) {
+      setFallbackPortfolioTables(null);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      loadAnalysisResult(session.customerId),
+      loadPortfolioAssets(session.customerId),
+      loadRebalancingState(session.customerId),
+      loadNewAnalysisResult(session.customerId),
+    ]).then(([leftResult, portfolioAssets, rebalancing, rightResult]) => {
+      if (cancelled) return;
+      const leftResultRecord = leftResult as { enrichedAssets?: PortfolioAsset[] } | null;
+      const rightResultRecord = rightResult as { enrichedAssets?: PortfolioAsset[] } | null;
+      const existingAssets = Array.isArray(leftResultRecord?.enrichedAssets) && leftResultRecord.enrichedAssets.length > 0
+        ? leftResultRecord.enrichedAssets
+        : portfolioAssets;
+      const remainingMap = new Map(existingAssets.map((asset) => [`${asset.name ?? ""}::${asset.ticker ?? ""}`, asset]));
+      const remainingAssets = rebalancing.sellAssets.map((asset) => {
+        const enriched = remainingMap.get(`${asset.name ?? ""}::${asset.ticker ?? ""}`);
+        return {
+          ...asset,
+          current_price: enriched?.current_price ?? asset.current_price,
+          current_value: enriched?.current_value ?? asset.current_value,
+        };
+      });
+      const proposedAssets = Array.isArray(rightResultRecord?.enrichedAssets) && rightResultRecord.enrichedAssets.length > 0
+        ? rightResultRecord.enrichedAssets
+        : remainingAssets.filter((asset) => toFiniteSnapshotNumber(asset.amount) > 0);
+      setFallbackPortfolioTables({
+        existing: buildPortfolioSnapshotRows(existingAssets),
+        proposed: buildPortfolioSnapshotRows(proposedAssets),
+      });
+    }).catch((error) => {
+      console.error("Failed to load portfolio tables for customer session modal", error);
+      if (!cancelled) setFallbackPortfolioTables(null);
+    });
+    return () => { cancelled = true; };
+  }, [session.customerId, snapshot?.portfolioTables]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
@@ -400,27 +502,75 @@ function ConsultationSummaryModal({
           <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-base font-extrabold text-slate-600 hover:bg-slate-50">닫기</button>
         </div>
 
-        <div className="mb-6 rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
-          <p className="mb-4 text-lg font-extrabold text-blue-900">변경 이력</p>
-          {changes.length ? (
-            <div className="grid gap-2">
-              {changes.map((change) => (
-                <p key={change.label} className="text-sm font-bold text-slate-700">
-                  {change.label} {change.before} <span className="text-slate-400">→</span> <span className="font-black text-red-600">{change.after}</span>
-                </p>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm font-bold text-slate-500">{previous ? "직전 상담 대비 변경된 요약 항목이 없습니다." : "비교할 직전 상담 기록이 없습니다."}</p>
-          )}
-        </div>
-
+        <PortfolioTables tables={portfolioTables} />
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="mb-5 text-lg font-extrabold text-blue-900">성향 및 니즈 분석 요약</p>
           <SummaryTable snapshot={snapshot} />
         </div>
       </section>
     </div>
+  );
+}
+
+function formatSnapshotNumber(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return Math.round(value).toLocaleString("ko-KR");
+}
+
+function formatSnapshotPercent(value: number | null | undefined, digits = 1) {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)}%`;
+}
+
+function PortfolioTables({ tables }: { tables?: SummarySnapshot["portfolioTables"] }) {
+  const existing = tables?.existing ?? [];
+  const proposed = tables?.proposed ?? [];
+  if (!existing.length && !proposed.length) return null;
+  return (
+    <div className="mb-6 grid gap-5">
+      {existing.length ? <PortfolioSnapshotTable title="기존 포트폴리오" rows={existing} /> : null}
+      {proposed.length ? <PortfolioSnapshotTable title="신규 포트폴리오" rows={proposed} /> : null}
+    </div>
+  );
+}
+
+function PortfolioSnapshotTable({ title, rows }: { title: string; rows: PortfolioSnapshotRow[] }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <div className="border-b border-amber-200 px-4 py-3">
+        <p className="text-base font-black text-amber-700">{title}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-blue-900 text-left text-xs font-black text-white">
+              <th className="px-3 py-3">종목명</th>
+              <th className="px-3 py-3">자산군</th>
+              <th className="px-3 py-3 text-right">수량</th>
+              <th className="px-3 py-3 text-right">매입가</th>
+              <th className="px-3 py-3 text-right">현재가</th>
+              <th className="px-3 py-3 text-right">손익률</th>
+              <th className="px-3 py-3 text-right">비중</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={`${row.name}-${index}`} className={index % 2 ? "bg-slate-50" : "bg-white"}>
+                <td className="px-3 py-3 font-bold text-slate-900">{row.name}</td>
+                <td className="px-3 py-3 font-bold text-slate-600">{row.assetClass}</td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.amount)}</td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.buyPrice)}</td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.currentPrice)}</td>
+                <td className={`px-3 py-3 text-right font-black ${row.returnPct == null ? "text-slate-400" : row.returnPct >= 0 ? "text-red-600" : "text-blue-700"}`}>
+                  {formatSnapshotPercent(row.returnPct)}
+                </td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotPercent(row.weight, 1).replace("+", "")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

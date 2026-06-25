@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronLeft, ChevronRight, Home, LogOut, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
 import MarketDashboard from "@/components/MarketDashboard";
+import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import type { MarketCalendarEvent } from "@/lib/calendarData";
 import {
   createInitialCustomerData,
@@ -88,6 +89,12 @@ function customerDisplay(profile?: CustomerProfile | null) {
 
 function ageDisplay(age: string) {
   return age ? `${age}세` : "대기";
+}
+
+function isFutureSession(session: ConsultationSession) {
+  if (!session.date) return false;
+  const time = new Date(session.date.includes("T") ? session.date : `${session.date}T00:00:00`).getTime();
+  return Number.isFinite(time) && time > Date.now();
 }
 
 function buildSummarySnapshot(state?: AppState) {
@@ -508,8 +515,7 @@ export default function HomePage() {
   }, [customers, query]);
 
   const selectedSessions = useMemo(() => sessions.filter((session) => session.customerId === selectedCustomerId).sort(sortSessionsNewest), [sessions, selectedCustomerId]);
-  const today = todayDate();
-  const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && session.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions, today]);
+  const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && isFutureSession(session)).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions]);
   const expandedSession = sessions.find((session) => session.id === expandedSessionId) ?? null;
 
   const openCreateForm = () => {
@@ -625,19 +631,23 @@ export default function HomePage() {
         </section>
 
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>
-          <div className="mb-4 flex items-center justify-between gap-2">
+          <div className="mb-4 flex items-start justify-between gap-2">
             {rightOpen ? (
-              <button type="button" onClick={logout} className="inline-flex h-9 shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+              <button type="button" onClick={logout} className="hidden h-9 shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
                 <LogOut size={14} /> 로그아웃
               </button>
             ) : null}
             <button type="button" onClick={() => setRightOpen((value) => !value)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:text-blue-700">
               {rightOpen ? <PanelRightClose size={18} /> : <ChevronLeft size={18} />}
             </button>
+            {rightOpen ? <SodaPopLogoImage variant="stacked" className="h-auto w-24" /> : null}
           </div>
           {rightOpen ? (
-            <div className="grid gap-5">
+            <div className="grid gap-5 [&>p:first-of-type]:hidden">
               <p className="text-sm font-extrabold text-blue-900">상담 일정</p>
+              <button type="button" onClick={logout} className="inline-flex h-10 w-fit items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
+                <LogOut size={15} /> 로그아웃
+              </button>
               {activeConsultation ? (
                 <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/maintab/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
                   <span className="inline-flex items-center gap-1"><Home size={15} /> 상담 화면으로 돌아가기</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Activity, BarChart2, Bell, BookOpen, FolderOpen, GitBranch, RefreshCcw, TrendingUp } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
@@ -52,9 +52,16 @@ export default function Tab2Page() {
     analysisResult,
     rebalancingSellAssets,
     tab3AnalysisState,
+    sharedUiState,
     updateTab3AnalysisState,
+    updateSharedUiState,
   } = useCustomerContext();
   const router = useRouter();
+  const syncedActiveInnerTab = sharedUiState.tab2?.activeInnerTab as InnerTab | undefined;
+
+  useEffect(() => {
+    if (syncedActiveInnerTab && syncedActiveInnerTab !== activeInnerTab) setActiveInnerTab(syncedActiveInnerTab);
+  }, [syncedActiveInnerTab, activeInnerTab]);
 
   const goToTab3 = () => {
     // 리밸런싱(매도/유지) 탭과 동일 기준으로 베이스 자산 결정
@@ -93,6 +100,7 @@ export default function Tab2Page() {
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
+    if (appMode === "pb") updateSharedUiState({ tab2: { activeInnerTab: tab } });
   };
 
   if (appMode === "customer") {
@@ -111,7 +119,7 @@ export default function Tab2Page() {
             className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${
               activeInnerTab === tab.id
                 ? "bg-[#2f2f9d] text-white shadow-soft"
-                : "text-slate-600 hover:bg-slate-100 hover:text-navy"
+                : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"
             }`}
           >
             {tab.icon}

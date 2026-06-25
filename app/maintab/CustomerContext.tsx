@@ -205,7 +205,7 @@ export const workspaceTabs = [
   { id: "existing"  as const, label: "기존 포트폴리오 분석", description: "보유 자산, 위험 및 건강 분석" },
   { id: "create"    as const, label: "신규 포트폴리오 생성", description: "RRTTLLU 기반 신규 배분" },
   { id: "compare"   as const, label: "포트폴리오 비교",       description: "기존과 신규 비교" },
-  { id: "recommend" as const, label: "상품 추천",             description: "버킷별 상품 추천" },
+  { id: "recommend" as const, label: "맞춤 상품 매칭",        description: "버킷별 상품 추천" },
 ];
 
 // ── Portfolio Analysis Types ───────────────────────────────────────────────
@@ -305,6 +305,41 @@ export type Tab3AnalysisState = {
   activeInnerTab?: Tab3InnerTab;
   domestic?: CorrelationAnalysisState;
   global?: CorrelationAnalysisState;
+};
+
+export type SharedMaintabUiState = {
+  tab2?: {
+    activeInnerTab?: string;
+    sellSimulator?: {
+      selectedKey?: string | null;
+      sellQtyStr?: string;
+      mode?: "sell" | "buy";
+      buyQtyStr?: string;
+    };
+  };
+  tab3?: {
+    buySim?: {
+      items?: BuySimTickerItem[];
+      sig?: string;
+    };
+    pbOrderRows?: PbOrderRow[];
+    sellCardKey?: string | null;
+    inlineSellQtyStr?: string;
+    draggedTicker?: BuySimTickerItem | null;
+    isDragOver?: boolean;
+    dropModal?: unknown | null;
+    modalTicker?: string | null;
+    modalSector?: string;
+    modalIsGlobal?: boolean;
+    modalFocusTicker?: string | null;
+    unsuitableWarningProductId?: string | null;
+  };
+  tab5?: {
+    bucketOffset?: Record<string, number>;
+    modalProductId?: string | null;
+    activeEffectId?: string | null;
+    unsuitableWarningProductId?: string | null;
+  };
 };
 
 // 빈 자산 행 템플릿 — MainTabShell과 ExistingPortfolioTab에서 공용으로 사용
@@ -1178,7 +1213,7 @@ export async function loadRebalancingState(customerId: CustomerId): Promise<{ se
 
     // sell: 전용 sell_assets 컬럼 우선 → state.sellAssets → state.sellRebalancing (구버전 호환)
     let sellAssets: PortfolioAsset[] = [];
-    if (Array.isArray(row.sell_assets) && (row.sell_assets as unknown[]).length > 0) {
+    if (Array.isArray(row.sell_assets)) {
       sellAssets = row.sell_assets as PortfolioAsset[];
     } else {
       sellAssets = Array.isArray(stateData.sellAssets) ? stateData.sellAssets as PortfolioAsset[] :
@@ -1187,7 +1222,7 @@ export async function loadRebalancingState(customerId: CustomerId): Promise<{ se
 
     // buy: 전용 new_analysis_results.buy_assets 컬럼 우선 → state.buyRebalancing (구버전 호환)
     let buyAssets: PortfolioAsset[] = [];
-    if (Array.isArray(nar.buy_assets) && (nar.buy_assets as unknown[]).length > 0) {
+    if (Array.isArray(nar.buy_assets)) {
       buyAssets = nar.buy_assets as PortfolioAsset[];
     } else {
       buyAssets = Array.isArray(stateData.buyRebalancing) ? stateData.buyRebalancing as PortfolioAsset[] : [];
@@ -1333,6 +1368,27 @@ export async function saveProductSelectionsToNar(customerId: CustomerId, ids: st
 }
 
 // ── Tax Summary Helpers ───────────────────────────────────────────────────
+export async function loadSharedMaintabUiState(customerId: CustomerId): Promise<SharedMaintabUiState> {
+  const payload = await loadScopedPayload("rebalancing_state", customerId);
+  if (!payload || typeof payload !== "object") return {};
+  const state = (payload as { sharedUiState?: unknown }).sharedUiState;
+  return state && typeof state === "object" ? state as SharedMaintabUiState : {};
+}
+
+export async function saveSharedMaintabUiState(customerId: CustomerId, state: SharedMaintabUiState): Promise<void> {
+  try {
+    const current = await loadScopedPayload("rebalancing_state", customerId);
+    const existing = (current && typeof current === "object") ? { ...(current as Record<string, unknown>) } : {};
+    await upsertScopedPayload("rebalancing_state", customerId, { ...existing, sharedUiState: state });
+  } catch (error) {
+    console.error("Supabase rebalancing_state.sharedUiState save failed", {
+      customerId,
+      stateKey: "sharedUiState",
+      error: describeSupabaseError(error),
+    });
+  }
+}
+
 export async function loadTaxSummaries(customerId: CustomerId): Promise<{ currentSummary: unknown | null; newSummary: unknown | null }> {
   const payload = await loadScopedPayload("tax_summaries", customerId);
   const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
@@ -1451,6 +1507,8 @@ export type CustomerContextValue = {
   rebalancingBuyAssets: PortfolioAsset[];
   newPortfolioAnalysisResult: PortfolioAnalysisResult | null;
   tab3AnalysisState: Tab3AnalysisState;
+  sharedUiState: SharedMaintabUiState;
+  updateSharedUiState: (patch: SharedMaintabUiState) => void;
   pushToRebalancingSell: () => void;
   setRebalancingSellAssets: (assets: PortfolioAsset[]) => void;
   confirmRebalancingSell: () => void;

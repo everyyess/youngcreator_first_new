@@ -599,6 +599,8 @@ export default function BuySimulatorTab() {
     addSellRecord,
     addBuyCost,
     appMode,
+    sharedUiState,
+    updateSharedUiState,
   } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const router = useRouter();
@@ -719,6 +721,50 @@ export default function BuySimulatorTab() {
   const [dropModal, setDropModal] = useState<DropModal | null>(null);
 
   // USD/KRW 실시간 환율 (야후 파이낸스 USDKRW=X — 마운트 시 1회 조회, 기본값 1380)
+  const syncedTab3Ui = sharedUiState.tab3;
+
+  useEffect(() => {
+    if (!isCustomerView || !syncedTab3Ui) return;
+    setSellCardKey(syncedTab3Ui.sellCardKey ?? null);
+    setInlineSellQtyStr(syncedTab3Ui.inlineSellQtyStr ?? "");
+    setDraggedTicker((syncedTab3Ui.draggedTicker as TickerItem | null | undefined) ?? null);
+    setIsDragOver(syncedTab3Ui.isDragOver ?? false);
+    setDropModal((syncedTab3Ui.dropModal as DropModal | null | undefined) ?? null);
+    setModalTicker(syncedTab3Ui.modalTicker ?? null);
+    setModalSector(syncedTab3Ui.modalSector ?? "");
+    setModalIsGlobal(syncedTab3Ui.modalIsGlobal ?? true);
+    setModalFocusTicker(syncedTab3Ui.modalFocusTicker ?? null);
+  }, [isCustomerView, syncedTab3Ui]);
+
+  useEffect(() => {
+    if (isCustomerView) return;
+    updateSharedUiState({
+      tab3: {
+        sellCardKey,
+        inlineSellQtyStr,
+        draggedTicker: draggedTicker as BuySimTickerItem | null,
+        isDragOver,
+        dropModal,
+        modalTicker,
+        modalSector,
+        modalIsGlobal,
+        modalFocusTicker,
+      },
+    });
+  }, [
+    isCustomerView,
+    sellCardKey,
+    inlineSellQtyStr,
+    draggedTicker,
+    isDragOver,
+    dropModal,
+    modalTicker,
+    modalSector,
+    modalIsGlobal,
+    modalFocusTicker,
+    updateSharedUiState,
+  ]);
+
   const [usdKrwRate, setUsdKrwRate] = useState<number>(1380);
 
   const tMarginal = useMemo(() => {

@@ -3,13 +3,14 @@
 import { type DragEvent, type SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Home, Trash2 } from "lucide-react";
+import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile, type CustomerRow,
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
-  type SellRecord, type ConfirmedPairItem, type PbOrderRow, type BuySimTickerItem,
+  type SellRecord, type ConfirmedPairItem, type PbOrderRow, type BuySimTickerItem, type SharedMaintabUiState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
@@ -23,6 +24,7 @@ import {
   loadProductSelections, saveProductSelections,
   loadProductSelectionsFromNar, saveProductSelectionsToNar,
   loadTab3AnalysisState, saveTab3AnalysisState,
+  loadSharedMaintabUiState, saveSharedMaintabUiState,
   loadBuySimUncheckedTickers,
   loadPensionIsaRestricted,
   loadNewTaxSummaryFromNar,
@@ -213,6 +215,16 @@ function buildPortfolioTablesSnapshot(existingAssets: PortfolioAsset[], proposed
   };
 }
 
+function mergeSharedUiState(current: SharedMaintabUiState, patch: SharedMaintabUiState): SharedMaintabUiState {
+  return {
+    ...current,
+    ...patch,
+    tab2: patch.tab2 ? { ...(current.tab2 ?? {}), ...patch.tab2 } : current.tab2,
+    tab3: patch.tab3 ? { ...(current.tab3 ?? {}), ...patch.tab3 } : current.tab3,
+    tab5: patch.tab5 ? { ...(current.tab5 ?? {}), ...patch.tab5 } : current.tab5,
+  };
+}
+
 
 export default function MainTabShell({ children, appMode = "pb" }: { children: React.ReactNode; appMode?: "pb" | "customer" }) {
   const router = useRouter();
@@ -256,7 +268,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const activeConsultationForSelected = activeConsultation?.customerId === selectedCustomer ? activeConsultation : null;
   const isPreRecordMode = !activeConsultationForSelected && preRecordConsultation?.customerId === selectedCustomer;
   const completedConsultationForSelected = completedConsultation?.customerId === selectedCustomer ? completedConsultation : null;
-  const isConsultationReadOnly = !activeConsultationForSelected && (
+  const isConsultationReadOnly = !isPreRecordMode && !activeConsultationForSelected && (
     latestConsultationSession?.status === "completed" ||
     Boolean(completedConsultationForSelected)
   );
@@ -283,6 +295,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [rebalancingLoadedMap, setRebalancingLoadedMap] = useState<Record<CustomerId, boolean>>({});
   const [rebalancingDirtyMap, setRebalancingDirtyMap] = useState<Record<CustomerId, boolean>>({});
   const [tab3AnalysisStateMap, setTab3AnalysisStateMap] = useState<Record<CustomerId, Tab3AnalysisState>>({});
+  const [sharedUiStateMap, setSharedUiStateMap] = useState<Record<CustomerId, SharedMaintabUiState>>({});
 
   // ── Tab 5 상품 선택 Maps (고객별 격리) ───────────────────────────────────
   const [productSelectionsMap, setProductSelectionsMap] = useState<Record<CustomerId, string[]>>({});
@@ -314,6 +327,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const rebalancingSellMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const rebalancingBuyMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const tab3AnalysisStateMapRef = useRef<Record<CustomerId, Tab3AnalysisState>>({});
+  const sharedUiStateMapRef = useRef<Record<CustomerId, SharedMaintabUiState>>({});
   const sellHistoryMapRef = useRef<Record<CustomerId, SellRecord[]>>({});
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
   const isConsultationReadOnlyRef = useRef(false);
@@ -326,6 +340,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const rebalancingBuyAssets = rebalancingBuyMap[selectedCustomer] ?? [];
   const newPortfolioAnalysisResult = newPortfolioAnalysisResultMap[selectedCustomer] ?? null;
   const tab3AnalysisState = tab3AnalysisStateMap[selectedCustomer] ?? {};
+  const sharedUiState = sharedUiStateMap[selectedCustomer] ?? {};
   const productSelectedIds = productSelectionsMap[selectedCustomer] ?? [];
   const sellHistory = sellHistoryMap[selectedCustomer] ?? [];
   const confirmedDomesticPair = confirmedDomesticPairMap[selectedCustomer] ?? null;
@@ -342,6 +357,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   rebalancingSellMapRef.current = rebalancingSellMap;
   rebalancingBuyMapRef.current = rebalancingBuyMap;
   tab3AnalysisStateMapRef.current = tab3AnalysisStateMap;
+  sharedUiStateMapRef.current = sharedUiStateMap;
   sellHistoryMapRef.current = sellHistoryMap;
   selectedCustomerRef.current = selectedCustomer;
   isConsultationReadOnlyRef.current = isConsultationReadOnly;
@@ -477,19 +493,27 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
         loadRebalancingState(customerId),
         loadNewAnalysisResult(customerId),
         loadTab3AnalysisState(customerId),
+        loadSharedMaintabUiState(customerId),
         loadSellHistory(customerId),
         loadBuySimUncheckedTickers(customerId),
         loadPensionIsaRestricted(customerId),
         loadNewTaxSummaryFromNar(customerId),
         loadAnalysisResult(customerId),
         loadProductSelectionsFromNar(customerId),
-      ]).then(([assets, rebalancing, newResult, tab3State, sellHistoryRows, uncheckedTickers, isaRestricted, newTaxSummary, currentAnalysisResult, narProductIds]) => {
+      ]).then(([assets, rebalancing, newResult, tab3State, sharedUiState, sellHistoryRows, uncheckedTickers, isaRestricted, newTaxSummary, currentAnalysisResult, narProductIds]) => {
         setPortfolioAssetsMap(prev => ({ ...prev, [customerId]: assets }));
         setAnalysisResultMap(prev => ({ ...prev, [customerId]: currentAnalysisResult as PortfolioAnalysisResult | null }));
         setRebalancingSellMap(prev => ({ ...prev, [customerId]: rebalancing.sellAssets }));
         setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
         setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
         setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
+        setSharedUiStateMap(prev => ({ ...prev, [customerId]: sharedUiState }));
+        if (sharedUiState.tab3?.buySim) {
+          setBuySimPersistedStateMap(prev => ({ ...prev, [customerId]: { items: sharedUiState.tab3?.buySim?.items ?? [], sig: sharedUiState.tab3?.buySim?.sig ?? "" } }));
+        }
+        if (sharedUiState.tab3?.pbOrderRows) {
+          setPbOrderRowsMap(prev => ({ ...prev, [customerId]: sharedUiState.tab3?.pbOrderRows ?? [] }));
+        }
         setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
         setBuySimUncheckedTickersMap(prev => ({ ...prev, [customerId]: uncheckedTickers }));
         setPensionIsaRestrictedMap(prev => ({ ...prev, [customerId]: isaRestricted }));
@@ -702,13 +726,14 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       loadRebalancingState(customerId),
       loadNewAnalysisResult(customerId),
       loadTab3AnalysisState(customerId),
+      loadSharedMaintabUiState(customerId),
       loadTaxSummaries(customerId),
       loadProductSelections(customerId),
       loadSellHistory(customerId),
       loadBuySimUncheckedTickers(customerId),
       loadPensionIsaRestricted(customerId),
       loadNewTaxSummaryFromNar(customerId),
-    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds, sellHistoryRows, uncheckedTickers, isaRestricted, newTaxSummaryFromNar]) => {
+    ]).then(([assets, result, rebalancing, newResult, tab3State, sharedUiState, taxSummaries, productIds, sellHistoryRows, uncheckedTickers, isaRestricted, newTaxSummaryFromNar]) => {
       if (cancelled) {
         portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
         return;
@@ -721,6 +746,13 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
       setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
       setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
+      setSharedUiStateMap(prev => ({ ...prev, [customerId]: sharedUiState }));
+      if (sharedUiState.tab3?.buySim) {
+        setBuySimPersistedStateMap(prev => ({ ...prev, [customerId]: { items: sharedUiState.tab3?.buySim?.items ?? [], sig: sharedUiState.tab3?.buySim?.sig ?? "" } }));
+      }
+      if (sharedUiState.tab3?.pbOrderRows) {
+        setPbOrderRowsMap(prev => ({ ...prev, [customerId]: sharedUiState.tab3?.pbOrderRows ?? [] }));
+      }
       setRebalancingLoadedMap(prev => ({ ...prev, [customerId]: true }));
 
       setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
@@ -959,6 +991,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setBuySimUncheckedTickersMap(prev => ({ ...prev, [cid]: [] }));
     setPensionIsaRestrictedMap(prev => ({ ...prev, [cid]: null }));
     setPbOrderRowsMap(prev => ({ ...prev, [cid]: [] }));
+    setSharedUiStateMap(prev => ({ ...prev, [cid]: {} }));
 
     updateHeaderAssetSummary(cid, () => ({
       confirmedOperatingAssetsAfterSell: null,
@@ -981,6 +1014,9 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
     await resetPortfolioDerivedStateInDb(cid).catch((error) => {
       console.error("Failed to reset portfolio derived state", { customerId: cid, error });
+    });
+    await saveSharedMaintabUiState(cid, {}).catch((error) => {
+      console.error("Supabase rebalancing_state.sharedUiState reset failed", { customerId: cid, error });
     });
   }, [updateHeaderAssetSummary]);
 
@@ -1058,6 +1094,22 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: nextState }));
     void saveTab3AnalysisState(cid, nextState);
   }, []); // stable
+
+  const updateSharedUiState = useCallback((patch: SharedMaintabUiState) => {
+    const cid = selectedCustomerRef.current;
+    const nextState = mergeSharedUiState(sharedUiStateMapRef.current[cid] ?? {}, patch);
+    sharedUiStateMapRef.current = { ...sharedUiStateMapRef.current, [cid]: nextState };
+    setSharedUiStateMap(prev => ({ ...prev, [cid]: nextState }));
+    if (appMode === "pb") {
+      void saveSharedMaintabUiState(cid, nextState).catch((error) => {
+        console.error("Supabase rebalancing_state.sharedUiState save failed", {
+          customerId: cid,
+          stateKey: Object.keys(patch).join(",") || "sharedUiState",
+          error,
+        });
+      });
+    }
+  }, [appMode]);
 
   const setProductSelectedIds = useCallback((ids: string[]) => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
@@ -1158,7 +1210,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const setBuySimPersistedState = useCallback((items: BuySimTickerItem[], sig: string) => {
     const cid = selectedCustomerRef.current;
     setBuySimPersistedStateMap(prev => ({ ...prev, [cid]: { items, sig } }));
-  }, []);
+    updateSharedUiState({ tab3: { buySim: { items, sig } } });
+  }, [updateSharedUiState]);
 
   const setBuySimUncheckedTickersFn = useCallback((tickers: string[]) => {
     const cid = selectedCustomerRef.current;
@@ -1173,7 +1226,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const setPbOrderRows = useCallback((rows: PbOrderRow[]) => {
     const cid = selectedCustomerRef.current;
     setPbOrderRowsMap(prev => ({ ...prev, [cid]: rows }));
-  }, []);
+    updateSharedUiState({ tab3: { pbOrderRows: rows } });
+  }, [updateSharedUiState]);
 
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
@@ -1567,7 +1621,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     portfolioAssets, isPortfolioLoaded, analysisResult,
     addPortfolioRow, bulkAddPortfolioRows, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty, resetPortfolioDerivedState,
     // 리밸런싱 파이프라인
-    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
+    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState, sharedUiState, updateSharedUiState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
     confirmRebalancingBuy, resetRebalancingBuySummary, addBuyCost, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
     // Tab 5 상품 선택 (고객별 Supabase 영속)
@@ -1591,7 +1645,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   return (
     <CustomerViewContext.Provider value={{ isCustomerView, consultationEnded }}>
       <CustomerContext.Provider value={contextValue}>
-        <main className="min-h-screen px-5 py-6 text-ink lg:px-8">
+        <main className="min-h-screen bg-[#F7F8FC] px-5 py-6 text-ink lg:px-8" style={{ backgroundColor: "#F7F8FC" }}>
           <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
             <HeaderSummary
               currentCustomer={selectedCustomerProfile}
@@ -1606,7 +1660,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
               onFinish={() => finishActiveConsultation(false)}
               onResume={resumeLatestConsultation}
             />
-            <div className="flex flex-col gap-5 xl:flex-row">
+            <div className="flex flex-col gap-5 xl:min-h-[calc(100vh-9rem)] xl:flex-row">
               <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
               <section
                 className="min-w-0 flex-1"
@@ -1697,7 +1751,9 @@ function HeaderSummary({
           </p>
           <p className="mt-1 text-xs font-bold text-slate-400">{formatUpdatedAt(recentUpdatedAt)}</p>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-col items-end gap-4">
+          <SodaPopLogoImage className="h-auto w-44" />
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <button type="button" onClick={onHome} aria-label="HOME" className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-navy transition hover:border-blue-200 hover:bg-blue-50">
             <Home size={17} /> HOME
           </button>
@@ -1718,6 +1774,7 @@ function HeaderSummary({
             상담 재개
           </button>
           ) : null}
+          </div>
         </div>
       </div>
       {storageErrorMessage ? <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{storageErrorMessage}</div> : null}
@@ -1731,14 +1788,20 @@ function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
 
   return (
     <nav data-consultation-lock-exempt="true" className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-56 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
-      {workspaceTabs.map((tab, index) => (
-        <button
-          key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
-          className={`min-h-11 rounded-lg px-3 py-2 text-left transition ${activeTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
-        >
-          <span className="block text-sm font-bold tracking-normal">{index + 1}. {tab.label}</span>
-        </button>
-      ))}
+      {workspaceTabs.map((tab, index) => {
+        const selected = activeTab === tab.id;
+        return (
+          <button
+            key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
+            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
+          >
+            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#5656c7] text-white" : "bg-[#eef0ff] text-[#2f2f9d]"}`}>
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span className="min-w-0 whitespace-nowrap text-sm font-bold leading-tight tracking-normal">{tab.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }

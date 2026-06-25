@@ -225,13 +225,14 @@ function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]
 
   return (
     <section className="w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-blue-100 bg-white px-3 pt-3 pb-2.5 shadow-sm">
-      <div className="mb-3 flex items-center gap-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-[15px] font-black uppercase tracking-normal text-blue-700">Market Index</p>
+        <p className="text-[10px] font-black text-slate-400">최근 갱신: {formatRefreshTime(refreshedAt)}</p>
       </div>
       {state.error ? (
         <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-3 text-sm font-bold text-slate-500">주요 지표를 불러오지 못했습니다.</div>
       ) : (
-        <div className="flex w-full min-w-0 max-w-full items-stretch overflow-hidden rounded-lg border border-slate-100">
+        <div className="mb-3 flex w-full min-w-0 max-w-full items-stretch overflow-hidden rounded-lg border border-slate-100">
           <button
             type="button"
             onClick={() => setStartIndex((value) => Math.max(0, value - 1))}
@@ -272,7 +273,6 @@ function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]
           </button>
         </div>
       )}
-      <p className="mt-1.5 text-right text-[10px] font-black text-slate-400">최근 갱신: {formatRefreshTime(refreshedAt)}</p>
     </section>
   );
 }
