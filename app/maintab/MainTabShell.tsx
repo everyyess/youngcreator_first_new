@@ -9,7 +9,7 @@ import {
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
   type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
-  type SellRecord, type ConfirmedPairItem, type PbOrderRow, type BuySimTickerItem,
+  type SellRecord, type ConfirmedPairItem, type PbOrderRow, type BuySimTickerItem, type SharedMaintabUiState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
   customerTabLabel, defaultCustomerProfiles, createInitialCustomerData, createInitialState, deriveCalculatedAppState,
@@ -22,6 +22,7 @@ import {
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
   loadTab3AnalysisState, saveTab3AnalysisState,
+  loadSharedMaintabUiState, saveSharedMaintabUiState,
   resetPortfolioDerivedState as resetPortfolioDerivedStateInDb,
   noLegalConstraint, noneExperience, nullableText, parseKrwAmount, riskExperienceOptions,
   returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
@@ -208,6 +209,16 @@ function buildPortfolioTablesSnapshot(existingAssets: PortfolioAsset[], proposed
   };
 }
 
+function mergeSharedUiState(current: SharedMaintabUiState, patch: SharedMaintabUiState): SharedMaintabUiState {
+  return {
+    ...current,
+    ...patch,
+    tab2: patch.tab2 ? { ...(current.tab2 ?? {}), ...patch.tab2 } : current.tab2,
+    tab3: patch.tab3 ? { ...(current.tab3 ?? {}), ...patch.tab3 } : current.tab3,
+    tab5: patch.tab5 ? { ...(current.tab5 ?? {}), ...patch.tab5 } : current.tab5,
+  };
+}
+
 
 export default function MainTabShell({ children, appMode = "pb" }: { children: React.ReactNode; appMode?: "pb" | "customer" }) {
   const router = useRouter();
@@ -251,7 +262,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const activeConsultationForSelected = activeConsultation?.customerId === selectedCustomer ? activeConsultation : null;
   const isPreRecordMode = !activeConsultationForSelected && preRecordConsultation?.customerId === selectedCustomer;
   const completedConsultationForSelected = completedConsultation?.customerId === selectedCustomer ? completedConsultation : null;
-  const isConsultationReadOnly = !activeConsultationForSelected && (
+  const isConsultationReadOnly = !isPreRecordMode && !activeConsultationForSelected && (
     latestConsultationSession?.status === "completed" ||
     Boolean(completedConsultationForSelected)
   );
@@ -278,6 +289,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [rebalancingLoadedMap, setRebalancingLoadedMap] = useState<Record<CustomerId, boolean>>({});
   const [rebalancingDirtyMap, setRebalancingDirtyMap] = useState<Record<CustomerId, boolean>>({});
   const [tab3AnalysisStateMap, setTab3AnalysisStateMap] = useState<Record<CustomerId, Tab3AnalysisState>>({});
+  const [sharedUiStateMap, setSharedUiStateMap] = useState<Record<CustomerId, SharedMaintabUiState>>({});
 
   // ── Tab 5 상품 선택 Maps (고객별 격리) ───────────────────────────────────
   const [productSelectionsMap, setProductSelectionsMap] = useState<Record<CustomerId, string[]>>({});
@@ -305,6 +317,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const rebalancingSellMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const rebalancingBuyMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const tab3AnalysisStateMapRef = useRef<Record<CustomerId, Tab3AnalysisState>>({});
+  const sharedUiStateMapRef = useRef<Record<CustomerId, SharedMaintabUiState>>({});
   const sellHistoryMapRef = useRef<Record<CustomerId, SellRecord[]>>({});
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
   const isConsultationReadOnlyRef = useRef(false);
@@ -317,6 +330,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const rebalancingBuyAssets = rebalancingBuyMap[selectedCustomer] ?? [];
   const newPortfolioAnalysisResult = newPortfolioAnalysisResultMap[selectedCustomer] ?? null;
   const tab3AnalysisState = tab3AnalysisStateMap[selectedCustomer] ?? {};
+  const sharedUiState = sharedUiStateMap[selectedCustomer] ?? {};
   const productSelectedIds = productSelectionsMap[selectedCustomer] ?? [];
   const sellHistory = sellHistoryMap[selectedCustomer] ?? [];
   const confirmedDomesticPair = confirmedDomesticPairMap[selectedCustomer] ?? null;
@@ -331,6 +345,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   rebalancingSellMapRef.current = rebalancingSellMap;
   rebalancingBuyMapRef.current = rebalancingBuyMap;
   tab3AnalysisStateMapRef.current = tab3AnalysisStateMap;
+  sharedUiStateMapRef.current = sharedUiStateMap;
   sellHistoryMapRef.current = sellHistoryMap;
   selectedCustomerRef.current = selectedCustomer;
   isConsultationReadOnlyRef.current = isConsultationReadOnly;
@@ -466,13 +481,21 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
         loadRebalancingState(customerId),
         loadNewAnalysisResult(customerId),
         loadTab3AnalysisState(customerId),
+        loadSharedMaintabUiState(customerId),
         loadSellHistory(customerId),
-      ]).then(([assets, rebalancing, newResult, tab3State, sellHistoryRows]) => {
+      ]).then(([assets, rebalancing, newResult, tab3State, sharedUiState, sellHistoryRows]) => {
         setPortfolioAssetsMap(prev => ({ ...prev, [customerId]: assets }));
         setRebalancingSellMap(prev => ({ ...prev, [customerId]: rebalancing.sellAssets }));
         setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
         setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
         setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
+        setSharedUiStateMap(prev => ({ ...prev, [customerId]: sharedUiState }));
+        if (sharedUiState.tab3?.buySim) {
+          setBuySimPersistedStateMap(prev => ({ ...prev, [customerId]: { items: sharedUiState.tab3?.buySim?.items ?? [], sig: sharedUiState.tab3?.buySim?.sig ?? "" } }));
+        }
+        if (sharedUiState.tab3?.pbOrderRows) {
+          setPbOrderRowsMap(prev => ({ ...prev, [customerId]: sharedUiState.tab3?.pbOrderRows ?? [] }));
+        }
         setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
         if (typeof window !== "undefined") {
           const buyAssets = rebalancing.buyAssets as unknown[];
@@ -649,10 +672,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       loadRebalancingState(customerId),
       loadNewAnalysisResult(customerId),
       loadTab3AnalysisState(customerId),
+      loadSharedMaintabUiState(customerId),
       loadTaxSummaries(customerId),
       loadProductSelections(customerId),
       loadSellHistory(customerId),
-    ]).then(([assets, result, rebalancing, newResult, tab3State, taxSummaries, productIds, sellHistoryRows]) => {
+    ]).then(([assets, result, rebalancing, newResult, tab3State, sharedUiState, taxSummaries, productIds, sellHistoryRows]) => {
       if (cancelled) {
         portfolioLoadedRef.current.delete(customerId); // 취소 시 재시도 가능하도록 반환
         return;
@@ -665,6 +689,13 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       setRebalancingBuyMap(prev => ({ ...prev, [customerId]: rebalancing.buyAssets }));
       setNewPortfolioAnalysisResultMap(prev => ({ ...prev, [customerId]: newResult as PortfolioAnalysisResult | null }));
       setTab3AnalysisStateMap(prev => ({ ...prev, [customerId]: tab3State }));
+      setSharedUiStateMap(prev => ({ ...prev, [customerId]: sharedUiState }));
+      if (sharedUiState.tab3?.buySim) {
+        setBuySimPersistedStateMap(prev => ({ ...prev, [customerId]: { items: sharedUiState.tab3?.buySim?.items ?? [], sig: sharedUiState.tab3?.buySim?.sig ?? "" } }));
+      }
+      if (sharedUiState.tab3?.pbOrderRows) {
+        setPbOrderRowsMap(prev => ({ ...prev, [customerId]: sharedUiState.tab3?.pbOrderRows ?? [] }));
+      }
       setRebalancingLoadedMap(prev => ({ ...prev, [customerId]: true }));
 
       setSellHistoryMap(prev => ({ ...prev, [customerId]: sellHistoryRows }));
@@ -887,6 +918,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setSellHistoryDirtyMap(prev => ({ ...prev, [cid]: false }));
     setBuySimPersistedStateMap(prev => ({ ...prev, [cid]: { items: [], sig: "" } }));
     setPbOrderRowsMap(prev => ({ ...prev, [cid]: [] }));
+    setSharedUiStateMap(prev => ({ ...prev, [cid]: {} }));
 
     updateHeaderAssetSummary(cid, () => ({
       confirmedOperatingAssetsAfterSell: null,
@@ -908,6 +940,9 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
     await resetPortfolioDerivedStateInDb(cid).catch((error) => {
       console.error("Failed to reset portfolio derived state", { customerId: cid, error });
+    });
+    await saveSharedMaintabUiState(cid, {}).catch((error) => {
+      console.error("Supabase rebalancing_state.sharedUiState reset failed", { customerId: cid, error });
     });
   }, [updateHeaderAssetSummary]);
 
@@ -985,6 +1020,22 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: nextState }));
     void saveTab3AnalysisState(cid, nextState);
   }, []); // stable
+
+  const updateSharedUiState = useCallback((patch: SharedMaintabUiState) => {
+    const cid = selectedCustomerRef.current;
+    const nextState = mergeSharedUiState(sharedUiStateMapRef.current[cid] ?? {}, patch);
+    sharedUiStateMapRef.current = { ...sharedUiStateMapRef.current, [cid]: nextState };
+    setSharedUiStateMap(prev => ({ ...prev, [cid]: nextState }));
+    if (appMode === "pb") {
+      void saveSharedMaintabUiState(cid, nextState).catch((error) => {
+        console.error("Supabase rebalancing_state.sharedUiState save failed", {
+          customerId: cid,
+          stateKey: Object.keys(patch).join(",") || "sharedUiState",
+          error,
+        });
+      });
+    }
+  }, [appMode]);
 
   const setProductSelectedIds = useCallback((ids: string[]) => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
@@ -1082,12 +1133,14 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const setBuySimPersistedState = useCallback((items: BuySimTickerItem[], sig: string) => {
     const cid = selectedCustomerRef.current;
     setBuySimPersistedStateMap(prev => ({ ...prev, [cid]: { items, sig } }));
-  }, []);
+    updateSharedUiState({ tab3: { buySim: { items, sig } } });
+  }, [updateSharedUiState]);
 
   const setPbOrderRows = useCallback((rows: PbOrderRow[]) => {
     const cid = selectedCustomerRef.current;
     setPbOrderRowsMap(prev => ({ ...prev, [cid]: rows }));
-  }, []);
+    updateSharedUiState({ tab3: { pbOrderRows: rows } });
+  }, [updateSharedUiState]);
 
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
@@ -1481,7 +1534,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     portfolioAssets, isPortfolioLoaded, analysisResult,
     addPortfolioRow, bulkAddPortfolioRows, removePortfolioRow, updatePortfolioRow, setAnalysisResult, setPortfolioDirty, resetPortfolioDerivedState,
     // 리밸런싱 파이프라인
-    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState,
+    rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState, sharedUiState, updateSharedUiState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
     confirmRebalancingBuy, resetRebalancingBuySummary, addBuyCost, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
     // Tab 5 상품 선택 (고객별 Supabase 영속)

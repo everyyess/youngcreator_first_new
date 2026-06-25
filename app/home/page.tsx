@@ -90,6 +90,12 @@ function ageDisplay(age: string) {
   return age ? `${age}세` : "대기";
 }
 
+function isFutureSession(session: ConsultationSession) {
+  if (!session.date) return false;
+  const time = new Date(session.date.includes("T") ? session.date : `${session.date}T00:00:00`).getTime();
+  return Number.isFinite(time) && time > Date.now();
+}
+
 function buildSummarySnapshot(state?: AppState) {
   if (!state) return null;
   const { financial, rrttllu } = state;
@@ -508,8 +514,7 @@ export default function HomePage() {
   }, [customers, query]);
 
   const selectedSessions = useMemo(() => sessions.filter((session) => session.customerId === selectedCustomerId).sort(sortSessionsNewest), [sessions, selectedCustomerId]);
-  const today = todayDate();
-  const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && session.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions, today]);
+  const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && isFutureSession(session)).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions]);
   const expandedSession = sessions.find((session) => session.id === expandedSessionId) ?? null;
 
   const openCreateForm = () => {

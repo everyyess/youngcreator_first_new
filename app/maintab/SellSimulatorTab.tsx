@@ -102,6 +102,7 @@ export default function SellSimulatorTab() {
     rebalancingSellAssets,           // 확정 매도 후 잔여 수량이 실시간 반영된 배열
     setRebalancingSellAssets,
     sellHistory, addSellRecord, availableInvestmentFunds, addBuyCost,
+    sharedUiState, updateSharedUiState,
   } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
 
@@ -145,6 +146,30 @@ export default function SellSimulatorTab() {
   const [buyQtyStr, setBuyQtyStr] = useState<string>("");
 
   // ── 선택 종목 상세 (펀더멘털 + 1Y 차트) ────────────────────────────────────
+  const syncedSellState = sharedUiState.tab2?.sellSimulator;
+
+  useEffect(() => {
+    if (!isCustomerView || !syncedSellState) return;
+    setSelectedKey(syncedSellState.selectedKey ?? null);
+    setSellQtyStr(syncedSellState.sellQtyStr ?? "");
+    setMode(syncedSellState.mode ?? "sell");
+    setBuyQtyStr(syncedSellState.buyQtyStr ?? "");
+  }, [isCustomerView, syncedSellState]);
+
+  useEffect(() => {
+    if (isCustomerView) return;
+    updateSharedUiState({
+      tab2: {
+        sellSimulator: {
+          selectedKey,
+          sellQtyStr,
+          mode,
+          buyQtyStr,
+        },
+      },
+    });
+  }, [isCustomerView, selectedKey, sellQtyStr, mode, buyQtyStr, updateSharedUiState]);
+
   const [stockDetail, setStockDetail] = useState<StockDetail | null>(null);
   const [chartData, setChartData] = useState<{ date: string; price: number | null }[]>([]);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
