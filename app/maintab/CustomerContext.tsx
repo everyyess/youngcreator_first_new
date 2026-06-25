@@ -1280,6 +1280,58 @@ export async function saveTab3AnalysisState(customerId: CustomerId, state: Tab3A
   await upsertScopedPayload("new_analysis_results", customerId, { ...existing, tab3State: state });
 }
 
+export async function loadBuySimUncheckedTickers(customerId: CustomerId): Promise<string[]> {
+  const payload = await loadScopedPayload("new_analysis_results", customerId);
+  if (!payload || typeof payload !== "object") return [];
+  const tickers = (payload as Record<string, unknown>).buySimUncheckedTickers;
+  return Array.isArray(tickers) ? tickers as string[] : [];
+}
+
+export async function saveBuySimUncheckedTickers(customerId: CustomerId, uncheckedTickers: string[]): Promise<void> {
+  const current = await loadScopedPayload("new_analysis_results", customerId);
+  const existing = (current && typeof current === "object") ? { ...(current as Record<string, unknown>) } : {};
+  await upsertScopedPayload("new_analysis_results", customerId, { ...existing, buySimUncheckedTickers: uncheckedTickers });
+}
+
+export async function loadPensionIsaRestricted(customerId: CustomerId): Promise<boolean | null> {
+  const payload = await loadScopedPayload("new_analysis_results", customerId);
+  if (!payload || typeof payload !== "object") return null;
+  const val = (payload as Record<string, unknown>).pensionIsaRestricted;
+  return typeof val === "boolean" ? val : null;
+}
+
+export async function savePensionIsaRestricted(customerId: CustomerId, value: boolean): Promise<void> {
+  const current = await loadScopedPayload("new_analysis_results", customerId);
+  const existing = (current && typeof current === "object") ? { ...(current as Record<string, unknown>) } : {};
+  await upsertScopedPayload("new_analysis_results", customerId, { ...existing, pensionIsaRestricted: value });
+}
+
+export async function loadNewTaxSummaryFromNar(customerId: CustomerId): Promise<unknown | null> {
+  const payload = await loadScopedPayload("new_analysis_results", customerId);
+  if (!payload || typeof payload !== "object") return null;
+  return (payload as Record<string, unknown>).newTaxSummary ?? null;
+}
+
+export async function saveNewTaxSummaryToNar(customerId: CustomerId, summary: unknown): Promise<void> {
+  const current = await loadScopedPayload("new_analysis_results", customerId);
+  const existing = (current && typeof current === "object") ? { ...(current as Record<string, unknown>) } : {};
+  await upsertScopedPayload("new_analysis_results", customerId, { ...existing, newTaxSummary: summary });
+}
+
+export async function loadProductSelectionsFromNar(customerId: CustomerId): Promise<string[] | null> {
+  const payload = await loadScopedPayload("new_analysis_results", customerId);
+  if (!payload || typeof payload !== "object") return null;
+  const ids = (payload as Record<string, unknown>).productSelectedIds;
+  if (!Array.isArray(ids)) return null;
+  return ids as string[];
+}
+
+export async function saveProductSelectionsToNar(customerId: CustomerId, ids: string[]): Promise<void> {
+  const current = await loadScopedPayload("new_analysis_results", customerId);
+  const existing = (current && typeof current === "object") ? { ...(current as Record<string, unknown>) } : {};
+  await upsertScopedPayload("new_analysis_results", customerId, { ...existing, productSelectedIds: ids });
+}
+
 // ── Tax Summary Helpers ───────────────────────────────────────────────────
 export async function loadTaxSummaries(customerId: CustomerId): Promise<{ currentSummary: unknown | null; newSummary: unknown | null }> {
   const payload = await loadScopedPayload("tax_summaries", customerId);
@@ -1338,6 +1390,7 @@ export async function resetPortfolioDerivedState(customerId: CustomerId): Promis
   ]);
   await saveTaxSummaryToDb(customerId, "current", null);
   await saveTaxSummaryToDb(customerId, "new", null);
+  await saveNewTaxSummaryToNar(customerId, null);
 }
 
 // ── Context ────────────────────────────────────────────────────────────────
@@ -1428,6 +1481,12 @@ export type CustomerContextValue = {
   buySimTickerItems: BuySimTickerItem[];
   buySimConfirmedSig: string;
   setBuySimPersistedState: (items: BuySimTickerItem[], sig: string) => void;
+  // ── TAB 3-3 체크박스 체크 해제 상태 (PB→고객 실시간 동기화, Supabase 영속) ────
+  buySimUncheckedTickers: string[];
+  setBuySimUncheckedTickers: (tickers: string[]) => void;
+  // ── ISA 제한 상태 (PB→고객 실시간 동기화, Supabase 영속) ─────────────────────
+  pensionIsaRestricted: boolean | null;
+  setPensionIsaRestricted: (v: boolean) => void;
   // ── TAB 3-3 PB 직접 매수 (전역 영속, 고객별 격리) ───────────────────────────
   pbOrderRows: PbOrderRow[];
   setPbOrderRows: (rows: PbOrderRow[]) => void;

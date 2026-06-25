@@ -704,6 +704,7 @@ const additionalInvestmentAmount = (() => {
 
   const handleSelect = (p: Product) => {
     if (selectedIds.includes(p.id)) {
+      if (isCustomerView) return;
       setSelectedIdsRaw(selectedIds.filter(x=>x!==p.id));
       return;
     }
@@ -891,9 +892,9 @@ const additionalInvestmentAmount = (() => {
                               </span>
                             )}
                             <button type="button"
-                              onClick={e=>{e.stopPropagation();if(!isCustomerView)handleSelect(p);}}
-                              disabled={isCustomerView}
-                              className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${sel?"border-samsung bg-samsung text-white":unsuitable?"border-red-300 bg-white hover:border-red-400":"border-slate-300 bg-white hover:border-samsung"} ${isCustomerView?"cursor-not-allowed opacity-50":""}`}>
+                              onClick={e=>{e.stopPropagation();handleSelect(p);}}
+                              disabled={isCustomerView && sel}
+                              className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${sel?"border-samsung bg-samsung text-white":unsuitable?"border-red-300 bg-white hover:border-red-400":"border-slate-300 bg-white hover:border-samsung"} ${isCustomerView&&sel?"cursor-not-allowed opacity-50":""}`}>
                               {sel&&<CheckCircle2 size={14}/>}
                             </button>
                             <div className={`mb-2 flex items-center gap-1.5 pr-8 ${unsuitable?"mt-5":""}`}>

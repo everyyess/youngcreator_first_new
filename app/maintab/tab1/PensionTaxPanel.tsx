@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { NEW_PORTFOLIO_INCOME_STORAGE_KEY } from "./FinancialIncomeGauge";
 import type { FinancialIncomeSummary } from "./FinancialIncomeGauge";
-import { useCustomerContext } from "../CustomerContext";
+import { useCustomerContext, savePensionIsaRestricted } from "../CustomerContext";
 
 // ─────────────────────────────────────────────
 // Constants
@@ -301,7 +301,7 @@ export default function PensionTaxPanel({
   portfolioAssets: propAssets,
   isCustomerView = false,
 }: PensionTaxPanelProps) {
-  const { selectedCustomer } = useCustomerContext();
+  const { selectedCustomer, pensionIsaRestricted: ctxIsaRestricted, setPensionIsaRestricted } = useCustomerContext();
   const [isOpen, setIsOpen] = useState(false);
   const open = alwaysOpen || isOpen;
   const [localAssets,  setLocalAssets]  = useState<RawAsset[]>([]);
@@ -419,7 +419,9 @@ export default function PensionTaxPanel({
   const irpAmount       = Math.min(irpAmountRaw, irpMax);
   const isaMax       = Math.max(20_000_000 - priorIsa, 0);
   const isaAmount    = Math.min(isaAmountRaw, isaMax);
-  const isaEligible  = !isaRestricted;
+  // ISA 제한 상태: ctx 값이 있으면 우선 사용 (PB→고객 동기화), 없으면 로컬 상태 사용
+  const effectiveIsaRestricted = ctxIsaRestricted !== null ? ctxIsaRestricted : isaRestricted;
+  const isaEligible  = !effectiveIsaRestricted;
 
   // ── Sequential allocation (연금저축 → IRP → ISA 우선권) ──────────
   const consumed: Record<string, number> = {};
@@ -457,6 +459,8 @@ export default function PensionTaxPanel({
   const overAfter       = Math.max(afterIncome - THRESHOLD, 0);
   const thresholdSaving = (overBefore - overAfter) * TOP_MARGINAL_RATE;
   const totalBenefit    = creditPension + thresholdSaving + isaSaving;
+  // 계좌 이전 후 금융소득 (세전) 표시값: 이전 전 금융소득 - 절세액
+  const displayAfterIncome = Math.max(baseFinancialIncome - totalBenefit, 0);
 
 
   // ── Render ───────────────────────────────────────────────────────
@@ -520,20 +524,20 @@ export default function PensionTaxPanel({
               </div>
 
               {/* 화살표 */}
-              {totalAvoided > 0 && baseFinancialIncome > 0 && (
+              {totalBenefit > 0 && baseFinancialIncome > 0 && (
                 <>
                   <div style={{ fontSize: 18, color: C.slate }}>→</div>
                   {/* 이전 후 금융소득 */}
                   <div>
                     <div style={{ fontSize: 11, color: C.slate }}>계좌 이전 후 금융소득 (세전)</div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
-                      <span style={{ fontWeight: 800, fontSize: 18, color: afterIncome > THRESHOLD ? C.terracotta : C.green }}>
-                        {man(afterIncome)}
+                      <span style={{ fontWeight: 800, fontSize: 18, color: displayAfterIncome > THRESHOLD ? C.terracotta : C.green }}>
+                        {man(displayAfterIncome)}
                       </span>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999,
-                        background: afterIncome > THRESHOLD ? C.terracottaSoft : C.greenSoft,
-                        color: afterIncome > THRESHOLD ? C.terracotta : C.green }}>
-                        {afterIncome > THRESHOLD ? "종합과세 대상" : "종합과세 미대상"}
+                        background: displayAfterIncome > THRESHOLD ? C.terracottaSoft : C.greenSoft,
+                        color: displayAfterIncome > THRESHOLD ? C.terracotta : C.green }}>
+                        {displayAfterIncome > THRESHOLD ? "종합과세 대상" : "종합과세 미대상"}
                       </span>
                     </div>
                   </div>
@@ -787,7 +791,7 @@ export default function PensionTaxPanel({
                   <ScenarioCard
                     icon={<TrendingUp size={15} />}
                     title="ISA 활용"
-                    blocked={isaRestricted}
+                    blocked={effectiveIsaRestricted}
                     blockedReason="직전 3개 과세기간 중 금융소득종합과세 대상자는 ISA 신규가입·연장이 제한됩니다."
                   >
                     {/* 기납입액 입력 */}
@@ -839,8 +843,13 @@ export default function PensionTaxPanel({
                   <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.slate, cursor: isCustomerView ? "not-allowed" : "pointer", opacity: isCustomerView ? 0.6 : 1 }}>
                     <input
                       type="checkbox"
-                      checked={isaRestricted}
-                      onChange={e => setIsaRestricted(e.target.checked)}
+                      checked={effectiveIsaRestricted}
+                      onChange={e => {
+                        const v = e.target.checked;
+                        setIsaRestricted(v);
+                        setPensionIsaRestricted(v);
+                        void savePensionIsaRestricted(selectedCustomer, v);
+                      }}
                       disabled={isCustomerView}
                     />
                     최근 3년 내 금융소득종합과세 대상자였음 (자동 반영 · 직접 조정 가능)
