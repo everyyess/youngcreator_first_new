@@ -751,6 +751,7 @@ export interface AssetForIncomeCalc {
   buy_price?: number | null;
   dividendYield?: number;              // 연간 배당수익률 (소수)
   trailingAnnualDividendRate?: number; // 주당 연간 배당금
+  annualDividendRate?: number;         // 주당 연간 배당금 (대체 필드)
   interestRate?: number;               // 채권 이자율 (소수 — bond_yield/100)
 }
 
@@ -833,9 +834,10 @@ export function calcFinancialIncomeSummary(
     // ── 리츠 / 주식 / ETF: 배당소득 ────────────────────────────────────────────
     if (value > 0) {
       const yieldRate = a.dividendYield ?? 0;
+      const dividendPerShare = a.trailingAnnualDividendRate ?? a.annualDividendRate ?? 0;
 
-      if (yieldRate > 0) {
-        const annualGross = value * yieldRate;
+      if (dividendPerShare > 0 && a.amount_type === "quantity" && a.amount > 0) {
+        const annualGross = dividendPerShare * a.amount;
         const withholdingRate = isDomesticListed ? DOMESTIC_DIV_WITHHOLDING : FOREIGN_DIV_WITHHOLDING;
         const annualNet = Math.round(annualGross * (1 - withholdingRate));
         dividendIncome += annualGross;
@@ -1058,19 +1060,23 @@ export function calcAfterTaxReturn(
 export function extractDividendFromYahoo(yahooJson: Record<string, unknown>): {
   dividendYield?: number;
   trailingAnnualDividendRate?: number;
+  annualDividendRate?: number;
 } {
   let dy = yahooJson?.dividendYield;
   let tadr = yahooJson?.trailingAnnualDividendRate;
+  let adr = yahooJson?.annualDividendRate;
 
-  if (typeof dy !== "number" || typeof tadr !== "number") {
+  if (typeof dy !== "number" || typeof tadr !== "number" || typeof adr !== "number") {
     const results = (yahooJson?.chart as Record<string, unknown>)?.result as Record<string, unknown>[] | undefined;
     const m = (results?.[0]?.meta ?? {}) as Record<string, unknown>;
     if (typeof dy !== "number") dy = m?.dividendYield;
     if (typeof tadr !== "number") tadr = m?.trailingAnnualDividendRate;
+    if (typeof adr !== "number") adr = m?.annualDividendRate;
   }
 
   return {
     dividendYield: typeof dy === "number" && dy > 0 ? dy : undefined,
     trailingAnnualDividendRate: typeof tadr === "number" && tadr > 0 ? tadr : undefined,
+    annualDividendRate: typeof adr === "number" && adr > 0 ? adr : undefined,
   };
 }

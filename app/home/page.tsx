@@ -7,13 +7,11 @@ import MarketDashboard from "@/components/MarketDashboard";
 import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import type { MarketCalendarEvent } from "@/lib/calendarData";
 import {
-  createInitialCustomerData,
   createInitialState,
   createNewCustomerProfile,
   calculateRiskResult,
   customerRowsToStoredState,
   customerStorage,
-  defaultCustomerProfiles,
   getStoredSelectedCustomerId,
   loadAnalysisResult,
   loadNewAnalysisResult,
@@ -23,6 +21,7 @@ import {
   saveCustomerProfileColumns,
   storeSelectedCustomerId,
   type AppState,
+  type CustomerOwnerScope,
   type CustomerId,
   type CustomerProfile,
   type PortfolioAsset,
@@ -321,8 +320,8 @@ export default function HomePage() {
   const router = useRouter();
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
-  const [customers, setCustomers] = useState<CustomerProfile[]>(defaultCustomerProfiles);
-  const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>(() => createInitialCustomerData(defaultCustomerProfiles));
+  const [customers, setCustomers] = useState<CustomerProfile[]>([]);
+  const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>({});
   const [selectedCustomerId, setSelectedCustomerId] = useState<CustomerId>("");
   const [query, setQuery] = useState("");
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
@@ -342,14 +341,26 @@ export default function HomePage() {
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
   const selectedState = selectedCustomer ? customerData[selectedCustomer.id] : undefined;
 
+  const getPbOwner = useCallback((): CustomerOwnerScope => {
+    const session = pbAuthStore.readSession();
+    return { pbId: session?.id, pbEmployeeId: session?.employeeId };
+  }, []);
+
   const loadCustomers = useCallback(async () => {
-    const result = await customerStorage.selectRows();
+    const session = pbAuthStore.readSession();
+    setPbSession(session);
+    const result = await customerStorage.selectRows({ pbId: session?.id, pbEmployeeId: session?.employeeId });
     if (!result) {
       setStorageMessage("Supabase 환경변수가 없어 HOME 데이터를 불러오지 못했습니다.");
       return;
     }
     if (result.errorMessage) setStorageMessage(result.errorMessage);
-    if (!result.rows.length) return;
+    if (!result.rows.length) {
+      setCustomers([]);
+      setCustomerData({});
+      setSelectedCustomerId("");
+      return;
+    }
     const stored = customerRowsToStoredState(result.rows);
     setCustomers(sortCustomersByName(stored.customerProfiles));
     setCustomerData(stored.customerData);
@@ -362,7 +373,6 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    setPbSession(pbAuthStore.readSession());
     loadCustomers();
   }, [loadCustomers]);
 
@@ -457,7 +467,7 @@ export default function HomePage() {
   const confirmDeleteCustomer = async () => {
     const target = customerDeleteTarget;
     if (!target) return;
-    const result = await customerStorage.remove(target.id);
+    const result = await customerStorage.remove(target.id, getPbOwner());
     if (!result.ok) {
       setStorageMessage(result.message);
       return;
@@ -548,7 +558,7 @@ export default function HomePage() {
         next.birth_year = birth;
         next.age = calculateAgeFromBirthDate(birth);
       }
-      saveCustomerProfileColumns(next).catch((error) => console.error("Failed to save customer profile", error));
+      saveCustomerProfileColumns(next, getPbOwner()).catch((error) => console.error("Failed to save customer profile", error));
       return next;
     }));
   };
@@ -563,7 +573,7 @@ export default function HomePage() {
       fallbackName: newCustomer.name || "신규 고객",
     };
     const state = createInitialState();
-    const result = await customerStorage.insertCustomer(profile, state, customers.length, pbSession?.employeeId);
+    const result = await customerStorage.insertCustomer(profile, state, customers.length, getPbOwner());
     if (!result.ok) {
       setStorageMessage(result.message);
       return;

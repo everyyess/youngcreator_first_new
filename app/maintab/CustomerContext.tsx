@@ -191,6 +191,7 @@ export type CustomerRow = {
   id: string;
   profile?: CustomerProfile;
   app_state?: AppState;
+  pb_id?: string;
   pb_employee_id?: string;
   sort_order?: number;
   updated_at?: string;
@@ -198,6 +199,7 @@ export type CustomerRow = {
 };
 
 export type StorageResult = { ok: boolean; message: string };
+export type CustomerOwnerScope = { pbId?: string; pbEmployeeId?: string };
 
 // ── Constants ──────────────────────────────────────────────────────────────
 export const workspaceTabs = [
@@ -676,15 +678,40 @@ function customerProfileColumnPayload(customer: CustomerProfile) {
   return payload;
 }
 
-export async function saveCustomerProfileColumns(customer: CustomerProfile): Promise<StorageResult> {
+function normalizeCustomerOwnerScope(scope?: CustomerOwnerScope | string, pbId?: string): CustomerOwnerScope {
+  if (typeof scope === "string") return { pbEmployeeId: scope, pbId };
+  return { pbId: scope?.pbId ?? pbId, pbEmployeeId: scope?.pbEmployeeId };
+}
+
+function customerOwnerPayload(scope?: CustomerOwnerScope | string, pbId?: string) {
+  const owner = normalizeCustomerOwnerScope(scope, pbId);
+  return {
+    ...(owner.pbId?.trim() ? { pb_id: owner.pbId.trim() } : {}),
+    ...(owner.pbEmployeeId?.trim() ? { pb_employee_id: owner.pbEmployeeId.trim() } : {}),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyCustomerOwnerFilter(query: any, scope?: CustomerOwnerScope | string, pbId?: string) {
+  const owner = normalizeCustomerOwnerScope(scope, pbId);
+  if (owner.pbId?.trim()) return query.eq("pb_id", owner.pbId.trim());
+  if (owner.pbEmployeeId?.trim()) return query.eq("pb_employee_id", owner.pbEmployeeId.trim());
+  return query;
+}
+
+export async function saveCustomerProfileColumns(customer: CustomerProfile, ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
   if (!supabase) return { ok: false, message: "Supabase is not configured." };
   const profileColumns = customerProfileColumnPayload(customer);
   if (!Object.keys(profileColumns).length) return { ok: true, message: "No columns to save." };
   const updatedAt = new Date().toISOString();
-  const { data, error } = await supabase.from("customers").update({ ...profileColumns, updated_at: updatedAt }).eq("id", customer.id).select("id,name,gender,birth_year,age,job");
+  const { data, error } = await applyCustomerOwnerFilter(
+    supabase.from("customers").update({ ...profileColumns, updated_at: updatedAt }).eq("id", customer.id),
+    ownerScope,
+    pbId,
+  ).select("id,name,gender,birth_year,age,job");
   if (error) return { ok: false, message: `Supabase profile save failed: ${error.message}` };
   if (!data || data.length === 0) {
-    const { error: insertError } = await supabase.from("customers").insert({ id: customer.id, ...profileColumns, updated_at: updatedAt, data: {}, sort_order: customer.sort_order ?? 0 });
+    const { error: insertError } = await supabase.from("customers").insert({ id: customer.id, ...profileColumns, ...customerOwnerPayload(ownerScope, pbId), updated_at: updatedAt, data: {}, sort_order: customer.sort_order ?? 0 });
     if (insertError) return { ok: false, message: `Supabase profile insert failed: ${insertError.message}` };
   }
   return { ok: true, message: "Customer profile saved." };
@@ -698,10 +725,12 @@ export async function saveCustomerDataJsonOnly(customerId: CustomerId, dataPaylo
   return { ok: true, message: "Customer data saved." };
 }
 
-async function insertEmptyCustomerRow(customerId: CustomerId, dataPayload: unknown, sortOrder: number, pbEmployeeId?: string): Promise<StorageResult> {
+async function insertEmptyCustomerRow(customerId: CustomerId, dataPayload: unknown, sortOrder: number, ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
   if (!supabase) return { ok: false, message: "Supabase is not configured." };
-  const ownerPayload = pbEmployeeId?.trim() ? { pb_employee_id: pbEmployeeId.trim() } : {};
-  const candidates: Record<string, unknown>[] = [
+  const ownerPayload = customerOwnerPayload(ownerScope, pbId);
+  const candidates: Record<string, unknown>[] = Object.keys(ownerPayload).length ? [
+    { id: customerId, data: dataPayload, sort_order: sortOrder, updated_at: new Date().toISOString(), ...ownerPayload },
+  ] : [
     { id: customerId, data: dataPayload, sort_order: sortOrder, updated_at: new Date().toISOString(), ...ownerPayload },
     { id: customerId, data: dataPayload, updated_at: new Date().toISOString() },
     { id: customerId, data: dataPayload },
@@ -741,16 +770,18 @@ async function writeRowsWithFallback(state: StoredCustomerState, op: "insert" | 
 }
 
 export const customerStorage = {
-  async selectRows(): Promise<{ rows: CustomerRow[]; errorMessage?: string } | null> {
+  async selectRows(ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<{ rows: CustomerRow[]; errorMessage?: string } | null> {
     if (!supabase) return null;
     try {
+      const orderedQuery = applyCustomerOwnerFilter(supabase.from("customers").select("*"), ownerScope, pbId).order("sort_order", { ascending: true });
       const ordered = await withTimeout(
-        Promise.resolve(supabase.from("customers").select("*").order("sort_order", { ascending: true })),
+        Promise.resolve(orderedQuery),
         8000,
         "Supabase customer select timed out.",
       );
+      const fallbackQuery = applyCustomerOwnerFilter(supabase.from("customers").select("*"), ownerScope, pbId);
       const fallback = ordered.error
-        ? await withTimeout(Promise.resolve(supabase.from("customers").select("*")), 8000, "Supabase customer fallback select timed out.")
+        ? await withTimeout(Promise.resolve(fallbackQuery), 8000, "Supabase customer fallback select timed out.")
         : ordered;
       const { data, error } = fallback;
       if (error) throw error;
@@ -760,12 +791,14 @@ export const customerStorage = {
       return { rows: [], errorMessage: "Supabase 고객 데이터 로드에 실패했습니다. 기본 화면으로 계속 진행합니다." };
     }
   },
-  async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number, pbEmployeeId?: string): Promise<StorageResult> {
+  async insertCustomer(profile: CustomerProfile, appState: AppState, sortOrder: number, ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
     if (!supabase) return { ok: false, message: "Supabase not configured." };
     const profileColumns = customerProfileColumnPayload(profile);
-    const ownerPayload = pbEmployeeId?.trim() ? { pb_employee_id: pbEmployeeId.trim() } : {};
+    const ownerPayload = customerOwnerPayload(ownerScope, pbId);
     const dataPayload = normalizeAppState(appState);
-    const candidates: Record<string, unknown>[] = [
+    const candidates: Record<string, unknown>[] = Object.keys(ownerPayload).length ? [
+      { id: profile.id, ...profileColumns, data: dataPayload, sort_order: sortOrder, updated_at: new Date().toISOString(), ...ownerPayload },
+    ] : [
       { id: profile.id, ...profileColumns, data: dataPayload, sort_order: sortOrder, updated_at: new Date().toISOString(), ...ownerPayload },
       { id: profile.id, ...profileColumns, data: dataPayload, updated_at: new Date().toISOString() },
       { id: profile.id, ...profileColumns, data: dataPayload },
@@ -779,29 +812,29 @@ export const customerStorage = {
     }
     return { ok: false, message: `Supabase insert failed: ${lastErr}` };
   },
-  async insertDefaults(state: StoredCustomerState): Promise<StorageResult> {
+  async insertDefaults(state: StoredCustomerState, ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
     let final: StorageResult = { ok: true, message: "기본 고객 생성 완료" };
     for (const [i, p] of state.customerProfiles.entries()) {
-      const r = await insertEmptyCustomerRow(p.id, normalizeAppState(state.customerData[p.id]), i);
+      const r = await insertEmptyCustomerRow(p.id, normalizeAppState(state.customerData[p.id]), i, ownerScope, pbId);
       if (!r.ok) final = r;
     }
     return final;
   },
-  async saveSortOrders(profiles: CustomerProfile[]): Promise<StorageResult> {
+  async saveSortOrders(profiles: CustomerProfile[], ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
     if (!supabase) return { ok: false, message: "Supabase not configured." };
     const updatedAt = new Date().toISOString();
     const results = await Promise.all(
       profiles.map((profile, index) =>
-        supabase.from("customers").update({ sort_order: index, updated_at: updatedAt }).eq("id", profile.id),
+        applyCustomerOwnerFilter(supabase.from("customers").update({ sort_order: index, updated_at: updatedAt }).eq("id", profile.id), ownerScope, pbId),
       ),
     );
     const error = results.find((result) => result.error)?.error;
     if (error) return { ok: false, message: `Sort order save failed: ${error.message}` };
     return { ok: true, message: "Customer sort order saved." };
   },
-  async remove(customerId: CustomerId): Promise<StorageResult> {
+  async remove(customerId: CustomerId, ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
     if (!supabase) return { ok: false, message: "Supabase not configured." };
-    const { error } = await supabase.from("customers").delete().eq("id", customerId);
+    const { error } = await applyCustomerOwnerFilter(supabase.from("customers").delete().eq("id", customerId), ownerScope, pbId);
     if (error) return { ok: false, message: `Delete failed: ${error.message}` };
     return { ok: true, message: "Deleted." };
   },

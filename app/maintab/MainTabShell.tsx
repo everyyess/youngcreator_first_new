@@ -7,9 +7,10 @@ import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile, type CustomerRow,
+  type CustomerOwnerScope,
   type CustomerUpdatedMap, type FinancialInfo, type HeaderAssetSummaryState, type PortfolioAnalysisResult,
   type PortfolioAsset, type RiskResult, type RrttlluInfo, type Tab3AnalysisState,
-  type SmartExtractionPayload, type StoredAdvisoryGuide, type StoredCustomerState,
+  type SmartExtractionPayload, type StoredAdvisoryGuide,
   type SellRecord, type ConfirmedPairItem, type PbOrderRow, type BuySimTickerItem, type SharedMaintabUiState,
   buildStructuredJsonPayload, calculateRiskResult,
   completion, customerRowsToStoredState, customerRowsToUpdatedMap, customerStorage,
@@ -232,14 +233,15 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   const currentSegment = useSelectedLayoutSegment();
 
-  const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>(defaultCustomerProfiles);
-  const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>(() => createInitialCustomerData(defaultCustomerProfiles));
+  const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>([]);
+  const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>({});
   // ── SSR 안전 초기값: 서버·클라이언트 모두 동일한 기본 고객 ID로 시작 ─────────
   // 레이지 이니셜라이저 내부에서 localStorage를 참조하면 SSR HTML과 클라이언트
   // 첫 렌더 값이 달라 Hydration failed 에러가 발생한다.
   // 실제 복원은 마운트 후 useEffect(isMounted 플래그)에서 안전하게 처리한다.
   const [isMounted, setIsMounted] = useState(false);
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>(defaultCustomerProfiles[0].id);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>("");
+  const [customerOwner, setCustomerOwner] = useState<CustomerOwnerScope>({});
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
   const [preRecordConsultation, setPreRecordConsultation] = useState<PreRecordConsultation | null>(null);
   const [activeConsultationElapsedSeconds, setActiveConsultationElapsedSeconds] = useState(0);
@@ -362,7 +364,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   selectedCustomerRef.current = selectedCustomer;
   isConsultationReadOnlyRef.current = isConsultationReadOnly;
 
-  const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0];
+  const selectedCustomerProfile = customerProfiles.find((c) => c.id === selectedCustomer) ?? customerProfiles[0] ?? createNewCustomerProfile();
 
   const finishActiveConsultation = useCallback((autoEnded = false) => {
     const active = activeConsultation ?? readActiveConsultation();
@@ -657,28 +659,31 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const selectedRows = await customerStorage.selectRows();
+      const authUser = appMode === "pb" && supabase ? (await supabase.auth.getUser().catch(() => null))?.data?.user : null;
+      const owner: CustomerOwnerScope = appMode === "pb" ? { pbId: authUser?.id } : {};
+      if (!cancelled) setCustomerOwner(owner);
+      const selectedRows = await customerStorage.selectRows(owner);
       if (cancelled) return;
       if (!selectedRows) { setStorageErrorMessage("Supabase 환경변수가 설정되지 않아 고객 데이터를 불러올 수 없습니다."); setStorageReady(true); return; }
       if (selectedRows.errorMessage) {
         setStorageErrorMessage(selectedRows.errorMessage);
-        setCustomerProfiles(defaultCustomerProfiles);
-        setCustomerData(createInitialCustomerData(defaultCustomerProfiles));
-        setSelectedCustomer(defaultCustomerProfiles[0].id);
+        setCustomerProfiles([]);
+        setCustomerData({});
+        setSelectedCustomer("");
         setStorageReady(true);
         return;
       }
       let rows = selectedRows.rows;
       if (!rows.length) {
-        setIsSeeding(true);
-        const defaultState: StoredCustomerState = { customerProfiles: defaultCustomerProfiles, customerData: createInitialCustomerData(defaultCustomerProfiles), selectedCustomer: defaultCustomerProfiles[0].id };
-        const seedResult = await customerStorage.insertDefaults(defaultState);
-        if (cancelled) return;
-        if (!seedResult.ok) { setStorageErrorMessage(seedResult.message); setIsSeeding(false); setStorageReady(true); return; }
-        const seededRows = await customerStorage.selectRows();
-        if (cancelled) return;
-        if (!seededRows || seededRows.errorMessage) { setStorageErrorMessage(seededRows?.errorMessage ?? "재조회 실패"); setIsSeeding(false); setStorageReady(true); return; }
-        rows = seededRows.rows;
+        setCustomerProfiles([]);
+        setCustomerData({});
+        setSelectedCustomer("");
+        setPersistedCustomerIds([]);
+        setCustomerUpdatedAt({});
+        setIsSeeding(false);
+        setStorageErrorMessage("");
+        setStorageReady(true);
+        return;
       }
       const storedState = rows.length ? customerRowsToStoredState(rows) : null;
       if (storedState) {
@@ -687,7 +692,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
         setCustomerProfiles(storedState.customerProfiles);
         setCustomerData(storedState.customerData);
         setSelectedCustomer(nextId);
-        storeSelectedCustomerId(nextId);
+        if (nextId) storeSelectedCustomerId(nextId);
         setPersistedCustomerIds(rows.map((r) => r.id));
         setCustomerUpdatedAt(customerRowsToUpdatedMap(rows));
       }
@@ -697,7 +702,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [appMode]);
 
   // ── [마운트 후 localStorage 복원] 하이드레이션 안전 파이프라인 ────────────────
   // 선언 순서가 포트폴리오 로드 useEffect보다 앞에 있어야 한다:
@@ -716,6 +721,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   useEffect(() => {
     if (!isMounted) return; // 마운트 전 스킵 — localStorage 복원(setSelectedCustomer) 대기
     const customerId = selectedCustomer;
+    if (!customerId || !customerProfiles.some((profile) => profile.id === customerId)) return;
     if (portfolioLoadedRef.current.has(customerId)) return; // 이미 로드됨 — 스킵
     portfolioLoadedRef.current.add(customerId); // 중복 로드 방지 선점
     let cancelled = false;
@@ -1332,7 +1338,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setCustomerProfiles((prev) => [...prev, profile]);
     setCustomerData((prev) => ({ ...prev, [profile.id]: newState }));
     markUpdated(profile.id);
-    void customerStorage.insertCustomer(profile, newState, customerProfiles.length).then((r) => {
+    void customerStorage.insertCustomer(profile, newState, customerProfiles.length, customerOwner).then((r) => {
       if (!r.ok) setStorageErrorMessage(r.message);
       else { setPersistedCustomerIds((prev) => (prev.includes(profile.id) ? prev : [...prev, profile.id])); setStorageErrorMessage(""); }
     });
@@ -1349,7 +1355,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     next.splice(Math.max(0, Math.min(adjusted, next.length)), 0, moved);
     const ordered = next.map((profile, index) => ({ ...profile, sort_order: index }));
     setCustomerProfiles(ordered);
-    void customerStorage.saveSortOrders(ordered).then((r) => {
+    void customerStorage.saveSortOrders(ordered, customerOwner).then((r) => {
       if (!r.ok) setStorageErrorMessage(r.message);
       else setStorageErrorMessage("");
     });
@@ -1358,12 +1364,12 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   const deleteSelectedCustomer = () => {
     const remaining = customerProfiles.filter((p) => p.id !== selectedCustomer);
-    const nextProfiles = remaining.length ? remaining : [createNewCustomerProfile()];
-    const nextId = nextProfiles[0].id;
+    const nextProfiles = remaining;
+    const nextId = nextProfiles[0]?.id ?? "";
     setCustomerProfiles(nextProfiles);
-    setCustomerData((prev) => { const next = { ...prev }; delete next[selectedCustomer]; if (!next[nextId]) next[nextId] = createInitialState(); return next; });
+    setCustomerData((prev) => { const next = { ...prev }; delete next[selectedCustomer]; if (nextId && !next[nextId]) next[nextId] = createInitialState(); return next; });
     const deletedId = selectedCustomer;
-    void customerStorage.remove(deletedId).then((r) => {
+    void customerStorage.remove(deletedId, customerOwner).then((r) => {
       if (!r.ok) setStorageErrorMessage(r.message);
       else {
         setPersistedCustomerIds((prev) => prev.filter((id) => id !== deletedId));
@@ -1399,7 +1405,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setCustomerProfiles(customerProfiles.map((p) => (p.id === customerId ? updated : p)));
     markUpdated(updated.id);
     if (!storageReady || isSeeding) return;
-    void saveCustomerProfileColumns(updated).then((r) => {
+    void saveCustomerProfileColumns(updated, customerOwner).then((r) => {
       if (!r.ok) setStorageErrorMessage(r.message);
       else { setPersistedCustomerIds((prev) => (prev.includes(updated.id) ? prev : [...prev, updated.id])); setStorageErrorMessage(""); }
     });

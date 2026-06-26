@@ -20,6 +20,7 @@ export type AuthProfile = {
 
 export type PbSession = {
   role: "pb";
+  id?: string;
   name: string;
   employeeId: string;
   email: string;
@@ -173,6 +174,19 @@ export function formatLoginTime(value?: string) {
 }
 
 export async function findCustomerBySignupInfo(name: string, birthDate: string) {
+  if (authSupabase) {
+    const { data, error } = await authSupabase.rpc("lookup_customer_signup_info", {
+      p_name: name.trim(),
+      p_birth_date: normalizeBirth(birthDate),
+    });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!error && row) {
+      return {
+        customerId: typeof row.customer_id === "string" ? row.customer_id : "",
+        pbEmployeeId: typeof row.pb_employee_id === "string" ? row.pb_employee_id : "",
+      };
+    }
+  }
   const rows = await customerStorage.selectRows();
   const targetName = name.trim();
   const targetBirth = normalizeBirth(birthDate);
@@ -213,7 +227,7 @@ export const pbAuthStore = {
     if (!profile?.email || profile.role !== "pb" || profile.employee_id !== normalizedEmployeeId) throw new Error("등록된 PB 계정을 찾을 수 없습니다.");
     const lastLoginAt = new Date().toISOString();
     await upsertAuthProfile({ ...profile, last_login_at: lastLoginAt });
-    const session = { role: "pb" as const, name: profile.name, employeeId: normalizedEmployeeId, email: profile.email, lastLoginAt };
+    const session = { role: "pb" as const, id: profile.id ?? signInData.user?.id, name: profile.name, employeeId: normalizedEmployeeId, email: profile.email, lastLoginAt };
     writeJson(pbSessionKey, session);
     return session;
   },
