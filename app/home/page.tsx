@@ -340,6 +340,7 @@ export default function HomePage() {
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
   const selectedState = selectedCustomer ? customerData[selectedCustomer.id] : undefined;
+  const selectedCustomerName = customerName(selectedCustomer ?? undefined);
 
   const getPbOwner = useCallback((): CustomerOwnerScope => {
     const session = pbAuthStore.readSession();
@@ -394,6 +395,11 @@ export default function HomePage() {
   const logout = async () => {
     await pbAuthStore.logout();
     router.push("/");
+  };
+
+  const enterCustomerRoom = (path: "/analysis" | "/consultation") => {
+    if (selectedCustomerId) storeSelectedCustomerId(selectedCustomerId);
+    router.push(path);
   };
 
   useEffect(() => {
@@ -493,8 +499,8 @@ export default function HomePage() {
     upsertSession(activeSession);
     storeSelectedCustomerId(session.customerId);
     writePreRecordConsultation(null);
-    writeActiveConsultation({ sessionId: session.id, customerId: session.customerId, startedAt: new Date().toISOString(), returnPath: "/maintab/tab1" });
-    router.push("/maintab/tab1");
+    writeActiveConsultation({ sessionId: session.id, customerId: session.customerId, startedAt: new Date().toISOString(), returnPath: "/consultation/tab1" });
+    router.push("/consultation/tab1");
   }
 
   function preRecordSession(session: ConsultationSession) {
@@ -502,8 +508,8 @@ export default function HomePage() {
     upsertSession(draftSession);
     storeSelectedCustomerId(session.customerId);
     writeActiveConsultation(null);
-    writePreRecordConsultation({ sessionId: session.id, customerId: session.customerId, returnPath: "/maintab/tab1" });
-    router.push("/maintab/tab1");
+    writePreRecordConsultation({ sessionId: session.id, customerId: session.customerId, returnPath: "/consultation/tab1" });
+    router.push("/consultation/tab1");
   }
 
   function finishActiveSession(autoEnded = false) {
@@ -659,11 +665,19 @@ export default function HomePage() {
                 <LogOut size={15} /> 로그아웃
               </button>
               {activeConsultation ? (
-                <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/maintab/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
+                <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/consultation/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
                   <span className="inline-flex items-center gap-1"><Home size={15} /> 상담 화면으로 돌아가기</span>
                   <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
                 </button>
               ) : null}
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => enterCustomerRoom("/analysis")} className="min-h-11 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold leading-5 text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700">
+                  {selectedCustomerName} 고객 분석실 입장
+                </button>
+                <button type="button" onClick={() => enterCustomerRoom("/consultation")} className="min-h-11 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-xs font-extrabold leading-5 text-blue-700 transition hover:bg-blue-100">
+                  {selectedCustomerName} 고객 상담실 입장
+                </button>
+              </div>
               <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
               <RightPanelCalendar sessions={sessions} customers={customers} marketEvents={marketCalendarEvents} />
             </div>

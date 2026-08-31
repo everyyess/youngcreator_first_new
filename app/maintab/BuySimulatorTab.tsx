@@ -1792,7 +1792,7 @@ export default function BuySimulatorTab() {
           saveTaxSummary("new", newTaxSummary);
         }
         setConfirmDone(true);
-        const tab4Path = appMode === "customer" ? "/customer-maintab/tab4" : "/maintab/tab4";
+        const tab4Path = appMode === "customer" ? "/customer-maintab/tab4" : "/consultation/tab4";
         router.push(tab4Path);
       }
     } catch (err) {

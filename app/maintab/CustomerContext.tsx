@@ -293,7 +293,7 @@ export type PbOrderRow = {
   maturityYears: string;       // 만기(년)
 };
 
-export type Tab3InnerTab = "correlation-domestic" | "correlation-global" | "rebalancing";
+export type Tab3InnerTab = "stock-rebalancing" | "product-rebalancing";
 export type CorrelationPeriodRange = "1W" | "1M" | "3M" | "6M" | "1Y" | "3Y";
 export type CorrelationInnerViewTab = "optimal" | "heatmap" | "chart" | "weight" | "sectorlist";
 export type CorrelationAnalysisState = {

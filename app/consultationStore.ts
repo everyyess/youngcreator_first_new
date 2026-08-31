@@ -125,7 +125,7 @@ export function readActiveConsultation(): ActiveConsultation | null {
       sessionId: parsed.sessionId,
       customerId: parsed.customerId,
       startedAt: parsed.startedAt,
-      returnPath: typeof parsed.returnPath === "string" ? parsed.returnPath : "/maintab/tab1",
+      returnPath: typeof parsed.returnPath === "string" ? parsed.returnPath : "/consultation/tab1",
     };
   } catch {
     return null;
@@ -148,7 +148,7 @@ export function readPreRecordConsultation(): PreRecordConsultation | null {
     return {
       sessionId: parsed.sessionId,
       customerId: parsed.customerId,
-      returnPath: typeof parsed.returnPath === "string" ? parsed.returnPath : "/maintab/tab1",
+      returnPath: typeof parsed.returnPath === "string" ? parsed.returnPath : "/consultation/tab1",
     };
   } catch {
     return null;
