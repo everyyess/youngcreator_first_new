@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/market-reports/scheduled/us",
+      "schedule": "30 23 * * 0-4"
+    },
+    {
+      "path": "/api/market-reports/scheduled/kr",
+      "schedule": "0 7 * * 1-5"
+    }
+  ]
+}
