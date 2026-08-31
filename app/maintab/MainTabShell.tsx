@@ -60,11 +60,11 @@ import {
 const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
 
 const pbTabPaths: Record<string, string> = {
-  profile:   "/maintab/tab1",
-  existing:  "/maintab/tab2",
-  create:    "/maintab/tab3",
-  compare:   "/maintab/tab4",
-  recommend: "/maintab/tab5",
+  profile:   "/consultation/tab1",
+  existing:  "/consultation/tab2",
+  create:    "/consultation/tab3",
+  compare:   "/consultation/tab4",
+  recommend: "/consultation/tab5",
 };
 
 const customerTabPaths: Record<string, string> = {
@@ -120,7 +120,7 @@ function formatHeaderKrw(value: number) {
   return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
 }
 
-function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetSummaryState, assets: PortfolioAsset[], availableInvestmentFunds: number | null) {
+export function buildHeaderAssetSummary(financial: FinancialInfo, summary: HeaderAssetSummaryState, assets: PortfolioAsset[], availableInvestmentFunds: number | null) {
   // 추가 투자 의향 = 가용 투자 자금(b + 매도대금 - 확정매수비용) 계산값 우선,
   // 미계산(null) 시 TAB1 원본 b값(investableAssets) 폴백
   const baseAdditionalAssets = availableInvestmentFunds ?? (parseKrwAmount(financial.investableAssets) ?? 0);
@@ -433,7 +433,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       sessionId: target.id,
       customerId: selectedCustomer,
       startedAt: new Date(Date.now() - resumedElapsedSeconds * 1000).toISOString(),
-      returnPath: `/maintab/${currentSegment ?? "tab1"}`,
+      returnPath: `/consultation/${currentSegment ?? "tab1"}`,
     };
     window.localStorage.removeItem(CONSULTATION_ENDED_STORAGE_KEY);
     setConsultationEnded(false);
@@ -1667,7 +1667,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
               onResume={resumeLatestConsultation}
             />
             <div className="flex flex-col gap-5 xl:min-h-[calc(100vh-9rem)] xl:flex-row">
-              <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
+              <TabStrip appMode={appMode} onNavigate={(id) => router.push(tabPaths[id])} />
               <section
                 className="min-w-0 flex-1"
                 onClickCapture={handleLockedInteraction}
@@ -1715,7 +1715,7 @@ const segmentToTab: Record<string, string> = {
   tab5: "recommend",
 };
 
-function HeaderSummary({
+export function HeaderSummary({
   currentCustomer, recentUpdatedAt, assetSummary, storageErrorMessage,
   activeConsultation, elapsedSeconds, mode, isPreRecordMode, onHome, onFinish, onResume,
 }: {
@@ -1788,13 +1788,14 @@ function HeaderSummary({
   );
 }
 
-function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
+function TabStrip({ onNavigate, appMode }: { onNavigate: (id: string) => void; appMode: "pb" | "customer" }) {
   const segment = useSelectedLayoutSegment();
   const activeTab = (segment ? segmentToTab[segment] : null) ?? "profile";
+  const visibleTabs = appMode === "pb" ? workspaceTabs.filter((tab) => tab.id !== "recommend") : workspaceTabs;
 
   return (
     <nav data-consultation-lock-exempt="true" className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-56 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
-      {workspaceTabs.map((tab, index) => {
+      {visibleTabs.map((tab, index) => {
         const selected = activeTab === tab.id;
         return (
           <button

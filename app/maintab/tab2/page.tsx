@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Activity, BarChart2, Bell, BookOpen, FolderOpen, GitBranch, RefreshCcw, TrendingUp } from "lucide-react";
+import { Activity, FolderOpen } from "lucide-react";
 import ExistingPortfolioTab from "../tab1/ExistingPortfolioTab";
 import {
   DistributionAndRiskSection,
@@ -10,108 +9,36 @@ import {
   HoldingAndDiagnosisSection,
   usePortfolioResult,
 } from "../PortfolioResultComponents";
-import TechnicalAnalysisTab from "./TechnicalAnalysisTab";
-import OptionAnalysisTab from "./OptionAnalysisTab";
-import SupplyDemandAnalysis from "./SupplyDemandAnalysisTab";
-import DartAnalysisTab from "./DartAnalysisTab";
-import FundamentalAnalysisTab from "./FundamentalAnalysisTab";
 import SellSimulatorTab from "../SellSimulatorTab";
-import { useCustomerContext, type PortfolioAsset } from "../CustomerContext";
-import { sectorToDomesticTicker, sectorToGlobalTicker } from "../sectorTickerMap";
+import { useCustomerContext } from "../CustomerContext";
 
-type InnerTab = "holding" | "risk" | "fundamental" | "technical" | "supply" | "options" | "dart" | "rebalancing";
+type InnerTab = "holding" | "risk";
 
 const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
   { id: "holding", label: "보유 현황 및 진단", icon: <FolderOpen size={15} /> },
   { id: "risk", label: "분산 및 위험 분석", icon: <Activity size={15} /> },
-  { id: "technical", label: "기술적 분석", icon: <GitBranch size={15} /> },
-  { id: "options", label: "옵션 분석", icon: <BarChart2 size={15} /> },
-  { id: "supply", label: "수급 분석", icon: <TrendingUp size={15} /> },
-  { id: "fundamental", label: "외부자료 분석", icon: <BookOpen size={15} /> },
-  { id: "dart", label: "공시 분석", icon: <Bell size={15} /> },
-  { id: "rebalancing", label: "리밸런싱", icon: <RefreshCcw size={15} /> },
 ];
 
-function dominantSector(assets: PortfolioAsset[]): string | null {
-  const totals: Record<string, number> = {};
-  for (const a of assets) {
-    const s = a.sector;
-    if (!s || s === "기타") continue;
-    totals[s] = (totals[s] ?? 0) + (a.current_value ?? a.weight ?? 1);
-  }
-  const entries = Object.entries(totals);
-  if (!entries.length) return null;
-  return entries.sort((x, y) => y[1] - x[1])[0][0];
+function isVisibleInnerTab(value: unknown): value is InnerTab {
+  return value === "holding" || value === "risk";
 }
 
 export default function Tab2Page() {
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>("holding");
-  const [mountedTabs, setMountedTabs] = useState<Set<InnerTab>>(new Set(["holding"]));
   const data = usePortfolioResult();
-  const {
-    appMode,
-    analysisResult,
-    rebalancingSellAssets,
-    tab3AnalysisState,
-    sharedUiState,
-    updateTab3AnalysisState,
-    updateSharedUiState,
-  } = useCustomerContext();
-  const router = useRouter();
-  const syncedActiveInnerTab = sharedUiState.tab2?.activeInnerTab as InnerTab | undefined;
+  const { appMode, sharedUiState, updateSharedUiState } = useCustomerContext();
+  const syncedActiveInnerTab = sharedUiState.tab2?.activeInnerTab;
 
   useEffect(() => {
-    if (syncedActiveInnerTab && syncedActiveInnerTab !== activeInnerTab) setActiveInnerTab(syncedActiveInnerTab);
-  }, [syncedActiveInnerTab, activeInnerTab]);
-
-  const goToTab3 = () => {
-    // 리밸런싱(매도/유지) 탭과 동일 기준으로 베이스 자산 결정
-    // rebalancingSellAssets는 raw 자산(sector 없음) → enrichedAssets에서 sector 보완
-    const enriched = (analysisResult?.enrichedAssets ?? []) as PortfolioAsset[];
-    const sectorMap = new Map(enriched.map(a => [`${a.name}::${a.ticker ?? ""}`, a.sector]));
-    const rawBase = rebalancingSellAssets.length > 0 ? rebalancingSellAssets : enriched;
-    const base = rawBase.map(a => ({
-      ...a,
-      sector: a.sector ?? sectorMap.get(`${a.name}::${a.ticker ?? ""}`),
-    }));
-    const held = base.filter((a) => a.name && !(a.amount_type === "quantity" && a.amount <= 0));
-
-    const byPt = (types: string[]) =>
-      held.filter((a) => types.includes((a.productType ?? a.asset_class ?? "").trim()));
-
-    const domDomesticSector = dominantSector(byPt(["국내주식", "국내ETF"]));
-    const domGlobalSector   = dominantSector(byPt(["해외주식", "해외ETF"]));
-
-    // 섹터명 → API가 수용하는 ETF 티커로 변환
-    const domesticTicker = sectorToDomesticTicker(domDomesticSector);
-    const globalTicker   = sectorToGlobalTicker(domGlobalSector);
-
-    if (domesticTicker || globalTicker) {
-      updateTab3AnalysisState(
-        {
-          domestic: { ...tab3AnalysisState.domestic, lockedTicker: domesticTicker },
-          global:   { ...tab3AnalysisState.global,   lockedTicker: globalTicker },
-        },
-        { allowReadOnlyViewState: true },
-      );
+    if (isVisibleInnerTab(syncedActiveInnerTab) && syncedActiveInnerTab !== activeInnerTab) {
+      setActiveInnerTab(syncedActiveInnerTab);
     }
-
-    router.push(appMode === "customer" ? "/customer-maintab/tab3" : "/maintab/tab3");
-  };
+  }, [syncedActiveInnerTab, activeInnerTab]);
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
-    setMountedTabs((prev) => new Set([...prev, tab]));
     if (appMode === "pb") updateSharedUiState({ tab2: { activeInnerTab: tab } });
   };
-
-  useEffect(() => {
-    if (appMode === "customer") return;
-    const timer = setTimeout(() => {
-      setMountedTabs((prev) => new Set([...prev, "supply", "fundamental", "dart"]));
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, [appMode]);
 
   if (appMode === "customer") {
     return <SellSimulatorTab />;
@@ -126,11 +53,7 @@ export default function Tab2Page() {
             type="button"
             data-consultation-lock-exempt="true"
             onClick={() => selectInnerTab(tab.id)}
-            className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${
-              activeInnerTab === tab.id
-                ? "bg-[#2f2f9d] text-white shadow-soft"
-                : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"
-            }`}
+            className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${activeInnerTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
           >
             {tab.icon}
             {tab.label}
@@ -151,51 +74,6 @@ export default function Tab2Page() {
             ? <DistributionAndRiskSection data={data} />
             : <EmptyDataPrompt message="'보유 현황 및 진단' 탭에서 자산을 입력하고 분석 실행을 눌러주세요." />
           }
-        </div>
-      )}
-
-      {mountedTabs.has("fundamental") && (
-        <div className="space-y-5" style={{ display: activeInnerTab === "fundamental" ? undefined : "none" }}>
-          <FundamentalAnalysisTab />
-        </div>
-      )}
-
-      {mountedTabs.has("technical") && (
-        <div className="space-y-5" style={{ display: activeInnerTab === "technical" ? undefined : "none" }}>
-          <TechnicalAnalysisTab />
-        </div>
-      )}
-
-      {mountedTabs.has("supply") && (
-        <div className="space-y-5" style={{ display: activeInnerTab === "supply" ? undefined : "none" }}>
-          <SupplyDemandAnalysis />
-        </div>
-      )}
-
-      {mountedTabs.has("options") && (
-        <div className="space-y-5" style={{ display: activeInnerTab === "options" ? undefined : "none" }}>
-          <OptionAnalysisTab />
-        </div>
-      )}
-
-      {mountedTabs.has("dart") && (
-        <div className="space-y-5" style={{ display: activeInnerTab === "dart" ? undefined : "none" }}>
-          <DartAnalysisTab />
-        </div>
-      )}
-
-      {activeInnerTab === "rebalancing" && (
-        <div className="space-y-4">
-          <SellSimulatorTab />
-          <div className="flex items-center justify-end rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-soft">
-            <button
-              type="button"
-              onClick={goToTab3}
-              className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a]"
-            >
-              리밸런싱 확정 → TAB3 반영
-            </button>
-          </div>
         </div>
       )}
     </>

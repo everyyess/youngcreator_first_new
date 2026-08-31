@@ -341,7 +341,7 @@ export default function CustomerHomePage() {
               <SodaPopLogoImage className="h-auto w-48" />
               <div className="flex flex-wrap items-center justify-end gap-2">
               {activeForCustomer ? (
-                <button type="button" onClick={() => router.push(activeForCustomer.returnPath?.replace("/maintab", "/customer-maintab") || "/customer-maintab/tab1")} className="grid h-11 justify-items-center gap-0.5 rounded-xl bg-blue-600 px-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20">
+                <button type="button" onClick={() => router.push(activeForCustomer.returnPath?.replace("/consultation", "/customer-maintab") || "/customer-maintab/tab1")} className="grid h-11 justify-items-center gap-0.5 rounded-xl bg-blue-600 px-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20">
                   <span className="inline-flex items-center gap-1.5"><Home size={13} /> 상담 화면으로 돌아가기</span>
                   <span className="font-mono text-xs">{formatTimer(elapsedSeconds)}</span>
                 </button>
