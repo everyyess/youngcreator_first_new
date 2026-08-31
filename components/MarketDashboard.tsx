@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { FileText, Mail, RefreshCw } from "lucide-react";
 import type { MarketIndexItem } from "@/lib/marketData";
+import type { AppState, CustomerProfile } from "@/app/maintab/CustomerContext";
+import { buildCustomerReportSections } from "@/services/customerService";
 
 type LoadState<T> = {
   data: T;
@@ -156,9 +158,310 @@ function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]
   );
 }
 
+type AudienceTab = "managed" | "unmanaged";
+type MailingItemId = "usMarket" | "krMarket" | "holdingIssues" | "portfolioPerformance";
+type MarketReport = {
+  market: "us" | "kr";
+  reportDate: string;
+  generatedAt: string | null;
+  dataAsOf: string | null;
+  generationStatus: "pending" | "success" | "failed";
+  generationType: "scheduled" | "manual";
+  title: string;
+  summary: string;
+  sections: { bullets?: string[]; [key: string]: unknown };
+  pbComment: string;
+  errorMessage?: string | null;
+};
+
+type MarketDashboardProps = {
+  selectedCustomer?: CustomerProfile | null;
+  selectedState?: AppState;
+  pbName?: string;
+};
+
+const audienceTabs: { id: AudienceTab; label: string }[] = [
+  { id: "managed", label: "관리 고객" },
+  { id: "unmanaged", label: "미관리 고객" },
+];
+
+const mailingItems: Record<AudienceTab, { id: MailingItemId; label: string }[]> = {
+  managed: [
+    { id: "usMarket", label: "전일 미국 시황" },
+    { id: "krMarket", label: "당일 국내 시황" },
+    { id: "holdingIssues", label: "고객별 보유 종목 주요 이슈" },
+    { id: "portfolioPerformance", label: "고객별 포트폴리오 성과" },
+  ],
+  unmanaged: [
+    { id: "usMarket", label: "전일 미국 시황" },
+    { id: "krMarket", label: "당일 국내 시황" },
+  ],
+};
+
+const initialIncluded: Record<AudienceTab, Record<MailingItemId, boolean>> = {
+  managed: { usMarket: true, krMarket: true, holdingIssues: true, portfolioPerformance: true },
+  unmanaged: { usMarket: true, krMarket: true, holdingIssues: false, portfolioPerformance: false },
+};
+
+function reportScheduleLabel(market: "us" | "kr") {
+  return market === "us" ? "08:30" : "16:00";
+}
+
+function formatKoreanDateTime(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function reportBullets(report?: MarketReport) {
+  return Array.isArray(report?.sections?.bullets) ? report.sections.bullets : [];
+}
+
+function marketReportTitle(id: "usMarket" | "krMarket") {
+  return id === "usMarket" ? "전일 미국 시황" : "당일 국내 시황";
+}
+
+function statusText(report: MarketReport | undefined, market: "us" | "kr") {
+  const time = reportScheduleLabel(market);
+  if (!report) return time + " 자동 생성 예정";
+  if (report.generationStatus === "success") return "✓ " + time + " 자동 생성 완료";
+  if (report.generationStatus === "failed") return "⚠ 자동 생성 실패";
+  return time + " 자동 생성 예정";
+}
+
+function statusClass(report: MarketReport | undefined) {
+  if (report?.generationStatus === "success") return "text-emerald-600";
+  if (report?.generationStatus === "failed") return "text-amber-600";
+  return "text-slate-400";
+}
+
+function ReportPreviewCard({ title, summary, bullets, meta }: { title: string; summary: string; bullets: string[]; meta?: string }) {
+  return (
+    <article className="min-h-[150px] rounded-lg border border-slate-100 bg-slate-50 p-3">
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <p className="text-sm font-black text-navy">{title}</p>
+        {meta ? <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-black text-slate-400">{meta}</span> : null}
+      </div>
+      <p className="text-xs font-bold leading-5 text-slate-600">{summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다."}</p>
+      {bullets.length ? (
+        <ul className="mt-2 grid gap-1.5 text-xs font-semibold leading-5 text-slate-500">
+          {bullets.map((bullet, index) => <li key={index}>- {bullet}</li>)}
+        </ul>
+      ) : null}
+    </article>
+  );
+}
+
+function MarketStatusRow({ label, market, report, refreshing, onRefresh }: { label: string; market: "us" | "kr"; report?: MarketReport; refreshing: boolean; onRefresh: (market: "us" | "kr") => void }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2">
+      <div className="min-w-0">
+        <p className="text-xs font-black text-slate-700">{label}</p>
+        <p className={'mt-0.5 text-[11px] font-black ' + statusClass(report)}>{statusText(report, market)}</p>
+        {report?.generationStatus === "success" && report.generatedAt ? <p className="mt-0.5 text-[10px] font-bold text-slate-400">생성: {formatKoreanDateTime(report.generatedAt)}</p> : null}
+        {report?.generationStatus === "failed" && report.errorMessage ? <p className="mt-0.5 text-[10px] font-bold text-amber-600">{report.errorMessage}</p> : null}
+      </div>
+      <button
+        type="button"
+        onClick={() => onRefresh(market)}
+        disabled={refreshing}
+        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+      >
+        <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} /> 새로고침
+      </button>
+    </div>
+  );
+}
+
+function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: MarketDashboardProps) {
+  const [audience, setAudience] = useState<AudienceTab>("managed");
+  const [included, setIncluded] = useState(initialIncluded);
+  const [reports, setReports] = useState<Record<"us" | "kr", MarketReport | undefined>>({ us: undefined, kr: undefined });
+  const [loadingReports, setLoadingReports] = useState(true);
+  const [reportsError, setReportsError] = useState("");
+  const [refreshingMarket, setRefreshingMarket] = useState<"us" | "kr" | null>(null);
+  const [actionMessage, setActionMessage] = useState("");
+  const [pbComment, setPbComment] = useState("");
+  const [commentTouched, setCommentTouched] = useState(false);
+  const [savingComment, setSavingComment] = useState(false);
+  const customerSections = buildCustomerReportSections(selectedCustomer, selectedState);
+  const displayPbName = pbName?.trim() || "담당";
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadReports() {
+      setLoadingReports(true);
+      try {
+        const response = await fetch("/api/market-reports");
+        const body = await response.json();
+        if (cancelled) return;
+        const nextReports: Record<"us" | "kr", MarketReport | undefined> = { us: undefined, kr: undefined };
+        if (Array.isArray(body.reports)) {
+          for (const report of body.reports as MarketReport[]) nextReports[report.market] = report;
+        }
+        setReports(nextReports);
+        setPbComment(nextReports.us?.pbComment || nextReports.kr?.pbComment || "");
+        setReportsError(body.error || "");
+      } catch {
+        if (!cancelled) setReportsError("시황 보고서 상태를 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) setLoadingReports(false);
+      }
+    }
+    void loadReports();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function refreshReport(market: "us" | "kr") {
+    setRefreshingMarket(market);
+    try {
+      const response = await fetch("/api/market-reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ market }),
+      });
+      const body = await response.json();
+      if (body.report) setReports((prev) => ({ ...prev, [market]: body.report as MarketReport }));
+      setReportsError(response.ok ? "" : body.error || body.report?.errorMessage || "수동 재생성에 실패했습니다.");
+    } catch {
+      setReportsError("수동 재생성 요청에 실패했습니다.");
+    } finally {
+      setRefreshingMarket(null);
+    }
+  }
+
+  function toggleItem(id: MailingItemId) {
+    setIncluded((prev) => ({ ...prev, [audience]: { ...prev[audience], [id]: !prev[audience][id] } }));
+  }
+
+  async function savePbComment(nextComment: string) {
+    setSavingComment(true);
+    try {
+      const response = await fetch("/api/market-reports", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pbComment: nextComment }),
+      });
+      const body = await response.json();
+      setReportsError(response.ok ? "" : body.error || "PB 코멘트 저장에 실패했습니다.");
+    } catch {
+      setReportsError("PB 코멘트 저장 요청에 실패했습니다.");
+    } finally {
+      setSavingComment(false);
+    }
+  }
+
+  function handlePdfPreview() {
+    setActionMessage("PDF 미리보기는 다음 단계에서 연결됩니다.");
+  }
+
+  function handleSendMail() {
+    setActionMessage("메일 전송은 다음 단계에서 연결됩니다.");
+  }
+
+  useEffect(() => {
+    if (!commentTouched) return;
+    const id = window.setTimeout(() => {
+      void savePbComment(pbComment);
+    }, 600);
+    return () => window.clearTimeout(id);
+  }, [commentTouched, pbComment]);
+
+  const activeIncluded = included[audience];
+  const usReport = reports.us;
+  const krReport = reports.kr;
+
+  return (
+    <section className="flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-black text-navy">시황 보고서 메일링</p>
+        {loadingReports ? <span className="inline-flex items-center gap-1 text-[11px] font-black text-slate-400"><RefreshCw size={12} className="animate-spin" /> 상태 확인 중</span> : null}
+      </div>
+
+      <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+        {audienceTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setAudience(tab.id)}
+            className={(audience === tab.id ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-600 hover:bg-blue-50") + " h-9 rounded-md text-xs font-black transition"}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="grid gap-3">
+          <div className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3">
+            {mailingItems[audience].map((item) => (
+              <label key={item.id} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700">
+                <input type="checkbox" checked={activeIncluded[item.id]} onChange={() => toggleItem(item.id)} className="h-4 w-4 rounded border-slate-300 accent-blue-600" />
+                {item.label}
+              </label>
+            ))}
+          </div>
+
+          <label className="grid gap-1.5 rounded-lg border border-slate-100 bg-white px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-black text-slate-700">{displayPbName} PB의 한 줄 코멘트</span>
+              <span className="text-[10px] font-bold text-slate-400">{pbComment.length}/100{savingComment ? " 저장 중" : ""}</span>
+            </div>
+            <input
+              type="text"
+              value={pbComment}
+              maxLength={100}
+              onChange={(event) => {
+                setPbComment(event.target.value.slice(0, 100));
+                setCommentTouched(true);
+              }}
+              placeholder="고객에게 전달하고 싶은 한 줄 코멘트를 입력하세요."
+              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100"
+            />
+          </label>
+
+          <div className="grid gap-2">
+            <MarketStatusRow label="전일 미국 시황" market="us" report={usReport} refreshing={refreshingMarket === "us"} onRefresh={refreshReport} />
+            <MarketStatusRow label="당일 국내 시황" market="kr" report={krReport} refreshing={refreshingMarket === "kr"} onRefresh={refreshReport} />
+          </div>
+          {reportsError ? <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">{reportsError}</p> : null}
+          {actionMessage ? <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">{actionMessage}</p> : null}
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid content-start gap-3">
+            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={usReport?.summary || ""} bullets={reportBullets(usReport)} meta={usReport?.reportDate} /> : null}
+            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={krReport?.summary || ""} bullets={reportBullets(krReport)} meta={krReport?.reportDate} /> : null}
+          </div>
+          <div className="grid content-start gap-3">
+            {audience === "managed" && activeIncluded.holdingIssues ? <ReportPreviewCard title={customerSections.holdingIssues.title} summary={customerSections.holdingIssues.summary} bullets={customerSections.holdingIssues.bullets} /> : null}
+            {audience === "managed" && activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+        <button type="button" onClick={handlePdfPreview} className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50">
+          <FileText size={14} /> PDF 미리보기
+        </button>
+        <button type="button" onClick={handleSendMail} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-blue-700">
+          <Mail size={14} /> 메일 전송
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function PlaceholderPanel({ title, heightClass }: { title: string; heightClass: string }) {
   return (
-    <section className={`flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm ${heightClass}`}>
+    <section className={'flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm ' + heightClass}>
       <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
         <p className="text-sm font-black text-navy">{title}</p>
       </div>
@@ -169,7 +472,7 @@ function PlaceholderPanel({ title, heightClass }: { title: string; heightClass: 
   );
 }
 
-export default function MarketDashboard() {
+export default function MarketDashboard({ selectedCustomer, selectedState, pbName }: MarketDashboardProps) {
   const [indices, setIndices] = useState(emptyIndices);
   const [indicesRefreshedAt, setIndicesRefreshedAt] = useState<Date | null>(null);
 
@@ -218,8 +521,13 @@ export default function MarketDashboard() {
   return (
     <div className="flex w-full min-w-0 max-w-full flex-1 flex-col gap-4">
       <IndexStrip state={indices} refreshedAt={indicesRefreshedAt} />
-      <PlaceholderPanel title="시황 보고서 메일링" heightClass="min-h-[340px]" />
+      <MarketReportMailingPanel selectedCustomer={selectedCustomer} selectedState={selectedState} pbName={pbName} />
       <PlaceholderPanel title="섹터 스캐너" heightClass="min-h-[360px]" />
     </div>
   );
 }
+
+
+
+
+
