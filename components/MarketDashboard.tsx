@@ -437,8 +437,8 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
 
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="grid content-start gap-3">
-            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={usReport?.summary || ""} bullets={reportBullets(usReport)} meta={usReport?.reportDate} /> : null}
-            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={krReport?.summary || ""} bullets={reportBullets(krReport)} meta={krReport?.reportDate} /> : null}
+            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={usReport?.summary || ""} bullets={reportBullets(usReport)} meta={usReport?.dataAsOf ? "기준 " + formatKoreanDateTime(usReport.dataAsOf) : usReport?.reportDate} /> : null}
+            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={krReport?.summary || ""} bullets={reportBullets(krReport)} meta={krReport?.dataAsOf ? "기준 " + formatKoreanDateTime(krReport.dataAsOf) : krReport?.reportDate} /> : null}
           </div>
           <div className="grid content-start gap-3">
             {audience === "managed" && activeIncluded.holdingIssues ? <ReportPreviewCard title={customerSections.holdingIssues.title} summary={customerSections.holdingIssues.summary} bullets={customerSections.holdingIssues.bullets} /> : null}
@@ -526,8 +526,4 @@ export default function MarketDashboard({ selectedCustomer, selectedState, pbNam
     </div>
   );
 }
-
-
-
-
 

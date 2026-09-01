@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { runScheduledMarketReport } from "@/services/marketReportService";
 
 function isAuthorized(request: NextRequest) {
@@ -15,3 +19,4 @@ export async function GET(request: NextRequest) {
   const result = await runScheduledMarketReport("us");
   return NextResponse.json(result, { status: result.report.generationStatus === "failed" ? 502 : 200 });
 }
+
