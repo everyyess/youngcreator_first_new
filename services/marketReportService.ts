@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { fetchPreviousUsMarketBrief } from "@/services/alphaVantageService";
+import { fetchPreviousUsMarketBrief } from "@/services/kisUsMarketService";
 import { fetchTodayKoreanMarketBrief } from "@/services/kisService";
 
 export type MarketReportMarket = "us" | "kr";
@@ -195,7 +195,7 @@ async function buildReport(market: MarketReportMarket, generationType: MarketRep
     const supportingAvailable = [...brief.sectors, ...brief.stocks, ...brief.news].filter((item) => item.status === "available").length;
 
     if (indexAvailable < 2 || supportingAvailable < 1) {
-      console.warn("[market-report][alpha] required data not ready", {
+      console.warn("[market-report][kis-us] required data not ready", {
         reportDate,
         dataAsOf: brief.dataAsOf,
         indexAvailable,
@@ -214,7 +214,7 @@ async function buildReport(market: MarketReportMarket, generationType: MarketRep
       generationType,
       title: "전일 미국 시황",
       summary: brief.headline,
-      sections: { bullets: brief.bullets, indices: brief.indices, sectors: brief.sectors, stocks: brief.stocks, news: brief.news, unavailable: brief.unavailable },
+      sections: { bullets: brief.bullets, narrative: brief.narrative, sources: brief.sources, indices: brief.indices, sectors: brief.sectors, stocks: brief.stocks, news: brief.news, unavailable: brief.unavailable },
       pbComment,
       errorMessage: null,
     };
@@ -247,7 +247,7 @@ async function buildReport(market: MarketReportMarket, generationType: MarketRep
     generationType,
     title: "당일 국내 시황",
     summary: brief.headline,
-    sections: { bullets: brief.bullets, indices: brief.indices, exchangeRates: brief.exchangeRates, sectors: brief.sectors, stocks: brief.stocks, news: brief.news, unavailable: brief.unavailable },
+    sections: { bullets: brief.bullets, narrative: brief.narrative, sources: brief.sources, indices: brief.indices, exchangeRates: brief.exchangeRates, sectors: brief.sectors, stocks: brief.stocks, news: brief.news, unavailable: brief.unavailable },
     pbComment,
     errorMessage: null,
   };
@@ -325,6 +325,8 @@ export async function runScheduledMarketReport(market: MarketReportMarket) {
 
   return lastResult;
 }
+
+
 
 
 

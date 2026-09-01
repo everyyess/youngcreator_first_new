@@ -1,5 +1,6 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
+import { buildMarketNarrative, narrativeToBullets, type MarketReportNarrative, type ReportSource } from "@/services/marketNarrativeService";
 
 export type KisMarketMove = {
   label: string;
@@ -32,6 +33,8 @@ export type DomesticMarketBrief = {
   sectors: KisMarketMove[];
   stocks: KisMarketMove[];
   news: KisMarketNewsItem[];
+  narrative: MarketReportNarrative;
+  sources: ReportSource[];
   unavailable: string[];
 };
 
@@ -403,6 +406,7 @@ export async function fetchTodayKoreanMarketBrief(reportDate: string): Promise<D
   }
   const news: KisMarketNewsItem[] = [{ title: "국내 시황/공시 본문", status: "unavailable", reason: "현재 연결된 KIS 시장정보 endpoint에서 본문형 시황/공시 데이터를 제공하지 않습니다." }];
   const exchangeRates = [exchangeRate];
+  const narrative = await buildMarketNarrative({ market: "kr", reportDate, indices: indexMoves, sectors: sectorMoves, stocks: stockMoves });
   const dataAsOf = latestAsOf([indexMoves, exchangeRates, sectorMoves, stockMoves]);
   const unavailable = collectUnavailable([indexMoves, exchangeRates, sectorMoves, stockMoves], news);
 
@@ -421,16 +425,20 @@ export async function fetchTodayKoreanMarketBrief(reportDate: string): Promise<D
     market: "kr",
     reportDate,
     dataAsOf,
-    headline: buildHeadline(indexMoves),
-    bullets: buildBullets(indexMoves, exchangeRates, sectorMoves, stockMoves),
+    headline: narrative.indexOverview.text || buildHeadline(indexMoves),
+    bullets: narrativeToBullets(narrative),
     indices: indexMoves,
     exchangeRates,
     sectors: sectorMoves,
     stocks: stockMoves,
     news,
+    narrative,
+    sources: narrative.sources,
     unavailable,
   };
 }
+
+
 
 
 
