@@ -929,7 +929,15 @@ const taTabs: { id: TaTab; label: string }[] = [
   { id: "guide", label: "지표 설명" },
 ];
 
-export default function TechnicalAnalysisTab() {
+type TechnicalAnalysisTabProps = {
+  selectedAsset?: PortfolioAsset | null;
+  hideStockSelector?: boolean;
+};
+
+export default function TechnicalAnalysisTab({
+  selectedAsset,
+  hideStockSelector = false,
+}: TechnicalAnalysisTabProps = {}) {
   const portfolioData = usePortfolioResult();
 
   // ticker 있는 자산만 필터링
@@ -976,13 +984,20 @@ export default function TechnicalAnalysisTab() {
   const [error, setError] = useState<string | null>(null);
   const [taResult, setTaResult] = useState<TAResult | null>(null);
 
+  useEffect(() => {
+    if (!selectedAsset?.ticker) return;
+    setSelectedTicker(selectedAsset.ticker);
+    setSelectedName(selectedAsset.name);
+    setActiveTab("conclusion");
+  }, [selectedAsset?.name, selectedAsset?.ticker]);
+
   // 자산 목록이 로드되면 첫 번째 종목 자동 선택
   useEffect(() => {
-    if (tickerableAssets.length > 0 && !selectedTicker) {
+    if (selectedAsset === undefined && tickerableAssets.length > 0 && !selectedTicker) {
       setSelectedTicker(tickerableAssets[0].ticker!);
       setSelectedName(tickerableAssets[0].name);
     }
-  }, [tickerableAssets, selectedTicker]);
+  }, [selectedAsset, tickerableAssets, selectedTicker]);
 
   // 종목 선택 시 데이터 fetch
   useEffect(() => {
@@ -1022,7 +1037,7 @@ export default function TechnicalAnalysisTab() {
   return (
     <div className="space-y-4">
       {/* 종목 선택 바 */}
-      {tickerableAssets.length > 0 && (
+      {!hideStockSelector && tickerableAssets.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="mb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">분석 종목 선택</div>
           <div className="flex flex-wrap gap-2">
@@ -1047,10 +1062,12 @@ export default function TechnicalAnalysisTab() {
       )}
 
       {/* 비보유 종목 검색 */}
-      <StockSearchBox
-        market="all"
-        onSelect={(item) => selectAsset(item.ticker, item.name)}
-      />
+      {!hideStockSelector ? (
+        <StockSearchBox
+          market="all"
+          onSelect={(item) => selectAsset(item.ticker, item.name)}
+        />
+      ) : null}
 
       {/* 선택 종목 분석 영역 */}
       {selectedTicker && (

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Bell, ExternalLink, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
-import { useCustomerContext } from "../CustomerContext";
+import { useCustomerContext, type PortfolioAsset } from "../CustomerContext";
 import type { DartDisclosure, DartDisclosuresResponse } from "../../api/dart-disclosures/route";
 import StockSearchBox from "./StockSearchBox";
 
@@ -288,7 +288,15 @@ function DisclosureList({
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 
-export default function DartAnalysisTab() {
+type DartAnalysisTabProps = {
+  selectedAsset?: PortfolioAsset | null;
+  hideStockSelector?: boolean;
+};
+
+export default function DartAnalysisTab({
+  selectedAsset,
+  hideStockSelector = false,
+}: DartAnalysisTabProps = {}) {
   const { portfolioAssets } = useCustomerContext();
 
   // 국내주식 (DART, SK하이닉스 최우선)
@@ -342,10 +350,10 @@ export default function DartAnalysisTab() {
   const [market, setMarket] = useState<Market>("domestic");
 
   useEffect(() => {
-    if (domesticStocks.length === 0 && overseasStocks.length > 0) {
+    if (selectedAsset === undefined && domesticStocks.length === 0 && overseasStocks.length > 0) {
       setMarket("overseas");
     }
-  }, [domesticStocks, overseasStocks]);
+  }, [domesticStocks, overseasStocks, selectedAsset]);
 
   const activeStocks = market === "domestic" ? domesticStocks : overseasStocks;
   const activeTabs = market === "domestic" ? DART_TABS : SEC_TABS;
@@ -375,6 +383,28 @@ export default function DartAnalysisTab() {
   const [data, setData] = useState<DartDisclosuresResponse | null>(null);
   const [summaryState, setSummaryState] = useState<SummaryState | null>(null);
 
+  useEffect(() => {
+    if (selectedAsset === undefined) return;
+    if (!selectedAsset?.ticker) {
+      setSelectedStock(null);
+      return;
+    }
+    const assetType = `${selectedAsset.productType ?? ""} ${selectedAsset.asset_class ?? ""}`;
+    const nextMarket: Market = assetType.includes("해외주식") ? "overseas" : "domestic";
+    const ticker = selectedAsset.ticker;
+    const searchKey = nextMarket === "domestic"
+      ? ticker.match(/^(\d{6})/)?.[1] ?? selectedAsset.name
+      : ticker.split(".")[0].toUpperCase();
+    setMarket(nextMarket);
+    setSelectedStock({
+      displayName: selectedAsset.name,
+      ticker,
+      searchKey,
+    });
+    setActiveTab("earnings");
+    setSummaryState(null);
+  }, [selectedAsset]);
+
   // 시장 전환 시 상태 초기화
   const handleMarketChange = (m: Market) => {
     if (m === market) return;
@@ -387,10 +417,10 @@ export default function DartAnalysisTab() {
 
   // 첫 번째 종목 자동 선택
   useEffect(() => {
-    if (activeStocks.length > 0 && !selectedStock) {
+    if (selectedAsset === undefined && activeStocks.length > 0 && !selectedStock) {
       setSelectedStock(activeStocks[0]);
     }
-  }, [activeStocks, selectedStock]);
+  }, [activeStocks, selectedAsset, selectedStock]);
 
   // AI 요약 (DART / SEC 자동 라우팅)
   const openSummary = (item: DartDisclosure) => {
@@ -484,7 +514,7 @@ export default function DartAnalysisTab() {
   return (
     <div className="space-y-4">
       {/* ── 시장 선택 (국내·해외 모두 있을 때만 표시) ──────────────────────── */}
-      {domesticStocks.length > 0 && overseasStocks.length > 0 && (
+      {!hideStockSelector && domesticStocks.length > 0 && overseasStocks.length > 0 && (
         <div className="flex gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
           <button
             onClick={() => handleMarketChange("domestic")}
@@ -510,7 +540,7 @@ export default function DartAnalysisTab() {
       )}
 
       {/* ── 종목 선택 바 ──────────────────────────────────────────────────── */}
-      {activeStocks.length > 0 && (
+      {!hideStockSelector && activeStocks.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             분석 종목 선택
@@ -549,17 +579,19 @@ export default function DartAnalysisTab() {
       )}
 
       {/* ── 비보유 종목 검색 ───────────────────────────────────────────────── */}
-      <StockSearchBox
-        market={market}
-        onSelect={(item) => {
-          setSelectedStock({
-            displayName: item.name,
-            ticker: item.ticker,
-            searchKey: item.code,
-          });
-          setActiveTab("earnings");
-        }}
-      />
+      {!hideStockSelector ? (
+        <StockSearchBox
+          market={market}
+          onSelect={(item) => {
+            setSelectedStock({
+              displayName: item.name,
+              ticker: item.ticker,
+              searchKey: item.code,
+            });
+            setActiveTab("earnings");
+          }}
+        />
+      ) : null}
 
       {/* ── 공시 패널 ─────────────────────────────────────────────────────── */}
       {selectedStock && (

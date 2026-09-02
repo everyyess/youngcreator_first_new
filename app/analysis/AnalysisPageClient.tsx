@@ -15,6 +15,7 @@ import {
   createNewCustomerProfile,
   deriveCalculatedAppState,
   getStoredSelectedCustomerId,
+  loadAnalysisResult,
   loadPortfolioAssets,
   saveCustomerDataJsonOnly,
   storeSelectedCustomerId,
@@ -23,6 +24,7 @@ import {
   type CustomerId,
   type CustomerProfile,
   type PortfolioAsset,
+  type PortfolioAnalysisResult,
 } from "../maintab/CustomerContext";
 import { pbAuthStore } from "../authStore";
 import {
@@ -36,7 +38,6 @@ import {
 } from "../consultationStore";
 
 export type AnalysisTopTab = "stock" | "screener" | "competitors" | "insight" | "elbEls";
-type StockAnalysisTab = "technical" | "fundamental" | "dart";
 
 export const analysisTabSegments = ["tab1", "tab2", "tab3", "tab4", "tab5"] as const;
 
@@ -62,12 +63,6 @@ export function isAnalysisTabSegment(segment: string): segment is AnalysisTabSeg
   return analysisTabSegments.includes(segment as AnalysisTabSegment);
 }
 
-const stockAnalysisTabs: { id: StockAnalysisTab; label: string }[] = [
-  { id: "technical", label: "기술적 분석" },
-  { id: "fundamental", label: "외부자료 분석" },
-  { id: "dart", label: "공시 분석" },
-];
-
 function PlaceholderContent({ label }: { label: string }) {
   return (
     <section className="min-h-[320px] rounded-lg border border-dashed border-slate-200 bg-white/70 p-6 text-sm font-bold text-slate-400 shadow-soft">
@@ -76,15 +71,67 @@ function PlaceholderContent({ label }: { label: string }) {
   );
 }
 
-function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerContextValue; activeTopTab: AnalysisTopTab }) {
-  const router = useRouter();
-  const [activeStockTab, setActiveStockTab] = useState<StockAnalysisTab>("technical");
-  const [mountedStockTabs, setMountedStockTabs] = useState<Set<StockAnalysisTab>>(new Set(["technical"]));
+function StockAnalysisSection({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section id={id} className="scroll-mt-6 space-y-4 rounded-xl border border-slate-200 bg-[#F9FAFC] p-4 shadow-soft lg:p-5">
+      <div>
+        <h2 className="text-lg font-extrabold text-slate-900">{title}</h2>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
 
-  const selectStockTab = (tab: StockAnalysisTab) => {
-    setActiveStockTab(tab);
-    setMountedStockTabs((prev) => new Set([...prev, tab]));
-  };
+function AnalysisTabs({
+  contextValue,
+  activeTopTab,
+  onCustomerChange,
+  isPortfolioLoading,
+}: {
+  contextValue: CustomerContextValue;
+  activeTopTab: AnalysisTopTab;
+  onCustomerChange: (customerId: CustomerId) => void;
+  isPortfolioLoading: boolean;
+}) {
+  const router = useRouter();
+  const stockHoldings = useMemo(() => {
+    const merged = [
+      ...(contextValue.analysisResult?.enrichedAssets ?? []),
+      ...contextValue.portfolioAssets,
+    ];
+    const seen = new Set<string>();
+    return merged.filter((asset) => {
+      const ticker = asset.ticker?.trim();
+      const assetType = `${asset.productType ?? ""} ${asset.asset_class ?? ""}`;
+      if (!ticker || !assetType.includes("주식")) return false;
+      const key = ticker.toUpperCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [contextValue.analysisResult, contextValue.portfolioAssets]);
+  const holdingTickerSignature = stockHoldings.map((asset) => asset.ticker).join("|");
+  const [selectedTicker, setSelectedTicker] = useState("");
+
+  useEffect(() => {
+    setSelectedTicker((current) => {
+      if (stockHoldings.some((asset) => asset.ticker === current)) return current;
+      return stockHoldings[0]?.ticker ?? "";
+    });
+  }, [contextValue.selectedCustomer, holdingTickerSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedAsset = stockHoldings.find((asset) => asset.ticker === selectedTicker) ?? null;
 
   return (
     <CustomerContext.Provider value={contextValue}>
@@ -107,36 +154,91 @@ function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerCo
 
         {activeTopTab === "stock" ? (
           <div className="flex flex-col gap-4">
-            <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
-              {stockAnalysisTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => selectStockTab(tab.id)}
-                  className={[
-                    "flex min-h-10 shrink-0 flex-1 items-center justify-center rounded-md px-4 py-2 text-sm font-bold transition",
-                    activeStockTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
-                  ].join(" ")}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft lg:p-5">
+              <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,2fr)]">
+                <label className="space-y-2">
+                  <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">분석 고객</span>
+                  <select
+                    value={contextValue.selectedCustomer}
+                    onChange={(event) => onCustomerChange(event.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition focus:border-[#2f2f9d] focus:ring-2 focus:ring-[#2f2f9d]/15"
+                  >
+                    {contextValue.customerProfiles.length === 0 ? <option value="">등록된 고객 없음</option> : null}
+                    {contextValue.customerProfiles.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name || "이름 미입력"}{customer.birthYear ? ` · ${customer.birthYear}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-            {mountedStockTabs.has("technical") ? (
-              <div className="space-y-5" style={{ display: activeStockTab === "technical" ? undefined : "none" }}>
-                <TechnicalAnalysisTab />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold uppercase tracking-wide text-slate-500">보유 종목</span>
+                    <span className="text-xs font-semibold text-slate-400">
+                      {isPortfolioLoading ? "불러오는 중..." : `${stockHoldings.length}개`}
+                    </span>
+                  </div>
+                  <div className="flex min-h-11 flex-wrap items-center gap-2">
+                    {stockHoldings.map((asset) => {
+                      const active = asset.ticker === selectedTicker;
+                      return (
+                        <button
+                          key={asset.ticker}
+                          type="button"
+                          onClick={() => setSelectedTicker(asset.ticker ?? "")}
+                          className={[
+                            "rounded-lg border px-3.5 py-2 text-left text-sm font-bold transition",
+                            active
+                              ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
+                              : "border-slate-200 bg-slate-50 text-slate-700 hover:border-[#2f2f9d]/40 hover:bg-indigo-50",
+                          ].join(" ")}
+                        >
+                          {asset.name}
+                          <span className={`ml-1.5 text-[10px] font-medium ${active ? "text-indigo-200" : "text-slate-400"}`}>
+                            {asset.ticker}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {!isPortfolioLoading && stockHoldings.length === 0 ? (
+                      <p className="text-sm font-semibold text-slate-400">분석 가능한 보유 주식이 없습니다.</p>
+                    ) : null}
+                  </div>
+                </div>
               </div>
-            ) : null}
-            {mountedStockTabs.has("fundamental") ? (
-              <div className="space-y-5" style={{ display: activeStockTab === "fundamental" ? undefined : "none" }}>
-                <FundamentalAnalysisTab />
-              </div>
-            ) : null}
-            {mountedStockTabs.has("dart") ? (
-              <div className="space-y-5" style={{ display: activeStockTab === "dart" ? undefined : "none" }}>
-                <DartAnalysisTab />
-              </div>
+            </section>
+
+            {selectedAsset ? (
+              <>
+                <nav className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft">
+                  <a href="#technical-analysis" className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-indigo-50 hover:text-[#2f2f9d]">기술적 분석</a>
+                  <a href="#external-analysis" className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-indigo-50 hover:text-[#2f2f9d]">외부자료 분석</a>
+                  <a href="#disclosure-analysis" className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-indigo-50 hover:text-[#2f2f9d]">공시 분석</a>
+                </nav>
+
+                <StockAnalysisSection id="technical-analysis" title="기술적 분석" description="가격·추세·모멘텀·변동성·거래량 지표를 종합합니다.">
+                  <TechnicalAnalysisTab
+                    key={`${contextValue.selectedCustomer}:${selectedAsset.ticker}:technical`}
+                    selectedAsset={selectedAsset}
+                    hideStockSelector
+                  />
+                </StockAnalysisSection>
+                <StockAnalysisSection id="external-analysis" title="외부자료 분석" description="증권사 리포트와 텔레그램 외부자료를 한 종목 기준으로 확인합니다.">
+                  <FundamentalAnalysisTab
+                    key={`${contextValue.selectedCustomer}:${selectedAsset.ticker}:external`}
+                    selectedAsset={selectedAsset}
+                    hideStockSelector
+                  />
+                </StockAnalysisSection>
+                <StockAnalysisSection id="disclosure-analysis" title="공시 분석" description="국내 DART 또는 해외 SEC 공시를 종목에 맞춰 자동으로 분석합니다.">
+                  <DartAnalysisTab
+                    key={`${contextValue.selectedCustomer}:${selectedAsset.ticker}:disclosure`}
+                    selectedAsset={selectedAsset}
+                    hideStockSelector
+                  />
+                </StockAnalysisSection>
+              </>
             ) : null}
           </div>
         ) : (
@@ -154,6 +256,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>("");
   const [customerUpdatedAt, setCustomerUpdatedAt] = useState<Record<CustomerId, number>>({});
   const [portfolioAssetsMap, setPortfolioAssetsMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [analysisResultMap, setAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
   const [storageErrorMessage, setStorageErrorMessage] = useState("");
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -211,8 +314,16 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     if (!selectedCustomer || loadedPortfolioRef.current.has(selectedCustomer)) return;
     loadedPortfolioRef.current.add(selectedCustomer);
     let cancelled = false;
-    loadPortfolioAssets(selectedCustomer).then((assets) => {
-      if (!cancelled) setPortfolioAssetsMap((prev) => ({ ...prev, [selectedCustomer]: assets }));
+    Promise.all([
+      loadPortfolioAssets(selectedCustomer),
+      loadAnalysisResult(selectedCustomer),
+    ]).then(([assets, result]) => {
+      if (cancelled) return;
+      setPortfolioAssetsMap((prev) => ({ ...prev, [selectedCustomer]: assets }));
+      setAnalysisResultMap((prev) => ({
+        ...prev,
+        [selectedCustomer]: result as PortfolioAnalysisResult | null,
+      }));
     }).catch(() => {
       loadedPortfolioRef.current.delete(selectedCustomer);
     });
@@ -224,6 +335,8 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   const currentCustomerProfile = selectedCustomerProfile ?? fallbackCustomerProfile;
   const formData = deriveCalculatedAppState(customerData[selectedCustomer] ?? customerData[selectedCustomerProfile?.id ?? ""] ?? createInitialState());
   const portfolioAssets = portfolioAssetsMap[selectedCustomer] ?? [];
+  const analysisResult = analysisResultMap[selectedCustomer] ?? null;
+  const isPortfolioLoading = Boolean(selectedCustomer) && !Object.prototype.hasOwnProperty.call(portfolioAssetsMap, selectedCustomer);
   const assetSummary = useMemo(
     () => buildHeaderAssetSummary(formData.financial, formData.headerAssetSummary, portfolioAssets, null),
     [formData.financial, formData.headerAssetSummary, portfolioAssets],
@@ -235,7 +348,14 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     customerProfiles,
     selectedCustomer,
     portfolioAssets,
-  }) as CustomerContextValue, [currentCustomerProfile, customerProfiles, formData, portfolioAssets, selectedCustomer]);
+    isPortfolioLoaded: !isPortfolioLoading,
+    analysisResult,
+  }) as CustomerContextValue, [analysisResult, currentCustomerProfile, customerProfiles, formData, isPortfolioLoading, portfolioAssets, selectedCustomer]);
+
+  const selectCustomer = (customerId: CustomerId) => {
+    setSelectedCustomer(customerId);
+    if (customerId) storeSelectedCustomerId(customerId);
+  };
 
   const finishActiveConsultation = () => {
     const active = activeConsultation ?? readActiveConsultation();
@@ -273,7 +393,12 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
           onFinish={finishActiveConsultation}
           onResume={() => router.push(activeConsultation?.returnPath || "/consultation/tab1")}
         />
-        <AnalysisTabs contextValue={analysisContextValue} activeTopTab={initialTopTab} />
+        <AnalysisTabs
+          contextValue={analysisContextValue}
+          activeTopTab={initialTopTab}
+          onCustomerChange={selectCustomer}
+          isPortfolioLoading={isPortfolioLoading}
+        />
       </div>
     </main>
   );

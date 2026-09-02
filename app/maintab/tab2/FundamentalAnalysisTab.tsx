@@ -657,7 +657,15 @@ function isDomestic(ticker: string) {
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
-export default function FundamentalAnalysisTab() {
+type FundamentalAnalysisTabProps = {
+  selectedAsset?: PortfolioAsset | null;
+  hideStockSelector?: boolean;
+};
+
+export default function FundamentalAnalysisTab({
+  selectedAsset,
+  hideStockSelector = false,
+}: FundamentalAnalysisTabProps = {}) {
   const portfolioData = usePortfolioResult();
 
   // 국내 + 해외 주식 모두 포함 (ticker 있는 것)
@@ -726,6 +734,17 @@ export default function FundamentalAnalysisTab() {
   const [error, setError]       = useState<string | null>(null);
   const [summaryState, setSummaryState] = useState<SummaryState | null>(null);
 
+  useEffect(() => {
+    if (!selectedAsset?.ticker) return;
+    const nextTab: FundamentalTab = isDomestic(selectedAsset.ticker) ? "naver" : "telegram";
+    setSelectedTicker(selectedAsset.ticker);
+    setSelectedName(selectedAsset.name);
+    setSelectedCurrentPrice(selectedAsset.current_price);
+    setActiveTab(nextTab);
+    setMountedSubTabs((prev) => new Set([...prev, nextTab]));
+    setSummaryState(null);
+  }, [selectedAsset?.current_price, selectedAsset?.name, selectedAsset?.ticker]);
+
   // 표시용 이름 (한국어 우선)
   const resolvedName = koreanNames[selectedTicker] || selectedName;
 
@@ -749,13 +768,13 @@ export default function FundamentalAnalysisTab() {
 
   // 첫 종목 자동 선택 (국내 우선)
   useEffect(() => {
-    if (allStocks.length > 0 && !selectedTicker) {
+    if (selectedAsset === undefined && allStocks.length > 0 && !selectedTicker) {
       const first = domesticList[0] ?? allStocks[0];
       setSelectedTicker(first.ticker!);
       setSelectedName(first.name);
       setSelectedCurrentPrice(first.current_price);
     }
-  }, [allStocks, domesticList, selectedTicker]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allStocks, domesticList, selectedAsset, selectedTicker]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 네이버 리포트 로드 (국내 종목만)
   useEffect(() => {
@@ -810,7 +829,7 @@ export default function FundamentalAnalysisTab() {
   return (
     <div className="space-y-4">
       {/* 종목 선택 */}
-      {sortedStocks.length > 0 && (
+      {!hideStockSelector && sortedStocks.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
             분석 종목 선택
@@ -822,14 +841,16 @@ export default function FundamentalAnalysisTab() {
       )}
 
       {/* 비보유 종목 검색 */}
-      <StockSearchBox
-        market="all"
-        onSelect={(item) => {
-          setSelectedTicker(item.ticker);
-          setSelectedName(item.name);
-          setSelectedCurrentPrice(undefined);
-        }}
-      />
+      {!hideStockSelector ? (
+        <StockSearchBox
+          market="all"
+          onSelect={(item) => {
+            setSelectedTicker(item.ticker);
+            setSelectedName(item.name);
+            setSelectedCurrentPrice(undefined);
+          }}
+        />
+      ) : null}
 
       {/* 메인 패널 */}
       {selectedTicker && (
