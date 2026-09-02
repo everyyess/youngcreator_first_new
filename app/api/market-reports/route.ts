@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { generateMarketReport, listMarketReports, saveMarketReportPbComment, type MarketReportMarket } from "@/services/marketReportService";
 
 function parseMarkets(value: string | null): MarketReportMarket[] {
@@ -35,3 +39,4 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json(result);
 }
+

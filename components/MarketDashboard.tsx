@@ -158,6 +158,17 @@ function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]
   );
 }
 
+type ReportTone = "normal" | "positive" | "negative" | "keyword";
+type ReportSpan = { text: string; tone?: ReportTone };
+type ReportSource = { title: string; publisher: string; publishedAt: string; url: string };
+type ReportNarrativePoint = { text: string; spans?: ReportSpan[]; sources?: ReportSource[] };
+type MarketReportNarrative = {
+  indexOverview?: ReportNarrativePoint;
+  news?: { status?: "available" | "none" | "unavailable"; message?: string; items?: ReportSource[] };
+  sectors?: { positive?: ReportNarrativePoint; negative?: ReportNarrativePoint; message?: string };
+  stocks?: { positive?: ReportNarrativePoint; negative?: ReportNarrativePoint; message?: string };
+  sources?: ReportSource[];
+};
 type AudienceTab = "managed" | "unmanaged";
 type MailingItemId = "usMarket" | "krMarket" | "holdingIssues" | "portfolioPerformance";
 type MarketReport = {
@@ -169,7 +180,7 @@ type MarketReport = {
   generationType: "scheduled" | "manual";
   title: string;
   summary: string;
-  sections: { bullets?: string[]; [key: string]: unknown };
+  sections: { bullets?: string[]; narrative?: MarketReportNarrative; [key: string]: unknown };
   pbComment: string;
   errorMessage?: string | null;
 };
@@ -224,6 +235,10 @@ function reportBullets(report?: MarketReport) {
   return Array.isArray(report?.sections?.bullets) ? report.sections.bullets : [];
 }
 
+function reportNarrative(report?: MarketReport) {
+  return report?.sections?.narrative;
+}
+
 function marketReportTitle(id: "usMarket" | "krMarket") {
   return id === "usMarket" ? "전일 미국 시황" : "당일 국내 시황";
 }
@@ -242,19 +257,86 @@ function statusClass(report: MarketReport | undefined) {
   return "text-slate-400";
 }
 
-function ReportPreviewCard({ title, summary, bullets, meta }: { title: string; summary: string; bullets: string[]; meta?: string }) {
+function spanClass(tone?: ReportTone) {
+  if (tone === "positive") return "font-black text-red-600";
+  if (tone === "negative") return "font-black text-blue-600";
+  if (tone === "keyword") return "font-black text-slate-950";
+  return "text-slate-900";
+}
+
+function RichLine({ point }: { point?: ReportNarrativePoint }) {
+  if (!point) return null;
+  const spans = point.spans?.length ? point.spans : [{ text: point.text }];
+  return (
+    <p className="text-xs font-semibold leading-5 text-slate-900">
+      {spans.map((span, index) => <span key={index} className={spanClass(span.tone)}>{span.text}</span>)}
+    </p>
+  );
+}
+
+function formatSourceDate(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+}
+
+function NarrativePreview({ narrative, fallbackBullets }: { narrative?: MarketReportNarrative; fallbackBullets: string[] }) {
+  if (!narrative) {
+    return fallbackBullets.length ? (
+      <ul className="mt-2 grid gap-1.5 text-xs font-semibold leading-5 text-slate-500">
+        {fallbackBullets.map((bullet, index) => <li key={index}>- {bullet}</li>)}
+      </ul>
+    ) : null;
+  }
+
+  return (
+    <div className="mt-3 grid gap-3">
+      <div className="grid gap-1.5 border-t border-slate-200 pt-3">
+        <p className="text-[11px] font-black text-slate-500">주요 지수 등락 + 시장 전체 원인</p>
+        <RichLine point={narrative.indexOverview} />
+      </div>
+
+      <div className="grid gap-1.5 border-t border-slate-200 pt-3">
+        <p className="text-[11px] font-black text-slate-500">주요 시장 뉴스</p>
+        {narrative.news?.status === "available" && narrative.news.items?.length ? (
+          <ul className="grid gap-1.5 text-xs font-semibold leading-5 text-slate-800">
+            {narrative.news.items.slice(0, 5).map((item, index) => (
+              <li key={`${item.title}-${index}`}>
+                <a href={item.url} target="_blank" rel="noreferrer" className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:text-blue-700">{item.title}</a>
+                <span className="ml-1 text-[10px] font-bold text-slate-400">{item.publisher}{formatSourceDate(item.publishedAt) ? " · " + formatSourceDate(item.publishedAt) : ""}</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-xs font-semibold leading-5 text-slate-600">{narrative.news?.message || "오늘은 시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요."}</p>}
+      </div>
+
+      <div className="grid gap-1.5 border-t border-slate-200 pt-3">
+        <p className="text-[11px] font-black text-slate-500">강세/약세 업종 + 각각의 원인</p>
+        <RichLine point={narrative.sectors?.positive} />
+        <RichLine point={narrative.sectors?.negative} />
+        {narrative.sectors?.message ? <p className="text-xs font-semibold leading-5 text-slate-600">{narrative.sectors.message}</p> : null}
+      </div>
+
+      <div className="grid gap-1.5 border-t border-slate-200 pt-3">
+        <p className="text-[11px] font-black text-slate-500">주요 강세/약세 종목 + 각각의 원인</p>
+        <RichLine point={narrative.stocks?.positive} />
+        <RichLine point={narrative.stocks?.negative} />
+        {narrative.stocks?.message ? <p className="text-xs font-semibold leading-5 text-slate-600">{narrative.stocks.message}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function ReportPreviewCard({ title, summary, bullets, meta, narrative }: { title: string; summary: string; bullets: string[]; meta?: string; narrative?: MarketReportNarrative }) {
   return (
     <article className="min-h-[150px] rounded-lg border border-slate-100 bg-slate-50 p-3">
       <div className="mb-2 flex items-start justify-between gap-2">
         <p className="text-sm font-black text-navy">{title}</p>
         {meta ? <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-black text-slate-400">{meta}</span> : null}
       </div>
-      <p className="text-xs font-bold leading-5 text-slate-600">{summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다."}</p>
-      {bullets.length ? (
-        <ul className="mt-2 grid gap-1.5 text-xs font-semibold leading-5 text-slate-500">
-          {bullets.map((bullet, index) => <li key={index}>- {bullet}</li>)}
-        </ul>
-      ) : null}
+      {!narrative ? <p className="text-xs font-bold leading-5 text-slate-600">{summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다."}</p> : null}
+      <NarrativePreview narrative={narrative} fallbackBullets={bullets} />
     </article>
   );
 }
@@ -437,8 +519,8 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
 
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="grid content-start gap-3">
-            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={usReport?.summary || ""} bullets={reportBullets(usReport)} meta={usReport?.reportDate} /> : null}
-            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={krReport?.summary || ""} bullets={reportBullets(krReport)} meta={krReport?.reportDate} /> : null}
+            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={usReport?.summary || ""} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={usReport?.dataAsOf ? "기준 " + formatKoreanDateTime(usReport.dataAsOf) : usReport?.reportDate} /> : null}
+            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={krReport?.summary || ""} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={krReport?.dataAsOf ? "기준 " + formatKoreanDateTime(krReport.dataAsOf) : krReport?.reportDate} /> : null}
           </div>
           <div className="grid content-start gap-3">
             {audience === "managed" && activeIncluded.holdingIssues ? <ReportPreviewCard title={customerSections.holdingIssues.title} summary={customerSections.holdingIssues.summary} bullets={customerSections.holdingIssues.bullets} /> : null}
@@ -526,8 +608,6 @@ export default function MarketDashboard({ selectedCustomer, selectedState, pbNam
     </div>
   );
 }
-
-
 
 
 

@@ -1,5 +1,6 @@
+import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { fetchPreviousUsMarketBrief } from "@/services/alphaVantageService";
+import { fetchPreviousUsMarketBrief } from "@/services/kisUsMarketService";
 import { fetchTodayKoreanMarketBrief } from "@/services/kisService";
 
 export type MarketReportMarket = "us" | "kr";
@@ -38,8 +39,8 @@ const KST_TIME_ZONE = "Asia/Seoul";
 const REPORT_TABLE = "market_reports";
 
 function getSupabaseAdmin(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false } });
 }
@@ -190,6 +191,20 @@ async function buildReport(market: MarketReportMarket, generationType: MarketRep
 
   if (market === "us") {
     const brief = await fetchPreviousUsMarketBrief(reportDate);
+    const indexAvailable = brief.indices.filter((item) => item.status === "available").length;
+    const supportingAvailable = [...brief.sectors, ...brief.stocks, ...brief.news].filter((item) => item.status === "available").length;
+
+    if (indexAvailable < 2 || supportingAvailable < 1) {
+      console.warn("[market-report][kis-us] required data not ready", {
+        reportDate,
+        dataAsOf: brief.dataAsOf,
+        indexAvailable,
+        supportingAvailable,
+        unavailable: brief.unavailable.slice(0, 12),
+      });
+      throw new Error(`미국 시황 필수 데이터가 부족합니다. indexAvailable=${indexAvailable}, supportingAvailable=${supportingAvailable}`);
+    }
+
     return {
       market,
       reportDate,
@@ -199,17 +214,30 @@ async function buildReport(market: MarketReportMarket, generationType: MarketRep
       generationType,
       title: "전일 미국 시황",
       summary: brief.headline,
-      sections: { bullets: brief.bullets },
+      sections: { bullets: brief.bullets, narrative: brief.narrative, sources: brief.sources, indices: brief.indices, sectors: brief.sectors, stocks: brief.stocks, news: brief.news, unavailable: brief.unavailable },
       pbComment,
       errorMessage: null,
     };
   }
-
   const brief = await fetchTodayKoreanMarketBrief(reportDate);
-  if (brief.reportDate !== reportDate || !brief.dataAsOf || !brief.bullets.length) {
-    throw new Error("국내 시황 필수 데이터가 아직 준비되지 않았습니다.");
+  const kospi = brief.indices.find((item) => item.label === "KOSPI");
+  const kosdaq = brief.indices.find((item) => item.label === "KOSDAQ");
+  const coreIndicesReady = kospi?.status === "available" && kosdaq?.status === "available";
+  const dataAsOfDate = brief.dataAsOf?.slice(0, 10) || "";
+  if (brief.reportDate !== reportDate || dataAsOfDate !== reportDate || !brief.dataAsOf || !brief.bullets.length || !coreIndicesReady) {
+    console.warn("[market-report][kis] required data not ready", {
+      reportDate,
+      briefReportDate: brief.reportDate,
+      dataAsOf: brief.dataAsOf,
+      dataAsOfDate,
+      kospiStatus: kospi?.status,
+      kospiReason: kospi?.reason,
+      kosdaqStatus: kosdaq?.status,
+      kosdaqReason: kosdaq?.reason,
+      unavailable: brief.unavailable.slice(0, 12),
+    });
+    throw new Error(`국내 시황 필수 데이터가 아직 준비되지 않았습니다. KOSPI=${kospi?.reason || kospi?.status || "missing"}, KOSDAQ=${kosdaq?.reason || kosdaq?.status || "missing"}, dataAsOf=${brief.dataAsOf || "missing"}`);
   }
-
   return {
     market,
     reportDate,
@@ -219,7 +247,7 @@ async function buildReport(market: MarketReportMarket, generationType: MarketRep
     generationType,
     title: "당일 국내 시황",
     summary: brief.headline,
-    sections: { bullets: brief.bullets },
+    sections: { bullets: brief.bullets, narrative: brief.narrative, sources: brief.sources, indices: brief.indices, exchangeRates: brief.exchangeRates, sectors: brief.sectors, stocks: brief.stocks, news: brief.news, unavailable: brief.unavailable },
     pbComment,
     errorMessage: null,
   };
@@ -297,3 +325,8 @@ export async function runScheduledMarketReport(market: MarketReportMarket) {
 
   return lastResult;
 }
+
+
+
+
+
