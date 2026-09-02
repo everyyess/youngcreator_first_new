@@ -643,7 +643,7 @@ export default function HomePage() {
         </aside>
 
         <section className="flex flex-col min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/70 bg-white/75 p-4 shadow-xl shadow-blue-900/5 backdrop-blur">
-          <MarketDashboard selectedCustomer={selectedCustomer} selectedState={selectedState} pbName={pbSession?.name || tempPbName} />
+          <MarketDashboard selectedCustomer={selectedCustomer} selectedState={selectedState} pbName={pbSession?.name || tempPbName} pbId={pbSession?.id} pbEmployeeId={pbSession?.employeeId} />
         </section>
 
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>

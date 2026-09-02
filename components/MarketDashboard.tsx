@@ -171,6 +171,30 @@ type MarketReportNarrative = {
 };
 type AudienceTab = "managed" | "unmanaged";
 type MailingItemId = "usMarket" | "krMarket" | "holdingIssues" | "portfolioPerformance";
+type HoldingIssueItem = {
+  ticker: string;
+  name: string;
+  market: "kr" | "us";
+  issueType: "price" | "disclosure" | "news";
+  summary: string;
+  holders: {
+    customerId: string;
+    customerName: string;
+  }[];
+  changePercent?: number;
+  previousClose?: number;
+  latestClose?: number;
+  previousDate?: string;
+  latestDate?: string;
+};
+
+type HoldingIssuesResponse = {
+  holdingCount: number;
+  issueCount: number;
+  thresholdPercent?: number;
+  items: HoldingIssueItem[];
+  error?: string;
+};
 type MarketReport = {
   market: "us" | "kr";
   reportDate: string;
@@ -189,6 +213,8 @@ type MarketDashboardProps = {
   selectedCustomer?: CustomerProfile | null;
   selectedState?: AppState;
   pbName?: string;
+  pbId?: string;
+  pbEmployeeId?: string;
 };
 
 const audienceTabs: { id: AudienceTab; label: string }[] = [
@@ -200,7 +226,7 @@ const mailingItems: Record<AudienceTab, { id: MailingItemId; label: string }[]> 
   managed: [
     { id: "usMarket", label: "전일 미국 시황" },
     { id: "krMarket", label: "당일 국내 시황" },
-    { id: "holdingIssues", label: "고객별 보유 종목 주요 이슈" },
+    { id: "holdingIssues", label: "보유 종목 주요 이슈" },
     { id: "portfolioPerformance", label: "고객별 포트폴리오 성과" },
   ],
   unmanaged: [
@@ -251,9 +277,29 @@ function marketCardMeta(report: MarketReport | undefined, market: "us" | "kr") {
   const scheduled = market === "us" ? "08:30 자동 생성 예정" : "16:00 자동 생성 예정";
   if (!report || report.generationStatus === "pending") return scheduled;
   if (report.generationStatus === "failed") return "자동 생성 실패";
-  const basis = report.dataAsOf ? `기준 ${formatKoreanDateTime(report.dataAsOf)} ${market === "us" ? "미국장" : "국내장"}` : `기준 ${report.reportDate}`;
-  const generated = report.generatedAt ? `생성 ${formatKoreanDateTime(report.generatedAt)}` : "";
-  return [basis, generated].filter(Boolean).join(" · ");
+
+  const formatDateOnly = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+  };
+
+  const basisDate = report.dataAsOf
+    ? formatDateOnly(report.dataAsOf)
+    : report.reportDate;
+
+  const generatedDate = report.generatedAt
+    ? formatDateOnly(report.generatedAt)
+    : report.reportDate;
+
+  const basis = `기준 ${basisDate} ${market === "us" ? "미국장 마감" : "국내장 마감"}`;
+  const generated = `생성 ${generatedDate} ${market === "us" ? "08:30" : "16:00"}`;
+
+  return `${basis} · ${generated}`;
 }
 function marketReportTitle(id: "usMarket" | "krMarket") {
   return id === "usMarket" ? "전일 미국 시황" : "당일 국내 시황";
@@ -378,7 +424,7 @@ function MarketStatusRow({ label, market, report, refreshing, onRefresh }: { lab
   );
 }
 
-function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: MarketDashboardProps) {
+function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName, pbId, pbEmployeeId }: MarketDashboardProps) {
   const [audience, setAudience] = useState<AudienceTab>("managed");
   const [included, setIncluded] = useState(initialIncluded);
   const [reports, setReports] = useState<Record<"us" | "kr", MarketReport | undefined>>({ us: undefined, kr: undefined });
@@ -389,6 +435,9 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
   const [pbComment, setPbComment] = useState("");
   const [commentTouched, setCommentTouched] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
+  const [holdingIssues, setHoldingIssues] = useState<HoldingIssueItem[]>([]);
+  const [loadingHoldingIssues, setLoadingHoldingIssues] = useState(false);
+  const [holdingIssuesError, setHoldingIssuesError] = useState("");
   const customerSections = buildCustomerReportSections(selectedCustomer, selectedState);
   const displayPbName = pbName?.trim() || "담당";
 
@@ -416,6 +465,60 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
     void loadReports();
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    console.log("[holding-issues-ui] pbId:", pbId, "pbEmployeeId:", pbEmployeeId);
+
+    async function loadHoldingIssues() {
+      if (!pbId && !pbEmployeeId) {
+        setHoldingIssues([]);
+        setHoldingIssuesError("");
+        return;
+      }
+
+      setLoadingHoldingIssues(true);
+      setHoldingIssuesError("");
+
+      try {
+        const params = new URLSearchParams();
+
+        if (pbId) params.set("pbId", pbId);
+        if (pbEmployeeId) params.set("pbEmployeeId", pbEmployeeId);
+
+        const response = await fetch(`/api/holding-issues?${params.toString()}`);
+        const body = (await response.json()) as HoldingIssuesResponse;
+
+        if (cancelled) return;
+
+        if (!response.ok) {
+          throw new Error(body.error || "보유 종목 이슈를 불러오지 못했습니다.");
+        }
+
+        setHoldingIssues(Array.isArray(body.items) ? body.items : []);
+      } catch (error) {
+        if (cancelled) return;
+
+        setHoldingIssues([]);
+        setHoldingIssuesError(
+          error instanceof Error
+            ? error.message
+            : "보유 종목 이슈를 불러오지 못했습니다.",
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingHoldingIssues(false);
+        }
+      }
+    }
+
+    void loadHoldingIssues();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pbId, pbEmployeeId]);
 
   async function refreshReports() {
     setRefreshingMarket("us");
@@ -536,8 +639,81 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
             {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={marketCardSummary(krReport, "kr")} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={marketCardMeta(krReport, "kr")} /> : null}
           </div>
           <div className="grid content-start gap-3">
-            {audience === "managed" && activeIncluded.holdingIssues ? <ReportPreviewCard title={customerSections.holdingIssues.title} summary={customerSections.holdingIssues.summary} bullets={customerSections.holdingIssues.bullets} /> : null}
-            {audience === "managed" && activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
+            {audience === "managed" && activeIncluded.holdingIssues ? (() => {
+              const groupedIssues = Array.from(
+                holdingIssues.reduce((map, issue) => {
+                  const key = `${issue.market}:${issue.ticker}`;
+                  const existing = map.get(key);
+
+                  if (existing) {
+                    existing.issues.push(issue);
+
+                    for (const holder of issue.holders) {
+                      if (
+                        !existing.holders.some(
+                          (existingHolder) =>
+                            existingHolder.customerId === holder.customerId,
+                        )
+                      ) {
+                        existing.holders.push(holder);
+                      }
+                    }
+                  } else {
+                    map.set(key, {
+                      ticker: issue.ticker,
+                      name: issue.name,
+                      market: issue.market,
+                      holders: [...issue.holders],
+                      issues: [issue],
+                    });
+                  }
+
+                  return map;
+                }, new Map<string, {
+                  ticker: string;
+                  name: string;
+                  market: "kr" | "us";
+                  holders: HoldingIssueItem["holders"];
+                  issues: HoldingIssueItem[];
+                }>())
+                .values(),
+              );
+
+              return (
+                <ReportPreviewCard
+                  title="보유 종목 주요 이슈"
+                  summary={
+                    loadingHoldingIssues
+                      ? "보유 종목 주요 이슈를 확인하고 있습니다."
+                      : holdingIssuesError
+                        ? holdingIssuesError
+                        : groupedIssues.length > 0
+                          ? `${groupedIssues.length}개 보유 종목에서 주요 이슈가 감지되었습니다.`
+                          : "현재 주요 이슈가 감지된 보유 종목이 없습니다."
+                  }
+                  bullets={groupedIssues.map((group) => {
+                    const holderNames = group.holders
+                      .map((holder) => holder.customerName)
+                      .filter(Boolean)
+                      .join(", ");
+
+                    const summaries = Array.from(
+                      new Set(
+                        group.issues
+                          .map((issue) => issue.summary)
+                          .filter(Boolean),
+                      ),
+                    );
+
+                    return `${group.name} · ${summaries.join(" / ")}${
+                      holderNames
+                        ? ` · 보유 고객: ${holderNames}`
+                        : ""
+                    }`;
+                  })}
+                />
+              );
+            })() : null}            {audience === "managed" && activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
           </div>
         </div>
       </div>
@@ -567,7 +743,7 @@ function PlaceholderPanel({ title, heightClass }: { title: string; heightClass: 
   );
 }
 
-export default function MarketDashboard({ selectedCustomer, selectedState, pbName }: MarketDashboardProps) {
+export default function MarketDashboard({ selectedCustomer, selectedState, pbName, pbId, pbEmployeeId }: MarketDashboardProps) {
   const [indices, setIndices] = useState(emptyIndices);
   const [indicesRefreshedAt, setIndicesRefreshedAt] = useState<Date | null>(null);
 
@@ -616,7 +792,7 @@ export default function MarketDashboard({ selectedCustomer, selectedState, pbNam
   return (
     <div className="flex w-full min-w-0 max-w-full flex-1 flex-col gap-4">
       <IndexStrip state={indices} refreshedAt={indicesRefreshedAt} />
-      <MarketReportMailingPanel selectedCustomer={selectedCustomer} selectedState={selectedState} pbName={pbName} />
+      <MarketReportMailingPanel selectedCustomer={selectedCustomer} selectedState={selectedState} pbName={pbName} pbId={pbId} pbEmployeeId={pbEmployeeId} />
       <PlaceholderPanel title="섹터 스캐너" heightClass="min-h-[360px]" />
     </div>
   );

@@ -13,6 +13,7 @@ export interface StockNewsItem {
   title: string;
   preview: string;
   url: string;
+  publishedAt?: string;
 }
 
 const UA =
@@ -104,7 +105,7 @@ async function fetchNaverMobileNews(code: string, category: string): Promise<Sto
 
 // ── 국내 주식/ETF 뉴스 ─────────────────────────────────────────────────────────
 
-async function fetchKoreanNews(code: string): Promise<StockNewsItem[]> {
+export async function fetchKoreanNews(code: string): Promise<StockNewsItem[]> {
   // 1단계: 네이버 모바일 스톡 뉴스 API (category=stock 우선, ETF이면 etf 폴백)
   let items = await fetchNaverMobileNews(code, 'stock');
   if (items.length === 0) {
@@ -130,18 +131,32 @@ async function fetchKoreanNews(code: string): Promise<StockNewsItem[]> {
     const html = new TextDecoder('euc-kr').decode(buf);
 
     // <td class="title"><a href="...">제목</a></td> 패턴으로 href + 텍스트 동시 추출
-    const pattern = /<td[^>]*class=["']title["'][^>]*>[\s\S]*?<a\s+href="([^"]*)"[^>]*>([^<]+)<\/a>/g;
-    let m: RegExpExecArray | null;
-    while ((m = pattern.exec(html)) !== null && items.length < 3) {
-      const title = cleanText(m[2]);
-      if (title) {
-        items.push({
-          title,
-          preview: '',
-          url: resolveNaverUrl(m[1]),
-        });
-      }
+    const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
+    let rowMatch: RegExpExecArray | null;
+
+    while ((rowMatch = rowPattern.exec(html)) !== null && items.length < 10) {
+      const row = rowMatch[1];
+
+      const titleMatch =
+        /<td[^>]*class=["']title["'][^>]*>[\s\S]*?<a\s+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/.exec(row);
+
+      const dateMatch =
+        /<td[^>]*class=["']date["'][^>]*>\s*([^<]+)\s*<\/td>/.exec(row);
+
+      if (!titleMatch) continue;
+
+      const title = cleanText(titleMatch[2]);
+
+      if (!title) continue;
+
+      items.push({
+        title,
+        preview: '',
+        url: resolveNaverUrl(titleMatch[1]),
+        publishedAt: dateMatch?.[1]?.trim(),
+      });
     }
+
     return items;
   } catch {}
 
@@ -150,41 +165,14 @@ async function fetchKoreanNews(code: string): Promise<StockNewsItem[]> {
 
 // ── 해외 주식 뉴스 ─────────────────────────────────────────────────────────────
 
-async function fetchForeignNews(ticker: string): Promise<StockNewsItem[]> {
-  // 1단계: Yahoo Finance RSS 피드 (description + link 포함)
-  try {
-    const rssUrl = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(ticker)}&region=US&lang=en-US`;
-    const res = await withTimeout(rssUrl, {
-      headers: { 'User-Agent': UA, Accept: 'application/rss+xml, text/xml' },
-    });
-    if (res.ok) {
-      const xml = await res.text();
-
-      const itemPattern = /<item>([\s\S]*?)<\/item>/g;
-      const titlePattern = /<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/;
-      const descPattern  = /<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/;
-      const linkPattern  = /<link>([\s\S]*?)<\/link>|<guid[^>]*>(https?:\/\/[^<]+)<\/guid>/;
-
-      const items: StockNewsItem[] = [];
-      let m: RegExpExecArray | null;
-      while ((m = itemPattern.exec(xml)) !== null && items.length < 3) {
-        const block = m[1];
-        const titleMatch = titlePattern.exec(block);
-        const descMatch  = descPattern.exec(block);
-        const linkMatch  = linkPattern.exec(block);
-        const title   = cleanText(titleMatch?.[1] ?? '');
-        const preview = cleanText(descMatch?.[1] ?? '');
-        const url     = (linkMatch?.[1] ?? linkMatch?.[2] ?? '').trim();
-        if (title) items.push({ title, preview, url });
-      }
-      if (items.length > 0) return items;
-    }
-  } catch {}
-
-  // 2단계: Yahoo Finance 검색 API (link 필드 활용)
+export async function fetchForeignNews(ticker: string): Promise<StockNewsItem[]> {
+  // 1) Yahoo Finance Search API: publish time is available.
   try {
     const res = await withTimeout(
-      `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&newsCount=3&enableFuzzyQuery=false`,
+      `https://query1.finance.yahoo.com/v1/finance/search` +
+        `?q=${encodeURIComponent(ticker)}` +
+        `&newsCount=10` +
+        `&enableFuzzyQuery=false`,
       {
         headers: {
           'User-Agent': UA,
@@ -193,28 +181,106 @@ async function fetchForeignNews(ticker: string): Promise<StockNewsItem[]> {
         },
       },
     );
+
     if (res.ok) {
       const json = (await res.json()) as {
-        news?: Array<{ title?: string; publisher?: string; link?: string }>;
+        news?: Array<{
+          title?: string;
+          publisher?: string;
+          link?: string;
+          providerPublishTime?: number;
+          relatedTickers?: string[];
+        }>;
       };
-      return (json.news ?? [])
-        .slice(0, 3)
+
+      const items = (json.news ?? [])
+        .slice(0, 10)
         .map((n) => ({
           title: cleanText(n.title ?? ''),
-          preview: n.publisher ? `출처: ${n.publisher}` : '',
+          preview: n.publisher ? `Source: ${n.publisher}` : '',
           url: n.link ?? '',
+          publishedAt:
+            typeof n.providerPublishTime === 'number'
+              ? new Date(n.providerPublishTime * 1000).toISOString()
+              : undefined,
         }))
         .filter((n) => n.title);
+
+      if (items.length > 0) {
+        return items;
+      }
     }
   } catch {}
 
-  return [];
+  // 2) Yahoo Finance RSS fallback.
+  try {
+    const rssUrl =
+      `https://feeds.finance.yahoo.com/rss/2.0/headline` +
+      `?s=${encodeURIComponent(ticker)}&region=US&lang=en-US`;
+
+    const res = await withTimeout(rssUrl, {
+      headers: {
+        'User-Agent': UA,
+        Accept: 'application/rss+xml, text/xml',
+      },
+    });
+
+    if (!res.ok) {
+      return [];
+    }
+
+    const xml = await res.text();
+
+    const itemPattern = /<item>([\s\S]*?)<\/item>/g;
+    const titlePattern =
+      /<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/;
+    const descPattern =
+      /<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/;
+    const linkPattern =
+      /<link>([\s\S]*?)<\/link>|<guid[^>]*>(https?:\/\/[^<]+)<\/guid>/;
+    const pubDatePattern = /<pubDate>([\s\S]*?)<\/pubDate>/;
+
+    const items: StockNewsItem[] = [];
+    let match: RegExpExecArray | null;
+
+    while (
+      (match = itemPattern.exec(xml)) !== null &&
+      items.length < 10
+    ) {
+      const block = match[1];
+
+      const titleMatch = titlePattern.exec(block);
+      const descMatch = descPattern.exec(block);
+      const linkMatch = linkPattern.exec(block);
+      const pubDateMatch = pubDatePattern.exec(block);
+
+      const title = cleanText(titleMatch?.[1] ?? '');
+      const preview = cleanText(descMatch?.[1] ?? '');
+      const url = (linkMatch?.[1] ?? linkMatch?.[2] ?? '').trim();
+
+      const parsedPublishedAt = pubDateMatch?.[1]
+        ? new Date(pubDateMatch[1].trim())
+        : null;
+
+      if (!title) continue;
+
+      items.push({
+        title,
+        preview,
+        url,
+        publishedAt:
+          parsedPublishedAt &&
+          !Number.isNaN(parsedPublishedAt.getTime())
+            ? parsedPublishedAt.toISOString()
+            : undefined,
+      });
+    }
+
+    return items;
+  } catch {
+    return [];
+  }
 }
-
-// ── 테마 키워드 기반 네이버 뉴스 검색 (국내 자산 테마 폴백) ──────────────────────
-// 티커 기반 뉴스가 없을 때 섹터 키워드(예: '바이오')로 네이버 뉴스 검색 대체.
-// <a class="news_tit" href="URL">제목</a> 패턴 추출 (속성 순서 무관).
-
 async function fetchNaverKeywordNews(keyword: string): Promise<StockNewsItem[]> {
   if (!keyword) return [];
   console.log(`[stock-news] fetchNaverKeywordNews 진입 — keyword: "${keyword}"`);
@@ -326,7 +392,7 @@ async function fetchYahooKeywordNews(keyword: string): Promise<StockNewsItem[]> 
     );
     if (!res.ok) return [];
     const json = (await res.json()) as {
-      news?: Array<{ title?: string; publisher?: string; link?: string }>;
+      news?: Array<{ title?: string; publisher?: string; link?: string; providerPublishTime?: number }>;
     };
     return (json.news ?? [])
       .slice(0, 3)
