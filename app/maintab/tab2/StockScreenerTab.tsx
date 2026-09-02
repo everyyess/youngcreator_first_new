@@ -209,8 +209,8 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
     const baseRows = apiData[baseDef.apiType];
     if (!baseRows) return [];
 
-    const merged: StockRow[] = baseRows.map((row, idx) => {
-      let combined = { ...row, __baseRank: idx } as StockRow & { __baseRank: number };
+    const merged: (StockRow & { __baseRank: number })[] = baseRows.map((row, idx) => {
+        let combined: StockRow & { __baseRank: number } = { ...row, __baseRank: idx };
       for (const cond of otherConditions) {
         const rows = apiData[cond.apiType];
         if (!rows) continue;
@@ -222,7 +222,7 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
 
     const sortKey = sortOverride ?? "base";
     if (sortKey === "base") {
-      return merged.sort((a, b) => (a as { __baseRank: number }).__baseRank - (b as { __baseRank: number }).__baseRank);
+      return merged.sort((a, b) => a.__baseRank - b.__baseRank);
     }
     const cond = conditionDefs.find((c) => c.id === sortKey);
     if (!cond) return merged;
