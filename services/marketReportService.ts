@@ -16,7 +16,7 @@ export type MarketReport = {
   generationType: MarketReportGenerationType;
   title: string;
   summary: string;
-  sections: { bullets?: string[]; [key: string]: unknown };
+  sections: { bullets?: string[];[key: string]: unknown };
   pbComment: string;
   errorMessage?: string | null;
 };
@@ -379,7 +379,7 @@ export async function generateMarketReport(market: MarketReportMarket, generatio
   }
 
   const existing = await readExistingReport(market, reportDate);
-  if (existing?.generationStatus === "success") return { report: existing };
+  if (existing?.generationStatus === "success" && !options.forceAttempt) return { report: existing };
   if (existing?.generationStatus === "failed" && !options.forceAttempt) return { report: existing, error: existing.errorMessage || undefined };
 
   try {
@@ -444,7 +444,7 @@ export async function runScheduledMarketReport(market: MarketReportMarket) {
   }
 
   const existing = await readExistingReport(market, reportDate);
-  if (existing?.generationStatus === "success" || existing?.generationStatus === "failed") return { report: existing };
+  if (existing?.generationStatus === "failed") return { report: existing };
 
   const maxAttempts = market === "kr" ? 4 : 1;
   const retryDelayMs = 15_000;
