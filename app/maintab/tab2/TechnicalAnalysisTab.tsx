@@ -8,6 +8,8 @@ import {
   PointElement,
   LineElement,
   BarElement,
+  LineController,
+  BarController,
   Tooltip,
   Legend,
   Filler,
@@ -22,7 +24,7 @@ import { usePortfolioResult } from "../PortfolioResultComponents";
 import type { PortfolioAsset } from "../CustomerContext";
 import StockSearchBox from "./StockSearchBox";
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, LineController, BarController, Tooltip, Legend, Filler);
 
 // ─── 봉 종류 ─────────────────────────────────────────────────────────────────
 
@@ -694,18 +696,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
     }
   }, [selectedStock]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 컴포넌트 최초 마운트 시, 부모 상태가 비어있으면 스크리너에서 넘어온 값을 반영
-  useEffect(() => {
-    if (selectedStock) return; // 부모 상태가 이미 있으면 그걸 우선함
-    const savedTicker = sessionStorage.getItem("screenerSelectedTicker");
-    const savedName = sessionStorage.getItem("screenerSelectedName");
-    if (savedTicker && savedName) {
-      setSelectedTicker(savedTicker);
-      setSelectedName(savedName);
-      onStockChange?.({ ticker: savedTicker, name: savedName });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+ 
 
   // 자산 목록이 로드되면 첫 번째 종목 자동 선택 (부모 상태도 스크리너 값도 없을 때만)
   useEffect(() => {
