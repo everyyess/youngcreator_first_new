@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { generateMarketReport, listMarketReports, saveMarketReportPbComment, type MarketReportMarket } from "@/services/marketReportService";
+import { getMarketReportSnapshot, listMarketReports, saveMarketReportPbComment, type MarketReportMarket } from "@/services/marketReportService";
 
 function parseMarkets(value: string | null): MarketReportMarket[] {
   const selected = (value || "us,kr").split(",").map((item) => item.trim()).filter(Boolean);
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "market must be us or kr." }, { status: 400 });
   }
 
-  const result = await generateMarketReport(market, "manual");
+  const result = await getMarketReportSnapshot(market);
   return NextResponse.json(result, { status: result.report.generationStatus === "failed" ? 502 : 200 });
 }
 
@@ -39,4 +39,5 @@ export async function PATCH(request: NextRequest) {
 
   return NextResponse.json(result);
 }
+
 

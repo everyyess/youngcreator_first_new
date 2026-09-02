@@ -160,7 +160,7 @@ function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]
 
 type ReportTone = "normal" | "positive" | "negative" | "keyword";
 type ReportSpan = { text: string; tone?: ReportTone };
-type ReportSource = { title: string; publisher: string; publishedAt: string; url: string };
+type ReportSource = { title: string; publisher: string; publishedAt: string; url: string; summary?: string };
 type ReportNarrativePoint = { text: string; spans?: ReportSpan[]; sources?: ReportSource[] };
 type MarketReportNarrative = {
   indexOverview?: ReportNarrativePoint;
@@ -239,6 +239,22 @@ function reportNarrative(report?: MarketReport) {
   return report?.sections?.narrative;
 }
 
+function marketCardSummary(report: MarketReport | undefined, market: "us" | "kr") {
+  if (!report || report.generationStatus === "pending") {
+    return market === "us" ? "오늘 전일 미국 시황은 08:30에 자동 생성됩니다." : "오늘 국내 시황은 16:00에 자동 생성됩니다.";
+  }
+  if (report.generationStatus === "failed") return report.errorMessage || "자동 생성에 실패했습니다.";
+  return report.summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다.";
+}
+
+function marketCardMeta(report: MarketReport | undefined, market: "us" | "kr") {
+  const scheduled = market === "us" ? "08:30 자동 생성 예정" : "16:00 자동 생성 예정";
+  if (!report || report.generationStatus === "pending") return scheduled;
+  if (report.generationStatus === "failed") return "자동 생성 실패";
+  const basis = report.dataAsOf ? `기준 ${formatKoreanDateTime(report.dataAsOf)} ${market === "us" ? "미국장" : "국내장"}` : `기준 ${report.reportDate}`;
+  const generated = report.generatedAt ? `생성 ${formatKoreanDateTime(report.generatedAt)}` : "";
+  return [basis, generated].filter(Boolean).join(" · ");
+}
 function marketReportTitle(id: "usMarket" | "krMarket") {
   return id === "usMarket" ? "전일 미국 시황" : "당일 국내 시황";
 }
@@ -293,17 +309,17 @@ function NarrativePreview({ narrative, fallbackBullets }: { narrative?: MarketRe
   return (
     <div className="mt-3 grid gap-3">
       <div className="grid gap-1.5 border-t border-slate-200 pt-3">
-        <p className="text-[11px] font-black text-slate-500">주요 지수 등락 + 시장 전체 원인</p>
+        <p className="text-[11px] font-black text-slate-500">주요 지수 등락</p>
         <RichLine point={narrative.indexOverview} />
       </div>
 
       <div className="grid gap-1.5 border-t border-slate-200 pt-3">
         <p className="text-[11px] font-black text-slate-500">주요 시장 뉴스</p>
-        {narrative.news?.status === "available" && narrative.news.items?.length ? (
+        {narrative.news?.status === "available" && narrative.news.items?.filter((item) => item.summary?.trim()).length ? (
           <ul className="grid gap-1.5 text-xs font-semibold leading-5 text-slate-800">
-            {narrative.news.items.slice(0, 5).map((item, index) => (
+            {narrative.news.items.filter((item) => item.summary?.trim()).slice(0, 5).map((item, index) => (
               <li key={`${item.title}-${index}`}>
-                <a href={item.url} target="_blank" rel="noreferrer" className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:text-blue-700">{item.title}</a>
+                <a href={item.url} target="_blank" rel="noreferrer" className="font-bold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:text-blue-700">{item.summary}</a>
                 <span className="ml-1 text-[10px] font-bold text-slate-400">{item.publisher}{formatSourceDate(item.publishedAt) ? " · " + formatSourceDate(item.publishedAt) : ""}</span>
               </li>
             ))}
@@ -312,14 +328,14 @@ function NarrativePreview({ narrative, fallbackBullets }: { narrative?: MarketRe
       </div>
 
       <div className="grid gap-1.5 border-t border-slate-200 pt-3">
-        <p className="text-[11px] font-black text-slate-500">강세/약세 업종 + 각각의 원인</p>
+        <p className="text-[11px] font-black text-slate-500">강세/약세 업종</p>
         <RichLine point={narrative.sectors?.positive} />
         <RichLine point={narrative.sectors?.negative} />
         {narrative.sectors?.message ? <p className="text-xs font-semibold leading-5 text-slate-600">{narrative.sectors.message}</p> : null}
       </div>
 
       <div className="grid gap-1.5 border-t border-slate-200 pt-3">
-        <p className="text-[11px] font-black text-slate-500">주요 강세/약세 종목 + 각각의 원인</p>
+        <p className="text-[11px] font-black text-slate-500">주요 강세/약세 종목</p>
         <RichLine point={narrative.stocks?.positive} />
         <RichLine point={narrative.stocks?.negative} />
         {narrative.stocks?.message ? <p className="text-xs font-semibold leading-5 text-slate-600">{narrative.stocks.message}</p> : null}
@@ -401,19 +417,19 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
     return () => { cancelled = true; };
   }, []);
 
-  async function refreshReport(market: "us" | "kr") {
-    setRefreshingMarket(market);
+  async function refreshReports() {
+    setRefreshingMarket("us");
     try {
-      const response = await fetch("/api/market-reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market }),
-      });
+      const response = await fetch("/api/market-reports");
       const body = await response.json();
-      if (body.report) setReports((prev) => ({ ...prev, [market]: body.report as MarketReport }));
-      setReportsError(response.ok ? "" : body.error || body.report?.errorMessage || "수동 재생성에 실패했습니다.");
+      const nextReports: Record<"us" | "kr", MarketReport | undefined> = { us: undefined, kr: undefined };
+      if (Array.isArray(body.reports)) {
+        for (const report of body.reports as MarketReport[]) nextReports[report.market] = report;
+      }
+      setReports(nextReports);
+      setReportsError(response.ok ? body.error || "" : body.error || "시황 보고서 상태를 다시 불러오지 못했습니다.");
     } catch {
-      setReportsError("수동 재생성 요청에 실패했습니다.");
+      setReportsError("시황 보고서 상태를 다시 불러오지 못했습니다.");
     } finally {
       setRefreshingMarket(null);
     }
@@ -464,7 +480,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
     <section className="flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-black text-navy">시황 보고서 메일링</p>
-        {loadingReports ? <span className="inline-flex items-center gap-1 text-[11px] font-black text-slate-400"><RefreshCw size={12} className="animate-spin" /> 상태 확인 중</span> : null}
+        <button type="button" onClick={refreshReports} disabled={loadingReports || Boolean(refreshingMarket)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"><RefreshCw size={12} className={loadingReports || refreshingMarket ? "animate-spin" : ""} /> 새로고침</button>
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
@@ -482,9 +498,9 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div className="grid gap-3">
-          <div className="grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3">
+          <div className={(audience === "managed" ? "grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-4" : "grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-2")}>
             {mailingItems[audience].map((item) => (
-              <label key={item.id} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700">
+              <label key={item.id} className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700">
                 <input type="checkbox" checked={activeIncluded[item.id]} onChange={() => toggleItem(item.id)} className="h-4 w-4 rounded border-slate-300 accent-blue-600" />
                 {item.label}
               </label>
@@ -509,18 +525,15 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
             />
           </label>
 
-          <div className="grid gap-2">
-            <MarketStatusRow label="전일 미국 시황" market="us" report={usReport} refreshing={refreshingMarket === "us"} onRefresh={refreshReport} />
-            <MarketStatusRow label="당일 국내 시황" market="kr" report={krReport} refreshing={refreshingMarket === "kr"} onRefresh={refreshReport} />
-          </div>
+
           {reportsError ? <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">{reportsError}</p> : null}
           {actionMessage ? <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">{actionMessage}</p> : null}
         </div>
 
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="grid content-start gap-3">
-            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={usReport?.summary || ""} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={usReport?.dataAsOf ? "기준 " + formatKoreanDateTime(usReport.dataAsOf) : usReport?.reportDate} /> : null}
-            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={krReport?.summary || ""} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={krReport?.dataAsOf ? "기준 " + formatKoreanDateTime(krReport.dataAsOf) : krReport?.reportDate} /> : null}
+            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={marketCardSummary(usReport, "us")} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={marketCardMeta(usReport, "us")} /> : null}
+            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={marketCardSummary(krReport, "kr")} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={marketCardMeta(krReport, "kr")} /> : null}
           </div>
           <div className="grid content-start gap-3">
             {audience === "managed" && activeIncluded.holdingIssues ? <ReportPreviewCard title={customerSections.holdingIssues.title} summary={customerSections.holdingIssues.summary} bullets={customerSections.holdingIssues.bullets} /> : null}
@@ -608,6 +621,10 @@ export default function MarketDashboard({ selectedCustomer, selectedState, pbNam
     </div>
   );
 }
+
+
+
+
 
 
 

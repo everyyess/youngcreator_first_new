@@ -19,6 +19,7 @@ export type KisUsNewsItem = {
   url?: string;
   publishedAt?: string;
   sentiment?: string;
+  summary?: string;
   status: "available" | "unavailable";
   reason?: string;
 };
@@ -381,8 +382,15 @@ export async function fetchPreviousUsMarketBrief(reportDate: string): Promise<Ki
     await wait(900);
   }
 
-  const news: KisUsNewsItem[] = [{ title: "미국 시장 뉴스", status: "unavailable", reason: "Alpha Vantage NEWS_SENTIMENT는 시세 대체 범위에서 제외했으며, 별도 뉴스 source는 아직 연결되지 않았습니다." }];
   const narrative = await buildMarketNarrative({ market: "us", reportDate, indices, sectors, stocks });
+  const news: KisUsNewsItem[] = narrative.news.items.map((item) => ({
+    title: item.title,
+    source: item.publisher,
+    url: item.url,
+    publishedAt: item.publishedAt,
+    summary: item.summary,
+    status: "available",
+  }));
   const unavailable = collectUnavailable([indices, sectors, stocks], news);
   const dataAsOf = latestAsOf([indices, sectors, stocks], reportDate);
 
@@ -410,6 +418,9 @@ export async function fetchPreviousUsMarketBrief(reportDate: string): Promise<Ki
     unavailable,
   };
 }
+
+
+
 
 
 
