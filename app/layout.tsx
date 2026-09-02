@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import "./globals.css"
+import "../components/elbElsSimulator/styles.css"
 
 export const metadata: Metadata = {
   title: "Nexus — Orchestrate your revenue engine",

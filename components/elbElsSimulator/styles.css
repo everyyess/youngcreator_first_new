@@ -1,0 +1,251 @@
+.elb-els-simulator {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #182230;
+  background: #f5f7fa;
+  font-synthesis: none;
+}
+
+.elb-els-simulator * { box-sizing: border-box; }
+.elb-els-simulator { margin: 0; min-width: 320px; }
+.elb-els-simulator button, .elb-els-simulator input, .elb-els-simulator select { font: inherit; }
+.elb-els-simulator button { cursor: pointer; }
+
+.elb-els-simulator main { width: min(100%, 1120px); margin: 0 auto; padding: 28px 18px 42px; }
+.elb-els-simulator .hero { padding: 22px 4px 34px; }
+.elb-els-simulator .hero h1 { margin: 10px 0 17px; font-size: clamp(2.5rem, 8vw, 4.4rem); line-height: .93; letter-spacing: -.065em; }
+.elb-els-simulator .hero h1 span, .elb-els-simulator .hero h1 em { display: block; width: fit-content; }
+.elb-els-simulator .hero h1 span { white-space: nowrap; }
+.elb-els-simulator .hero h1 em { margin-top: 5px; color: #1769d1; font-family: Georgia, serif; font-weight: 500; line-height: .9; }
+.elb-els-simulator .hero-description { max-width: 760px; margin: 0; color: #566373; font-size: 1rem; line-height: 1.65; letter-spacing: -.015em; word-break: keep-all; overflow-wrap: break-word; text-wrap: pretty; }
+.elb-els-simulator .hero-no-break { white-space: nowrap; }
+.elb-els-simulator .eyebrow { margin: 0; color: #1769d1; font-size: .71rem; font-weight: 800; letter-spacing: .12em; }
+
+.elb-els-simulator .section-heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 20px; }
+.elb-els-simulator .section-heading h2 { margin: 4px 0 0; font-size: 1.35rem; letter-spacing: -.035em; }
+.elb-els-simulator .section-heading--products > span { color: #657284; font-size: .85rem; }
+.elb-els-simulator .product-section { margin-bottom: 28px; }
+.elb-els-simulator .product-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.elb-els-simulator .product-card { min-width: 0; min-height: 330px; display: flex; flex-direction: column; text-align: left; border: 1px solid #dce2e9; border-radius: 16px; background: #fff; padding: 16px; color: inherit; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.elb-els-simulator .product-card:hover, .elb-els-simulator .product-card:focus-visible { transform: translateY(-3px); border-color: #8eb9ed; box-shadow: 0 12px 24px rgba(35, 75, 125, .12); outline: none; }
+.elb-els-simulator .product-card h2 { min-width: 0; min-height: 3.75em; margin: 10px 0 3px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; font-size: .95rem; line-height: 1.25; letter-spacing: -.035em; overflow-wrap: anywhere; }
+.elb-els-simulator .product-card-header { min-height: 47px; display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+.elb-els-simulator .product-card-header .risk-gauge-wrap { transform: scale(.82); transform-origin: top right; }
+.elb-els-simulator .product-type { display: inline-flex; padding: 4px 7px; border-radius: 5px; font-size: .68rem; font-weight: 800; letter-spacing: .08em; }
+.elb-els-simulator .product-type--elb { color: #0d5c50; background: #def5ee; }
+.elb-els-simulator .product-type--els { color: #9d4229; background: #fff0e9; }
+.elb-els-simulator .structure-name { margin: 0; color: #536070; font-size: .78rem; }
+.elb-els-simulator .underlyings { margin: 12px 0; font-size: .83rem; font-weight: 700; }
+.elb-els-simulator .card-metrics { margin: 0; display: grid; gap: 7px; }
+.elb-els-simulator .card-metrics div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.elb-els-simulator .card-metrics dt { color: #758195; font-size: .7rem; }
+.elb-els-simulator .card-metrics dd { min-width: 0; margin: 0; text-align: right; font-size: .72rem; font-weight: 750; overflow-wrap: anywhere; }
+.elb-els-simulator .principal-badge { align-self: flex-start; margin-top: auto; border-radius: 999px; padding: 6px 9px; font-size: .72rem; font-weight: 800; line-height: 1; }
+.elb-els-simulator .principal-badge--protected { color: #087A63; background: #E7F7F1; }
+.elb-els-simulator .principal-badge--unprotected { color: #B42318; background: #FDEDEC; }
+
+.elb-els-simulator .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.elb-els-simulator .detail-card, .elb-els-simulator .simulation-card, .elb-els-simulator .results-card { border: 1px solid #dce2e9; border-radius: 16px; background: #fff; padding: 22px; }
+.elb-els-simulator .detail-card { grid-column: 1 / -1; }
+.elb-els-simulator .section-heading h2 span { color: #7b8797; font-size: .82rem; font-weight: 700; letter-spacing: 0; }
+.elb-els-simulator .risk-badge, .elb-els-simulator .status-pill { display: inline-flex; align-items: center; white-space: nowrap; border-radius: 999px; padding: 6px 9px; font-size: .72rem; font-weight: 750; }
+.elb-els-simulator .risk-badge--5 { background: #e2f5ee; color: #126052; }
+.elb-els-simulator .risk-badge--1 { background: #fff0eb; color: #a2462f; }
+.elb-els-simulator .status-pill { color: #657284; background: #eef1f5; }
+.elb-els-simulator .detail-summary { margin: -8px 0 19px; color: #566373; font-size: .88rem; }
+.elb-els-simulator .risk-gauge { position: relative; width: 50px; height: 27px; overflow: hidden; flex: 0 0 auto; border-radius: 50px 50px 0 0; background: conic-gradient(from 270deg at 50% 100%, #b84a37 0deg 36deg, #d68038 36deg 72deg, #d9aa39 72deg 108deg, #71a05c 108deg 144deg, #19866f 144deg 180deg, transparent 180deg); }
+.elb-els-simulator .risk-gauge::after { content: ''; position: absolute; inset: 6px 6px 0; border-radius: 50px 50px 0 0; background: #fff; }
+.elb-els-simulator .risk-gauge i { position: absolute; z-index: 1; width: 2px; height: 18px; left: 24px; bottom: 0; transform-origin: bottom; background: #263647; transform: rotate(-65deg); }
+.elb-els-simulator .risk-gauge--5 i { transform: rotate(65deg); }
+.elb-els-simulator .risk-gauge-wrap { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; white-space: nowrap; }.elb-els-simulator .risk-gauge-wrap small { border-radius: 5px; padding: 4px 6px; font-size: .68rem; font-weight: 800; }.elb-els-simulator .risk-gauge-wrap--1 small { color: #a94231; background: #fff0eb; }.elb-els-simulator .risk-gauge-wrap--5 small { color: #126052; background: #def5ee; }
+.elb-els-simulator .detail-explanation { margin: -7px 0 17px; color: #4e6072; font-size: .8rem; line-height: 1.55; }
+.elb-els-simulator .price-chart { margin-top: 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border-top: 1px solid #e6eaf0; padding-top: 15px; }
+.elb-els-simulator .price-chart-heading { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.elb-els-simulator .price-chart h3 { margin: 0; font-size: .84rem; }
+.elb-els-simulator .price-chart-heading label { display: flex; align-items: center; gap: 6px; color: #617186; font-size: .71rem; }
+.elb-els-simulator .price-chart-heading select { width: auto; height: 30px; padding: 0 7px; }
+.elb-els-simulator .price-line { min-width: 0; padding: 9px; border: 1px solid #e5ebf2; border-radius: 9px; background: #fbfcfe; }
+.elb-els-simulator .price-line span { display: flex; justify-content: space-between; gap: 6px; color: #596878; font-size: .72rem; }
+.elb-els-simulator .price-line b { color: #233c58; }
+.elb-els-simulator .price-line-chart { height: 145px; margin-top: 6px; }
+.elb-els-simulator .price-line small { display: block; margin-top: 3px; font-size: .66rem; }
+.elb-els-simulator .price-chart--loading { display: block; color: #6f7e90; font-size: .77rem; }
+.elb-els-simulator .asset-chart { grid-column: 1 / -1; border: 1px solid #e1e7ee; border-radius: 10px; background: #fff; padding: 12px; }
+.elb-els-simulator .asset-chart header { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.elb-els-simulator .asset-chart h4 { margin: 0 0 3px; font-size: .9rem; }.elb-els-simulator .asset-chart h4 small { color: #7d8998; font-weight: 500; }.elb-els-simulator .asset-chart header strong { font-size: 1.05rem; }.elb-els-simulator .asset-chart em { margin-left: 5px; font-size: .72rem; font-style: normal; }.elb-els-simulator .up { color: #c94d38; }.elb-els-simulator .down { color: #2473ba; }
+.elb-els-simulator .chart-options { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px; color: #617186; font-size: .68rem; }.elb-els-simulator .chart-options > span { font-weight: 750; }.elb-els-simulator .chart-options label { display: inline-flex; align-items: center; gap: 3px; font-size: .67rem; font-weight: 600; }.elb-els-simulator .chart-options input { width: auto; height: auto; }
+.elb-els-simulator .asset-summary { display: flex; align-items: center; gap: 10px; margin: 8px 0 3px; color: #697789; font-size: .7rem; }.elb-els-simulator .asset-summary b { color: #304254; }.elb-els-simulator .asset-summary select { width: auto; height: 28px; margin-left: auto; padding: 0 6px; font-size: .7rem; }
+.elb-els-simulator .asset-chart-main { height: 245px; cursor: grab; touch-action: pan-y; user-select: none; -webkit-user-select: none; overscroll-behavior-x: contain; }.elb-els-simulator .asset-chart-main.is-dragging { cursor: grabbing; }.elb-els-simulator .asset-volume { height: 85px; margin-top: 6px; border-top: 1px solid #eef1f5; padding-top: 6px; }.elb-els-simulator .price-tooltip { display: grid; gap: 3px; border: 1px solid #cdd8e5; border-radius: 7px; background: rgba(255,255,255,.96); padding: 8px; color: #33495e; font-size: .7rem; box-shadow: 0 4px 14px rgba(35,60,90,.12); }.elb-els-simulator .price-tooltip b, .elb-els-simulator .price-tooltip span { display: flex; align-items: center; gap: 5px; }.elb-els-simulator .series-dot { display: inline-block; flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; }
+.elb-els-simulator .condition-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; border-top: 1px solid #e6eaf0; padding-top: 17px; }
+.elb-els-simulator .condition-grid h3 { margin: 0 0 9px; font-size: .84rem; }
+.elb-els-simulator .condition-grid ul { margin: 0; padding-left: 18px; color: #4d5968; font-size: .81rem; line-height: 1.7; }
+
+.elb-els-simulator .simulation-card, .elb-els-simulator .results-card { min-height: 421px; }
+.elb-els-simulator .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.elb-els-simulator .investment-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.elb-els-simulator .investment-input-row output { max-width: 190px; border: 1px solid #cfe0f1; border-radius: 7px; background: #f1f7ff; padding: 7px 9px; color: #1d568f; font-size: .73rem; font-weight: 800; line-height: 1.25; white-space: nowrap; }
+.elb-els-simulator label { display: grid; gap: 6px; color: #3c4858; font-size: .78rem; font-weight: 720; }
+.elb-els-simulator input, .elb-els-simulator select { width: 100%; height: 40px; border: 1px solid #ced6e0; border-radius: 8px; background: #fff; padding: 0 10px; color: #182230; }
+.elb-els-simulator input:focus, .elb-els-simulator select:focus { outline: 2px solid #a5cefb; outline-offset: 1px; border-color: #4c9df5; }
+.elb-els-simulator small { margin-top: -2px; color: #7a8797; font-size: .71rem; font-weight: 500; }
+.elb-els-simulator .advanced-settings { margin-top: 16px; border-top: 1px solid #e5e9ef; padding-top: 13px; }
+.elb-els-simulator .advanced-settings summary { color: #35699e; font-size: .78rem; font-weight: 780; cursor: pointer; }
+.elb-els-simulator .form-grid--advanced { margin-top: 14px; }
+.elb-els-simulator .run-button { width: 100%; min-height: 45px; margin-top: 20px; border: 0; border-radius: 9px; background: #1769d1; color: white; font-size: .89rem; font-weight: 800; box-shadow: 0 5px 12px rgba(23, 105, 209, .2); }
+.elb-els-simulator .run-button:hover { background: #1159b4; }
+.elb-els-simulator .form-message { margin: 13px 0 0; border-radius: 8px; background: #eff6ff; color: #175a9d; padding: 10px; font-size: .78rem; line-height: 1.45; }
+
+.elb-els-simulator .results-card { background: #fbfcfe; }
+.elb-els-simulator .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.elb-els-simulator .kpi { min-height: 68px; padding: 10px; border: 1px solid #e1e7ee; border-radius: 9px; background: white; display: flex; flex-direction: column; justify-content: space-between; }
+.elb-els-simulator .kpi span { color: #667386; font-size: .7rem; }
+.elb-els-simulator .kpi strong { color: #a1aab6; font-size: 1.1rem; }
+.elb-els-simulator .chart-placeholder { position: relative; min-height: 150px; margin-top: 16px; border: 1px dashed #cbd4df; border-radius: 10px; overflow: hidden; background: repeating-linear-gradient(45deg, #fbfcfe, #fbfcfe 8px, #f7f9fb 8px, #f7f9fb 16px); }
+.elb-els-simulator .chart-placeholder p { position: absolute; inset: auto 0 10px; margin: 0; text-align: center; color: #7b8797; font-size: .72rem; }
+
+.elb-els-simulator .disclaimer { margin-top: 24px; border-top: 1px solid #dce2e9; padding: 17px 4px 0; color: #748092; font-size: .7rem; line-height: 1.55; }
+.elb-els-simulator .disclaimer p { margin: 3px 0; }
+
+.elb-els-simulator .simulator-panel, .elb-els-simulator .results-dashboard, .elb-els-simulator .results-empty { min-width: 0; max-width: 100%; grid-column: 1 / -1; border: 1px solid #dce2e9; border-radius: 16px; background: #fff; padding: 22px; }
+.elb-els-simulator .fixing-note { margin: -6px 0 18px; padding: 10px 12px; border-radius: 9px; background: #f0f6ff; color: #285887; font-size: .8rem; line-height: 1.5; }
+.elb-els-simulator .house-view-note { margin: 14px 0 0; border-left: 3px solid #4878a8; border-radius: 7px; background: #f3f7fb; padding: 10px 12px; color: #53687e; font-size: .75rem; line-height: 1.55; }.elb-els-simulator .house-view-note strong { display: block; color: #244e76; }
+.elb-els-simulator .analysis-model-field { display: grid; align-content: center; gap: 6px; min-height: 40px; border: 1px solid #ced6e0; border-radius: 8px; background: #f5f8fc; padding: 7px 10px; }.elb-els-simulator .analysis-model-field span { color: #3c4858; font-size: .68rem; font-weight: 720; }.elb-els-simulator .analysis-model-field strong { color: #214d77; font-size: .76rem; line-height: 1.3; }.elb-els-simulator .analysis-basis { margin-top: 14px; border: 1px solid #d6e1ed; border-radius: 9px; background: #f3f7fb; color: #52687d; font-size: .75rem; line-height: 1.55; }.elb-els-simulator .analysis-basis summary { padding: 10px 12px; color: #245b8f; font-weight: 800; cursor: pointer; }.elb-els-simulator .analysis-basis > div { border-top: 1px solid #dce6f0; padding: 4px 13px 11px; }.elb-els-simulator .analysis-basis p { margin: 8px 0; }
+.elb-els-simulator .results-empty { color: #657284; min-height: 180px; }
+.elb-els-simulator .results-empty h2 { color: #182230; margin: 5px 0; }
+.elb-els-simulator .run-button:disabled, .elb-els-simulator .stress-buttons button:disabled { cursor: not-allowed; opacity: .65; }
+.elb-els-simulator .form-message--error { background: #fff0ed; color: #9a3e27; }
+.elb-els-simulator .results-dashboard { background: #fbfcfe; }
+.elb-els-simulator .kpi-grid--results { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 16px; }
+.elb-els-simulator .kpi--value strong { color: #172e48; font-size: 1.2rem; }
+.elb-els-simulator .kpi--danger strong { color: #b34c38; }
+.elb-els-simulator .kpi--value small { margin-top: 5px; color: #718094; font-size: .62rem; }
+.elb-els-simulator .secondary-kpis { display: flex; flex-wrap: wrap; gap: 8px; margin: -7px 0 16px; }
+.elb-els-simulator .secondary-kpis span { border: 1px solid #dce4ed; border-radius: 999px; background: #fff; padding: 6px 9px; color: #647386; font-size: .69rem; }
+.elb-els-simulator .secondary-kpis strong { color: #274867; }
+.elb-els-simulator .secondary-kpis small { margin-left: 3px; color: #7b8797; font-size: .61rem; }
+.elb-els-simulator .result-group { margin-top: 20px; }
+.elb-els-simulator .result-group-title { margin: 0 0 9px; color: #263d57; font-size: .92rem; letter-spacing: -.02em; }
+.elb-els-simulator .result-chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.elb-els-simulator .chart-card { min-width: 0; border: 1px solid #e0e6ee; border-radius: 11px; background: #fff; padding: 13px 16px 13px 10px; overflow: hidden; }
+.elb-els-simulator .chart-card h3 { margin: 0 0 10px; font-size: .82rem; }
+.elb-els-simulator .chart-card > div { position: relative; height: 235px; min-width: 0; }
+.elb-els-simulator .chart-subtitle { margin: -7px 0 7px; color: #68788a; font-size: .69rem; line-height: 1.35; }
+.elb-els-simulator .chart-card:has(.chart-subtitle) > div { height: 205px; }
+.elb-els-simulator .path-controls { position: absolute; z-index: 3; right: 14px; margin-top: -31px; display: flex; gap: 4px; max-width: 64%; flex-wrap: wrap; justify-content: end; }
+.elb-els-simulator .path-controls button { border: 1px solid #cbd7e4; border-radius: 5px; background: #fff; color: #52677d; padding: 3px 5px; font-size: .64rem; font-weight: 700; }
+.elb-els-simulator .path-controls button.active { border-color: #2868b1; background: #eaf3ff; color: #175a9d; }
+.elb-els-simulator .barrier-legend { position: absolute; z-index: 2; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 4px 9px; padding-right: 44%; color: #5d6b7b; font-size: .61rem; }
+.elb-els-simulator .barrier-legend span { display: inline-flex; align-items: center; gap: 4px; }.elb-els-simulator .barrier-legend i { width: 12px; height: 2px; }
+.elb-els-simulator .chart-card:has(.barrier-legend) > div { height: 280px; padding-top: 38px; }
+.elb-els-simulator .range-toggle { position: absolute; z-index: 3; right: 2px; top: 0; border: 1px solid #cad6e3; border-radius: 5px; background: #fff; padding: 4px 6px; color: #486078; font-size: .63rem; font-weight: 700; }
+.elb-els-simulator .results-dashboard > .chart-card { margin-top: 14px; }
+.elb-els-simulator .risk-summary { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; padding: 12px; border-radius: 10px; background: #fff2ee; color: #93412e; font-size: .8rem; }
+.elb-els-simulator .result-summary { margin: 0 0 15px; padding: 14px; border-left: 4px solid #2868b1; border-radius: 9px; background: #f1f7ff; color: #405a76; font-size: .82rem; line-height: 1.65; }.elb-els-simulator .result-summary h3 { margin: 3px 0; color: #1f426a; font-size: .95rem; }.elb-els-simulator .result-summary p:last-child { margin: 5px 0 0; }.elb-els-simulator .result-summary strong { color: #174d8b; }
+.elb-els-simulator .model-caution { color: #69798a; font-size: .72rem; }
+.elb-els-simulator .outcome-composition, .elb-els-simulator .strategy-comparison { margin-top: 15px; border: 1px solid #dfe6ee; border-radius: 11px; background: #fff; padding: 15px; }
+.elb-els-simulator .outcome-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }.elb-els-simulator .outcome-heading h3 { margin: 2px 0 0; font-size: .94rem; }.elb-els-simulator .outcome-heading > span { border-radius: 999px; background: #f0f3f6; padding: 5px 8px; color: #617184; font-size: .65rem; white-space: nowrap; }
+.elb-els-simulator .outcome-stack { display: flex; width: 100%; height: 18px; margin-top: 13px; overflow: hidden; border-radius: 5px; background: #eef1f4; }.elb-els-simulator .outcome-stack i { display: block; min-width: 0; height: 100%; }
+.elb-els-simulator .outcome-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }.elb-els-simulator .outcome-legend span { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 6px; color: #526376; font-size: .7rem; }.elb-els-simulator .outcome-legend span > i { width: 8px; height: 8px; border-radius: 50%; }.elb-els-simulator .outcome-legend strong { color: #213d59; }.elb-els-simulator .outcome-legend small { grid-column: 2 / -1; margin: 0; }
+.elb-els-simulator .explanation-actions { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-top: 12px; align-items: start; }.elb-els-simulator .explanation-panel, .elb-els-simulator .detail-toggle { min-width: 0; border: 1px solid #cbd7e4; border-radius: 8px; background: #fff; color: #34536f; font-size: .75rem; font-weight: 750; }.elb-els-simulator .explanation-panel summary { padding: 9px 11px; cursor: pointer; list-style-position: inside; }.elb-els-simulator .explanation-panel--loss summary { color: #914531; }.elb-els-simulator .detail-toggle { min-height: 36px; padding: 8px 11px; cursor: pointer; }.elb-els-simulator .detail-toggle:hover, .elb-els-simulator .explanation-panel summary:hover { background: #f4f8fc; }
+.elb-els-simulator .explanation-panel[open] { grid-column: 1 / -1; }
+.elb-els-simulator .explanation-content { padding: 2px 13px 14px; color: #536476; font-size: .75rem; font-weight: 500; line-height: 1.55; }.elb-els-simulator .explanation-content h4 { margin: 13px 0 7px; color: #263f58; font-size: .79rem; }.elb-els-simulator .evidence-grid, .elb-els-simulator .cycle-table { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }.elb-els-simulator .evidence-grid article, .elb-els-simulator .cycle-table article { min-width: 0; display: grid; gap: 3px; border: 1px solid #e1e7ee; border-radius: 8px; background: #fbfcfe; padding: 9px; }.elb-els-simulator .evidence-grid span, .elb-els-simulator .cycle-table span { overflow-wrap: anywhere; }.elb-els-simulator .cycle-table article:last-child:nth-child(odd) { grid-column: 1 / -1; }.elb-els-simulator .loss-flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center; gap: 7px; }.elb-els-simulator .loss-flow span { min-width: 0; border-radius: 7px; background: #f5f7f9; padding: 9px; text-align: center; }.elb-els-simulator .loss-flow > i { color: #8693a1; font-size: .68rem; font-style: normal; }.elb-els-simulator .loss-flow .loss-box { background: #fff0ec; color: #933e2b; }.elb-els-simulator .loss-example { border-radius: 8px; background: #fff5f2; padding: 9px; }.elb-els-simulator .loss-example strong { display: block; }.elb-els-simulator .loss-stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }.elb-els-simulator .loss-stat-grid span { border-bottom: 1px solid #e7ebf0; padding: 5px; }.elb-els-simulator .loss-stat-grid b { float: right; color: #8f3d2d; }
+.elb-els-simulator .strategy-comparison { min-width: 0; max-width: 100%; }.elb-els-simulator .strategy-horizon { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 13px 0 10px; padding: 9px 10px; border: 1px solid #dce5ee; border-radius: 9px; background: #f8fafc; }.elb-els-simulator .strategy-horizon > span { color: #40566c; font-size: .72rem; font-weight: 800; }.elb-els-simulator .strategy-horizon > div { display: grid; grid-template-columns: repeat(3, minmax(68px, 1fr)); gap: 4px; }.elb-els-simulator .strategy-horizon button { min-height: 32px; padding: 5px 13px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #607286; font-size: .7rem; font-weight: 800; cursor: pointer; }.elb-els-simulator .strategy-horizon button:hover { background: #edf3f9; }.elb-els-simulator .strategy-horizon button.active { border-color: #2d6db4; background: #e8f2fd; color: #175896; box-shadow: inset 0 0 0 1px rgba(45,109,180,.08); }.elb-els-simulator .strategy-summary { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px 10px; margin: 10px 0; color: #5a6d80; }.elb-els-simulator .strategy-summary strong { color: #203e5d; font-size: .9rem; }.elb-els-simulator .strategy-summary span { font-size: .74rem; }.elb-els-simulator .strategy-summary small { flex-basis: 100%; color: #8b5b2a; line-height: 1.45; }.elb-els-simulator .strategy-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }.elb-els-simulator .strategy-selectors select { height: 34px; }.elb-els-simulator .strategy-table-wrap { width: 100%; min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; border: 1px solid #dfe6ee; border-radius: 8px; }.elb-els-simulator .strategy-table { width: 100%; min-width: 960px; border-collapse: collapse; background: #fff; }.elb-els-simulator .strategy-table th, .elb-els-simulator .strategy-table td { border-right: 1px solid #e6ebf0; border-bottom: 1px solid #e6ebf0; padding: 9px; text-align: right; vertical-align: top; font-size: .68rem; }.elb-els-simulator .strategy-table thead th { background: #f3f6f9; color: #40566c; }.elb-els-simulator .strategy-table th:first-child { position: sticky; left: 0; z-index: 1; min-width: 190px; text-align: left; background: #f8fafc; }.elb-els-simulator .strategy-table td { min-width: 142px; }.elb-els-simulator .strategy-table td strong, .elb-els-simulator .strategy-table td span, .elb-els-simulator .strategy-table td small { display: block; white-space: nowrap; }.elb-els-simulator .strategy-table td strong { color: #263f58; }.elb-els-simulator .strategy-table td small { margin-top: 3px; color: #718194; }.elb-els-simulator .strategy-table .insufficient { color: #8a96a4; }.elb-els-simulator .strategy-table .strategy-interim { text-align: left; background: #fbfcfe; }.elb-els-simulator .strategy-table .strategy-interim span { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; color: #586c80; }.elb-els-simulator .strategy-table .strategy-interim b { color: #264b70; }.elb-els-simulator .strategy-table .strategy-excluded { text-align: center; color: #8a96a4; background: #f7f8fa; }.elb-els-simulator .strategy-table .strategy-excluded strong { color: #7e8b98; font-size: 1rem; }.elb-els-simulator .strategy-footnote { margin: 9px 0 0; color: #6d7c8c; font-size: .68rem; line-height: 1.5; }.elb-els-simulator .strategy-message { margin: 8px 0 0; color: #5c6d7e; font-size: .72rem; line-height: 1.55; }
+.elb-els-simulator .house-model-details { margin: 10px 0; border-radius: 8px; background: #f1f6fb; padding: 10px; }.elb-els-simulator .house-model-details h4 { margin: 0 0 5px; }.elb-els-simulator .house-model-details div { display: flex; flex-wrap: wrap; gap: 8px; }.elb-els-simulator .house-model-details span { border-radius: 999px; background: #fff; padding: 5px 8px; }
+.elb-els-simulator .probability-basis { display: flex; flex-wrap: wrap; gap: 7px 12px; margin: -5px 0 15px; color: #536578; font-size: .72rem; }.elb-els-simulator .probability-basis strong { color: #314a65; }.elb-els-simulator .probability-basis span { border-left: 1px solid #ccd6e1; padding-left: 8px; }
+.elb-els-simulator .initial-fixing { margin: 0 0 15px; padding: 14px; border: 1px solid #dbe5f0; border-radius: 11px; background: #fff; color: #526577; font-size: .78rem; }.elb-els-simulator .initial-fixing h3 { margin: 3px 0; color: #274867; font-size: .95rem; }.elb-els-simulator .initial-fixing p { margin: 5px 0 10px; }.elb-els-simulator .initial-fixing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }.elb-els-simulator .initial-fixing-grid .chart-card > div { height: 180px; }.elb-els-simulator .initial-fixing-grid .chart-card:has(.range-toggle) > div { height: 210px; padding-top: 29px; }
+.elb-els-simulator .stress-panel, .elb-els-simulator .portfolio-panel, .elb-els-simulator .method-panel { margin-top: 15px; padding: 15px; border: 1px solid #e0e6ee; border-radius: 11px; background: #fff; }
+.elb-els-simulator .stress-panel { display: grid; grid-template-columns: 1fr auto; gap: 8px 18px; align-items: center; }
+.elb-els-simulator .stress-panel h3, .elb-els-simulator .portfolio-panel h3 { margin: 3px 0 0; font-size: .92rem; }
+.elb-els-simulator .stress-panel p { grid-column: 1 / -1; margin: 0; color: #526273; font-size: .78rem; }
+.elb-els-simulator .stress-buttons { display: flex; gap: 6px; flex-wrap: wrap; justify-content: end; }
+.elb-els-simulator .stress-buttons button { border: 1px solid #cad5e2; border-radius: 7px; background: #fff; padding: 6px 8px; color: #40556b; font-size: .73rem; font-weight: 750; }
+.elb-els-simulator .stress-buttons button.active { color: #fff; border-color: #2468b9; background: #2468b9; }
+.elb-els-simulator .portfolio-panel p { color: #536374; font-size: .8rem; line-height: 1.6; }
+.elb-els-simulator .method-panel { color: #526273; font-size: .79rem; line-height: 1.6; }
+.elb-els-simulator .method-panel summary { cursor: pointer; color: #245e9e; font-weight: 750; }
+.elb-els-simulator .method-panel p:last-child { margin-bottom: 0; }
+.elb-els-simulator .model-table { display: grid; gap: 1px; margin: 10px 0; border: 1px solid #dce4ec; border-radius: 8px; overflow: hidden; background: #dce4ec; }
+.elb-els-simulator .model-table > div { min-width: 0; display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 1px; background: #dce4ec; }
+.elb-els-simulator .model-table span, .elb-els-simulator .model-table strong { min-width: 0; background: #fff; padding: 7px; font-size: .68rem; overflow-wrap: anywhere; }
+.elb-els-simulator .model-table > div:first-child strong { background: #eff4f9; color: #314b66; }
+.elb-els-simulator .regime-match-list { display: grid; gap: 6px; }.elb-els-simulator .regime-match-list article { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid #dde6ef; border-radius: 8px; background: #fbfcfe; padding: 8px 9px; }.elb-els-simulator .regime-match-list article > b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #e8f2fd; color: #245f9c; }.elb-els-simulator .regime-match-list article span { min-width: 0; display: grid; }.elb-els-simulator .regime-match-list article strong { overflow-wrap: anywhere; color: #294862; }.elb-els-simulator .regime-match-list article small { margin: 1px 0 0; }.elb-els-simulator .regime-match-list article em { color: #506b83; font-size: .67rem; font-style: normal; text-align: right; }.elb-els-simulator .regime-match-list .continuation-mini { grid-column: 2 / -1; height: 46px; overflow: hidden; border-top: 1px solid #edf1f5; padding-top: 3px; }.elb-els-simulator .continuation-mini svg { display: block; width: 100%; height: 42px; }.elb-els-simulator .continuation-mini line { stroke: #ccd6e1; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }.elb-els-simulator .continuation-mini polyline { fill: none; stroke-width: 1.8; vector-effect: non-scaling-stroke; }.elb-els-simulator .component-mix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }.elb-els-simulator .component-mix span { border-radius: 7px; background: #eef4fa; padding: 7px; text-align: center; color: #526a80; }.elb-els-simulator .component-mix b { color: #224f78; }.elb-els-simulator .regime-model-details { margin: 11px 0; border: 1px solid #dce5ef; border-radius: 9px; background: #f8fafc; padding: 10px; }.elb-els-simulator .regime-model-details h4 { margin: 0 0 8px; color: #294b6c; }.elb-els-simulator .regime-feature-grid, .elb-els-simulator .model-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }.elb-els-simulator .regime-feature-grid span, .elb-els-simulator .model-config-grid span { min-width: 0; display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #e2e8ef; padding: 5px; overflow-wrap: anywhere; }.elb-els-simulator .regime-feature-grid b, .elb-els-simulator .model-config-grid b { color: #284d70; text-align: right; }.elb-els-simulator .feature-weight-details { margin-top: 8px; }.elb-els-simulator .feature-weight-details summary { color: #526a80; font-size: .72rem; }.elb-els-simulator .sensitivity-table-wrap { max-width: 100%; overflow-x: auto; border: 1px solid #dce4ec; border-radius: 8px; }.elb-els-simulator .sensitivity-table { width: 100%; min-width: 720px; border-collapse: collapse; }.elb-els-simulator .sensitivity-table th, .elb-els-simulator .sensitivity-table td { border-right: 1px solid #e1e7ee; border-bottom: 1px solid #e1e7ee; padding: 7px; text-align: right; font-size: .68rem; white-space: nowrap; }.elb-els-simulator .sensitivity-table th:first-child { position: sticky; left: 0; text-align: left; background: #f4f7fa; }.elb-els-simulator .sensitivity-table thead th { background: #edf3f8; color: #36536d; }
+.elb-els-simulator .analog-summary { margin-top: 5px; border-left: 3px solid #3977b8; background: #f3f7fc; padding: 9px 11px; color: #3e5871; }
+.elb-els-simulator .current-position-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.elb-els-simulator .current-position-grid article { min-width: 0; display: grid; gap: 5px; border: 1px solid #dde6ef; border-radius: 8px; background: #fff; padding: 10px; }
+.elb-els-simulator .current-position-grid article > strong { font-size: .8rem; }
+.elb-els-simulator .current-position-grid article > span { display: flex; justify-content: space-between; gap: 9px; border-top: 1px solid #eef2f6; padding-top: 4px; color: #667789; font-size: .68rem; }
+.elb-els-simulator .current-position-grid article > span b { color: #294862; text-align: right; }
+.elb-els-simulator .analog-episode-card .analog-path-comparison { grid-column: 2 / -1; min-width: 0; border-top: 1px solid #e5ebf1; padding-top: 6px; }
+.elb-els-simulator .analog-asset-legend { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-bottom: 4px; color: #607185; font-size: .61rem; }
+.elb-els-simulator .analog-asset-legend span { display: inline-flex !important; grid-auto-flow: column; align-items: center; gap: 4px; }
+.elb-els-simulator .analog-asset-legend i { width: 12px; height: 2px; }
+.elb-els-simulator .analog-path-panels { display: grid; grid-template-columns: minmax(112px, .75fr) minmax(225px, 1.5fr); gap: 6px; max-width: 100%; overflow-x: auto; padding-bottom: 2px; }
+.elb-els-simulator .analog-path-panels section { min-width: 0; border: 1px solid #e5ebf1; border-radius: 6px; background: #fff; padding: 4px 5px; }
+.elb-els-simulator .analog-path-panels section > small { display: block; min-height: 1.35em; color: #536c83; font-size: .58rem; font-weight: 750; }
+.elb-els-simulator .analog-path-panels svg { display: block; width: 100%; height: 54px; }
+.elb-els-simulator .analog-path-panels line { stroke: #b8c5d2; stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.elb-els-simulator .analog-path-panels polyline { fill: none; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+.elb-els-simulator .analog-path-panels .analog-anchor-line { stroke: #52677d; stroke-width: 1.2; stroke-dasharray: 4 3; }
+.elb-els-simulator .analog-path-panels .analog-continuation-line { stroke-dasharray: 4 3; }
+.elb-els-simulator .analog-segment-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; color: #69798a; font-size: .56rem; }
+.elb-els-simulator .analog-segment-legend span { display: inline-flex !important; grid-auto-flow: column; align-items: center; gap: 4px; }
+.elb-els-simulator .analog-segment-legend i { width: 14px; height: 0; border-top: 2px solid #607185; }
+.elb-els-simulator .analog-segment-legend i.continuation { border-top-style: dashed; }
+.elb-els-simulator .mini-chart-range { display: block; margin-top: 2px !important; color: #8190a0; font-size: .54rem !important; text-align: right; }
+.elb-els-simulator .analog-more-hint { margin: 10px 0 0; color: #657688; font-size: .68rem; }
+.elb-els-simulator .pmf-bar-shape { transition: fill-opacity 100ms ease; }.elb-els-simulator .pmf-bar-shape:hover { fill-opacity: 1; }
+
+.elb-els-simulator .strategy-table .strategy-interim { text-align: right; }
+.elb-els-simulator .strategy-table .strategy-interim > strong { color: #263f58; font-size: .72rem; }
+.elb-els-simulator .strategy-interim-stats { margin-top: 6px; border-top: 1px solid #e2e8ef; padding-top: 5px; text-align: left; }
+.elb-els-simulator .strategy-table .strategy-interim .strategy-interim-stats span { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; color: #586c80; }
+.elb-els-simulator .product-documents { margin: 14px 0 17px; border: 1px solid #d4e0ec; border-radius: 10px; background: #f8fbff; }
+.elb-els-simulator .product-documents summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; color: #244f79; font-size: .78rem; font-weight: 800; cursor: pointer; list-style-position: inside; }
+.elb-els-simulator .product-documents summary span { border-radius: 999px; background: #e8f2fd; padding: 4px 7px; color: #37658f; font-size: .62rem; white-space: nowrap; }
+.elb-els-simulator .product-documents > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; border-top: 1px solid #dce6f0; padding: 11px 12px 7px; }
+.elb-els-simulator .product-documents a { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid #d7e2ee; border-radius: 8px; background: #fff; padding: 10px 11px; color: #244d74; text-decoration: none; }
+.elb-els-simulator .product-documents a:hover { border-color: #74a4d2; background: #f2f8ff; }
+.elb-els-simulator .product-documents a span { display: grid; gap: 2px; }
+.elb-els-simulator .product-documents a small { color: #748699; font-size: .62rem; font-weight: 500; }
+.elb-els-simulator .product-documents a i { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 50%; background: #e7f2fd; color: #1769b1; font-size: 1rem; font-style: normal; font-weight: 800; }
+.elb-els-simulator .product-documents > p { margin: 0; padding: 2px 13px 11px; color: #758495; font-size: .65rem; line-height: 1.45; }
+
+@media (max-width: 820px) {
+  .elb-els-simulator main { padding-top: 18px; }
+  .elb-els-simulator .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .elb-els-simulator .workspace { grid-template-columns: minmax(0, 1fr); }
+  .elb-els-simulator .simulation-card, .elb-els-simulator .results-card { min-height: auto; }
+}
+
+@media (max-width: 460px) {
+  .elb-els-simulator main { padding: 16px 13px 28px; }
+  .elb-els-simulator .hero { padding: 14px 3px 25px; }
+  .elb-els-simulator .hero h1 { margin-bottom: 15px; }
+  .elb-els-simulator .hero-description { font-size: .93rem; line-height: 1.7; }
+  .elb-els-simulator .product-grid { gap: 9px; }
+  .elb-els-simulator .product-card { min-height: 330px; padding: 13px; border-radius: 13px; }
+  .elb-els-simulator .product-card h2 { font-size: .84rem; }
+  .elb-els-simulator .product-card-header .risk-gauge-wrap { max-width: 92px; transform: none; }
+  .elb-els-simulator .product-card-header .risk-gauge { display: none; }
+  .elb-els-simulator .product-card-header .risk-gauge-wrap small { margin: 0; white-space: normal; text-align: center; font-size: .57rem; line-height: 1.2; }
+  .elb-els-simulator .underlyings { margin-top: 14px; }
+  .elb-els-simulator .card-metrics dd, .elb-els-simulator .card-metrics dt { font-size: .66rem; }
+  .elb-els-simulator .principal-badge { font-size: .64rem; }
+  .elb-els-simulator .detail-card, .elb-els-simulator .simulation-card, .elb-els-simulator .results-card { padding: 17px; border-radius: 13px; }
+  .elb-els-simulator .simulator-panel, .elb-els-simulator .results-dashboard, .elb-els-simulator .results-empty { padding: 17px; border-radius: 13px; }
+  .elb-els-simulator .kpi-grid--results { grid-template-columns: 1fr 1fr; }
+  .elb-els-simulator .result-chart-grid { grid-template-columns: 1fr; }
+  .elb-els-simulator .initial-fixing-grid { grid-template-columns: 1fr; }
+  .elb-els-simulator .stress-panel { grid-template-columns: 1fr; }
+  .elb-els-simulator .explanation-actions { grid-template-columns: 1fr; }.elb-els-simulator .detail-toggle { width: 100%; }.elb-els-simulator .evidence-grid, .elb-els-simulator .cycle-table, .elb-els-simulator .loss-stat-grid { grid-template-columns: 1fr; }.elb-els-simulator .cycle-table article:last-child:nth-child(odd) { grid-column: auto; }.elb-els-simulator .loss-flow { grid-template-columns: 1fr; }.elb-els-simulator .loss-flow > i { text-align: center; }.elb-els-simulator .strategy-selectors { grid-template-columns: 1fr; }.elb-els-simulator .outcome-legend { grid-template-columns: 1fr; }
+  .elb-els-simulator .investment-input-row { grid-template-columns: 1fr; }.elb-els-simulator .investment-input-row output { max-width: none; width: fit-content; }
+  .elb-els-simulator .product-documents > div { grid-template-columns: 1fr; }
+  .elb-els-simulator .current-position-grid { grid-template-columns: 1fr; }.elb-els-simulator .current-position-grid article > span { display: grid; }.elb-els-simulator .current-position-grid article > span b { text-align: left; }
+  .elb-els-simulator .regime-match-list article { grid-template-columns: auto minmax(0, 1fr); }.elb-els-simulator .regime-match-list article em { grid-column: 2; text-align: left; }.elb-els-simulator .component-mix, .elb-els-simulator .regime-feature-grid, .elb-els-simulator .model-config-grid { grid-template-columns: 1fr; }
+  .elb-els-simulator .stress-buttons { justify-content: start; }
+  .elb-els-simulator .condition-grid, .elb-els-simulator .form-grid { grid-template-columns: 1fr; gap: 15px; }
+  .elb-els-simulator .price-chart { grid-template-columns: 1fr; }
+  .elb-els-simulator .asset-chart header { display: grid; }.elb-els-simulator .chart-options { justify-content: start; }.elb-els-simulator .asset-summary { flex-wrap: wrap; }.elb-els-simulator .asset-summary select { margin-left: 0; }
+  .elb-els-simulator .barrier-legend { padding-right: 0; top: 31px; }.elb-els-simulator .chart-card:has(.barrier-legend) > div { height: 315px; padding-top: 68px; }.elb-els-simulator .path-controls { position: static; max-width: 100%; margin: -2px 0 5px; justify-content: start; }
+  .elb-els-simulator .model-table > div { grid-template-columns: .8fr 1fr 1fr; }
+  .elb-els-simulator .condition-grid { gap: 17px; }
+}

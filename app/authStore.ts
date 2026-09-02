@@ -1,7 +1,7 @@
 "use client";
 
-import { createClient } from "@supabase/supabase-js";
 import { customerStorage, type CustomerProfile } from "./maintab/CustomerContext";
+import { browserSupabase } from "@/lib/supabaseBrowser";
 
 export type AuthRole = "pb" | "customer";
 
@@ -38,12 +38,7 @@ export type CustomerSession = {
   lastLoginAt?: string;
 };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-export const authSupabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+export const authSupabase = browserSupabase;
 
 const pbSessionKey = "samsung-vvip-pb-session-v2";
 const customerSessionKey = "samsung-vvip-customer-session-v2";
@@ -84,6 +79,20 @@ async function requestAuthRegistration(profile: AuthProfile, password: string) {
   if (!response.ok || !result?.ok) {
     throw new Error(result?.message ?? "계정 생성에 실패했습니다.");
   }
+}
+
+async function syncInsightServerSession(accessToken?: string) {
+  if (!accessToken) return;
+  const response = await fetch("/api/auth/insight-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ accessToken }),
+  });
+  if (!response.ok) throw new Error("서버 분석 세션을 설정하지 못했습니다.");
+}
+
+async function clearInsightServerSession() {
+  await fetch("/api/auth/insight-session", { method: "DELETE" }).catch(() => undefined);
 }
 
 function normalizeBirth(value: string) {
@@ -208,6 +217,14 @@ export const pbAuthStore = {
   readSession(): PbSession | null {
     return readJson<PbSession | null>(pbSessionKey, null);
   },
+  async ensureInsightSession() {
+    if (!authSupabase) return false;
+    const { data, error } = await authSupabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (error || !accessToken) return false;
+    await syncInsightServerSession(accessToken);
+    return true;
+  },
   async register(name: string, employeeId: string, email: string, password: string) {
     await requestAuthRegistration({
       role: "pb",
@@ -223,6 +240,7 @@ export const pbAuthStore = {
     if (!email) throw new Error("등록된 PB 계정을 찾을 수 없습니다.");
     const { data: signInData, error } = await authSupabase.auth.signInWithPassword({ email: toAuthEmail(email), password });
     if (error) throw error;
+    await syncInsightServerSession(signInData.session?.access_token);
     const profile = signInData.user?.id ? await selectCurrentAuthProfile(signInData.user.id) : null;
     if (!profile?.email || profile.role !== "pb" || profile.employee_id !== normalizedEmployeeId) throw new Error("등록된 PB 계정을 찾을 수 없습니다.");
     const lastLoginAt = new Date().toISOString();
@@ -236,6 +254,7 @@ export const pbAuthStore = {
   },
   async logout() {
     removeJson(pbSessionKey);
+    await clearInsightServerSession();
     if (authSupabase) await authSupabase.auth.signOut().catch(() => undefined);
   },
 };
@@ -267,6 +286,7 @@ export const customerAuthStore = {
     if (!email) throw new Error("등록된 고객 계정을 찾을 수 없습니다.");
     const { data: signInData, error } = await authSupabase.auth.signInWithPassword({ email: toAuthEmail(email), password });
     if (error) throw error;
+    await syncInsightServerSession(signInData.session?.access_token);
     const profile = signInData.user?.id ? await selectCurrentAuthProfile(signInData.user.id) : null;
     if (!profile?.email || !profile.customer_id || profile.role !== "customer" || profile.user_id !== normalizedUserId) throw new Error("등록된 고객 계정을 찾을 수 없습니다.");
     const lastLoginAt = new Date().toISOString();
@@ -290,6 +310,7 @@ export const customerAuthStore = {
   },
   async logout() {
     removeJson(customerSessionKey);
+    await clearInsightServerSession();
     if (authSupabase) await authSupabase.auth.signOut().catch(() => undefined);
   },
 };

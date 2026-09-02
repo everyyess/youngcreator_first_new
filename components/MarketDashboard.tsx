@@ -5,6 +5,8 @@ import { FileText, Mail, RefreshCw } from "lucide-react";
 import type { MarketIndexItem } from "@/lib/marketData";
 import type { AppState, CustomerProfile } from "@/app/maintab/CustomerContext";
 import { buildCustomerReportSections } from "@/services/customerService";
+import { MacroChartViewer } from "@/components/MacroChartViewer";
+import SectorScanner from "@/components/SectorScanner";
 
 type LoadState<T> = {
   data: T;
@@ -554,70 +556,12 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
   );
 }
 
-function PlaceholderPanel({ title, heightClass }: { title: string; heightClass: string }) {
-  return (
-    <section className={'flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm ' + heightClass}>
-      <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
-        <p className="text-sm font-black text-navy">{title}</p>
-      </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-8 text-center text-sm font-bold text-slate-400">
-        추후 기능이 추가될 예정입니다.
-      </div>
-    </section>
-  );
-}
-
 export default function MarketDashboard({ selectedCustomer, selectedState, pbName }: MarketDashboardProps) {
-  const [indices, setIndices] = useState(emptyIndices);
-  const [indicesRefreshedAt, setIndicesRefreshedAt] = useState<Date | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let intervalId: number | null = null;
-    const cached = readMarketIndexCache();
-    if (cached) {
-      setIndices({ data: cached.data, loading: false, error: "" });
-      setIndicesRefreshedAt(new Date(cached.refreshedAt));
-    }
-
-    async function load() {
-      try {
-        const response = await fetch("/api/market/indices");
-        const body = await response.json();
-        if (!cancelled) {
-          if (response.ok && Array.isArray(body.data) && body.data.length) {
-            const refreshedAt = new Date();
-            setIndices({ data: body.data, loading: false, error: "" });
-            setIndicesRefreshedAt(refreshedAt);
-            writeMarketIndexCache(body.data, refreshedAt);
-          } else {
-            setIndices((prev) => prev.data.length ? { ...prev, loading: false, error: "" } : { data: [], loading: false, error: body.error ?? "error" });
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          setIndices((prev) => prev.data.length ? { ...prev, loading: false, error: "" } : { data: [], loading: false, error: "error" });
-        }
-      }
-    }
-
-    void load();
-    const timeoutId = window.setTimeout(() => {
-      void load();
-      intervalId = window.setInterval(load, 5 * 60 * 1000);
-    }, msUntilNextFiveMinuteBoundary());
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      if (intervalId) window.clearInterval(intervalId);
-    };
-  }, []);
-
   return (
     <div className="flex w-full min-w-0 max-w-full flex-1 flex-col gap-4">
-      <IndexStrip state={indices} refreshedAt={indicesRefreshedAt} />
+      <MacroChartViewer />
       <MarketReportMailingPanel selectedCustomer={selectedCustomer} selectedState={selectedState} pbName={pbName} />
-      <PlaceholderPanel title="섹터 스캐너" heightClass="min-h-[360px]" />
+      <SectorScanner />
     </div>
   );
 }
