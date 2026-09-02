@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { buildHeaderAssetSummary, HeaderSummary } from "../maintab/MainTabShell";
 import TechnicalAnalysisTab from "../maintab/tab2/TechnicalAnalysisTab";
 import FundamentalAnalysisTab from "../maintab/tab2/FundamentalAnalysisTab";
@@ -16,13 +17,16 @@ import {
   deriveCalculatedAppState,
   getStoredSelectedCustomerId,
   loadPortfolioAssets,
+  loadSharedMaintabUiState,
   saveCustomerDataJsonOnly,
+  saveSharedMaintabUiState,
   storeSelectedCustomerId,
   type AppState,
   type CustomerContextValue,
   type CustomerId,
   type CustomerProfile,
   type PortfolioAsset,
+  type SharedMaintabUiState,
 } from "../maintab/CustomerContext";
 import { pbAuthStore } from "../authStore";
 import {
@@ -34,6 +38,19 @@ import {
   writeActiveConsultation,
   type ActiveConsultation,
 } from "../consultationStore";
+
+const ElbElsSimulator = dynamic(() => import("@/components/ElbElsSimulator"), {
+  ssr: false,
+  loading: () => (
+    <section className="min-h-[320px] rounded-lg border border-slate-200 bg-white p-6 text-sm font-bold text-slate-400 shadow-soft">
+      ELB·ELS 시뮬레이터를 불러오는 중입니다.
+    </section>
+  ),
+});
+
+const PeerAnalysisTab = dynamic(() => import("./PeerAnalysisTab"), { ssr: false });
+const IntegratedInsight = dynamic(() => import("./integratedInsight/IntegratedInsight"), { ssr: false });
+import { BackgroundEngineProvider } from "./integratedInsight/BackgroundEngineContext";
 
 export type AnalysisTopTab = "stock" | "screener" | "competitors" | "insight" | "elbEls";
 type StockAnalysisTab = "technical" | "fundamental" | "dart";
@@ -80,6 +97,11 @@ function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerCo
   const router = useRouter();
   const [activeStockTab, setActiveStockTab] = useState<StockAnalysisTab>("technical");
   const [mountedStockTabs, setMountedStockTabs] = useState<Set<StockAnalysisTab>>(new Set(["technical"]));
+  const insightTabs = [
+    ["youtube", "유튜브 DB"], ["blog", "블로그 DB"], ["telegram", "텔레그램 DB"],
+    ["news", "뉴스 DB"], ["report", "리포트 DB"], ["insight", "통합 인사이트"],
+  ] as const;
+  const activeInsightTab = contextValue.sharedUiState.tab4?.activeInnerTab ?? "youtube";
 
   const selectStockTab = (tab: StockAnalysisTab) => {
     setActiveStockTab(tab);
@@ -139,6 +161,25 @@ function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerCo
               </div>
             ) : null}
           </div>
+        ) : activeTopTab === "competitors" ? (
+          <PeerAnalysisTab />
+        ) : activeTopTab === "insight" ? (
+          <BackgroundEngineProvider>
+            <div className="flex flex-col gap-4">
+              <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
+                {insightTabs.map(([id, label]) => (
+                  <button key={id} type="button"
+                    onClick={() => contextValue.updateSharedUiState({ tab4: { activeInnerTab: id } })}
+                    className={`min-h-10 shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-bold transition ${activeInsightTab === id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100"}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <IntegratedInsight />
+            </div>
+          </BackgroundEngineProvider>
+        ) : activeTopTab === "elbEls" ? (
+          <ElbElsSimulator />
         ) : (
           <PlaceholderContent label={analysisTopTabs.find((tab) => tab.id === activeTopTab)?.label ?? "선택한 탭"} />
         )}
@@ -157,6 +198,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   const [storageErrorMessage, setStorageErrorMessage] = useState("");
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [sharedUiState, setSharedUiState] = useState<SharedMaintabUiState>({ tab2: { activeInnerTab: "peer" }, tab4: { activeInnerTab: "youtube" } });
   const loadedPortfolioRef = useRef(new Set<CustomerId>());
 
   useEffect(() => {
@@ -219,6 +261,28 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     return () => { cancelled = true; };
   }, [selectedCustomer]);
 
+  useEffect(() => {
+    if (!selectedCustomer) return;
+    let cancelled = false;
+    loadSharedMaintabUiState(selectedCustomer).then((state) => {
+      if (!cancelled) setSharedUiState({ ...state, tab2: { ...state.tab2, activeInnerTab: "peer" }, tab4: state.tab4 ?? { activeInnerTab: "youtube" } });
+    });
+    return () => { cancelled = true; };
+  }, [selectedCustomer]);
+
+  const updateSharedUiState = useCallback((patch: SharedMaintabUiState) => {
+    setSharedUiState((previous) => {
+      const next = {
+        ...previous,
+        ...patch,
+        tab2: patch.tab2 ? { ...previous.tab2, ...patch.tab2 } : previous.tab2,
+        tab4: patch.tab4 ? { ...previous.tab4, ...patch.tab4 } : previous.tab4,
+      };
+      if (selectedCustomer) void saveSharedMaintabUiState(selectedCustomer, next);
+      return next;
+    });
+  }, [selectedCustomer]);
+
   const fallbackCustomerProfile = useMemo(() => createNewCustomerProfile(), []);
   const selectedCustomerProfile = customerProfiles.find((customer) => customer.id === selectedCustomer) ?? customerProfiles[0];
   const currentCustomerProfile = selectedCustomerProfile ?? fallbackCustomerProfile;
@@ -235,7 +299,9 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     customerProfiles,
     selectedCustomer,
     portfolioAssets,
-  }) as CustomerContextValue, [currentCustomerProfile, customerProfiles, formData, portfolioAssets, selectedCustomer]);
+    sharedUiState,
+    updateSharedUiState,
+  }) as CustomerContextValue, [currentCustomerProfile, customerProfiles, formData, portfolioAssets, selectedCustomer, sharedUiState, updateSharedUiState]);
 
   const finishActiveConsultation = () => {
     const active = activeConsultation ?? readActiveConsultation();

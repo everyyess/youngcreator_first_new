@@ -1,0 +1,2 @@
+import { NextRequest,NextResponse } from "next/server";import { getInsightSupabase,insightDbUnavailable } from "@/lib/supabaseInsightDb";import { classifyLocalTags } from "@/lib/localInsightSummary";
+export async function POST(req:NextRequest){if(!getInsightSupabase(req))return NextResponse.json(insightDbUnavailable(),{status:401});const b=await req.json() as Record<string,unknown>;const tags=classifyLocalTags(`${b.title??""} ${b.content??""}`);return NextResponse.json({topics:["News",...tags.topics.filter(v=>v!=="News")],companies:tags.companies,macro:tags.macro});}

@@ -1,0 +1,2 @@
+import { NextRequest,NextResponse } from "next/server";import { getInsightSupabase,insightDbUnavailable } from "@/lib/supabaseInsightDb";import { getGeminiApiKeyList } from "@/lib/geminiServerEnv";
+export async function GET(req:NextRequest){if(!getInsightSupabase(req))return NextResponse.json(insightDbUnavailable(),{status:401});return NextResponse.json({keys:getGeminiApiKeyList().map((_,index)=>({index,label:`계정 ${index+1}`}))});}
