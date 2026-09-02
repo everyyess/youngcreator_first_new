@@ -148,6 +148,189 @@ export function normalizeAssetClass(cls: string): string {
   return ASSET_CLASS_ALIAS[cls] ?? ASSET_CLASS_ALIAS[cls.toLowerCase()] ?? cls;
 }
 
+// ─── 보유 자산 카드 그리드 (탭3-1 매수 시뮬레이터 / 탭3-2 상품 매칭 공용) ──────
+
+// 티커에서 .KS/.KQ 등 거래소 접미사 제거 후 소문자 정규화
+function tickerBase(t?: string | null): string {
+  return (t ?? "").replace(/\.[A-Za-z]+$/, "").toLowerCase().trim();
+}
+
+// 티커 일치 OR 종목명 일치이면 동일 종목으로 판정
+export function isSameAsset(a: PortfolioAsset, name: string, ticker?: string | null): boolean {
+  const tb = tickerBase(ticker);
+  if (tb && tickerBase(a.ticker) === tb) return true;
+  return a.name.toLowerCase().trim() === name.toLowerCase().trim();
+}
+
+export function makeAssetKey(a: PortfolioAsset): string {
+  return `${a.name.toLowerCase().trim()}::${(a.ticker ?? "").toLowerCase().trim()}`;
+}
+
+export function getEffectiveAssetPrice(a: PortfolioAsset): number {
+  const cp = Number(a.current_price);
+  if (Number.isFinite(cp) && cp > 0) return cp;
+  const bp = Number(a.buy_price);
+  return Number.isFinite(bp) && bp > 0 ? bp : 0;
+}
+
+export function getEffectiveAssetValue(a: PortfolioAsset): number {
+  if (a.current_value != null && a.current_value > 0) return a.current_value;
+  const price = getEffectiveAssetPrice(a);
+  if (a.amount_type === "quantity" && price > 0) return a.amount * price;
+  return a.amount ?? 0;
+}
+
+// 3개 독립 행: [국내주식+국내ETF+국내상품] / [해외주식+해외ETF+해외상품] / [채권]
+export function groupAssetCards(baseAssets: PortfolioAsset[]) {
+  const domestic: PortfolioAsset[] = [];
+  const foreign: PortfolioAsset[] = [];
+  const bonds: PortfolioAsset[] = [];
+  const others: PortfolioAsset[] = [];
+  for (const a of baseAssets) {
+    if (a.amount_type === "quantity" && a.amount <= 0) continue;
+    const pt = (a.productType ?? a.asset_class ?? "").trim();
+    if (pt.includes("채권")) bonds.push(a);
+    else if (pt.startsWith("국내") || pt === "펀드" || pt === "랩어카운트" || pt === "보험") domestic.push(a);
+    else if (pt.startsWith("해외")) foreign.push(a);
+    else others.push(a);
+  }
+  bonds.sort((a, b) => {
+    const o = (p: string) => p === "국내채권" ? 0 : p === "해외채권" ? 1 : 2;
+    return o(a.productType ?? "") - o(b.productType ?? "");
+  });
+  return [
+    { type: "국내", assets: domestic },
+    { type: "해외", assets: foreign },
+    { type: "채권", assets: bonds },
+    ...(others.length ? [{ type: "기타", assets: others }] : []),
+  ].filter((r) => r.assets.length > 0);
+}
+
+export function HoldingsCardGrid({
+  baseAssets,
+  portfolioAssets,
+  isCustomerView,
+  onSell,
+}: {
+  baseAssets: PortfolioAsset[];
+  portfolioAssets: PortfolioAsset[];
+  isCustomerView: boolean;
+  onSell?: (assetKey: string) => void;
+}) {
+  const groupedAssetCards = useMemo(() => groupAssetCards(baseAssets), [baseAssets]);
+
+  if (baseAssets.length === 0) {
+    return (
+      <div className="flex min-h-[160px] items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50">
+        <p className="text-sm font-semibold text-slate-400">
+          아직 보유 자산이 없습니다.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <section className="rounded-xl border-2 border-slate-200 bg-white p-5 shadow-soft transition-colors">
+      <p className="mb-3 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+        보유 자산
+      </p>
+      <div className="flex flex-col gap-3">
+        {groupedAssetCards.map((group, gi) => (
+          <div key={gi} className="flex flex-wrap gap-2">
+            {group.assets.map((a) => {
+              const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+              const color = CLASS_COLORS[cls] ?? "#94a3b8";
+              const key = makeAssetKey(a);
+              const isSoldOut = a.amount_type === "quantity" && a.amount <= 0;
+              const cp = getEffectiveAssetPrice(a);
+              const val = getEffectiveAssetValue(a);
+              const bp = Number(a.buy_price);
+              const gainPct = cp > 0 && bp > 0 ? ((cp - bp) / bp) * 100 : null;
+              const origAsset = portfolioAssets.find((pa) => isSameAsset(pa, a.name, a.ticker));
+              const isNewBuy = !isSoldOut && !origAsset;
+              const addedQty =
+                !isNewBuy &&
+                !isSoldOut &&
+                origAsset &&
+                a.amount_type === "quantity"
+                  ? a.amount - origAsset.amount
+                  : null;
+              return (
+                <div
+                  key={key}
+                  className={`relative flex flex-col gap-1 rounded-xl border-2 px-4 py-3 text-left ${isSoldOut ? "opacity-50" : ""}`}
+                  style={{
+                    width: "160px",
+                    flexShrink: 0,
+                    borderColor: isSoldOut ? "#cbd5e1" : color + "55",
+                    backgroundColor: isSoldOut ? "#f8fafc" : "#ffffff",
+                  }}
+                >
+                  {isNewBuy && (
+                    <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                      신규 매수
+                    </span>
+                  )}
+                  {addedQty !== null && addedQty > 0 && (
+                    <span className="absolute right-3 -top-2.5 z-10 rounded bg-red-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                      {addedQty.toLocaleString()}주 추가 매수
+                    </span>
+                  )}
+                  {isSoldOut ? (
+                    <span className="inline-block self-start rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold leading-none text-red-600">
+                      완전 매도
+                    </span>
+                  ) : (
+                    <span
+                      className="inline-block self-start rounded-full px-2 py-0.5 text-[10px] font-bold leading-none"
+                      style={{ backgroundColor: color + "22", color }}
+                    >
+                      {a.productType ?? cls}
+                    </span>
+                  )}
+                  <span className={`mt-1 w-full truncate text-sm font-bold leading-tight ${isSoldOut ? "text-slate-400 line-through" : "text-navy"}`}>
+                    {a.name}
+                  </span>
+                  {a.amount_type === "quantity" && (
+                    <span className="text-[10px] text-slate-500">
+                      현재가 {cp > 0 ? formatKrwAmount(cp) : "—"}
+                    </span>
+                  )}
+                  <span className={`text-xs font-bold ${isSoldOut ? "text-slate-400" : "text-slate-700"}`}>
+                    {isSoldOut ? "—" : val > 0 ? formatKrwAmount(val) : "—"}
+                  </span>
+                  {gainPct !== null && !isSoldOut && (
+                    <span className={`text-[10px] font-semibold ${gainPct >= 0 ? "text-red-500" : "text-sky-500"}`}>
+                      {gainPct >= 0 ? "▲" : "▼"} {Math.abs(gainPct).toFixed(1)}%
+                    </span>
+                  )}
+                  <span className={`text-[10px] ${isSoldOut ? "font-bold text-red-500" : "text-slate-400"}`}>
+                    {a.amount_type === "quantity"
+                      ? isSoldOut
+                        ? "0주 (매도 완료)"
+                        : `${a.amount.toLocaleString()}주`
+                      : "투자금액 기준"}
+                  </span>
+                  {!isSoldOut && onSell && (a.amount_type === "value" || a.amount > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => !isCustomerView && onSell(makeAssetKey(a))}
+                      disabled={isCustomerView}
+                      className="mt-1 w-full rounded border border-red-200 bg-red-50 py-0.5 text-[10px] font-bold text-red-500 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      매도
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ─── Rebalancing Status Utilities ────────────────────────────────────────────
 
 export type RebalancingStatus = "유지" | "증가" | "감소" | "신규유입" | "매도";

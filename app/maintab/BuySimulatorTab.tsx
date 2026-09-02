@@ -33,6 +33,8 @@ import {
   type PbOrderRow,
 } from "./CustomerContext";
 import { useCustomerView } from "./CustomerViewContext";
+import { WeeklyTopPicksCard } from "./WeeklyTopPicksCard";
+import { AiStockPicksCard } from "./AiStockPicksCard";
 import { formatLocalTickerName } from "./tickerUtils";
 import { parseKoreanNumber } from "@/lib/portfolioLogic";
 import {
@@ -599,6 +601,7 @@ export default function BuySimulatorTab() {
     addSellRecord,
     addBuyCost,
     appMode,
+    updateTab3AnalysisState,
     sharedUiState,
     updateSharedUiState,
   } = useCustomerContext();
@@ -648,60 +651,6 @@ export default function BuySimulatorTab() {
     ].filter((r) => r.assets.length > 0);
   }, [baseAssets]);
 
-  const defaultStrategy = useMemo<Strategy>(
-    () => RISK_TO_STRATEGY[riskResult.level] ?? "balanced",
-    [riskResult.level],
-  );
-
-  const [activeStrategy, setActiveStrategy] = useState<Strategy>(defaultStrategy);
-  const [globalData, setGlobalData] =
-    useState<Partial<Record<Strategy, OptApiResponse>>>({});
-  const [domesticData, setDomesticData] =
-    useState<Partial<Record<Strategy, OptApiResponse>>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  // 컨텍스트 영속 상태에서 초기화 — 탭 전환(unmount/remount) 후에도 복원됨
-  const [tickerItems, setTickerItems] = useState<TickerItem[]>(buySimTickerItems);
-
-  // 언마운트 시 컨텍스트에 동기화하기 위한 최신값 refs
-  const tickerItemsRef = useRef<TickerItem[]>(buySimTickerItems);
-  const confirmedSigRef = useRef<string>('');
-  // 렌더마다 최신 uncheckedTickers를 읽기 위한 ref (Effect A/B에서 deps 없이 사용)
-  const uncheckedTickersRef = useRef<string[]>(buySimUncheckedTickers);
-  uncheckedTickersRef.current = buySimUncheckedTickers;
-
-  // 확정 조합 시그니처 — 같으면 영속 상태 재사용, 다르면 재빌드
-  const confirmedSig = useMemo(() => {
-    const d = (confirmedDomesticPair ?? []).map(i => `${i.ticker}:${i.weight.toFixed(6)}`).join(',');
-    const g = (confirmedGlobalPair ?? []).map(i => `${i.ticker}:${i.weight.toFixed(6)}`).join(',');
-    return `D:${d}|G:${g}`;
-  }, [confirmedDomesticPair, confirmedGlobalPair]);
-
-  // 딥다이브 모달
-  const [modalTicker, setModalTicker] = useState<string | null>(null);
-  const [modalSector, setModalSector] = useState<string>("");
-  const [modalIsGlobal, setModalIsGlobal] = useState(true);
-  const [modalMeta, setModalMeta] = useState<Record<string, unknown> | null>(null);
-  const [isLoadingModal, setIsLoadingModal] = useState(false);
-  // 좌측 패널 포커스 대상 티커 (초기값=부모ETF, 관련기업 클릭 시 갱신)
-  const [modalFocusTicker, setModalFocusTicker] = useState<string | null>(null);
-  // 모달 헤더 고정용 ETF 공식명 (포커스 전환 시 변동 방지)
-  const [etfOfficialName, setEtfOfficialName] = useState<string | undefined>();
-  // 실시간 뉴스 (modalFocusTicker 기준)
-  const [stockNews, setStockNews] = useState<StockNewsItem[]>([]);
-  const [isLoadingNews, setIsLoadingNews] = useState(false);
-
-  // 모달 우측 — 관련 기업 패널 (Yahoo Finance Holdings null 우회)
-  const [relatedMarket, setRelatedMarket] = useState<"domestic" | "global">("global");
-  const [selectedCompanyIdx, setSelectedCompanyIdx] = useState<number | null>(null);
-  const [companyMetrics, setCompanyMetrics] = useState<CompanyMetrics | null>(null);
-  const [isLoadingCompanyMetrics, setIsLoadingCompanyMetrics] = useState(false);
-  const [relatedCompanies, setRelatedCompanies] = useState<RelatedCompany[]>([]);
-  const [isLoadingRelated, setIsLoadingRelated] = useState(false);
-  const [relatedSortFilter, setRelatedSortFilter] = useState<RelatedSortFilter>("theme");
-  const [isSortTransitioning, setIsSortTransitioning] = useState(false);
-  // 리스트 행 해시태그용: ticker → 테마연관순 상위 5 종목명 캐시
-  const [tickerTopNames, setTickerTopNames] = useState<Map<string, string[]>>(new Map());
-
   const [isConfirming, setIsConfirming] = useState(false);
   const [confirmDone, setConfirmDone] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -710,11 +659,9 @@ export default function BuySimulatorTab() {
   const [sellCardKey, setSellCardKey] = useState<string | null>(null);
   const [inlineSellQtyStr, setInlineSellQtyStr] = useState("");
 
-  // 드래그 앤 드롭
-  const [draggedTicker, setDraggedTicker] = useState<TickerItem | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
   type DropModal = {
     ticker: string; sector: string; isGlobal: boolean;
+    kind: "etf" | "stock";
     mode: "buy" | "sell"; qtyStr: string;
     price: number | null; currency: "KRW" | "USD"; isLoadingPrice: boolean;
   };
@@ -727,13 +674,7 @@ export default function BuySimulatorTab() {
     if (!isCustomerView || !syncedTab3Ui) return;
     setSellCardKey(syncedTab3Ui.sellCardKey ?? null);
     setInlineSellQtyStr(syncedTab3Ui.inlineSellQtyStr ?? "");
-    setDraggedTicker((syncedTab3Ui.draggedTicker as TickerItem | null | undefined) ?? null);
-    setIsDragOver(syncedTab3Ui.isDragOver ?? false);
     setDropModal((syncedTab3Ui.dropModal as DropModal | null | undefined) ?? null);
-    setModalTicker(syncedTab3Ui.modalTicker ?? null);
-    setModalSector(syncedTab3Ui.modalSector ?? "");
-    setModalIsGlobal(syncedTab3Ui.modalIsGlobal ?? true);
-    setModalFocusTicker(syncedTab3Ui.modalFocusTicker ?? null);
   }, [isCustomerView, syncedTab3Ui]);
 
   useEffect(() => {
@@ -742,26 +683,14 @@ export default function BuySimulatorTab() {
       tab3: {
         sellCardKey,
         inlineSellQtyStr,
-        draggedTicker: draggedTicker as BuySimTickerItem | null,
-        isDragOver,
         dropModal,
-        modalTicker,
-        modalSector,
-        modalIsGlobal,
-        modalFocusTicker,
       },
     });
   }, [
     isCustomerView,
     sellCardKey,
     inlineSellQtyStr,
-    draggedTicker,
-    isDragOver,
     dropModal,
-    modalTicker,
-    modalSector,
-    modalIsGlobal,
-    modalFocusTicker,
     updateSharedUiState,
   ]);
 
@@ -774,223 +703,6 @@ export default function BuySimulatorTab() {
     if (total >= 1.2e9) return 0.35;
     return 0.38;
   }, [formData.financial.totalAssets]);
-
-  // 정렬 필터 적용 — 원본 배열 불변, 정렬된 뷰 생성
-  // Number() 강제 변환 가드: JSON 역직렬화 시 문자열·undefined가 섞여도 안전하게 연산
-  const sortedRelatedCompanies = useMemo<RelatedCompany[]>(() => {
-    // 원본 배열 참조를 반드시 끊어 리렌더링을 보장 — sort()는 in-place 변이이므로 항상 spread 복사
-    const base = [...relatedCompanies];
-    const n = (v: unknown) => Number(v) || 0;
-    if (relatedSortFilter === "marketCap") {
-      return base.sort((a, b) => n(b.marketCap) - n(a.marketCap));
-    }
-    if (relatedSortFilter === "volume") {
-      return base.sort((a, b) => n(b.volume) - n(a.volume));
-    }
-    return base; // "theme" — API 원본 순서 유지
-  }, [relatedCompanies, relatedSortFilter]);
-
-  // ── API fetch ────────────────────────────────────────────────────────────
-
-  const fetchStrategy = useCallback(async (strategy: Strategy) => {
-    const k = STRATEGY_K[strategy];
-    const [gRes, dRes] = await Promise.all([
-      fetch(`/api/etf-correlation-html?strategy=${strategy}&k=${k}&format=json&period=1Y`),
-      fetch(`/api/etf-correlation-domestic-html?strategy=${strategy}&k=${k}&format=json&period=1Y`),
-    ]);
-    const [g, d] = await Promise.all([gRes.json(), dRes.json()]);
-    return { global: g as OptApiResponse, domestic: d as OptApiResponse };
-  }, []);
-
-  // 활성 전략 로드
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    fetchStrategy(activeStrategy)
-      .then(({ global: g, domestic: d }) => {
-        if (cancelled) return;
-        setGlobalData((prev) => ({ ...prev, [activeStrategy]: g }));
-        setDomesticData((prev) => ({ ...prev, [activeStrategy]: d }));
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeStrategy, fetchStrategy]);
-
-  // 나머지 전략 백그라운드 프리페치
-  useEffect(() => {
-    const others = ALL_STRATEGIES.filter((s) => s !== activeStrategy);
-    for (const s of others) {
-      if (globalData[s] && domesticData[s]) continue;
-      fetchStrategy(s)
-        .then(({ global: g, domestic: d }) => {
-          setGlobalData((prev) => ({ ...prev, [s]: g }));
-          setDomesticData((prev) => ({ ...prev, [s]: d }));
-        })
-        .catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeStrategy]);
-
-  // ── refs 동기화 (unmount 직전 최신값 보장) ──────────────────────────────────
-  useEffect(() => { tickerItemsRef.current = tickerItems; }, [tickerItems]);
-  useEffect(() => { confirmedSigRef.current = confirmedSig; }, [confirmedSig]);
-
-  // ── unmount 시 컨텍스트에 영속 저장 — 탭 전환 후 재마운트 시 복원 ───────────
-  useEffect(() => {
-    return () => {
-      setBuySimPersistedState(tickerItemsRef.current, confirmedSigRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setBuySimPersistedState]);
-
-  // ── 고객 전환 시 해당 고객의 영속 상태로 재초기화 ────────────────────────────
-  const prevCustomerRef = useRef(selectedCustomer);
-  useEffect(() => {
-    if (prevCustomerRef.current === selectedCustomer) return;
-    prevCustomerRef.current = selectedCustomer;
-    setTickerItems(buySimTickerItems);
-    setConfirmDone(false);
-  }, [selectedCustomer, buySimTickerItems]);
-
-  // ── Effect: 컨텍스트의 uncheckedTickers 변경 시 로컬 tickerItems에 반영 (고객 화면 실시간 동기화) ──
-  useEffect(() => {
-    setTickerItems(prev => {
-      if (prev.length === 0) return prev;
-      const uncheckedSet = new Set(buySimUncheckedTickers);
-      const needsUpdate = prev.some(t => t.checked === uncheckedSet.has(t.ticker));
-      if (!needsUpdate) return prev;
-      return prev.map(t => ({ ...t, checked: !uncheckedSet.has(t.ticker) }));
-    });
-  }, [buySimUncheckedTickers]);
-
-  // ── Effect A: 확정 조합 모드 (1순위 무조건 바인딩) ──────────────────────────
-  // confirmedDomesticPair / confirmedGlobalPair 가 하나라도 있으면 항상 이 데이터로 빌드.
-  // 탭 재마운트 포함 모든 경우에 confirmedPair를 1순위로 강제 반영.
-  useEffect(() => {
-    if (baseAssets.length === 0) {
-      setTickerItems([]);
-      setBuySimPersistedState([], "");
-      setConfirmDone(false);
-      return;
-    }
-    const hasConfirmedGlobal = (confirmedGlobalPair?.length ?? 0) > 0;
-    const hasConfirmedDomestic = (confirmedDomesticPair?.length ?? 0) > 0;
-    if (!hasConfirmedGlobal && !hasConfirmedDomestic) return; // Effect B 담당
-
-    const totalFunds = availableInvestmentFunds ?? 0;
-    const rawItems: TickerItem[] = [];
-    const combinedSectorMap: Record<string, string> = {};
-
-    if (hasConfirmedGlobal) {
-      for (const item of confirmedGlobalPair!) {
-        rawItems.push({ ticker: item.ticker, sector: item.sector, weight: item.weight * 0.5, checked: true, customAmountStr: "", isGlobal: true });
-        combinedSectorMap[item.ticker] = item.sector;
-      }
-    }
-    if (hasConfirmedDomestic) {
-      for (const item of confirmedDomesticPair!) {
-        rawItems.push({ ticker: item.ticker, sector: item.sector, weight: item.weight * 0.5, checked: true, customAmountStr: "", isGlobal: false });
-        combinedSectorMap[item.ticker] = item.sector;
-      }
-    }
-
-    const totalW = rawItems.reduce((s, i) => s + i.weight, 0);
-    if (totalW > 0) rawItems.forEach((i) => { i.weight = i.weight / totalW; });
-
-    const rawWeights: Record<string, number> = {};
-    rawItems.forEach((i) => { rawWeights[i.ticker] = i.weight; });
-    const adjusted = enforceClassCap(rawWeights, combinedSectorMap, CLASS_CAP[activeStrategy]);
-
-    const uncheckedSet = new Set(uncheckedTickersRef.current);
-    const items: TickerItem[] = rawItems.map((item) => {
-      const weight = adjusted[item.ticker] ?? item.weight;
-      const amountMan = totalFunds > 0 ? Math.floor((totalFunds * weight) / 10000) : 0;
-      return { ...item, weight, customAmountStr: amountMan > 0 ? String(amountMan) : "", checked: !uncheckedSet.has(item.ticker) };
-    });
-
-    setTickerItems(items);
-    setBuySimPersistedState(items, confirmedSig);
-    setConfirmDone(false);
-  }, [baseAssets.length, confirmedSig, confirmedDomesticPair, confirmedGlobalPair, availableInvestmentFunds, activeStrategy, setBuySimPersistedState]);
-
-  // ── Effect B: API 폴백 모드 (확정 조합 없을 때만) ────────────────────────────
-  // 확정 조합이 하나라도 있으면 실행 안 함 → API 데이터가 확정 조합을 덮어쓰지 않음
-  useEffect(() => {
-    if (baseAssets.length === 0) {
-      setTickerItems([]);
-      setConfirmDone(false);
-      return;
-    }
-    if ((confirmedGlobalPair?.length ?? 0) > 0 || (confirmedDomesticPair?.length ?? 0) > 0) return;
-
-    const gData = globalData[activeStrategy];
-    const dData = domesticData[activeStrategy];
-    if (!gData?.period && !dData?.period) { setTickerItems([]); return; }
-
-    const totalFunds = availableInvestmentFunds ?? 0;
-    const rawItems: TickerItem[] = [];
-    const combinedSectorMap: Record<string, string> = {};
-
-    if (gData?.period) {
-      const { period, sectorMap } = gData;
-      const kLen = period.optimal.length;
-      for (const ticker of period.optimal) {
-        const w = (period.capped_weights[ticker] ?? 1 / kLen) * 0.5;
-        combinedSectorMap[ticker] = sectorMap[ticker] ?? ticker;
-        rawItems.push({ ticker, sector: sectorMap[ticker] ?? ticker, weight: w, checked: true, customAmountStr: "", isGlobal: true });
-      }
-    }
-    if (dData?.period) {
-      const { period, sectorMap } = dData;
-      const kLen = period.optimal.length;
-      for (const ticker of period.optimal) {
-        const w = (period.capped_weights[ticker] ?? 1 / kLen) * 0.5;
-        combinedSectorMap[ticker] = sectorMap[ticker] ?? ticker;
-        rawItems.push({ ticker, sector: sectorMap[ticker] ?? ticker, weight: w, checked: true, customAmountStr: "", isGlobal: false });
-      }
-    }
-
-    if (rawItems.length === 0) { setTickerItems([]); return; }
-
-    const totalW = rawItems.reduce((s, i) => s + i.weight, 0);
-    if (totalW > 0) rawItems.forEach((i) => { i.weight = i.weight / totalW; });
-
-    const rawWeights: Record<string, number> = {};
-    rawItems.forEach((i) => { rawWeights[i.ticker] = i.weight; });
-    const adjusted = enforceClassCap(rawWeights, combinedSectorMap, CLASS_CAP[activeStrategy]);
-
-    const uncheckedSet = new Set(uncheckedTickersRef.current);
-    const items: TickerItem[] = rawItems.map((item) => {
-      const weight = adjusted[item.ticker] ?? item.weight;
-      const amountMan = totalFunds > 0 ? Math.floor((totalFunds * weight) / 10000) : 0;
-      return { ...item, weight, customAmountStr: amountMan > 0 ? String(amountMan) : "", checked: !uncheckedSet.has(item.ticker) };
-    });
-
-    setTickerItems(items);
-    setConfirmDone(false);
-  }, [baseAssets.length, globalData, domesticData, availableInvestmentFunds, activeStrategy, confirmedDomesticPair, confirmedGlobalPair]);
-
-  // ── 전략 카드 지표 (해외 ETF 기준 — 글로벌 포트폴리오가 주도) ─────────────
-
-  const allMetrics = useMemo(() => {
-    const result: Record<string, PortfolioMetrics | null> = {};
-    for (const s of ALL_STRATEGIES) {
-      const src = globalData[s];
-      if (!src?.period) continue;
-      try {
-        result[s] = computePortfolioMetrics(src.period);
-      } catch {
-        result[s] = null;
-      }
-    }
-    return result;
-  }, [globalData]);
-
 
   // ── 예산 계산 ────────────────────────────────────────────────────────────
 
@@ -1039,84 +751,7 @@ export default function BuySimulatorTab() {
     };
   }, [availableInvestmentFunds, confirmedPbAmount, pbTotalAmount]);
 
-  // ── 섹터 카테고리별 정렬 (렌더 전 그룹화) ────────────────────────────────
-
-  const sortedTickerItems = useMemo(() => {
-    return tickerItems
-      .map((item, originalIdx) => ({ ...item, originalIdx }))
-      .sort((a, b) => {
-        const catA = deriveSectorCategory(a.sector);
-        const catB = deriveSectorCategory(b.sector);
-        const orderA = SECTOR_CATEGORY_ORDER[catA] ?? 99;
-        const orderB = SECTOR_CATEGORY_ORDER[catB] ?? 99;
-        if (orderA !== orderB) return orderA - orderB;
-        return a.sector.localeCompare(b.sector, "ko");
-      });
-  }, [tickerItems]);
-
-  // 리스트 해시태그 pre-fetch: sortedTickerItems 변경 시 미캐시 항목만 순차 조회
-  useEffect(() => {
-    if (!sortedTickerItems.length) return;
-    let cancelled = false;
-    (async () => {
-      for (const item of sortedTickerItems) {
-        if (cancelled) break;
-        if (tickerTopNames.has(item.ticker)) continue;
-        try {
-          const market = item.isGlobal ? "global" : "domestic";
-          const keyword = deriveSearchKeyword(item.sector, market);
-          const mkt = market === "domestic" ? "kr" : "en";
-          const params = new URLSearchParams({ keyword, count: "5", market: mkt, ticker: item.ticker });
-          const res = await fetch(`/api/related-companies?${params}`);
-          if (cancelled) break;
-          if (res.ok) {
-            const json = (await res.json()) as { companies: RelatedCompany[] };
-            const names = (json.companies ?? []).slice(0, 5).map((c) => c.name);
-            setTickerTopNames((prev) => new Map(prev).set(item.ticker, names));
-          }
-        } catch { /* 네트워크 오류 시 해시태그 생략 */ }
-      }
-    })();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedTickerItems]);
-
   // ── 핸들러 ───────────────────────────────────────────────────────────────
-
-  // 체크박스 — 시각 효과 전용 (totalAllocated·handleConfirm 비개입) + 고객 화면 실시간 동기화
-  const toggleCheck = useCallback(
-    (idx: number) => {
-      setTickerItems((prev) => {
-        const next = prev.map((t, i) => (i === idx ? { ...t, checked: !t.checked } : t));
-        const unchecked = next.filter(t => !t.checked).map(t => t.ticker);
-        setBuySimUncheckedTickers(unchecked);
-        void saveBuySimUncheckedTickers(selectedCustomer, unchecked);
-        return next;
-      });
-    },
-    [setBuySimUncheckedTickers, selectedCustomer],
-  );
-
-  const updateAmount = useCallback(
-    (idx: number, val: string) =>
-      setTickerItems((prev) =>
-        prev.map((t, i) =>
-          i === idx ? { ...t, customAmountStr: val } : t,
-        ),
-      ),
-    [],
-  );
-
-  // 비중 재배분 (저장된 weight 기준 — floor 엄격 적용)
-  const reallocate = useCallback(() => {
-    const total = availableInvestmentFunds ?? 0;
-    setTickerItems((prev) =>
-      prev.map((t) => ({
-        ...t,
-        customAmountStr: String(Math.floor((total * t.weight) / 10000)),
-      })),
-    );
-  }, [availableInvestmentFunds]);
 
   // ── PB 직접 매수 패널 콜백 ──────────────────────────────────────────────────
 
@@ -1262,39 +897,33 @@ export default function BuySimulatorTab() {
     setInlineSellQtyStr("");
   }, []);
 
-  // 드래그 앤 드롭 핸들러
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (!draggedTicker) return;
-    const productType = draggedTicker.isGlobal ? "해외ETF" : "국내ETF";
+
+  // 자사 추천 종목(주간 투자 전략) 카드에서 "담기" 클릭 시 매수 모달 오픈
+  const handleAddWeeklyPick = useCallback((pick: { name: string; ticker: string; isGlobal: boolean }) => {
     setDropModal({
-      ticker: draggedTicker.ticker,
-      sector: draggedTicker.sector,
-      isGlobal: draggedTicker.isGlobal,
+      ticker: pick.ticker,
+      sector: pick.name,
+      isGlobal: pick.isGlobal,
+      kind: "stock",
       mode: "buy",
       qtyStr: "",
       price: null,
-      currency: draggedTicker.isGlobal ? "USD" : "KRW",
+      currency: pick.isGlobal ? "USD" : "KRW",
       isLoadingPrice: true,
     });
-    setDraggedTicker(null);
-    // 이미 티커가 확정돼 있으므로 proxy-finance 해석 파이프라인(Gemini+AC)을 거치지 않고
-    // /api/price 에 직접 전달해 현재가만 경량 조회한다.
-    fetch(`/api/price?ticker=${encodeURIComponent(draggedTicker.ticker)}`)
+    fetch(`/api/price?ticker=${encodeURIComponent(pick.ticker)}`)
       .then(async (r) => {
         if (!r.ok) {
           setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null);
           return;
         }
-        const data = (await r.json()) as { regularMarketPrice?: number; currency?: string };
+        const data = (await r.json()) as { regularMarketPrice?: number };
         const price = typeof data?.regularMarketPrice === "number" ? data.regularMarketPrice : null;
-        // 국내 ETF는 KRX 상장 → 항상 KRW; 해외 ETF는 USD 기준
-        const currency: "KRW" | "USD" = draggedTicker.isGlobal ? "USD" : "KRW";
+        const currency: "KRW" | "USD" = pick.isGlobal ? "USD" : "KRW";
         setDropModal((prev) => prev ? { ...prev, price, currency, isLoadingPrice: false } : null);
       })
       .catch(() => setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null));
-  }, [draggedTicker]);
+  }, []);
 
   const confirmSellCard = useCallback(() => {
     if (!sellCardKey) return;
@@ -1343,115 +972,6 @@ export default function BuySimulatorTab() {
     }
   }, [setPbOrderRows, triggerPbSearch]);
 
-  // 관련 기업 실시간 검색 (Yahoo Finance + 네이버 파이낸스 3단계 엔진)
-  // market=kr → .KS/.KQ 종목만 반환, market=en → 글로벌 EQUITY 반환
-  // subQuery: 백엔드 최우선 매칭 키워드 (예: "정유" — oil ETF 감지 시 주입)
-  const fetchRelatedCompanies = useCallback(async (sector: string, market: "domestic" | "global", subQuery?: string, etfFullName?: string, parentTicker?: string) => {
-    // 진행 중인 이전 요청 취소 — 빠른 ETF 전환 시 구형 네트워크 I/O 정리
-    relatedAbortRef.current?.abort();
-    const ctrl = new AbortController();
-    relatedAbortRef.current = ctrl;
-
-    const fetchId = ++relatedFetchIdRef.current;
-    setIsLoadingRelated(true);
-    setRelatedCompanies([]);
-    setRelatedSortFilter("theme"); // 새 ETF 로드 시 정렬 초기화
-    try {
-      const keyword = deriveSearchKeyword(sector, market);
-      const mkt = market === "domestic" ? "kr" : "en";
-      const params = new URLSearchParams({ keyword, count: "10", market: mkt });
-      if (parentTicker) params.set("ticker", parentTicker);
-      if (subQuery) params.set("subQuery", subQuery);
-      if (etfFullName) params.set("etfFullName", etfFullName);
-      const res = await fetch(`/api/related-companies?${params}`, { signal: ctrl.signal });
-      if (res.ok && fetchId === relatedFetchIdRef.current) {
-        const json = (await res.json()) as { companies: RelatedCompany[] };
-        setRelatedCompanies(json.companies ?? []);
-      }
-    } catch (err) {
-      // AbortError: 새 요청이 이 요청을 대체한 정상 취소 — loading 상태는 새 요청이 관리
-      if ((err as { name?: string })?.name === 'AbortError') return;
-    }
-    if (fetchId === relatedFetchIdRef.current) {
-      setIsLoadingRelated(false);
-    }
-  }, []);
-
-  // 정렬 탭 전환 — 선택 해제 + 150ms 트랜지션 스피너
-  const handleSortChange = useCallback((sort: RelatedSortFilter) => {
-    if (sort === relatedSortFilter) return;
-    setIsSortTransitioning(true);
-    setRelatedSortFilter(sort);
-    setSelectedCompanyIdx(null);
-    setCompanyMetrics(null);
-    setTimeout(() => setIsSortTransitioning(false), 150);
-  }, [relatedSortFilter]);
-
-  // 딥다이브 모달 열기 — proxy-finance/뉴스는 modalFocusTicker useEffect가 담당
-  const openModal = useCallback(async (item: TickerItem) => {
-    const initMarket: "domestic" | "global" = item.isGlobal ? "global" : "domestic";
-    setModalTicker(item.ticker);
-    setModalSector(item.sector);
-    setModalIsGlobal(item.isGlobal);
-    setModalMeta(null);
-    setIsLoadingModal(true);
-    setSelectedCompanyIdx(null);
-    setCompanyMetrics(null);
-    setRelatedMarket(initMarket);
-    setEtfOfficialName(undefined);
-    setStockNews([]);
-    // 잔상 방지: 모달 교체 즉시 이전 관련주 목록 초기화 — fetch 시작 전 한 frame 갭 차단
-    setRelatedCompanies([]);
-    setIsLoadingRelated(true);
-    setRelatedSortFilter("theme");
-    // modalFocusTicker를 ETF 티커로 초기화 → useEffect 트리거 → proxy-finance + 뉴스 로드
-    setModalFocusTicker(item.ticker);
-    // 관련주는 별도 로드 (이쪽은 isLoadingRelated로 관리)
-    await fetchRelatedCompanies(item.sector, initMarket, undefined, undefined, item.ticker);
-  }, [fetchRelatedCompanies]);
-
-  const closeModal = useCallback(() => {
-    // 모달 닫힐 때 진행 중인 관련주 요청 즉시 취소 — 상태 유실 방지
-    relatedAbortRef.current?.abort();
-    relatedAbortRef.current = null;
-    setIsLoadingRelated(false);
-    setModalTicker(null);
-    setModalFocusTicker(null);
-    setModalMeta(null);
-    setEtfOfficialName(undefined);
-    setSelectedCompanyIdx(null);
-    setCompanyMetrics(null);
-    setStockNews([]);
-    setRelatedSortFilter("theme");
-    setRelatedCompanies([]);
-  }, []);
-
-  // 관련 기업 행 클릭 → 좌측 패널을 해당 기업으로 전환 + 실무 지표 로드
-  const handleCompanyClick = useCallback(async (company: RelatedCompany, idx: number) => {
-    if (selectedCompanyIdx === idx) {
-      // 동일 행 재클릭 → 선택 해제, 좌측 패널을 부모 ETF로 복원
-      setSelectedCompanyIdx(null);
-      setCompanyMetrics(null);
-      setModalFocusTicker(modalTicker);
-      return;
-    }
-    setSelectedCompanyIdx(idx);
-    setCompanyMetrics(null);
-    setIsLoadingCompanyMetrics(true);
-    // 좌측 패널 포커스를 선택 기업으로 전환 (useEffect가 proxy-finance + 뉴스 재호출)
-    setModalFocusTicker(company.symbol);
-    try {
-      const res = await fetch(`/api/stock-metrics?ticker=${encodeURIComponent(company.symbol)}`);
-      if (res.ok) setCompanyMetrics((await res.json()) as CompanyMetrics);
-    } catch {}
-    setIsLoadingCompanyMetrics(false);
-  }, [selectedCompanyIdx, modalTicker]);
-
-  // 관련주 검색 race condition 방지 — 토글 빠른 전환 시 구형 응답 폐기용
-  const relatedFetchIdRef = useRef(0);
-  // AbortController ref — 새 요청 시 진행 중인 구형 네트워크 요청 취소
-  const relatedAbortRef = useRef<AbortController | null>(null);
-
   // stale-closure 방지용 ref — 렌더 시점에 동기 갱신 (useEffect 패턴 대비 1 tick 빠름)
   const sellAssetsRef = useRef(rebalancingSellAssets);
   const portfolioRef = useRef(portfolioAssets);
@@ -1473,70 +993,6 @@ export default function BuySimulatorTab() {
   // PB 행별 검색 상태 (로딩/오류) — 컴포넌트 로컬, Context 비동기 업데이트와 분리
   const [pbSearchState, setPbSearchState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
   const pbSearchTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-
-  // modalFocusTicker 변경 시 좌측 패널 데이터(가격차트 + 뉴스) 동적 재로드
-  // 포커스가 부모 ETF면 ETF용 productType, 개별 기업이면 KR/EN 주식 분기
-  useEffect(() => {
-    if (!modalFocusTicker) return;
-    let cancelled = false;
-
-    const isKrTicker = modalFocusTicker.endsWith('.KS') || modalFocusTicker.endsWith('.KQ');
-    const isEtfFocus = modalFocusTicker === modalTicker;
-    const productType = isEtfFocus
-      ? (modalIsGlobal ? '해외ETF' : '국내ETF')
-      : isKrTicker ? '국내주식' : '해외주식';
-
-    setIsLoadingModal(true);
-    setModalMeta(null);
-    setIsLoadingNews(true);
-    setStockNews([]);
-
-    // 차트·가격 데이터 (proxy-finance) — 개별 완료 시 즉시 반영
-    fetch(`/api/proxy-finance?assetName=${encodeURIComponent(modalFocusTicker)}&productType=${encodeURIComponent(productType)}`)
-      .then(async (r) => {
-        if (cancelled || !r.ok) return;
-        const data = (await r.json()) as Record<string, unknown>;
-        if (cancelled) return;
-        setModalMeta(data);
-        // ETF 공식명은 부모 ETF 로드 시에만 저장 (기업 포커스 전환 시 헤더 불변)
-        if (isEtfFocus) setEtfOfficialName(data.officialName as string | undefined);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setIsLoadingModal(false); });
-
-    // 섹터/테마 키워드 — 티커 기반 뉴스 실패 시 백엔드 테마 폴백에 전달
-    const themeKeyword = isKrTicker
-      ? (THEME_KEYWORDS_MAP[modalSector]?.kr ?? modalSector)
-      : (THEME_KEYWORDS_MAP[modalSector]?.en ?? modalSector);
-
-    // 뉴스 피드 (/api/stock-news) — 차트와 독립적으로 완료 시 반영
-    fetch(`/api/stock-news?ticker=${encodeURIComponent(modalFocusTicker)}&keyword=${encodeURIComponent(themeKeyword)}`)
-      .then(async (r) => {
-        if (cancelled || !r.ok) return;
-        const data = (await r.json()) as { items: StockNewsItem[] };
-        if (!cancelled) setStockNews(data.items ?? []);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setIsLoadingNews(false); });
-
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalFocusTicker, modalTicker, modalIsGlobal, modalSector]);
-
-  // ETF 공식명 로드 완료 시 특수 마켓 감지 → 정밀 재요청
-  // - 원유("Oil"/"원유"/"WTI"): subQuery="정유" + etfFullName으로 글로벌 정유주 타겟팅
-  // - KOSDAQ("코스닥"/"KOSDAQ"): etfFullName으로 백엔드 .KQ 격리 가드 활성화
-  useEffect(() => {
-    if (!etfOfficialName || !modalTicker) return;
-    const isOil    = /oil|원유|wti/i.test(etfOfficialName);
-    const isKosdaq = /코스닥|kosdaq/i.test(etfOfficialName);
-    if (isOil) {
-      fetchRelatedCompanies(modalSector, relatedMarket, "정유", etfOfficialName, modalTicker ?? undefined);
-    } else if (isKosdaq) {
-      fetchRelatedCompanies(modalSector, relatedMarket, undefined, etfOfficialName, modalTicker ?? undefined);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [etfOfficialName, modalTicker]);
 
   // USD/KRW 실시간 환율 — 마운트 시 1회 조회 (proxy-finance directTicker 경로)
   // 6개월 범위 일별 데이터 요청 → meta.regularMarketPrice = 현재 환율
@@ -1792,8 +1248,13 @@ export default function BuySimulatorTab() {
           saveTaxSummary("new", newTaxSummary);
         }
         setConfirmDone(true);
-        const tab4Path = appMode === "customer" ? "/customer-maintab/tab4" : "/consultation/tab4";
-        router.push(tab4Path);
+        if (appMode === "customer") {
+          // 고객 화면에는 탭3-2(상품 리밸런싱)가 없어 TAB4로 바로 이동
+          router.push("/customer-maintab/tab4");
+        } else {
+          // PB 화면: 주식 리밸런싱 확정 후 탭3-2(상품 리밸런싱)로 이동
+          updateTab3AnalysisState({ activeInnerTab: "product-rebalancing" }, { allowReadOnlyViewState: true });
+        }
       }
     } catch (err) {
       console.error("[BuySimulatorTab] 매수 확정 오류:", err);
@@ -1809,64 +1270,6 @@ export default function BuySimulatorTab() {
     setNewPortfolioAnalysisResult,
     saveTaxSummary,
   ]);
-
-  // ── 모달 차트 데이터 ─────────────────────────────────────────────────────
-
-  const modalChartData = useMemo(() => {
-    if (!modalMeta) return [];
-    const chartResult = (
-      modalMeta?.chart as Record<string, unknown> | undefined
-    )?.result as Record<string, unknown>[] | undefined;
-    const r0 = chartResult?.[0];
-    const timestamps = (r0?.timestamp as number[] | undefined) ?? [];
-    const closes =
-      (
-        (r0?.indicators as Record<string, unknown> | undefined)
-          ?.quote as Record<string, unknown>[] | undefined
-      )?.[0]?.close as (number | null)[] | undefined ?? [];
-    return timestamps
-      .map((ts, i) => ({
-        date: new Date(ts * 1000).toLocaleDateString("ko-KR", {
-          month: "short",
-          day: "numeric",
-        }),
-        price: closes[i] ?? null,
-      }))
-      .filter((d): d is { date: string; price: number } => d.price !== null);
-  }, [modalMeta]);
-
-  const modalCurrentPrice = useMemo(() => {
-    const meta = (
-      (modalMeta?.chart as Record<string, unknown> | undefined)
-        ?.result as Record<string, unknown>[] | undefined
-    )?.[0]?.meta as Record<string, unknown> | undefined;
-    return (meta?.regularMarketPrice as number | undefined) ?? null;
-  }, [modalMeta]);
-
-  const modalCurrency = useMemo(() => {
-    const meta = (
-      (modalMeta?.chart as Record<string, unknown> | undefined)
-        ?.result as Record<string, unknown>[] | undefined
-    )?.[0]?.meta as Record<string, unknown> | undefined;
-    return (meta?.currency as string | undefined) ?? "USD";
-  }, [modalMeta]);
-
-  const modalDividendYield = modalMeta?.dividendYield as number | undefined;
-
-  // ETF 전략 설명 (섹터명 기반 자동 생성)
-  const modalStrategy = modalSector
-    ? `${modalSector} 섹터 ETF — AI 분산 최적화 포트폴리오 편입 종목`
-    : null;
-
-  // ── 전략 카드 순서 (고객 성향 전략 우선) ────────────────────────────────
-
-  const orderedStrategies = useMemo<Strategy[]>(
-    () => [
-      defaultStrategy,
-      ...ALL_STRATEGIES.filter((s) => s !== defaultStrategy),
-    ],
-    [defaultStrategy],
-  );
 
   const hasPbItems = pbOrderRows.some((r) => {
     if (isBondProductType(r.productType)) {
@@ -1942,14 +1345,9 @@ export default function BuySimulatorTab() {
           </p>
         </div>
       ) : (
-        <section
-          className={`rounded-xl border-2 bg-white p-5 shadow-soft transition-colors ${isDragOver ? "border-blue-400 bg-blue-50" : "border-slate-200"}`}
-          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-          onDragLeave={() => setIsDragOver(false)}
-          onDrop={handleDrop}
-        >
+        <section className="rounded-xl border-2 border-slate-200 bg-white p-5 shadow-soft transition-colors">
           <p className="mb-3 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
-            보유 자산{isDragOver && <span className="ml-2 text-blue-500">여기에 드롭하세요</span>}
+            보유 자산
           </p>
           <div className="flex flex-col gap-3">
             {groupedAssetCards.map((group, gi) => (
@@ -2045,100 +1443,11 @@ export default function BuySimulatorTab() {
         </section>
       )}
 
-      {/* ── 레이어 3: 추천 종목 그리드 (섹터 카테고리별 정렬 + 컬러) ─── */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-soft">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 size={16} className="text-emerald-600" />
-            <span className="text-sm font-bold text-navy">
-              선택한 종목
-            </span>
-          </div>
-        </div>
+      {/* ── 자사 추천 종목 (삼성증권 주간 투자 전략 리포트) ─────────── */}
+      <WeeklyTopPicksCard isCustomerView={isCustomerView} onAdd={handleAddWeeklyPick} />
 
-        {isLoading ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
-            <Loader2 size={16} className="animate-spin" />
-            AI 포트폴리오 산출 중…
-          </div>
-        ) : sortedTickerItems.length === 0 ? (
-          <div className="py-10 text-center text-sm text-slate-400">
-            추천 종목이 없습니다.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-50">
-            {sortedTickerItems.map((item) => {
-              const isChecked = item.checked;
-
-              return (
-                <div
-                  key={`${item.ticker}-${item.originalIdx}`}
-                  draggable={!isCustomerView}
-                  onDragStart={() => !isCustomerView && setDraggedTicker(item)}
-                  onDragEnd={() => !isCustomerView && setDraggedTicker(null)}
-                  className={`flex items-center gap-3 px-4 py-3 transition ${isCustomerView ? "cursor-default" : "cursor-grab hover:bg-slate-50 active:cursor-grabbing"} ${
-                    isChecked ? "" : "opacity-45"
-                  }`}
-                  onClick={() => !isCustomerView && toggleCheck(item.originalIdx)}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() => !isCustomerView && toggleCheck(item.originalIdx)}
-                    onClick={(e) => e.stopPropagation()}
-                    disabled={isCustomerView}
-                    className="h-4 w-4 flex-shrink-0 cursor-pointer rounded accent-[#2f2f9d] disabled:cursor-not-allowed"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-slate-800">
-                      {item.sector}
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      <span className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 font-mono text-[10px] text-gray-600">
-                        {item.ticker}
-                      </span>
-                      <span
-                        className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                          item.isGlobal
-                            ? "border-emerald-100 bg-emerald-50 text-emerald-600"
-                            : "border-blue-100 bg-blue-50 text-blue-600"
-                        }`}
-                      >
-                        {item.isGlobal ? "해외 ETF" : "국내 ETF"}
-                      </span>
-                      {(tickerTopNames.get(item.ticker) ?? []).map((name) => (
-                        <span key={name} className="text-[10px] text-slate-400">
-                          #{name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openModal({
-                        ticker: item.ticker,
-                        sector: item.sector,
-                        weight: item.weight,
-                        checked: item.checked,
-                        customAmountStr: item.customAmountStr,
-                        isGlobal: item.isGlobal,
-                      });
-                    }}
-                    className="flex-shrink-0 flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-slate-400 transition hover:bg-slate-50 hover:text-navy"
-                    title="딥다이브 분석"
-                  >
-                    <Info size={13} />
-                    <span className="text-[10px] font-medium whitespace-nowrap">관련 개별종목 보기</span>
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-      </div>
+      {/* ── AI 추천 종목 (실시간 섹터 강세 스캐너) ──────────────────── */}
+      <AiStockPicksCard isCustomerView={isCustomerView} onAdd={handleAddWeeklyPick} />
 
       {/* ── 매수 확정 종목 삭제 확인 모달 ──────────────────────────────────── */}
       {deleteConfirmId && (
@@ -2179,7 +1488,9 @@ export default function BuySimulatorTab() {
 
       {/* ── 드래그 앤 드롭 매수/매도 모달 ──────────────────────────────── */}
       {dropModal && (() => {
-        const productType = dropModal.isGlobal ? "해외ETF" : "국내ETF";
+        const productType = dropModal.kind === "stock"
+          ? (dropModal.isGlobal ? "해외주식" : "국내주식")
+          : (dropModal.isGlobal ? "해외ETF" : "국내ETF");
         // 환율 적용 기준: currency 필드(Yahoo API 오분류 가능)가 아닌 isGlobal 플래그로 판별
         // [해외ETF] → 달러 현재가 × 환율, [국내ETF] → 원화 현재가 그대로
         const krwPrice = dropModal.price !== null
@@ -2700,411 +2011,15 @@ export default function BuySimulatorTab() {
           ) : confirmDone ? (
             <>
               <CheckCircle2 size={14} />
-              완료 — TAB4에서 확인
+              {appMode === "customer" ? "완료 — TAB4에서 확인" : "완료 — TAB3-2로 이동"}
             </>
           ) : (
-            "리밸런싱 확정 → TAB4 반영"
+            appMode === "customer" ? "리밸런싱 확정 → TAB4 반영" : "리밸런싱 확정 → TAB3-2"
           )}
         </button>
       </div>
 
-      {/* ── 딥다이브 모달 (2분할 확장 레이아웃) ───────────────────── */}
-      {modalTicker !== null && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeModal();
-          }}
-        >
-          <div className="relative w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
-            {/* 모달 헤더 */}
-            <div className="flex items-start justify-between border-b border-slate-100 p-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold text-navy">{modalSector}</span>
-                  <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-600">
-                    {modalTicker}
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                    {modalIsGlobal ? "해외ETF" : "국내ETF"}
-                  </span>
-                </div>
-                {etfOfficialName && (
-                  <p className="mt-1 text-xs text-slate-500">
-                    {etfOfficialName}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={closeModal}
-                className="ml-4 flex-shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* 모달 본문 — 2컬럼 그리드 */}
-            <div className="grid grid-cols-1 gap-0 md:grid-cols-2">
-
-              {/* ── 좌측: 가격 정보 + 1Y 차트 + 실시간 뉴스 ── */}
-              <div className="border-b border-slate-100 p-4 md:border-b-0 md:border-r overflow-y-auto max-h-[80vh]">
-
-                {/* 포커스 기업 표시 배너 (부모 ETF가 아닌 개별 기업 조회 시) */}
-                {modalFocusTicker !== null && modalFocusTicker !== modalTicker && (
-                  <div className="mb-3 flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <span className="text-[11px] font-semibold text-indigo-700">
-                        {relatedCompanies.find((c) => c.symbol === modalFocusTicker)?.name ?? modalFocusTicker}
-                      </span>
-                      <span className="ml-1.5 rounded bg-indigo-100 px-1.5 py-0.5 font-mono text-[10px] text-indigo-500">
-                        {modalFocusTicker}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setModalFocusTicker(modalTicker);
-                        setSelectedCompanyIdx(null);
-                        setCompanyMetrics(null);
-                      }}
-                      className="flex-shrink-0 text-[10px] text-indigo-400 transition hover:text-indigo-600"
-                    >
-                      ← ETF 보기
-                    </button>
-                  </div>
-                )}
-
-                {isLoadingModal ? (
-                  <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
-                    <Loader2 size={16} className="animate-spin" />
-                    {modalFocusTicker !== modalTicker ? "기업 데이터 로드 중…" : "가격 데이터 로드 중…"}
-                  </div>
-                ) : (
-                  <>
-                    <div className="mb-4 grid grid-cols-2 gap-3">
-                      <div className="rounded-lg bg-slate-50 p-3">
-                        <div className="text-[10px] text-slate-400">현재가</div>
-                        <div className="mt-0.5 text-sm font-bold text-navy">
-                          {modalCurrentPrice != null
-                            ? `${modalCurrentPrice.toLocaleString("ko-KR", {
-                                maximumFractionDigits: 2,
-                              })} ${modalCurrency}`
-                            : "-"}
-                        </div>
-                      </div>
-                      <div className="rounded-lg bg-slate-50 p-3">
-                        <div className="text-[10px] text-slate-400">배당수익률</div>
-                        <div className="mt-0.5 text-sm font-bold text-navy">
-                          {modalDividendYield != null
-                            ? fmtPct(modalDividendYield)
-                            : "-"}
-                        </div>
-                      </div>
-                    </div>
-
-                    {modalChartData.length > 1 ? (
-                      <div>
-                        <div className="mb-2 text-xs font-semibold text-slate-500">
-                          1Y 가격 추이
-                        </div>
-                        <ResponsiveContainer width="100%" height={160}>
-                          <LineChart
-                            data={modalChartData}
-                            margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-                          >
-                            <CartesianGrid
-                              strokeDasharray="3 3"
-                              stroke="#f1f5f9"
-                            />
-                            <XAxis
-                              dataKey="date"
-                              tick={{ fontSize: 9 }}
-                              interval="preserveStartEnd"
-                            />
-                            <YAxis
-                              tick={{ fontSize: 9 }}
-                              width={52}
-                              tickFormatter={(v: number) =>
-                                v.toLocaleString("ko-KR", {
-                                  maximumFractionDigits: 0,
-                                })
-                              }
-                            />
-                            <Tooltip
-                              contentStyle={{ fontSize: 11 }}
-                              formatter={(value: unknown) => {
-                                const v =
-                                  typeof value === "number" ? value : NaN;
-                                return [
-                                  Number.isFinite(v)
-                                    ? v.toLocaleString("ko-KR", {
-                                        maximumFractionDigits: 2,
-                                      })
-                                    : "-",
-                                  "가격",
-                                ] as [string, string];
-                              }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="price"
-                              stroke="#2f2f9d"
-                              strokeWidth={2}
-                              dot={false}
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center rounded-lg bg-slate-50 py-8 text-xs text-slate-400">
-                        차트 데이터를 불러올 수 없습니다.
-                      </div>
-                    )}
-
-                    {/* ── 실시간 기업 뉴스 (핵심 3선) ── */}
-                    <div className="mt-4 border-t border-slate-100 pt-3">
-                      <div className="mb-2 flex items-center gap-1.5">
-                        <Newspaper size={12} className="text-slate-400" />
-                        <span className="text-xs font-semibold text-slate-500">
-                          실시간 기업 뉴스 (핵심 3선)
-                        </span>
-                      </div>
-                      {isLoadingNews ? (
-                        <div className="flex items-center gap-2 py-3 text-xs text-slate-400">
-                          <Loader2 size={12} className="animate-spin" />
-                          뉴스 로드 중…
-                        </div>
-                      ) : stockNews.length === 0 ? (
-                        <div className="py-3 text-center text-xs text-slate-400">
-                          뉴스를 불러올 수 없습니다.
-                        </div>
-                      ) : (
-                        <ul className="divide-y divide-slate-100">
-                          {stockNews.map((item, i) => (
-                            <li key={i} className="py-2">
-                              <a
-                                href={item.url || undefined}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={`group block${item.url ? " cursor-pointer" : " cursor-default"}`}
-                              >
-                                <p className="text-sm font-bold leading-snug text-navy transition-colors group-hover:text-blue-600 group-hover:underline">
-                                  {item.title}
-                                </p>
-                                {item.preview && (
-                                  <p className="mt-0.5 line-clamp-3 text-xs text-gray-500">
-                                    {item.preview}
-                                  </p>
-                                )}
-                              </a>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* ── 우측: 관련 핵심 기업 TOP 10 인터랙티브 패널 ── */}
-              <div className="flex flex-col p-4">
-                {/* ETF 섹터 브리핑 */}
-                {modalStrategy && (
-                  <div className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-[11px] leading-relaxed text-blue-700">
-                    {modalStrategy}
-                  </div>
-                )}
-
-                {/* 헤더 행: 타이틀 + 정렬 세그먼트 + 마켓 배지 */}
-                <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-2">
-                  {/* 타이틀 */}
-                  <span className="shrink-0 text-xs font-bold text-slate-500">
-                    관련 핵심 기업 TOP 10
-                  </span>
-
-                  {/* 정렬 세그먼트 버튼 그룹 — 인디고/블루 테마 */}
-                  <div className="flex shrink-0">
-                    {(["theme", "marketCap", "volume"] as RelatedSortFilter[]).map((s, i) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => handleSortChange(s)}
-                        className={[
-                          "border px-2.5 py-1 text-xs font-medium transition-colors cursor-pointer",
-                          i === 0 ? "rounded-l-md" : "-ml-px",
-                          i === 2 ? "rounded-r-md" : "",
-                          relatedSortFilter === s
-                            ? "relative z-10 border-indigo-600 bg-indigo-600 text-white"
-                            : "border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50",
-                        ].join(" ")}
-                      >
-                        {s === "theme" ? "테마 연관순" : s === "marketCap" ? "시가총액순" : "거래량순"}
-                      </button>
-                    ))}
-                    {isSortTransitioning && (
-                      <Loader2 size={11} className="ml-1.5 self-center animate-spin text-indigo-400" />
-                    )}
-                  </div>
-
-                  {/* 마켓 배지 — 우측 정렬 */}
-                  <div className="ml-auto flex gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5">
-                    {modalIsGlobal ? (
-                      <span className="flex items-center gap-1 rounded-md bg-[#2f2f9d] px-2.5 py-1 text-[11px] font-semibold text-white">
-                        <Globe size={10} />
-                        해외 관련주
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 rounded-md bg-[#2f2f9d] px-2.5 py-1 text-[11px] font-semibold text-white">
-                        <Building2 size={10} />
-                        국내 관련주
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* 관련 기업 리스트 — 고정 높이·내부 스크롤으로 모달 종횡비 보존 */}
-                <div className="divide-y divide-slate-50 rounded-xl border border-slate-100 overflow-y-auto max-h-[450px] pr-1">
-                  {isLoadingRelated ? (
-                    <div className="flex items-center justify-center gap-2 py-6 text-xs text-slate-400">
-                      <Loader2 size={13} className="animate-spin" />
-                      관련주 검색 중…
-                    </div>
-                  ) : sortedRelatedCompanies.length === 0 ? (
-                    <div className="py-6 text-center text-xs text-slate-400">
-                      관련 기업 데이터를 불러올 수 없습니다.
-                    </div>
-                  ) : sortedRelatedCompanies.map((company, idx) => (
-                    <div key={company.symbol}>
-                      <button
-                        type="button"
-                        onClick={() => handleCompanyClick(company, idx)}
-                        className={`flex w-full items-center justify-between px-3 py-2.5 text-left transition hover:bg-slate-50 ${
-                          selectedCompanyIdx === idx ? "bg-indigo-50" : ""
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="flex-shrink-0 w-5 h-5 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                            {idx + 1}
-                          </span>
-                          <span className="truncate text-xs font-semibold text-navy">
-                            {formatLocalTickerName(company.name, company.symbol, portfolioAssets)}
-                          </span>
-                          <span className="flex-shrink-0 rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-500">
-                            {company.symbol}
-                          </span>
-                        </div>
-                        <span className={`flex-shrink-0 text-[10px] transition ${selectedCompanyIdx === idx ? "text-indigo-600" : "text-slate-300"}`}>
-                          {selectedCompanyIdx === idx ? "▲" : "▼"}
-                        </span>
-                      </button>
-
-                      {/* 2단계 실시간 지표 패널 */}
-                      {selectedCompanyIdx === idx && (
-                        <div className="border-t border-indigo-100 bg-indigo-50 px-3 py-2.5">
-                          {isLoadingCompanyMetrics ? (
-                            <div className="flex items-center gap-2 text-xs text-slate-400">
-                              <Loader2 size={12} className="animate-spin" />
-                              지표 로드 중…
-                            </div>
-                          ) : companyMetrics ? (
-                            <div className="grid grid-cols-3 gap-2">
-                              {[
-                                {
-                                  label: "현재가",
-                                  value: fmtCompanyPrice(companyMetrics.price, companyMetrics.currency),
-                                  hasValue: companyMetrics.price != null,
-                                },
-                                {
-                                  label: "PER",
-                                  value: companyMetrics.per != null
-                                    ? companyMetrics.per.toFixed(1)
-                                    : companyMetrics.dataNote === "krx-partial" ? "공시없음" : "N/A",
-                                  hasValue: companyMetrics.per != null,
-                                },
-                                {
-                                  label: "PBR",
-                                  value: companyMetrics.pbr != null
-                                    ? companyMetrics.pbr.toFixed(2)
-                                    : companyMetrics.dataNote === "krx-partial" ? "공시없음" : "N/A",
-                                  hasValue: companyMetrics.pbr != null,
-                                },
-                                {
-                                  label: "PSR",
-                                  value: companyMetrics.psr != null
-                                    ? companyMetrics.psr.toFixed(2)
-                                    : companyMetrics.dataNote === "krx-partial" ? "공시없음" : "N/A",
-                                  hasValue: companyMetrics.psr != null,
-                                },
-                                {
-                                  label: "EBITDA",
-                                  value: fmtLargeFinancial(companyMetrics.ebitda, companyMetrics.currency) === "N/A" && companyMetrics.dataNote === "krx-partial"
-                                    ? "공시없음"
-                                    : fmtLargeFinancial(companyMetrics.ebitda, companyMetrics.currency),
-                                  hasValue: companyMetrics.ebitda != null,
-                                },
-                                {
-                                  label: "직전매출",
-                                  value: fmtLargeFinancial(companyMetrics.revenue, companyMetrics.currency) === "N/A" && companyMetrics.dataNote === "krx-partial"
-                                    ? "공시없음"
-                                    : fmtLargeFinancial(companyMetrics.revenue, companyMetrics.currency),
-                                  hasValue: companyMetrics.revenue != null,
-                                },
-                              ].map(({ label, value, hasValue }) => (
-                                <div key={label} className="rounded-lg bg-white p-2">
-                                  <div className="text-[9px] text-slate-400">{label}</div>
-                                  <div className={`mt-0.5 text-xs font-bold ${hasValue ? "text-navy" : "text-slate-400"}`}>
-                                    {value}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="text-[11px] text-slate-400">
-                              지표를 불러올 수 없습니다.
-                            </div>
-                          )}
-                          <p className="mt-1.5 text-[9px] text-slate-400">
-                            * Yahoo Finance 실시간 데이터 기준
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <p className="mt-2 text-[9px] text-slate-400">
-                  * Yahoo Finance 실시간 검색 · 행 클릭 시 실무 핵심 지표 확인 · 정렬 전환 시 선택 초기화
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-// 전략 카드 내 지표 행 — highlight=true 시 라벨 착색 + 값 강조
-function MetricRow({
-  label,
-  value,
-  color,
-  highlight = false,
-}: {
-  label: string;
-  value: string;
-  color: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className={`text-[10px] ${highlight ? `${color} font-semibold` : "text-slate-400"}`}>
-        {label}
-      </span>
-      <span className={`font-bold ${highlight ? "text-sm" : "text-xs"} ${color}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
