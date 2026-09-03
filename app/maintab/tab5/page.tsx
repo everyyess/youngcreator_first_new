@@ -6,10 +6,10 @@ import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
 import {
   Sparkles, ShieldCheck, TrendingUp, Landmark, PiggyBank,
   FileText, BarChart3, AlertCircle,
-  CheckCircle2, X, Info, BadgeCheck, AlertTriangle, AlertOctagon
+  CheckCircle2, X, Info, BadgeCheck, AlertTriangle, AlertOctagon, Newspaper
 } from "lucide-react";
 import { useCustomerContext, loadTaxSummaries, type PortfolioAsset } from "../CustomerContext";
-import { usePortfolioResult, HoldingsCardGrid, makeAssetKey } from "../PortfolioResultComponents";
+import { usePortfolioResult, HoldingsCardGrid, makeAssetKey, isProductHolding, PRODUCT_TICKER_PREFIX, BOND_TICKER_PREFIX } from "../PortfolioResultComponents";
 import { useCustomerView } from "../CustomerViewContext";
 import { parseLiquidityEntries, type LiquidityKind } from "../liquidityFields";
 
@@ -84,7 +84,7 @@ const PRODUCTS: Product[] = [
   { id:"f2", name:"삼성글로벌휴머노이드로봇증권자투자신탁UH[주식]-A", type:"펀드", riskGrade:2, return1Y:67.52, return3Y:null, bucket:"자본증식", isInstantRedeem:true, taxType:"해외주식형", desc:"휴머노이드 로봇·AI 글로벌 기업 투자", aum:"1,287억", manager:"삼성자산운용", inception:"2025-02", strategy:"테슬라, 엔비디아 등 휴머노이드 로봇 밸류체인 전반에 투자합니다. 2025년 설정된 신생 펀드로 로봇 산업 초기 성장 수혜를 목표로 합니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 신생 펀드 특성상 3년 수익률 데이터가 아직 없습니다.", topHoldings:["TESLA INC","로보티즈","UBTECH ROBOTICS CORP","MDA Space Ltd","레인보우로보틱스"] },
   { id:"f3", name:"삼성미국S&P500인덱스증권자투자신탁UH[주식]-A", type:"펀드", riskGrade:3, return1Y:35.14, return3Y:95.62, bucket:"자본증식", isInstantRedeem:true, taxType:"해외주식형", desc:"미국 S&P500 지수 추종, 안정적 장기 성장", aum:"1,397억", manager:"삼성자산운용", inception:"2016-03", strategy:"미국 S&P500 지수를 추종하는 패시브 펀드입니다. 미국 대형주 500개에 분산 투자해 안정적인 장기 성장을 추구합니다. 환헤지 미적용으로 달러 자산 효과도 있습니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 금융소득으로 합산되며, 장기 보유 시 복리 효과가 극대화됩니다.", topHoldings:["NVIDIA CORP","APPLE INC","iShares Core S&P 500 ETF","MICROSOFT CORP","AMAZON.COM INC"] },
   { id:"f4", name:"삼성글로벌액티브TDF2050증권UH[주식혼합]-A", type:"펀드", riskGrade:3, return1Y:39.92, return3Y:87.05, bucket:"자본증식", isInstantRedeem:true, taxType:"해외주식형", desc:"2050 은퇴 목표 자동 리밸런싱", aum:"2,110억", manager:"삼성자산운용", inception:"2019-02", stars:5, strategy:"2050년 은퇴를 목표로 설계된 TDF입니다. 현재는 주식 비중이 높고, 은퇴 시점이 가까워질수록 채권 비중이 자동으로 높아집니다. 별도 리밸런싱 없이 생애주기에 맞게 운용됩니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 장기 운용 특성상 복리 효과가 크며, 은퇴 설계 목적에 최적화되어 있습니다.", topHoldings:["KODEX200액티브","KODEX 미국S&P500(H)","KODEX미국AI전력핵심인프라","VANGUARD INFO TECH ETF","ROUNDHILL GEN AI & TECH FLYER"] },
-  { id:"f5", name:"삼성밸류라이프플랜65증권전환형자투자신탁[주식]-A", type:"펀드", riskGrade:3, return1Y:149.82, return3Y:182.58, bucket:"인컴창출", isInstantRedeem:true, taxType:"국내주식형", desc:"국내 우량주 장기 가치투자, 은퇴 설계형", aum:"8.91억", manager:"삼성자산운용", inception:"2002-11", stars:4, strategy:"국내 우량주에 장기 투자하는 은퇴 설계형 펀드입니다. 65세 은퇴를 목표로 안정적인 가치주 중심으로 운용되며, 국내 대형 우량주의 배당과 성장을 동시에 추구합니다.", taxBenefit:"국내주식 매매차익은 비과세 적용됩니다. 배당소득은 15.4% 원천징수이며, 종소세 대상 고객에게 절세 효과가 있습니다.", topHoldings:["삼성전자","SK하이닉스","SK스퀘어","LG에너지솔루션","현대차"] },
+  { id:"f5", name:"삼성밸류라이프플랜65증권전환형자투자신탁[주식]-A", type:"펀드", riskGrade:3, return1Y:149.82, return3Y:182.58, bucket:"자본증식", isInstantRedeem:true, taxType:"국내주식형", desc:"국내 우량주 장기 가치투자, 은퇴 설계형", aum:"8.91억", manager:"삼성자산운용", inception:"2002-11", stars:4, strategy:"국내 우량주에 장기 투자하는 은퇴 설계형 펀드입니다. 65세 은퇴를 목표로 안정적인 가치주 중심으로 운용되며, 국내 대형 우량주의 배당과 성장을 동시에 추구합니다.", taxBenefit:"국내주식 매매차익은 비과세 적용됩니다. 배당소득은 15.4% 원천징수이며, 종소세 대상 고객에게 절세 효과가 있습니다.", topHoldings:["삼성전자","SK하이닉스","SK스퀘어","LG에너지솔루션","현대차"] },
   { id:"f6", name:"삼성달러표시단기채권증권자투자신탁UH[채권]-A", type:"펀드", riskGrade:4, return1Y:15.99, return3Y:34.16, bucket:"위험헷지", isInstantRedeem:true, taxType:"채권형", desc:"달러 단기채권, 환율 헷지 + 금리 방어", aum:"916억", manager:"삼성자산운용", inception:"2016-01", stars:4, strategy:"달러 표시 단기채권에 투자합니다. 환헤지를 적용하지 않아 달러 강세 시 환차익도 기대할 수 있습니다. 주식시장 하락 시 방어 역할과 동시에 달러 분산 효과를 제공합니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 채권 이자수익이 금융소득에 합산되며, 달러 환차익은 별도 과세됩니다.", topHoldings:["HYUELE 5 1/2 01/16/27","HYUCAP 5 1/4 01/22/28","POHANG 4 7/8 01/23/27","T3 3/4 04/30/27","HYUSEC 2 1/8 11/01/26"] },
   { id:"f7", name:"삼성밸류라이프플랜35증권전환형자투자신탁[채권혼합]-A", type:"펀드", riskGrade:4, return1Y:21.78, return3Y:32.49, bucket:"위험헷지", isInstantRedeem:true, taxType:"해외주식형", desc:"채권 65% 혼합, 주식 하락 시 완충", aum:"4.81억", manager:"삼성자산운용", inception:"2002-11", strategy:"채권 65%, 주식 35%로 구성된 혼합형 펀드입니다. 주식 하락기에 채권이 완충 역할을 하며 포트폴리오 전체의 변동성을 낮춥니다. 안정성과 수익성의 균형을 추구합니다.", taxBenefit:"환매 시 배당소득세 15.4%가 적용됩니다. 채권 비중이 높아 금융소득 발생 규모가 상대적으로 낮습니다.", topHoldings:["삼성전자","SK하이닉스","SK스퀘어","LG에너지솔루션","현대차"] },
   { id:"f9", name:"삼성배당플러스30증권자투자신탁Ⅱ[채권혼합]-A", type:"펀드", riskGrade:5, return1Y:35.05, return3Y:45.67, bucket:"인컴창출", isInstantRedeem:true, taxType:"국내주식형", desc:"채권 70% + 배당주 30%, 낮은위험 수익형", aum:"18.78억", manager:"삼성자산운용", inception:"2005-01", stars:4, strategy:"채권 70%에 배당주 30%를 혼합한 안정형 펀드입니다. 낮은 변동성으로 안정적인 수익을 추구하며, 배당주에서 정기적인 인컴도 기대할 수 있습니다. 즉시환매가 가능해 유동성도 확보됩니다.", taxBenefit:"국내주식 매매차익은 비과세이며, 채권 이자소득과 배당소득은 15.4% 원천징수됩니다.", topHoldings:["삼성전자","SK하이닉스","삼성전자우","현대차","SK스퀘어"] },
@@ -168,8 +168,17 @@ if (TAX_BUCKET_EXCEPTION_VIOLATIONS.length > 0) {
 
 // ── 펀드 버킷 배정 — 판단 근거를 남겨둔 항목들 ──────────────────────────────
 // (2026-09 위험등급 게이트 제거 이후 재정리)
-// - f5(삼성밸류라이프플랜65, 인컴창출): "가치주" 언어지만, 상품 설명에 "은퇴 설계형"이라는
-//   안정 지향 서사가 있어 인컴창출 유지. m8·m11은 그런 서사가 없어 자본증식으로 옮겼다.
+// - f5(삼성밸류라이프플랜65, 자본증식으로 재배정): 처음엔 상품 설명의 "국내 대형 우량주의
+//   배당과 성장을 동시에 추구합니다"라는 문구 때문에 인컴창출에 남겨뒀었다. 그러나 이 문구엔
+//   배당수익률·배당주 편입비중 같은 숫자가 전혀 없어 m8·m11(가치주 언어만 있고 배당 언급 없음)과
+//   실질적으로 다르지 않다는 지적을 받고 재검토했다. 웹 리서치로도 이 펀드가 실제 분배형(정기
+//   분배금 지급)인지 확인되는 자료를 찾지 못했다 — 오히려 삼성자산운용의 "밸류라이프플랜" 계열엔
+//   별도의 "안정형(채권)" 자매펀드가 있어, "65"는 배당 특화가 아니라 주식형 내에서의 위험도 등급을
+//   가리키는 것으로 보인다. "은퇴 설계형"도 안정 지향 판매 문구일 뿐 현금흐름 근거는 아니다.
+//   확인되지 않는 배당 근거를 이유로 인컴창출에 남겨두는 것보다, m8·m11과 같은 논리(배당 언급이
+//   구체적 수치 없이 서술적으로만 있으면 자본증식)로 통일하는 게 맞다고 판단해 옮겼다. 위험등급이
+//   3등급으로 m8·m11(2등급)보다 한 단계 낮은 건 사실이지만, 위험등급은 버킷 배정 기준이 아니므로
+//   이동 여부와는 무관하다.
 // - f3(삼성미국S&P500인덱스, 자본증식): S&P500을 그대로 추종하는 패시브 펀드로, 배당·이자
 //   서사도 방어 서사도 없는 순수 성장추종 상품이다. 위험등급이 3등급이라 예전 게이트
 //   기준으로는 자본증식에 못 들어갔지만, 게이트를 없앤 지금은 전략 성격 그대로 자본증식으로
@@ -251,6 +260,7 @@ const BONDS: Bond[] = [
   { id:"b26", name:"국고01500-5003(20-2)", market:"국내", creditRating:"국공채", maturity:"23년 6개월(2050-03-10)", riskGrade:5, bucket:"절세", yieldPretax:null, yieldMaxTax:null, yieldCorporate:5.725, tradeYield:4.452, bankConvertedYield:6.296, couponRate:1.500, quoteDate:"2026-09-01", note:"금리 하락(또는 최소 횡보) 전망을 전제로 한 픽입니다 — 잔존만기가 23년 6개월로 매우 길어 금리(듀레이션) 리스크가 절세 효과보다 손익에 훨씬 크게 작용합니다. 금리가 1%p만 올라도 가격 손실이 절세로 아낀 금액을 넘어설 수 있습니다. 다른 국고채·국민주택채권(6등급)과 달리 위험등급이 한 단계 높은 5등급으로 찍혀 있는 것도 이 때문입니다." },
   { id:"b28", name:"국고02250-2709(25-6)", market:"국내", creditRating:"국공채", maturity:"1년(2027-09-10)", riskGrade:6, bucket:"유동성", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.435, tradeYield:3.456, bankConvertedYield:3.650, couponRate:2.250, quoteDate:"2026-09-01" },
   { id:"b29", name:"국고02375-2712(17-7)", market:"국내", creditRating:"국공채", maturity:"1년 3개월(2027-12-10)", riskGrade:6, bucket:"유동성", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.460, tradeYield:3.458, bankConvertedYield:3.654, couponRate:2.375, quoteDate:"2026-09-01" },
+  { id:"b30", name:"주택금융공사MBS2016-23(1-6)", market:"국내", creditRating:"AAA", maturity:"2개월(2026-11-04)", riskGrade:5, bucket:"유동성", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.061, tradeYield:3.062, bankConvertedYield:3.243, couponRate:2.080, quoteDate:"2026-09-03" },
 ];
 
 // 채권 수익률 원자료 요약 문구 — 카드/모달에서 공용으로 사용
@@ -738,6 +748,151 @@ const BUCKET_CFG: Record<BucketType, { color: string; bg: string; border: string
 };
 const BUCKETS: BucketType[] = ["자본증식","인컴창출","위험헷지","유동성","절세"];
 const PRODUCT_TYPE_ORDER: ProductType[] = ["랩어카운트","펀드","채권","ETF","보험"];
+
+// ── 채널별 Top-Picks ① : WM — Core Top-Picks (PB교육용 자료, 월별) ───────────────
+// 매월 나오는 자료에서 이 대시보드 라인업에 실제로 있는 상품만 매핑한다. 같은 상품이
+// 여러 달 연속으로 추천되면 카드에 배지가 여러 개 나란히 붙는다(예: n1은 8·9월 모두 포함).
+interface TopPickMonth { label: string; ids: Set<string>; }
+const TOP_PICK_MONTHS: TopPickMonth[] = [
+  {
+    label: "8월 TOP PICK",
+    // 라인업에 없어서 제외: 유경PSG 히든 챔피언, (자문형)Stay Ahead RQFII 중국주식,
+    // (종목지정형)중국주식 RQFII, 우리금융지주 신종자본증권(콜 5.0년, 8월中 발행예정),
+    // 신한금융조건부(상)16(신종-영구-5콜, 콜 3.2년, 8월中 발행예정 — 라인업의 b17 신한은행
+    // 신종자본증권(3.5년콜)과는 발행사 표기·콜잔존이 달라 동일 종목으로 보지 않았다),
+    // T 1.25 05/15/50, T 0.75 01/31/28.
+    // 국고04250-3606(26-6, 잔존 9.9년)은 이전에 버킷 배정 불가로 라인업에서 제외했던 종목이라
+    // 이번에도 매핑하지 않았다 — 다시 편입할지는 별도 확인 필요.
+    ids: new Set<string>([
+      "n1",  // 다올 멀티엔진 컬렉션 (사모재간접)
+      "n5",  // 우리 라이징 스타
+      "n4",  // 보고 트렌드 리더스
+      "r2",  // 루미스세일즈 미국 All Cap Growth
+      "n8",  // 씨스퀘어 미국 퀀텀그로스
+      "n7",  // 에셋플러스 미국 리치투게더
+      "b26", // 국고01500-5003(20-2) (잔존 23.6년)
+      "b23", // 국민주택1종26-07 (잔존 5.0년)
+      "b6",  // WOORIB 6.375 PERP (콜잔존 3.0년, 우리은행KP신종)
+      "b20", // DB손보신종자본증권4 (콜 4.9년) — 라인업 b20(콜 4.8년)과 0.1년 차이, 조회 시점 차이로 판단해 매핑
+    ]),
+  },
+  {
+    label: "9월 TOP PICK",
+    // 라인업에 없어서 제외: 유경PSG 히든 챔피언, (자문형)Stay Ahead RQFII 중국주식,
+    // (종목지정형)중국주식 RQFII, 교보생명 신종자본증권, 한화생명신종자본증권8,
+    // T 1.25 05/15/50, T 0.75 01/31/28, SPCX 5.35 07/15/31.
+    // 주의: 자료의 "KB금융지주 신종자본증권(콜 5.0년, 8/31 발행예정)"은 라인업의 b15
+    // "KB금융지주"(일반 회사채, 만기 3.9년)와 다른 종목이므로 표시하지 않는다.
+    // 주택금융공사MBS2016-23(1-6)은 전산 조회 화면(2026-09-03 기준)을 그대로 b30으로 라인업에 추가하고 매핑했다.
+    ids: new Set<string>([
+      "n1",  // 다올 멀티엔진 컬렉션 (사모재간접)
+      "n5",  // 우리 라이징 스타
+      "n4",  // 보고 트렌드 리더스
+      "r2",  // 루미스세일즈 미국 All Cap Growth
+      "n8",  // 씨스퀘어 미국 퀀텀그로스
+      "n7",  // 에셋플러스 미국 리치투게더
+      "b22", // 국민주택1종26-08 (잔존 5.0년)
+      "b28", // 국고02250-2709(25-6) (잔존 1.1년)
+      "b30", // 주택금융공사MBS2016-23(1-6) (잔존 2개월)
+    ]),
+  },
+];
+function getTopPickLabels(id: string): string[] {
+  return TOP_PICK_MONTHS.filter((m) => m.ids.has(id)).map((m) => m.label);
+}
+
+// ── 영업 솔루션 요약 (삼성증권 리서치센터 자료) ────────────────────────────
+// 원문은 줄글 리포트라 PB가 상담 중 훑어보기 어려워, 시장 진단·리밸런싱 전략별로
+// 재구성했다. 각 포인트는 "핵심 한 줄(lead) + 부연 설명(detail)"로 나눠 한눈에
+// 스캔되게 했다. 문장은 원문을 요약·재배열한 것이며 수치·고유명사는 원문 그대로다.
+interface SalesSolutionPoint {
+  lead: string;
+  detail: string;
+}
+interface SalesSolutionStrategy {
+  icon: React.ReactNode;
+  title: string;
+  points: SalesSolutionPoint[];
+  tags: string[];
+}
+interface SalesSolutionMonth {
+  month: string;
+  concept: string;
+  conceptKo: string;
+  diagnosis: string[];
+  strategies: SalesSolutionStrategy[];
+}
+const SALES_SOLUTIONS: SalesSolutionMonth[] = [
+  {
+    month: "8월",
+    concept: "High-Vol Regime",
+    conceptKo: "변동성을 상수로 받아들이고, 대응하고, 활용해야 하는 국면",
+    diagnosis: [
+      "KOSPI가 고점 대비 -30% 이상 하락 — 작년 하반기 역대급 상승장 이후 역대급 하락장",
+      "핵심 이슈는 AI — 성장 기대와 미래 불확실성이 동시에 존재 (메타 이슈, 하이퍼스케일러 FCF 마이너스 전환)",
+      "AI 사이클이 아직 초기 단계라 명확한 청사진이 없는 한 관련 변동성은 당분간 불가피",
+    ],
+    strategies: [
+      {
+        icon: <TrendingUp size={16} />,
+        title: "쏠림 완화",
+        points: [
+          { lead: "반도체 비중 과다 고객 → 비중 일부 축소", detail: "기대수익이 커도 지금은 변동성도 가장 큰 자산 — 반등장을 활용해 줄일 시점" },
+          { lead: "보완재는 국내 배당주보다 미국 하이퍼스케일러", detail: "한국 반도체와 상관관계가 낮고, AI 밸류체인 전반에서 이익 안정성 확보" },
+          { lead: "반도체 비중 과소 고객 → 급락을 기회로 비중 확대", detail: "주가 급락 국면을 활용해 반도체 업종 비중을 점차 늘려야 함" },
+          { lead: "핵심은 '균형'", detail: "비중이 너무 높아도, 너무 낮아도 쏠림 — 지금은 쏠림을 완화할 시점" },
+        ],
+        tags: ["미국 하이퍼스케일러", "국내 금융·배당주(보완재)"],
+      },
+      {
+        icon: <ShieldCheck size={16} />,
+        title: "변동성 Buy",
+        points: [
+          { lead: "롱숏 펀드, 지금이 적기", detail: "순노출도(Net Exposure)가 0에 가까울수록 변동성 장세에서 유리 — 상승장의 약점이 지금은 강점" },
+          { lead: "우수 롱숏 펀드, 추가 설정 본격화", detail: "사모펀드 계좌 수 이슈는 있지만, 지금이 적극 활용할 시점" },
+          { lead: "ELS 쿠폰, 20~30%대까지 상승", detail: "변동성이 커질수록 쿠폰도 오르고 하락배리어는 낮아져 안정성도 함께 보강" },
+          { lead: "종소세 대상이어도 세전 기대수익률이 이를 상쇄", detail: "ISA 활용 시 과세이연·절세 효과까지 함께 안내" },
+        ],
+        tags: ["롱숏(사모재간접) 펀드", "지수형 ELS", "ISA 절세"],
+      },
+    ],
+  },
+  {
+    month: "9월",
+    concept: "Bumpy Recovery",
+    conceptKo: "회복은 이어지되 평탄하지 않은(Bumpy) 국면 — 눈높이를 낮추고 자리를 지켜야 함",
+    diagnosis: [
+      "투자 난이도가 역대급인 이유는 변동성 크기가 아니라 '주가와 경기의 괴리' — 반도체 가격·수출 호조에도 7월 낙폭은 코로나 때보다 컸음",
+      "경제 지표를 신뢰한다면 지금은 회복(Recovery) 국면 — 미국 하이퍼스케일러 실적, 한국 반도체 주주환원책이 안정의 근거",
+      "다만 고금리 부담과 AI의 실물경제 편입에 필요한 시간을 고려하면 회복 과정은 V자가 아닌 U자·나이키형으로 평탄하지 않을 전망",
+    ],
+    strategies: [
+      {
+        icon: <TrendingUp size={16} />,
+        title: "반도체 Big2 쏠림 완화 → 하이퍼스케일러 & 내수·금융",
+        points: [
+          { lead: "Big2 비중 과다 고객 → 기대수익 일부 희생하고 분산", detail: "포트폴리오 전체 변동성 관리가 우선" },
+          { lead: "대안 ① 미국 하이퍼스케일러", detail: "한국 반도체와 상관관계 낮음" },
+          { lead: "대안 ② 한국 금융·내수 소비 섹터", detail: "금리차 확대로 마진 개선 중, 경기 반영도 양호" },
+          { lead: "랩도 동일 전략", detail: "고베타(반도체 비중 高) 랩 → 저베타(금융·내수) 랩 또는 미국 주식형 랩으로 리밸런싱" },
+          { lead: "롱숏 펀드는 마켓뉴트럴 성격에 주목", detail: "Net Exposure가 작은 펀드 위주로" },
+        ],
+        tags: ["미국 하이퍼스케일러", "저베타(금융·내수) 랩", "마켓뉴트럴 롱숏 펀드"],
+      },
+      {
+        icon: <Sparkles size={16} />,
+        title: "장기 국채 손실 커버 → 지수형 ELS·미국채",
+        points: [
+          { lead: "장기 국채, 듀레이션 축소만으론 부족", detail: "두 자리 수 손실 + 금리 하락 반전 가능성도 낮음" },
+          { lead: "대안 ① 지수형 ELS", detail: "상품 조건이 개선돼 리밸런싱 매력 충분" },
+          { lead: "대안 ② 미국채", detail: "원/달러 1,400원 하회로 진입장벽 완화, 금리·환율 양쪽에서 자본차익 가능" },
+          { lead: "쏠림 완화가 목적이면 기대수익 희생은 감수할 가치", detail: "포트폴리오의 중장기 성과 개선이 궁극적 목표" },
+        ],
+        tags: ["지수형 ELS", "미국채"],
+      },
+    ],
+  },
+];
 const ASSET_CLASS_TO_BUCKET: Record<string,BucketType> = {
   "해외주식":"자본증식","국내주식":"인컴창출",
   "채권":"위험헷지","금":"위험헷지","달러":"위험헷지",
@@ -864,6 +1019,8 @@ export default function Tab5Page() {
   const router = useRouter();
   const rrttlluReady = hasRrttllu(formData);
   const [modalProduct, setModalProduct] = useState<Product|null>(null);
+  const [salesSolutionOpen, setSalesSolutionOpen] = useState(false);
+  const [salesSolutionMonth, setSalesSolutionMonth] = useState<string>(SALES_SOLUTIONS[SALES_SOLUTIONS.length - 1].month);
   const [activeEffectId, setActiveEffectId] = useState<string|null>(null);
   const [unsuitableWarning, setUnsuitableWarning] = useState<Product|null>(null);
   const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
@@ -983,30 +1140,29 @@ const additionalInvestmentAmount = (() => {
     return b==="자본증식"?weights.G:b==="인컴창출"?weights.I:b==="위험헷지"?weights.H:b==="유동성"?weights.L:weights.T;
   };
 
-  // ── 보유 자산 표시 (탭3-1과 동일 패턴) ──────────────────────────────────────
+  // ── 보유 자산 표시 ────────────────────────────────────────────────────────
+  // 탭3-2에서는 "이 탭에서 담은 상품·채권"만 보여준다. rebalancingSellAssets에는 탭3-1의
+  // 주식 리밸런싱 보유분까지 함께 들어있지만, 그건 탭3-1 소관이라 여기서는 화면에서 걸러낸다.
+  // (TAB4의 신규 포트폴리오는 rebalancingSellAssets 전체를 그대로 쓰므로 주식+상품이 합산된다 —
+  //  즉 여기서 거르는 건 표시 범위일 뿐, 실제 포트폴리오 데이터는 건드리지 않는다.)
   const baseAssets = useMemo<PortfolioAsset[]>(() => {
     const enriched = (analysisResult?.enrichedAssets ?? []) as PortfolioAsset[];
     const priceMap = new Map(enriched.map((a) => [makeAssetKey(a), a]));
-    if (rebalancingSellAssets.length > 0) {
-      return rebalancingSellAssets
-        .filter((a) => a.name)
-        .map((a) => {
-          if (a.amount_type === "value") return a; // 상품(펀드·랩어카운트 등)은 시세 재계산 불필요
-          const e = priceMap.get(makeAssetKey(a));
-          const cp = Number(e?.current_price ?? a.current_price);
-          return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
-        });
-    }
-    const src = enriched.length ? enriched : portfolioAssets;
-    return src.filter((a) => a.name);
-  }, [analysisResult, portfolioAssets, rebalancingSellAssets]);
+    return rebalancingSellAssets
+      .filter((a) => a.name && isProductHolding(a))
+      .map((a) => {
+        if (a.amount_type === "value") return a; // 상품(펀드·랩어카운트·채권)은 시세 재계산 불필요
+        const e = priceMap.get(makeAssetKey(a));
+        const cp = Number(e?.current_price ?? a.current_price);
+        return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
+      });
+  }, [analysisResult, rebalancingSellAssets]);
 
   // 선택된 상품 → 보유 자산(rebalancingSellAssets)에 반영. 상품은 실시간 가격이 없어
   // amount_type "value"로 편입하며, 버킷 배분액 ÷ 같은 버킷 내 선택 상품 수로 투자금액을 나눈다.
   // client.investableAssets는 rebalancingSellAssets(→formData.headerAssetSummary)에서 역산되므로
   // 그대로 deps에 넣으면 "선택 반영 → investableAssets 변경 → 재반영 → ..." 무한루프가 생긴다.
   // ref로 최신값만 읽고, 재실행은 selectedIds(사용자의 실제 선택 행위)에만 반응하도록 끊는다.
-  const PRODUCT_TICKER_PREFIX = "product:";
   const weightsRef = useRef(weights);
   weightsRef.current = weights;
   const investableAssetsRef = useRef(client.investableAssets);
@@ -1014,7 +1170,6 @@ const additionalInvestmentAmount = (() => {
   const rebalancingSellAssetsRef = useRef(rebalancingSellAssets);
   rebalancingSellAssetsRef.current = rebalancingSellAssets;
 
-  const BOND_TICKER_PREFIX = "bond:";
 
   useEffect(() => {
     const w = weightsRef.current;
@@ -1112,6 +1267,87 @@ const additionalInvestmentAmount = (() => {
   return (
     <>
       {modalProduct && <ProductModal product={modalProduct} onClose={()=>setModalProduct(null)}/>}
+      {salesSolutionOpen && (() => {
+        const activeMonth = SALES_SOLUTIONS.find((m) => m.month === salesSolutionMonth) ?? SALES_SOLUTIONS[SALES_SOLUTIONS.length - 1];
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setSalesSolutionOpen(false)}>
+            <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-samsung/10 text-samsung"><Newspaper size={18}/></div>
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">삼성증권 리서치센터</p>
+                    <h3 className="text-base font-bold text-navy">영업 솔루션</h3>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setSalesSolutionOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+                  <X size={16}/>
+                </button>
+              </div>
+
+              <div className="flex gap-2 border-b border-slate-100 px-6 pt-3">
+                {SALES_SOLUTIONS.map((m) => (
+                  <button
+                    key={m.month}
+                    type="button"
+                    onClick={() => setSalesSolutionMonth(m.month)}
+                    className={`rounded-t-lg px-4 py-2.5 text-sm font-bold transition ${m.month === activeMonth.month ? "border border-b-0 border-slate-200 bg-white text-samsung" : "text-slate-400 hover:text-slate-600"}`}
+                  >
+                    {m.month} 영업 솔루션
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div className="mb-5 rounded-xl border border-samsung/25 bg-samsung/[0.07] p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-samsung/80">{activeMonth.month} 금융시장 콘셉트</p>
+                  <p className="mt-1 text-lg font-black text-samsung">{activeMonth.concept}</p>
+                  <p className="mt-1 text-sm text-slate-700">{activeMonth.conceptKo}</p>
+                  <div className="mt-3.5 space-y-2">
+                    {activeMonth.diagnosis.map((d, i) => (
+                      <div key={i} className="flex items-start gap-2.5 text-sm leading-6 text-slate-700">
+                        <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-samsung"/>
+                        <span>{d}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {activeMonth.strategies.map((strat, i) => (
+                    <div key={i} className="rounded-xl border border-slate-200 p-4">
+                      <div className="mb-3 flex items-center gap-2.5">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-samsung/10 text-samsung">{strat.icon}</div>
+                        <p className="text-base font-bold text-navy">전략 {i + 1} · {strat.title}</p>
+                      </div>
+                      <ul className="mb-3.5 space-y-3">
+                        {strat.points.map((pt, j) => (
+                          <li key={j} className="flex items-start gap-2.5">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-samsung"/>
+                            <div>
+                              <p className="text-sm font-bold leading-5 text-navy">{pt.lead}</p>
+                              <p className="mt-0.5 text-xs leading-5 text-slate-500">{pt.detail}</p>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="flex flex-wrap gap-1.5">
+                        {strat.tags.map((tag) => (
+                          <span key={tag} className="rounded-full border border-samsung/20 bg-samsung/[0.06] px-2.5 py-1 text-xs font-bold text-samsung">{tag}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 bg-slate-50 px-6 py-3">
+                <p className="text-[11px] text-slate-400">자료: 삼성증권 리서치센터 · 실제 상담 시 원문 자료를 함께 확인하세요</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {unsuitableWarning && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
@@ -1216,13 +1452,20 @@ const additionalInvestmentAmount = (() => {
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-soft">
-        <div className="mb-5 flex items-center gap-3">
+        <div className="mb-5 flex items-start gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-samsung"><BarChart3 size={18}/></div>
-          <div>
+          <div className="flex-1">
             <p className="text-xs font-bold uppercase tracking-normal text-slate-500">버킷별 매칭 상품</p>
             <h2 className="text-lg font-bold text-navy">삼성증권 추천 상품</h2>
             <p className="mt-0.5 text-xs text-slate-400">성향 적합 상품이 우선 표시됩니다. 카드를 클릭해 상세 정보를 확인하고 체크박스로 선택하세요</p>
           </div>
+          <button
+            type="button"
+            onClick={()=>setSalesSolutionOpen(true)}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-2 text-xs font-bold text-samsung transition hover:bg-samsung/10"
+          >
+            <Newspaper size={14}/>영업 솔루션 읽기
+          </button>
         </div>
         {!rrttlluReady ? (
           <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50">
@@ -1270,15 +1513,25 @@ const additionalInvestmentAmount = (() => {
                     </div>
                   )}
                   {shownProds.length>0 ? (
-                    <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+                    <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-1 pt-2.5 sm:grid-cols-2">
                       {shownProds.map(p=>{
                         const sel = selectedIds.includes(p.id);
                         const unsuitable = isUnsuitable(p, client);
                         const bond = p.bondRef;
+                        const topPickLabels = getTopPickLabels(p.id);
                         return (
                           <div key={p.id}
                             className={`relative rounded-xl border-2 bg-white p-4 cursor-pointer transition-all ${sel?"border-samsung shadow-md":unsuitable?"border-red-200 hover:border-red-300 opacity-75":"border-slate-200 hover:border-slate-300 hover:shadow-sm"}`}
                             onClick={()=>setModalProduct(p)}>
+                            {topPickLabels.length > 0 && (
+                              <div className="absolute left-3 -top-2.5 z-10 flex gap-1">
+                                {topPickLabels.map((label) => (
+                                  <span key={label} className="rounded bg-samsung px-1.5 py-0.5 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white">
+                                    {label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                             {unsuitable && (
                               <span className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-red-100 border border-red-200 px-2 py-0.5 text-[10px] font-bold text-red-600">
                                 <AlertTriangle size={9}/>성향 부적합
