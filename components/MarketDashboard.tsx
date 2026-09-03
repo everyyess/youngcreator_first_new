@@ -765,8 +765,11 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const [refreshingMarket, setRefreshingMarket] = useState<"us" | "kr" | null>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [sendingCustomerMail, setSendingCustomerMail] = useState(false);
   const [pdfCustomerId, setPdfCustomerId] = useState<string>("");
   const [pdfLineIncluded, setPdfLineIncluded] = useState<Record<string, boolean>>({});
+  const [pdfLineEdits, setPdfLineEdits] = useState<Record<string, string>>({});
+  const [editingPdfLineId, setEditingPdfLineId] = useState<string | null>(null);
   const [pdfSelectionInitialized, setPdfSelectionInitialized] = useState(false);
   const [pbComment, setPbComment] = useState("");
   const [commentTouched, setCommentTouched] = useState(false);
@@ -791,6 +794,11 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
     pdfCustomerState,
   );
 
+  const pdfCustomerBirthDate = pdfCustomer
+    ? (pdfCustomer.birth_year ?? pdfCustomer.birthYear ?? "")
+        .replace(/\D/g, "")
+        .slice(-6)
+    : "";
   const pdfCustomerIndex = pdfCustomer
     ? customers.findIndex((customer) => customer.id === pdfCustomer.id)
     : -1;
@@ -940,15 +948,107 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   function handleSendMail() {
     setActionMessage("메일 전송은 다음 단계에서 연결됩니다.");
   }
+  async function handleSendPdfToCustomer() {
+    if (!pdfCustomer?.id) {
+      setActionMessage("전송할 고객을 찾을 수 없습니다.");
+      return;
+    }
 
-  useEffect(() => {
-    if (!commentTouched) return;
-    const id = window.setTimeout(() => {
-      void savePbComment(pbComment);
-    }, 600);
-    return () => window.clearTimeout(id);
-  }, [commentTouched, pbComment]);
+    const element = document.getElementById("market-report-pdf");
 
+    if (!element) {
+      setActionMessage("PDF 미리보기 영역을 찾을 수 없습니다.");
+      return;
+    }
+
+    try {
+      setSendingCustomerMail(true);
+      setActionMessage("PDF 생성 중...");
+
+      await document.fonts.ready;
+
+      const customerName =
+        pdfCustomer.name || pdfCustomer.fallbackName || "고객";
+
+      const fileName = `${customerName}_시황보고서.pdf`;
+
+      // 현재 PDF 미리보기 DOM을 그대로 복제
+      const clonedElement = element.cloneNode(true) as HTMLElement;
+
+      // textarea 등 편집 상태가 있으면 현재 값을 실제 HTML에 반영
+      const originalTextareas =
+        element.querySelectorAll<HTMLTextAreaElement>("textarea");
+
+      const clonedTextareas =
+        clonedElement.querySelectorAll<HTMLTextAreaElement>("textarea");
+
+      originalTextareas.forEach((textarea, index) => {
+        const clonedTextarea = clonedTextareas[index];
+
+        if (!clonedTextarea) return;
+
+        const replacement = document.createElement("div");
+        replacement.textContent = textarea.value;
+        replacement.className = textarea.className;
+        replacement.setAttribute(
+          "style",
+          textarea.getAttribute("style") ?? "",
+        );
+
+        clonedTextarea.replaceWith(replacement);
+      });
+
+      // 현재 페이지에 적용된 스타일시트 수집
+      const styles = Array.from(document.styleSheets)
+        .map((sheet) => {
+          try {
+            return Array.from(sheet.cssRules)
+              .map((rule) => rule.cssText)
+              .join("\n");
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      const response = await fetch("/api/send-report-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerId: pdfCustomer.id,
+          subject: `${customerName} 고객님 오늘의 시황 보고서`,
+          fileName,
+          html: clonedElement.outerHTML,
+          styles,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          typeof result?.error === "string"
+            ? result.error
+            : "메일 전송에 실패했습니다.",
+        );
+      }
+
+      setActionMessage(
+        `${customerName} 고객님께 시황 보고서를 전송했습니다.`,
+      );
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : "PDF 생성 또는 메일 전송 중 오류가 발생했습니다.",
+      );
+    } finally {
+      setSendingCustomerMail(false);
+    }
+  }
   const activeIncluded = included[audience];
   const usReport = reports.us;
   const krReport = reports.kr;
@@ -1244,13 +1344,60 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setPdfPreviewOpen(false)}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-black text-slate-600 hover:bg-slate-50"
-              >
-                닫기
-              </button>
+              <div className="flex items-center gap-2">
+
+                <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => movePdfCustomer(-1)}
+                    disabled={customers.length <= 1}
+                    className="flex h-full w-8 items-center justify-center rounded-l-lg text-sm font-black text-slate-500 transition hover:bg-slate-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30"
+                    aria-label="이전 고객"
+                  >
+                    &lt;
+                  </button>
+
+                  <span className="min-w-[90px] px-2 text-center text-xs font-semibold text-slate-700">
+                    {pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"}
+                    {pdfCustomerBirthDate ? ` (${pdfCustomerBirthDate})` : ""}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => movePdfCustomer(1)}
+                    disabled={customers.length <= 1}
+                    className="flex h-full w-8 items-center justify-center rounded-r-lg text-sm font-black text-slate-500 transition hover:bg-slate-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30"
+                    aria-label="다음 고객"
+                  >
+                    &gt;
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendPdfToCustomer}
+                  disabled={sendingCustomerMail}
+                  className="h-9 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+                >
+                  {sendingCustomerMail ? "PDF 생성 · 메일 전송 중..." : `${pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"} 고객 메일 전송`}
+                </button>
+
+                <button
+                  type="button"
+                  className="h-9 rounded-lg border border-blue-200 bg-blue-50 px-4 text-xs font-black text-blue-700 transition hover:bg-blue-100"
+                >
+                  전체고객 메일 전송
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPdfPreviewOpen(false)}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 hover:bg-slate-50"
+                >
+                  닫기
+                </button>
+
+              </div>
             </div>
 
             <div className="flex min-h-0 flex-1 items-stretch overflow-hidden">
@@ -1312,9 +1459,57 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                                         className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
                                       />
 
-                                      <span className="min-w-0 text-[11px] font-semibold leading-4 text-slate-700">
-                                        {line.label}
-                                      </span>
+                                      <div className="flex min-w-0 flex-1 items-start gap-2">
+                                        {editingPdfLineId === line.id ? (
+                                          <textarea
+                                            autoFocus
+                                            value={pdfLineEdits[line.id] ?? line.text}
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                            }}
+                                            onChange={(event) =>
+                                              setPdfLineEdits((current) => ({
+                                                ...current,
+                                                [line.id]: event.target.value,
+                                              }))
+                                            }
+                                            onBlur={() => setEditingPdfLineId(null)}
+                                            onKeyDown={(event) => {
+                                              if (event.key === "Escape") {
+                                                setEditingPdfLineId(null);
+                                              }
+
+                                              if (event.key === "Enter" && !event.shiftKey) {
+                                                event.preventDefault();
+                                                setEditingPdfLineId(null);
+                                              }
+                                            }}
+                                            rows={2}
+                                            className="min-w-0 flex-1 resize-none rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold leading-4 text-slate-700 outline-none focus:border-blue-400"
+                                          />
+                                        ) : (
+                                          <>
+                                            <span className="min-w-0 flex-1 text-[11px] font-semibold leading-4 text-slate-700">
+                                              {pdfLineEdits[line.id] ?? line.label}
+                                            </span>
+
+                                            <button
+                                              type="button"
+                                              onClick={(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                setEditingPdfLineId(line.id);
+                                              }}
+                                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-[13px] text-slate-400 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                              aria-label="문구 수정"
+                                              title="문구 수정"
+                                            >
+                                              ✎
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
                                     </label>
                                   ))}
                                 </div>
@@ -1336,6 +1531,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                 <div className="flex w-full min-w-[794px] justify-start px-[24px]">
 
                   <div
+                    id="market-report-pdf"
                     className="box-border h-[1123px] w-[794px] shrink-0 origin-top overflow-hidden bg-white shadow-xl"
                     style={{
                       fontFamily: "Arial, Pretendard, sans-serif",
@@ -1363,31 +1559,9 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                               {getPdfTodayTitle()}
                             </h1>
 
-                            <div className="mt-2 flex items-center gap-2 text-slate-500">
-                              <button
-                                type="button"
-                                onClick={() => movePdfCustomer(-1)}
-                                disabled={customers.length <= 1}
-                                className="flex h-6 w-6 items-center justify-center rounded-md text-[14pt] leading-none transition hover:bg-slate-100 hover:text-blue-700 disabled:cursor-default disabled:opacity-30"
-                                aria-label="이전 고객"
-                              >
-                                &lt;
-                              </button>
-
-                              <p className="min-w-[120px] text-center font-normal">
-                                {pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"} 고객님
-                              </p>
-
-                              <button
-                                type="button"
-                                onClick={() => movePdfCustomer(1)}
-                                disabled={customers.length <= 1}
-                                className="flex h-6 w-6 items-center justify-center rounded-md text-[14pt] leading-none transition hover:bg-slate-100 hover:text-blue-700 disabled:cursor-default disabled:opacity-30"
-                                aria-label="다음 고객"
-                              >
-                                &gt;
-                              </button>
-                            </div>
+                            <p className="mt-2 font-normal text-slate-500">
+                              {pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"} 고객님
+                            </p>
                           </div>
 
                           <div className="text-right">
@@ -1444,7 +1618,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
 
                           return (
                             <section key={section.id}>
-                              <div className="mb-2 flex items-baseline justify-between gap-4 border-b border-slate-200 pb-1.5">
+                              <div className="flex items-baseline justify-between gap-4">
                                 <h2 className="font-semibold tracking-tight text-slate-950" style={{ fontSize: "13pt" }}>
                                   {sectionNumber} {sectionTitle}
                                 </h2>
@@ -1453,8 +1627,27 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                                   <p className="shrink-0 font-bold text-slate-400" style={{ fontSize: "8pt" }}>
                                     ({marketMeta})
                                   </p>
-                                ) : null}
+                                ) : section.id === "holdingIssues" ? (
+          <p
+            className="shrink-0 font-normal text-slate-400"
+            style={{ fontSize: "7.5pt" }}
+          >
+            (기사 제목 클릭 시 외부 페이지로 이동합니다.)
+          </p>
+        ) : section.id === "holdingIssues" ? (<p className="shrink-0 font-normal text-slate-400" style={{ fontSize: "7.5pt" }}>(기사 제목 클릭 시 외부 페이지로 이동합니다.)</p>) : section.id === "holdingIssues" ? (<p className="shrink-0 font-normal text-slate-400" style={{ fontSize: "7.5pt" }}>(기사 제목 클릭 시 외부 페이지로 이동합니다.)</p>) : null}
                               </div>
+
+                              <div
+                                data-pdf-section-line="true"
+                                aria-hidden="true"
+                                style={{
+                                  width: "100%",
+                                  height: "1px",
+                                  backgroundColor: "#cbd5e1",
+                                  marginTop: "6px",
+                                  marginBottom: "8px",
+                                }}
+                              />
 
                               <div className="grid gap-2.5">
                                 {Array.from(new Set(selectedLines.map((line) => line.group))).map((group) => {
@@ -1466,16 +1659,34 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                                       {section.id !== "pbComment" &&
                                       section.id !== "holdingIssues" &&
                                       section.id !== "portfolioPerformance" ? (
-                                        <h3 className="mb-1 font-semibold text-slate-700" style={{ fontSize: "11pt" }}>
-                                          {group}
-                                        </h3>
+                                        <div className="mb-1 flex items-baseline gap-2">
+                                          <h3
+                                            className="font-semibold text-slate-700"
+                                            style={{ fontSize: "11pt" }}
+                                          >
+                                            {group}
+                                          </h3>
+
+                                          {group === "주요 시장 뉴스" ? (
+                                            <span
+                                              className="shrink-0 font-normal text-slate-400"
+                                              style={{ fontSize: "7.5pt" }}
+                                            >
+                                              (기사 제목 클릭 시 외부 페이지로 이동합니다.)
+                                            </span>
+                                          ) : null}
+                                        </div>
                                       ) : null}
 
                                       <div className="grid gap-1.5">
-                                        {groupLines.map((line) => (
+                                        {groupLines.map((line, lineIndex) => (
                                           <div key={line.id} className="leading-[1.9] text-slate-700" style={{ fontSize: "10pt" }}>
 
-                                            {section.id === "holdingIssues" && line.badge ? (
+                                            {section.id === "holdingIssues" &&
+                                            line.badge &&
+                                            !groupLines
+                                              .slice(0, lineIndex)
+                                              .some((previousLine) => previousLine.badge === line.badge) ? (
                                               <div className="mb-1 flex items-center gap-2">
                                                 <span className="inline-flex rounded-md border border-blue-300 bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
                                                   {line.badge}
@@ -1494,13 +1705,13 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                                                     href={line.url}
                                                     target="_blank"
                                                     rel="noreferrer"
-                                                    className="font-normal text-slate-700 underline decoration-slate-300 underline-offset-2"
+                                                    className="font-normal text-slate-700 underline decoration-slate-400 underline-offset-2"
                                                   >
-                                                    <PdfRichText text={line.text} />
+                                                    <PdfRichText text={pdfLineEdits[line.id] ?? line.text} />
                                                   </a>
                                                 ) : (
                                                   <span className="font-normal">
-                                                    <PdfRichText text={line.text} />
+                                                    <PdfRichText text={pdfLineEdits[line.id] ?? line.text} />
                                                   </span>
                                                 )}
 
