@@ -46,6 +46,7 @@ import {
   CLASS_COLORS,
   formatKrwAmount,
   normalizeAssetClass,
+  isProductHolding,
 } from "./PortfolioResultComponents";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -609,18 +610,20 @@ export default function BuySimulatorTab() {
   const router = useRouter();
 
   // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
+  // 이 탭(리밸런싱-주식)에는 "기존 포트폴리오 보유 자산 + 이 탭에서 담은 신규 매수 주식"만 표시한다.
+  // 탭3-2(리밸런싱-상품)에서 담은 펀드·랩·채권은 같은 rebalancingSellAssets에 들어있지만 여기서는 제외한다.
   const baseAssets = useMemo<PortfolioAsset[]>(() => {
     const enriched = (analysisResult?.enrichedAssets ?? []) as PortfolioAsset[];
     const priceMap = new Map(enriched.map((a) => [makeAssetKey(a), a]));
-    if (rebalancingSellAssets.length > 0) {
-      return rebalancingSellAssets
-        .filter((a) => a.name)
-        .map((a) => {
-          const e = priceMap.get(makeAssetKey(a));
-          const cp = Number(e?.current_price ?? a.current_price);
-          return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
-        });
+    const stockSide = rebalancingSellAssets.filter((a) => a.name && !isProductHolding(a));
+    if (stockSide.length > 0) {
+      return stockSide.map((a) => {
+        const e = priceMap.get(makeAssetKey(a));
+        const cp = Number(e?.current_price ?? a.current_price);
+        return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
+      });
     }
+    // 주식 쪽 리밸런싱 이력이 아직 없으면(상품만 담긴 경우 포함) 원본 포트폴리오를 그대로 보여준다.
     const src = enriched.length ? enriched : portfolioAssets;
     return src.filter((a) => a.name);
   }, [analysisResult, portfolioAssets, rebalancingSellAssets]);
@@ -728,6 +731,7 @@ export default function BuySimulatorTab() {
   // 신규 편입: current_value(KRW 확정값), 기존 증가분: deltaQty × current_price(KRW)
   const confirmedPbAmount = useMemo(() => {
     return rebalancingSellAssets.reduce((sum, a) => {
+      if (isProductHolding(a)) return sum; // 탭3-2에서 담은 상품·채권은 주식 매수 예산과 무관
       const origAsset = portfolioAssets.find((pa) => isSameAsset(pa, a.name, a.ticker));
       if (!origAsset) {
         return sum + (a.current_value ?? 0);

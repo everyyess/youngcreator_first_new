@@ -156,6 +156,14 @@ function tickerBase(t?: string | null): string {
 }
 
 // 티커 일치 OR 종목명 일치이면 동일 종목으로 판정
+// 탭3-2(리밸런싱 상품)에서 담은 항목은 ticker에 접두사를 붙여 구분한다.
+// 탭3-1은 주식 보유분만, 탭3-2는 상품·채권만 보유 자산 카드에 표시하기 위한 기준.
+export const PRODUCT_TICKER_PREFIX = "product:";
+export const BOND_TICKER_PREFIX = "bond:";
+export function isProductHolding(a: PortfolioAsset): boolean {
+  return !!a.ticker && (a.ticker.startsWith(PRODUCT_TICKER_PREFIX) || a.ticker.startsWith(BOND_TICKER_PREFIX));
+}
+
 export function isSameAsset(a: PortfolioAsset, name: string, ticker?: string | null): boolean {
   const tb = tickerBase(ticker);
   if (tb && tickerBase(a.ticker) === tb) return true;
