@@ -177,9 +177,13 @@ type HoldingIssueItem = {
   market: "kr" | "us";
   issueType: "price" | "disclosure" | "news";
   summary: string;
+  url?: string;
+  source?: string;
+  publishedAt?: string;
   holders: {
     customerId: string;
     customerName: string;
+    birthDate?: string;
   }[];
   changePercent?: number;
   previousClose?: number;
@@ -436,6 +440,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName, pbI
   const [commentTouched, setCommentTouched] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
   const [holdingIssues, setHoldingIssues] = useState<HoldingIssueItem[]>([]);
+  const [openHoldingTicker, setOpenHoldingTicker] = useState<string | null>(null);
   const [loadingHoldingIssues, setLoadingHoldingIssues] = useState(false);
   const [holdingIssuesError, setHoldingIssuesError] = useState("");
   const customerSections = buildCustomerReportSections(selectedCustomer, selectedState);
@@ -640,80 +645,193 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName, pbI
           </div>
           <div className="grid content-start gap-3">
             {audience === "managed" && activeIncluded.holdingIssues ? (() => {
-              const groupedIssues = Array.from(
-                holdingIssues.reduce((map, issue) => {
-                  const key = `${issue.market}:${issue.ticker}`;
-                  const existing = map.get(key);
+  const groupedIssues = Array.from(
+    holdingIssues.reduce((map, issue) => {
+      const key = `${issue.market}:${issue.ticker}`;
+      const existing = map.get(key);
 
-                  if (existing) {
-                    existing.issues.push(issue);
+      if (existing) {
+        existing.issues.push(issue);
 
-                    for (const holder of issue.holders) {
-                      if (
-                        !existing.holders.some(
-                          (existingHolder) =>
-                            existingHolder.customerId === holder.customerId,
-                        )
-                      ) {
-                        existing.holders.push(holder);
-                      }
-                    }
-                  } else {
-                    map.set(key, {
-                      ticker: issue.ticker,
-                      name: issue.name,
-                      market: issue.market,
-                      holders: [...issue.holders],
-                      issues: [issue],
-                    });
-                  }
+        for (const holder of issue.holders) {
+          if (
+            !existing.holders.some(
+              (existingHolder) =>
+                existingHolder.customerId === holder.customerId,
+            )
+          ) {
+            existing.holders.push(holder);
+          }
+        }
+      } else {
+        map.set(key, {
+          ticker: issue.ticker,
+          name: issue.name,
+          market: issue.market,
+          holders: [...issue.holders],
+          issues: [issue],
+        });
+      }
 
-                  return map;
-                }, new Map<string, {
-                  ticker: string;
-                  name: string;
-                  market: "kr" | "us";
-                  holders: HoldingIssueItem["holders"];
-                  issues: HoldingIssueItem[];
-                }>())
-                .values(),
+      return map;
+    }, new Map<string, {
+      ticker: string;
+      name: string;
+      market: "kr" | "us";
+      holders: HoldingIssueItem["holders"];
+      issues: HoldingIssueItem[];
+    }>())
+    .values(),
+  );
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3">
+        <h3 className="text-sm font-black text-slate-900">
+          보유 종목 주요 이슈
+        </h3>
+
+        <p className="mt-1 text-xs font-bold text-slate-500">
+          {loadingHoldingIssues
+            ? "보유 종목 주요 이슈를 확인하고 있습니다."
+            : holdingIssuesError
+              ? holdingIssuesError
+              : groupedIssues.length > 0
+                ? `${groupedIssues.length}개 보유 종목에서 주요 이슈가 감지되었습니다.`
+                : "현재 주요 이슈가 감지된 보유 종목이 없습니다."}
+        </p>
+
+        {!loadingHoldingIssues &&
+          !holdingIssuesError &&
+          groupedIssues.length > 0 ? (
+            <p className="mt-1 text-[10px] font-medium text-slate-400">
+              ※종목명에 마우스를 올리면 해당 종목 보유고객을 확인할 수 있습니다.
+            </p>
+          ) : null}
+      </div>
+
+      {!loadingHoldingIssues &&
+        !holdingIssuesError &&
+        groupedIssues.length > 0 ? (
+          <div className="grid gap-2">
+            {groupedIssues.map((group) => {
+              const groupKey = `${group.market}:${group.ticker}`;
+              const isOpen = openHoldingTicker === groupKey;
+
+              const uniqueIssues = group.issues.filter(
+                (issue, index, issues) =>
+                  Boolean(issue.summary) &&
+                  issues.findIndex(
+                    (candidate) => candidate.summary === issue.summary,
+                  ) === index,
               );
 
               return (
-                <ReportPreviewCard
-                  title="보유 종목 주요 이슈"
-                  summary={
-                    loadingHoldingIssues
-                      ? "보유 종목 주요 이슈를 확인하고 있습니다."
-                      : holdingIssuesError
-                        ? holdingIssuesError
-                        : groupedIssues.length > 0
-                          ? `${groupedIssues.length}개 보유 종목에서 주요 이슈가 감지되었습니다.`
-                          : "현재 주요 이슈가 감지된 보유 종목이 없습니다."
-                  }
-                  bullets={groupedIssues.map((group) => {
-                    const holderNames = group.holders
-                      .map((holder) => holder.customerName)
-                      .filter(Boolean)
-                      .join(", ");
+                <div
+                  key={groupKey}
+                  className="flex items-start gap-3 border-b border-slate-100 py-2 last:border-b-0"
+                >
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      onMouseEnter={() => {
+                        setOpenHoldingTicker(groupKey);
 
-                    const summaries = Array.from(
-                      new Set(
-                        group.issues
-                          .map((issue) => issue.summary)
-                          .filter(Boolean),
+                        window.setTimeout(() => {
+                          setOpenHoldingTicker((current) =>
+                            current === groupKey ? null : current,
+                          );
+                        }, 3000);
+                      }}
+                      className="rounded-md border border-blue-400 bg-blue-100 px-2.5 py-1 text-xs font-black text-black transition hover:bg-blue-200"
+                    >
+                      {group.name}
+                    </button>
+
+                    {isOpen ? (
+                      <div className="absolute left-0 top-full z-30 mt-2 min-w-44 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                        <p className="mb-2 whitespace-nowrap text-[11px] font-black text-slate-500">
+                          보유 고객
+                        </p>
+
+                        <div className="grid gap-1.5">
+                          {group.holders.map((holder) => {
+                            const birthDate = (holder.birthDate ?? "")
+                              .replace(/\D/g, "")
+                              .slice(-6);
+
+                            return (
+                              <p
+                                key={holder.customerId}
+                                className="whitespace-nowrap text-xs font-bold text-slate-800"
+                              >
+                                {holder.customerName}
+                                {birthDate ? ` (${birthDate})` : ""}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="min-w-0 flex-1 pt-1">
+                    {uniqueIssues.map((issue) =>
+                      issue.url ? (
+                        <div
+                          key={`${issue.issueType}:${issue.url}:${issue.summary}`}
+                          className="mb-2 last:mb-0"
+                        >
+                          <p className="text-xs font-semibold leading-5 text-slate-700">
+                            <a
+                              href={issue.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline decoration-slate-300 underline-offset-2 transition hover:text-blue-600 hover:decoration-blue-400"
+                            >
+                              {issue.summary}
+                            </a>
+                            {(issue.source || issue.publishedAt) ? (
+                              <span className="ml-1.5 whitespace-nowrap text-[10px] font-semibold text-slate-400 no-underline">
+                                {issue.source || "출처 미상"}
+                                {issue.publishedAt
+                                  ? issue.issueType === "disclosure"
+                                    ? ` · ${issue.publishedAt
+                                        .replace(/\./g, "-")
+                                        .split("-")
+                                        .slice(1)
+                                        .join(".")}.`
+                                    : ` · ${new Intl.DateTimeFormat("ko-KR", {
+                                        timeZone: "Asia/Seoul",
+                                        month: "2-digit",
+                                        day: "2-digit",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        hour12: false,
+                                      }).format(new Date(issue.publishedAt))}`
+                                  : ""}
+                              </span>
+                            ) : null}
+                          </p>
+                        </div>
+                      ) : (
+                        <p
+                          key={`${issue.issueType}:${issue.summary}`}
+                          className="mb-1 text-xs font-semibold leading-5 text-slate-700 last:mb-0"
+                        >
+                          {issue.summary}
+                        </p>
                       ),
-                    );
-
-                    return `${group.name} · ${summaries.join(" / ")}${
-                      holderNames
-                        ? ` · 보유 고객: ${holderNames}`
-                        : ""
-                    }`;
-                  })}
-                />
+                    )}
+                  </div>
+                </div>
               );
-            })() : null}            {audience === "managed" && activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
+            })}
+          </div>
+        ) : null}
+    </div>
+  );
+})() : null}{audience === "managed" && activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
           </div>
         </div>
       </div>

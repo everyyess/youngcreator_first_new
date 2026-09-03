@@ -14,6 +14,7 @@ export interface StockNewsItem {
   preview: string;
   url: string;
   publishedAt?: string;
+  source?: string;
 }
 
 const UA =
@@ -60,7 +61,7 @@ async function fetchNaverMobileNews(code: string, category: string): Promise<Sto
     // code가 빈 문자열이면 symbol 파라미터 자체를 제외 — 빈 symbol로 API 오류 방지
     const symbolParam = code ? `&symbol=${encodeURIComponent(code)}` : '';
     const res = await withTimeout(
-      `https://m.stock.naver.com/api/news/list?category=${category}${symbolParam}&page=0&pageSize=3`,
+      `https://m.stock.naver.com/api/news/list?category=${category}${symbolParam}&page=0&pageSize=20`,
       {
         headers: {
           'User-Agent': UA,
@@ -83,7 +84,7 @@ async function fetchNaverMobileNews(code: string, category: string): Promise<Sto
       }>;
     };
     return (json.articles ?? [])
-      .slice(0, 3)
+      .slice(0, 20)
       .map((a) => {
         const rawUrl = a.url ?? a.link ?? a.articleUrl ?? '';
         const resolvedUrl = rawUrl
@@ -95,6 +96,7 @@ async function fetchNaverMobileNews(code: string, category: string): Promise<Sto
           title: cleanText(a.title ?? ''),
           preview: cleanText(a.description ?? ''),
           url: resolvedUrl,
+          source: a.officeName?.trim(),
         };
       })
       .filter((a) => a.title);
@@ -134,7 +136,7 @@ export async function fetchKoreanNews(code: string): Promise<StockNewsItem[]> {
     const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/g;
     let rowMatch: RegExpExecArray | null;
 
-    while ((rowMatch = rowPattern.exec(html)) !== null && items.length < 10) {
+    while ((rowMatch = rowPattern.exec(html)) !== null && items.length < 30) {
       const row = rowMatch[1];
 
       const titleMatch =
@@ -142,6 +144,9 @@ export async function fetchKoreanNews(code: string): Promise<StockNewsItem[]> {
 
       const dateMatch =
         /<td[^>]*class=["']date["'][^>]*>\s*([^<]+)\s*<\/td>/.exec(row);
+
+      const sourceMatch =
+        /<td[^>]*class=["'']info["''][^>]*>\s*([^<]+)\s*<\/td>/.exec(row);
 
       if (!titleMatch) continue;
 
@@ -154,6 +159,7 @@ export async function fetchKoreanNews(code: string): Promise<StockNewsItem[]> {
         preview: '',
         url: resolveNaverUrl(titleMatch[1]),
         publishedAt: dateMatch?.[1]?.trim(),
+        source: sourceMatch?.[1]?.trim(),
       });
     }
 
@@ -245,7 +251,7 @@ export async function fetchForeignNews(ticker: string): Promise<StockNewsItem[]>
 
     while (
       (match = itemPattern.exec(xml)) !== null &&
-      items.length < 10
+      items.length < 30
     ) {
       const block = match[1];
 

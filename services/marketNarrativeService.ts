@@ -731,6 +731,90 @@ function _isSimilarTitle(a: string, b: string) {
 
 // ─── Korean summary builders ──────────────────────────────────────────────
 
+function _hasInformativeUsTitle(title: string): boolean {
+  const t = title.toLowerCase().trim();
+
+  if (t.length < 18) return false;
+
+  const hasOutcome =
+    /hold|holds|held|cut|cuts|raise|raises|hike|hikes|rise|rises|rose|fall|falls|fell|drop|drops|dropped|surge|surges|jump|jumps|gain|gains|slip|slips|decline|declines|plunge|plunges|rally|rallies|beat|beats|miss|misses|higher|lower|record|forecast|guidance|warn|warns|downgrade|upgrade|approve|reject|pause|unchanged|steady|동결|인상|인하|상승|하락|급등|급락|강세|약세/.test(t);
+
+  const hasNumber =
+    /\d+(\.\d+)?%|\$\d+|\d+\s?(bp|bps|million|billion|trillion|mn|bn)/.test(t);
+
+  const hasMarketEvent =
+    /fed|fomc|powell|treasury|yield|inflation|cpi|pce|jobs|payroll|unemployment|gdp|nvidia|broadcom|apple|microsoft|amazon|meta|oil|crude|opec|s&p|nasdaq|dow|wall street/.test(t);
+
+  const isForeignOnly =
+    /\buk\b|britain|british|europe|european|china|chinese|japan|japanese/.test(t) &&
+    !/u\.?s\.?|us |s&p|nasdaq|dow|wall street|fed|federal reserve/.test(t);
+
+  const isInvestmentFeature =
+    /why .*invest|wealthy|personal finance|portfolio tips|how to invest|investing strategy/.test(t);
+
+  if (isForeignOnly || isInvestmentFeature) return false;
+
+
+  return t.length >= 30;
+}
+async function _translateUsNewsTitle(title: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) return title;
+
+  const prompt = `다음 미국 금융뉴스의 영문 제목을 자연스러운 한국어 기사 제목으로 번역하세요.
+
+규칙:
+- 원문 제목에 없는 사실, 원인, 해석을 절대 추가하지 마세요.
+- 요약하지 말고 제목에 담긴 정보를 빠짐없이 번역하세요.
+- 기업명, 인명, 수치, 상승·하락·동결 등 방향성을 정확히 유지하세요.
+- 한국 증권사 PB가 고객에게 보여주는 뉴스 제목처럼 간결하고 자연스럽게 표현하세요.
+- 번역된 제목 한 줄만 출력하세요.
+
+원문 제목: ${title}`;
+
+  try {
+    const models = [
+      "gemini-3.1-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash",
+    ] as const;
+
+    for (const model of models) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0,
+                maxOutputTokens: 120,
+              },
+            }),
+            signal: AbortSignal.timeout(12000),
+          },
+        );
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const translated =
+          data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+        if (translated) return translated;
+      } catch {
+        continue;
+      }
+    }
+
+    return title;
+  } catch {
+    return title;
+  }
+}
 function _summarizeUs(title: string, summary: string): string {
   const text = `${title} ${summary}`
     .replace(/\s+/g, " ")
@@ -919,10 +1003,19 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
   }
 
   // Score and filter
-  const scored = merged
+  const ranked = merged
     .map((item) => ({ item, score: _scoreUs(item.title, item.summary) }))
-    .filter((s) => s.score >= 4)
+    .filter((s) => _hasInformativeUsTitle(s.item.title))
     .sort((a, b) => b.score - a.score);
+
+  const primary = ranked.filter((s) => s.score >= 4);
+  const fallback = ranked.filter((s) => s.score >= 2 && s.score < 4);
+
+  const scored = [...primary];
+  for (const candidate of fallback) {
+    if (scored.length >= 3) break;
+    scored.push(candidate);
+  }
 
   if (!scored.length) {
     return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
@@ -933,7 +1026,7 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
   const summarySeen = new Set<string>();
   for (const { item } of scored) {
     if (items.length >= 5) break;
-    const summary = _summarizeUs(item.title, item.summary);
+    const summary = await _translateUsNewsTitle(item.title);
     if (
       !summary ||
       summary === "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤어요." ||
@@ -1157,7 +1250,7 @@ function topicLabel(label: string) {
 }
 
 function buildMoveSentence(move: Move, newsItems: ReportSource[], kind: "sector" | "stock"): ReportNarrativePoint {
-  const source = findMoveSource(move, newsItems);
+  const source = kind === "sector" ? findMoveSource(move, newsItems) : undefined;
   const isPositive = (move.changePercent ?? 0) >= 0;
   const directionText = kind === "sector" ? (isPositive ? "강세" : "약세") : (isPositive ? "상승" : "하락");
   const noun = kind === "sector" ? `${move.label} 업종은` : topicLabel(move.label);

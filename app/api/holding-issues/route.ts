@@ -5,6 +5,10 @@ import {
   fetchForeignNews,
   type StockNewsItem,
 } from "../stock-news/route";
+import {
+  fetchDartCached,
+  type DartDisclosure,
+} from "../dart-disclosures/route";
 
 export const runtime = "nodejs";
 
@@ -38,6 +42,7 @@ type CustomerRow = {
 type Holder = {
   customerId: string;
   customerName: string;
+  birthDate?: string;
 };
 
 type HoldingGroup = {
@@ -219,10 +224,84 @@ type NewsIssue = HoldingGroup & {
   issueType: "news";
   title: string;
   url: string;
+  source?: string;
   publishedAt?: string;
   summary: string;
 };
 
+type DisclosureIssue = HoldingGroup & {
+  issueType: "disclosure";
+  title: string;
+  url: string;
+  publishedAt: string;
+  source: "DART";
+  summary: string;
+};
+
+function getDartToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(new Date())
+    .replace(/-/g, ".");
+}
+
+async function detectDisclosureIssues(
+  holding: HoldingGroup,
+): Promise<DisclosureIssue[]> {
+  if (holding.market !== "kr") {
+    return [];
+  }
+
+  try {
+    const code = holding.ticker.replace(/\.(KS|KQ)$/i, "");
+    const data = await fetchDartCached(code);
+
+    const disclosures: DartDisclosure[] = [
+      ...data.contracts,
+      ...data.stakes,
+      ...data.insiders,
+      ...data.earnings,
+      ...data.agreements,
+    ];
+
+    const today = getDartToday();
+    const seen = new Set<string>();
+    const results: DisclosureIssue[] = [];
+
+    for (const disclosure of disclosures) {
+      if (disclosure.date !== today) continue;
+      if (seen.has(disclosure.rcpNo)) continue;
+
+      seen.add(disclosure.rcpNo);
+
+      results.push({
+        ...holding,
+        issueType: "disclosure",
+        title: disclosure.title,
+        url: disclosure.url,
+        publishedAt: disclosure.date,
+        source: "DART",
+        summary: disclosure.title,
+      });
+
+      if (results.length >= 3) {
+        break;
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.warn(
+      `[holding-issues] DART failed for ${holding.ticker}:`,
+      error,
+    );
+    return [];
+  }
+}
 const IMPORTANT_NEWS_KEYWORDS_KR = [
   "실적",
   "영업이익",
@@ -325,6 +404,21 @@ function getNewYorkDate(value: Date): string {
   }).format(value);
 }
 
+function titleMentionsHolding(holding: HoldingGroup, title: string): boolean {
+  const normalizedTitle = title.toLowerCase();
+
+  const aliases: Record<string, string[]> = {
+    NAVER: ["naver", "네이버"],
+    LG에너지솔루션: ["lg에너지솔루션", "lg엔솔"],
+  };
+
+  const candidates = aliases[holding.name] ?? [holding.name];
+
+  return candidates.some((candidate) =>
+    normalizedTitle.includes(candidate.toLowerCase()),
+  );
+}
+
 function isImportantNews(
   item: StockNewsItem,
   market: "kr" | "us",
@@ -348,6 +442,97 @@ const GEMINI_MODELS = [
   "gemini-2.5-flash",
 ] as const;
 
+async function isDirectlyRelevantHoldingNews(
+  holding: HoldingGroup,
+  item: StockNewsItem,
+): Promise<boolean> {
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey) {
+    return true;
+  }
+
+  const titleHasHoldingName = titleMentionsHolding(holding, item.title);
+
+  const prompt = `당신은 증권사 PB를 위한 보유종목 뉴스 필터입니다.
+
+보유종목: ${holding.name}
+티커: ${holding.ticker}
+기사 제목: ${item.title}
+기사 내용: ${item.preview || "없음"}
+
+이 기사가 "${holding.name}" 보유 고객에게 알려줄 만한
+해당 기업의 직접적이고 중요한 이슈인지 판단하세요.
+
+포함:
+- 해당 기업의 실적, 매출, 이익, 전망
+- 수주, 공급계약, 투자, 인수합병
+- 배당, 자사주, 주주환원
+- 경영진, 지배구조, 규제, 소송
+- 해당 기업의 사업이나 주가에 직접적인 영향을 줄 수 있는 중요한 사건
+- 기사 제목에 ${holding.name}이 직접 등장하고, 해당 기업 자체의 중요한 사건인 경우
+- 제목에 보유종목명이 직접 등장하지 않는 경우에는 해당 기업의 실적·사업·계약·투자·경영에 직접적이고 중대한 영향이 기사 내용상 명확할 때만 YES
+- 단순 수혜·피해 가능성, 업종 영향, 거래관계, 시장 전반 영향, 여러 기업 중 하나로 언급된 경우는 NO
+- 기업명은 정확히 구분하세요. 삼성전기, 삼성전자, 삼성SDS처럼 같은 그룹 또는 비슷한 이름의 다른 회사는 서로 다른 기업입니다.
+
+제외:
+- ${holding.name}이 기사에서 단순 비교 대상으로만 언급됨
+- 여러 기업을 나열하면서 이름만 잠깐 등장함
+- 경쟁사나 계열사가 기사의 실질적인 주인공이고 ${holding.name}과의 관련성이 부수적임
+- 업종이나 시장 전반 기사에서 ${holding.name}이 예시로만 등장함
+
+반드시 YES 또는 NO 중 하나만 출력하세요.`;
+
+  const requestBody = {
+    contents: [
+      {
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0,
+      maxOutputTokens: 5,
+    },
+  };
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(12000),
+        },
+      );
+
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{ text?: string }>;
+          };
+        }>;
+      };
+
+      const result =
+        data.candidates?.[0]?.content?.parts?.[0]?.text
+          ?.trim()
+          .toUpperCase();
+
+      if (result?.startsWith("YES")) return true;
+      if (result?.startsWith("NO")) return false;
+    } catch {
+      continue;
+    }
+  }
+
+  return true;
+}
 async function summarizeEnglishHoldingNews(
   holding: HoldingGroup,
   item: StockNewsItem,
@@ -599,11 +784,7 @@ async function detectNewsIssues(
 
     if (holding.market === "kr") {
       const publishedDate = normalizeKoreanNewsDate(item.publishedAt);
-
-      return (
-        publishedDate === getKoreanToday() &&
-        isImportantNews(item, "kr")
-      );
+      return publishedDate === getKoreanToday() && titleMentionsHolding(holding, item.title);
     }
 
     const publishedDate = new Date(item.publishedAt);
@@ -621,19 +802,38 @@ async function detectNewsIssues(
       isImportantNews(item, "us")
     );
   });
-
-  const candidates = dedupeNewsItems(filtered).slice(0, 3);
+  const deduped = dedupeNewsItems(filtered);
 
   if (holding.market === "kr") {
-    return candidates.map((item) => ({
-      ...holding,
-      issueType: "news" as const,
-      title: item.title,
-      url: item.url,
-      publishedAt: item.publishedAt,
-      summary: item.title,
-    }));
+    const relevanceCandidates = deduped.slice(0, 10);
+
+    const relevanceResults = await mapWithConcurrency(
+      relevanceCandidates,
+      2,
+      async (item) => ({
+        item,
+        relevant: await isDirectlyRelevantHoldingNews(
+          holding,
+          item,
+        ),
+      }),
+    );
+
+    return relevanceResults
+      .filter(({ relevant }) => relevant)
+      .slice(0, 3)
+      .map(({ item }) => ({
+        ...holding,
+        issueType: "news" as const,
+        title: item.title,
+        url: item.url,
+        source: item.source,
+        publishedAt: item.publishedAt,
+        summary: item.title,
+      }));
   }
+
+  const candidates = deduped.slice(0, 3);
 
   const summarized: (NewsIssue | null)[] = await mapWithConcurrency(
     candidates,
@@ -653,6 +853,7 @@ async function detectNewsIssues(
         issueType: "news" as const,
         title: item.title,
         url: item.url,
+        source: item.source,
         publishedAt: item.publishedAt,
         summary,
       } satisfies NewsIssue;
@@ -763,6 +964,26 @@ export async function GET(request: Request) {
       ]),
     );
 
+    const { data: authProfiles, error: authProfilesError } = await supabase
+      .from("auth_profiles")
+      .select("customer_id,birth_date")
+      .in("customer_id", customerIds);
+
+    if (authProfilesError) {
+      throw new Error(authProfilesError.message);
+    }
+
+    const customerBirthDateById = new Map<string, string>(
+      (authProfiles ?? [])
+        .filter((profile) => profile.customer_id)
+        .map((profile) => [
+          String(profile.customer_id),
+          typeof profile.birth_date === "string"
+            ? profile.birth_date.trim()
+            : "",
+        ]),
+    );
+
     const groups = new Map<string, HoldingGroup>();
 
     for (const row of portfolios ?? []) {
@@ -772,6 +993,7 @@ export async function GET(request: Request) {
 
       const customerName =
         customerNameById.get(customerId) ?? "이름 없음";
+      const birthDate = customerBirthDateById.get(customerId) ?? "";
 
       const assets = Array.isArray(row.portfolio_assets)
         ? (row.portfolio_assets as PortfolioAsset[])
@@ -801,6 +1023,7 @@ export async function GET(request: Request) {
             existing.holders.push({
               customerId,
               customerName,
+              birthDate,
             });
           }
 
@@ -815,6 +1038,7 @@ export async function GET(request: Request) {
             {
               customerId,
               customerName,
+              birthDate,
             },
           ],
         });
@@ -858,12 +1082,25 @@ export async function GET(request: Request) {
 
     const newsIssues = newsDetected.flat();
 
+    const disclosureDetected = await mapWithConcurrency(
+      holdings,
+      3,
+      async (holding) => detectDisclosureIssues(holding),
+    );
+
+    const disclosureIssues = disclosureDetected.flat();
+
     console.log("[holding-issues] priceIssues:", priceIssues.length);
     console.log("[holding-issues] newsIssues:", newsIssues.length);
+    console.log(
+      "[holding-issues] disclosureIssues:",
+      disclosureIssues.length,
+    );
 
     const issues = [
       ...priceIssues,
       ...newsIssues,
+      ...disclosureIssues,
     ].sort((a, b) => {
       if (a.issueType === "price" && b.issueType !== "price") {
         return -1;
