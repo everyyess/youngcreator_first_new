@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
 
@@ -67,11 +66,11 @@ export async function POST(request: NextRequest) {
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
 
   try {
-    const resendApiKey = process.env.RESEND_API_KEY?.trim();
+    const brevoApiKey = process.env.BREVO_API_KEY?.trim();
 
-    if (!resendApiKey) {
+    if (!brevoApiKey) {
       return NextResponse.json(
-        { error: "RESEND_API_KEY가 설정되지 않았습니다." },
+        { error: "BREVO_API_KEY가 설정되지 않았습니다." },
         { status: 500 },
       );
     }
@@ -197,31 +196,51 @@ export async function POST(request: NextRequest) {
     });
 
     const pdfBuffer = Buffer.from(pdfBytes);
-
-    const resend = new Resend(resendApiKey);
-
-    const { data, error } = await resend.emails.send({
-      from: "Sodapop <onboarding@resend.dev>",
-      to: [customer.email],
-      subject,
-      html: `
-        <div style="font-family:Arial,sans-serif;line-height:1.7;color:#222;">
-          <p>${customer.name ?? "고객"} 고객님, 안녕하세요.</p>
-          <p>오늘의 시황 보고서를 보내드립니다.</p>
-          <p>첨부된 PDF를 확인해 주세요.</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: fileName,
-          content: pdfBuffer,
+    const brevoResponse = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "api-key": brevoApiKey,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: {
+          name: "Sodapop",
+          email: "everyyess@gmail.com",
         },
-      ],
+        to: [
+          {
+            email: customer.email,
+            name: customer.name ?? "고객",
+          },
+        ],
+        subject,
+        htmlContent: `
+          <div style="font-family:Arial,sans-serif;line-height:1.7;color:#222;">
+            <p>${customer.name ?? "고객"} 고객님, 안녕하세요.</p>
+            <p>오늘의 시황 보고서를 보내드립니다.</p>
+            <p>첨부된 PDF를 확인해 주세요.</p>
+          </div>
+        `,
+        attachment: [
+          {
+            name: fileName,
+            content: pdfBuffer.toString("base64"),
+          },
+        ],
+      }),
     });
 
-    if (error) {
+    const brevoResult = await brevoResponse.json().catch(() => ({}));
+
+    if (!brevoResponse.ok) {
       return NextResponse.json(
-        { error: error.message || "메일 전송에 실패했습니다." },
+        {
+          error:
+            typeof brevoResult?.message === "string"
+              ? brevoResult.message
+              : "메일 전송에 실패했습니다.",
+        },
         { status: 500 },
       );
     }
@@ -231,7 +250,7 @@ export async function POST(request: NextRequest) {
       customerId: customer.customer_id,
       customerName: customer.name,
       email: customer.email,
-      resendId: data?.id ?? null,
+      messageId: brevoResult?.messageId ?? null,
       pdfSize: pdfBuffer.length,
     });
   } catch (error) {
