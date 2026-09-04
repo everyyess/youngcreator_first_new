@@ -12,6 +12,10 @@ import { useCustomerContext, loadTaxSummaries, type PortfolioAsset } from "../Cu
 import { usePortfolioResult, HoldingsCardGrid, makeAssetKey, isProductHolding, PRODUCT_TICKER_PREFIX, BOND_TICKER_PREFIX } from "../PortfolioResultComponents";
 import { useCustomerView } from "../CustomerViewContext";
 import { parseLiquidityEntries, type LiquidityKind } from "../liquidityFields";
+import {
+  createProductRebalancingRecord,
+  upsertRebalancingHistory,
+} from "../rebalancingHistoryUtils";
 
 type BucketType = "자본증식" | "인컴창출" | "위험헷지" | "유동성" | "절세";
 type TaxType = "국내주식형" | "해외주식형" | "채권형" | "비과세연금" | "분리과세" | "소득공제";
@@ -1013,7 +1017,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, rebalancingSellAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState } = useCustomerContext();
+  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, rebalancingSellAssets, rebalancingBuyAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const portfolioData = usePortfolioResult();
   const router = useRouter();
@@ -1781,7 +1785,50 @@ const additionalInvestmentAmount = (() => {
         <button
           type="button"
           onClick={() => {
-            const tab4Path = appMode === "customer" ? "/customer-maintab/tab4" : "/consultation/tab4";
+            if (selectedProducts.length > 0) {
+              const productsForHistory = selectedProducts.map((product) => {
+                const sameBucketCount =
+                  selectedProducts.filter(
+                    (item) => item.bucket === product.bucket,
+                  ).length || 1;
+
+                const amountKrw =
+                  (client.investableAssets *
+                    getBucketWeight(product.bucket)) /
+                  sameBucketCount;
+
+                return {
+                  id: product.id,
+                  category: product.type,
+                  name: product.name,
+                  ticker: "",
+                  amountKrw,
+                };
+              });
+
+              const historyRecord = createProductRebalancingRecord({
+                customerId: selectedCustomer,
+                baseAssets:
+                  rebalancingBuyAssets.length > 0
+                    ? rebalancingBuyAssets
+                    : portfolioAssets,
+                products: productsForHistory,
+              });
+
+              updateSharedUiState({
+                tab3: {
+                  rebalancingHistory: upsertRebalancingHistory(
+                    sharedUiState.tab3?.rebalancingHistory ?? [],
+                    historyRecord,
+                  ),
+                },
+              });
+            }
+
+            const tab4Path =
+              appMode === "customer"
+                ? "/customer-maintab/tab4"
+                : "/consultation/tab4";
             router.push(tab4Path);
           }}
           disabled={isCustomerView}

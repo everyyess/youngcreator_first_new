@@ -36,6 +36,10 @@ import { useCustomerView } from "./CustomerViewContext";
 import { WeeklyTopPicksCard } from "./WeeklyTopPicksCard";
 import { AiStockPicksCard } from "./AiStockPicksCard";
 import { formatLocalTickerName } from "./tickerUtils";
+import {
+  createStockRebalancingRecord,
+  upsertRebalancingHistory,
+} from "./rebalancingHistoryUtils";
 import { parseKoreanNumber } from "@/lib/portfolioLogic";
 import {
   calcFinancialIncomeSummary,
@@ -1081,6 +1085,38 @@ export default function BuySimulatorTab() {
 
       if (result) {
         confirmRebalancingBuy();
+
+
+        const historyRecord = createStockRebalancingRecord({
+
+          customerId: selectedCustomer,
+
+          beforeAssets: portfolioRef.current,
+
+          afterAssets: mergedAssets,
+
+          usdKrwRate: usdKrwRateRef.current,
+
+        });
+
+
+        updateSharedUiState({
+
+          tab3: {
+
+            rebalancingHistory: upsertRebalancingHistory(
+
+              sharedUiState.tab3?.rebalancingHistory ?? [],
+
+              historyRecord,
+
+            ),
+
+          },
+
+        });
+
+
         setNewPortfolioAnalysisResult(result);
 
         // enrichedAssets의 dividendYield를 mergedAssets에 반영 → PensionTaxPanel 연동

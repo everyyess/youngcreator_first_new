@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { History, PackageCheck, RefreshCcw } from "lucide-react";
 import BuySimulatorTab from "../BuySimulatorTab";
 import ProductMatchingTab from "../tab5/page";
+import RebalancingHistoryTab from "../RebalancingHistoryTab";
 import { useCustomerContext } from "../CustomerContext";
 
 type InnerTab = "stock-rebalancing" | "product-rebalancing" | "rebalancing-history";
@@ -57,7 +58,7 @@ export default function Tab3Page() {
 
       {activeInnerTab === "stock-rebalancing" && <BuySimulatorTab />}
       {activeInnerTab === "product-rebalancing" && <ProductMatchingTab />}
-      {activeInnerTab === "rebalancing-history" && null}
+      {activeInnerTab === "rebalancing-history" && <RebalancingHistoryTab />}
     </>
   );
 }

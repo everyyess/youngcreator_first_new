@@ -19,7 +19,7 @@ import {
   formatChangeDate, formatUpdatedAt, getStoredSelectedCustomerId, irregularIncomeDisplay,
   loadAnalysisResult, loadPortfolioAssets, savePortfolioAssets,
   loadRebalancingState, saveRebalancingState, saveRebalancingBuyAssets,
-  loadSellHistory, saveSellHistory,
+  loadSellHistory, saveSellHistory, saveBuySimUncheckedTickers,
   loadNewAnalysisResult, saveNewAnalysisResult,
   loadTaxSummaries, saveTaxSummaryToDb,
   loadProductSelections, saveProductSelections,
@@ -766,8 +766,41 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       setProductSelectionsMap(prev => ({ ...prev, [customerId]: productIds }));
       setProductSelectionsLoadedMap(prev => ({ ...prev, [customerId]: true }));
 
+      // 새로고침 직전 작업 중이던 TAB3 상태 복원
+      const tab3Draft = readTab3Draft(customerId);
+
+      if (Array.isArray(tab3Draft.rebalancingSellAssets)) {
+        setRebalancingSellMap(prev => ({
+          ...prev,
+          [customerId]: tab3Draft.rebalancingSellAssets as PortfolioAsset[],
+        }));
+      }
+
+      if (Array.isArray(tab3Draft.rebalancingBuyAssets)) {
+        setRebalancingBuyMap(prev => ({
+          ...prev,
+          [customerId]: tab3Draft.rebalancingBuyAssets as PortfolioAsset[],
+        }));
+      }
+
+      if (Array.isArray(tab3Draft.productSelectedIds)) {
+        setProductSelectionsMap(prev => ({
+          ...prev,
+          [customerId]: tab3Draft.productSelectedIds as string[],
+        }));
+      }
+
+      if (Array.isArray(tab3Draft.pbOrderRows)) {
+        setPbOrderRowsMap(prev => ({
+          ...prev,
+          [customerId]: tab3Draft.pbOrderRows as PbOrderRow[],
+        }));
+      }
+
       setBuySimUncheckedTickersMap(prev => ({ ...prev, [customerId]: uncheckedTickers }));
       setPensionIsaRestrictedMap(prev => ({ ...prev, [customerId]: isaRestricted }));
+
+
 
       // 세금 요약 + 신규 포트폴리오 자산 → localStorage 복원 (고객별 격리)
       // ※ 이벤트보다 먼저 localStorage를 기록해야 PensionTaxPanel이 올바른 데이터를 읽음
@@ -814,7 +847,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     });
 
     return () => { cancelled = true; };
-  }, [selectedCustomer, isMounted]); // isMounted 포함: 마운트 후 올바른 고객 ID로 첫 로드 보장
+  }, [selectedCustomer, isMounted, customerProfiles]); // 고객 목록 로드 후에도 DB 상태 복원 재시도
 
   // ── 고객 전환 또는 분석 결과 변경 시 localStorage 동기화 ─────────────────────
   // usePortfolioResult 훅이 localStorage에서 읽으므로, 선택 고객의 결과를 항상 반영해야 한다
@@ -831,6 +864,37 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
     } catch {}
   }, [selectedCustomer, analysisResultMap, isMounted]);
+
+
+
+  // ── PORTFOLIO DIRECT AUTOSAVE ───────────────────────────────────────────
+  // PDF/CSV/수기 입력 등 어떤 경로로 portfolioAssetsMap이 바뀌더라도
+  // 고객별 Supabase portfolio_assets에 즉시 저장한다.
+  // 최초 DB 로드가 끝난 뒤에만 실행하여 빈 초기값 덮어쓰기를 방지한다.
+  useEffect(() => {
+    const customerId = selectedCustomer;
+
+    if (!customerId) return;
+    if (!portfolioLoadedMap[customerId]) return;
+
+    const assets = portfolioAssetsMap[customerId];
+    if (!Array.isArray(assets)) return;
+
+    const timer = window.setTimeout(() => {
+      void savePortfolioAssets(customerId, assets).catch((error) => {
+        console.error("Portfolio direct autosave failed", {
+          customerId,
+          error,
+        });
+      });
+    }, 100);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    selectedCustomer,
+    portfolioAssetsMap,
+    portfolioLoadedMap,
+  ]);
 
   // ── 리밸런싱 상태 변경 즉시 저장 (매도→rebalancing_state, 매수→new_analysis_results 분리 저장)
   useEffect(() => {
@@ -1037,8 +1101,18 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const setRebalancingSellAssets = useCallback((assets: PortfolioAsset[]) => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
+    if (!cid) return;
+
     setRebalancingSellMap(prev => ({ ...prev, [cid]: assets }));
+    writeTab3Draft(cid, { rebalancingSellAssets: assets });
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+
+    void saveRebalancingState(cid, assets).catch((error) => {
+      console.error("Failed to immediately save rebalancing sell assets", {
+        customerId: cid,
+        error,
+      });
+    });
   }, []); // stable
 
   const confirmRebalancingSell = useCallback(() => {
@@ -1047,7 +1121,16 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     const snap = (rebalancingSellMapRef.current[cid] ?? []).map(a => ({ ...a }));
     const confirmedOperatingAssetsAfterSell = sumPortfolioCurrentValue(snap);
     // 매도 확정 시 매도 후 잔여 자산을 TAB3 매수 초기값으로 복사
-    setRebalancingBuyMap(prev => ({ ...prev, [cid]: snap.map(a => ({ ...a })) }));
+    const nextBuyAssets = snap.map(a => ({ ...a }));
+    setRebalancingBuyMap(prev => ({ ...prev, [cid]: nextBuyAssets }));
+
+    void saveRebalancingBuyAssets(cid, nextBuyAssets).catch((error) => {
+      console.error("Failed to save confirmed sell snapshot", {
+        customerId: cid,
+        error,
+      });
+    });
+
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
     updateHeaderAssetSummary(cid, (current) => ({ ...current, confirmedOperatingAssetsAfterSell, confirmedOperatingAssetsAfterBuy: null, confirmedBuyAmount: null }));
   }, []); // stable — Ref 기반, 의존성 없음
@@ -1060,8 +1143,18 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const setRebalancingBuyAssets = useCallback((assets: PortfolioAsset[]) => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
+    if (!cid) return;
+
     setRebalancingBuyMap(prev => ({ ...prev, [cid]: assets }));
+    writeTab3Draft(cid, { rebalancingBuyAssets: assets });
     setRebalancingDirtyMap(prev => ({ ...prev, [cid]: true }));
+
+    void saveRebalancingBuyAssets(cid, assets).catch((error) => {
+      console.error("Failed to immediately save rebalancing buy assets", {
+        customerId: cid,
+        error,
+      });
+    });
   }, []); // stable
 
   const confirmRebalancingBuy = useCallback(() => {
@@ -1120,8 +1213,21 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const setProductSelectedIds = useCallback((ids: string[]) => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
+    if (!cid) return;
+
     setProductSelectionsMap(prev => ({ ...prev, [cid]: ids }));
+    writeTab3Draft(cid, { productSelectedIds: ids });
     setProductSelectionsDirtyMap(prev => ({ ...prev, [cid]: true }));
+
+    void Promise.all([
+      saveProductSelections(cid, ids),
+      saveProductSelectionsToNar(cid, ids),
+    ]).catch((error) => {
+      console.error("Failed to immediately save product selections", {
+        customerId: cid,
+        error,
+      });
+    });
   }, []); // stable
 
   const saveTaxSummaryFn = useCallback((type: 'current' | 'new', summary: unknown) => {
@@ -1212,6 +1318,37 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       return { ...prev, [cid]: [...pair] };
     });
   }, []);
+  const tab3DraftStorageKey = (cid: CustomerId) =>
+    `sodapop-tab3-draft-${cid}`;
+
+  const readTab3Draft = (cid: CustomerId): Record<string, unknown> => {
+    if (typeof window === "undefined" || !cid) return {};
+    try {
+      const raw = window.localStorage.getItem(tab3DraftStorageKey(cid));
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object"
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const writeTab3Draft = (
+    cid: CustomerId,
+    patch: Record<string, unknown>,
+  ) => {
+    if (typeof window === "undefined" || !cid) return;
+    try {
+      const current = readTab3Draft(cid);
+      window.localStorage.setItem(
+        tab3DraftStorageKey(cid),
+        JSON.stringify({ ...current, ...patch }),
+      );
+    } catch {}
+  };
+
 
   const setBuySimPersistedState = useCallback((items: BuySimTickerItem[], sig: string) => {
     const cid = selectedCustomerRef.current;
@@ -1221,7 +1358,16 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   const setBuySimUncheckedTickersFn = useCallback((tickers: string[]) => {
     const cid = selectedCustomerRef.current;
+    if (!cid) return;
+
     setBuySimUncheckedTickersMap(prev => ({ ...prev, [cid]: tickers }));
+
+    void saveBuySimUncheckedTickers(cid, tickers).catch((error) => {
+      console.error("Failed to immediately save buy simulator selections", {
+        customerId: cid,
+        error,
+      });
+    });
   }, []);
 
   const setPensionIsaRestrictedFn = useCallback((v: boolean) => {
@@ -1231,7 +1377,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   const setPbOrderRows = useCallback((rows: PbOrderRow[]) => {
     const cid = selectedCustomerRef.current;
+    if (!cid) return;
+
     setPbOrderRowsMap(prev => ({ ...prev, [cid]: rows }));
+    writeTab3Draft(cid, { pbOrderRows: rows });
     updateSharedUiState({ tab3: { pbOrderRows: rows } });
   }, [updateSharedUiState]);
 
