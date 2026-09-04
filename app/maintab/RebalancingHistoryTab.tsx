@@ -11,6 +11,7 @@ import {
 import {
   useCustomerContext,
   type RebalancingHistoryRecord,
+  type RebalancingHistoryItem,
   type RebalancingPortfolioSnapshot,
 } from "./CustomerContext";
 
