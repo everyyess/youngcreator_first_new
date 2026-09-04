@@ -510,3 +510,80 @@ export function computeTA(
     gradeEmoji,
   };
 }
+
+
+// ── 지지선/저항선 ─────────────────────────────────────────────────
+// 방법론: 스윙 고점/저점(좌우 K개 봉보다 극값) 탐지 → 비슷한 가격대(gap% 이내)
+// 끼리 클러스터링 → 터치 횟수 2회 이상인 구간만 채택. 국내 개인투자자
+// 커뮤니티에서 통용되는 "고점·저점 2개 이상 연결" 방식을 수치화한 것.
+
+export interface SupportResistanceLevel {
+  price: number;
+  touches: number;
+  type: "support" | "resistance";
+}
+
+function findSwingPoints(
+  values: number[],
+  k: number,
+  mode: "high" | "low",
+): number[] {
+  const indices: number[] = [];
+  for (let i = k; i < values.length - k; i++) {
+    let isSwing = true;
+    for (let j = i - k; j <= i + k; j++) {
+      if (j === i) continue;
+      if (mode === "high" && values[j] >= values[i]) { isSwing = false; break; }
+      if (mode === "low" && values[j] <= values[i]) { isSwing = false; break; }
+    }
+    if (isSwing) indices.push(i);
+  }
+  return indices;
+}
+
+export function computeSupportResistance(
+  highs: number[],
+  lows: number[],
+  currentPrice: number,
+  k = 5,
+  gapPct = 1.5,
+  minTouches = 2,
+  maxLevelsEachSide = 2,
+): SupportResistanceLevel[] {
+  const swingHighIdx = findSwingPoints(highs, k, "high");
+  const swingLowIdx = findSwingPoints(lows, k, "low");
+
+  const cluster = (prices: number[]): { price: number; touches: number }[] => {
+    const sorted = [...prices].sort((a, b) => a - b);
+    const clusters: { sum: number; count: number }[] = [];
+    for (const p of sorted) {
+      const last = clusters[clusters.length - 1];
+      if (last && Math.abs(p - last.sum / last.count) / (last.sum / last.count) * 100 <= gapPct) {
+        last.sum += p;
+        last.count += 1;
+      } else {
+        clusters.push({ sum: p, count: 1 });
+      }
+    }
+    return clusters
+      .filter((c) => c.count >= minTouches)
+      .map((c) => ({ price: c.sum / c.count, touches: c.count }));
+  };
+
+  const resistanceClusters = cluster(swingHighIdx.map((i) => highs[i]))
+    .filter((c) => c.price > currentPrice)
+    .sort((a, b) => a.price - b.price)
+    .slice(0, maxLevelsEachSide);
+
+  const supportClusters = cluster(swingLowIdx.map((i) => lows[i]))
+    .filter((c) => c.price < currentPrice)
+    .sort((a, b) => b.price - a.price)
+    .slice(0, maxLevelsEachSide);
+
+  const levels: SupportResistanceLevel[] = [
+    ...resistanceClusters.map((c) => ({ ...c, type: "resistance" as const })),
+    ...supportClusters.map((c) => ({ ...c, type: "support" as const })),
+  ];
+
+  return levels;
+}
