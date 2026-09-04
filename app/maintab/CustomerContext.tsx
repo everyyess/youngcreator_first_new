@@ -694,8 +694,8 @@ function customerOwnerPayload(scope?: CustomerOwnerScope | string, pbId?: string
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyCustomerOwnerFilter(query: any, scope?: CustomerOwnerScope | string, pbId?: string) {
   const owner = normalizeCustomerOwnerScope(scope, pbId);
-  if (owner.pbId?.trim()) return query.eq("pb_id", owner.pbId.trim());
   if (owner.pbEmployeeId?.trim()) return query.eq("pb_employee_id", owner.pbEmployeeId.trim());
+  if (owner.pbId?.trim()) return query.eq("pb_id", owner.pbId.trim());
   return query;
 }
 

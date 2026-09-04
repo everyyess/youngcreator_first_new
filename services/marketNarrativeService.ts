@@ -473,8 +473,8 @@ async function _fetchAlphaVantageNews(reportDate: string): Promise<{ items: RawN
   const apiKey = process.env.ALPHA_VANTAGE_API_KEY?.trim();
   if (!apiKey) return { items: [], error: "ALPHA_VANTAGE_API_KEY 미설정" };
   try {
-    const timeFrom = reportDate.replace(/-/g, "") + "T0000";
-    const timeTo = addDaysIso(reportDate, 1).replace(/-/g, "") + "T0600";
+    const timeFrom = addDaysIso(reportDate, -1).replace(/-/g, "") + "T1800";
+    const timeTo = addDaysIso(reportDate, 1).replace(/-/g, "") + "T1000";
     const url = new URL("https://www.alphavantage.co/query");
     ([["function", "NEWS_SENTIMENT"], ["topics", "financial_markets,economy_macro,earnings,ipo,mergers_and_acquisitions"],
     ["time_from", timeFrom], ["time_to", timeTo], ["sort", "RELEVANCE"], ["limit", "50"], ["apikey", apiKey],
@@ -520,7 +520,12 @@ async function _fetchFinnhubNews(reportDate: string): Promise<{ items: RawNewsIt
       .filter((item) => {
         const ts = Number(item.datetime);
         if (!Number.isFinite(ts)) return false;
-        return dateInTimeZone(new Date(ts * 1000).toISOString(), "America/New_York") === reportDate;
+
+        const publishedAt = new Date(ts * 1000);
+        const targetEnd = new Date(`${addDaysIso(reportDate, 1)}T06:00:00Z`);
+        const targetStart = new Date(targetEnd.getTime() - 36 * 60 * 60 * 1000);
+
+        return publishedAt >= targetStart && publishedAt <= targetEnd;
       })
       .map((item) => ({
         title: String(item.headline || ""),
