@@ -268,31 +268,85 @@ export async function getMarketReportSnapshot(market: MarketReportMarket): Promi
   return { report: existing || emptyReport(market, reportDate, "pending", scheduledPendingMessage(market)) };
 }
 
-export async function listMarketReports(markets: MarketReportMarket[] = ["us", "kr"]): Promise<{ reports: MarketReport[]; error?: string }> {
+export async function listMarketReports(
+  markets: MarketReportMarket[] = ["us", "kr"],
+): Promise<{ reports: MarketReport[]; error?: string }> {
   const supabase = getSupabaseAdmin();
   const fallback = markets.map((market) => emptyReport(market));
-  if (!supabase) return { reports: fallback, error: "SUPABASE_SERVICE_ROLE_KEY가 설정되지 않았습니다." };
 
-  const reportDates = markets.map((market) => getDefaultReportDate(market));
+  if (!supabase) {
+    return {
+      reports: fallback,
+      error: "SUPABASE_SERVICE_ROLE_KEY가 설정되지 않았습니다.",
+    };
+  }
+
+  const reportDates = markets.map((market) =>
+    getDefaultReportDate(market),
+  );
+
   const { data, error } = await supabase
     .from(REPORT_TABLE)
-    .select("market, report_date, generated_at, data_as_of, generation_status, generation_type, title, summary, sections, pb_comment, error_message")
+    .select(
+      "market, report_date, generated_at, data_as_of, generation_status, generation_type, title, summary, sections, pb_comment, error_message",
+    )
     .in("market", markets)
     .in("report_date", reportDates);
 
-  if (error) return { reports: fallback, error: error.message };
+  if (error) {
+    return {
+      reports: fallback,
+      error: error.message,
+    };
+  }
 
   const rows = (data || []) as MarketReportRow[];
-  const reports = markets.map((market) => {
-    const reportDate = getDefaultReportDate(market);
-    const found = rows.find((row) => row.market === market && row.report_date === reportDate);
-    if (!isReportGenerationTimeReached(market)) {
-      const pending = emptyReport(market, reportDate, "pending", scheduledPendingMessage(market));
-      pending.pbComment = found?.pb_comment || "";
-      return pending;
-    }
-    return found ? rowToReport(found) : emptyReport(market, reportDate, "pending", scheduledPendingMessage(market));
-  });
+
+  const reports = await Promise.all(
+    markets.map(async (market) => {
+      const reportDate = getDefaultReportDate(market);
+
+      const found = rows.find(
+        (row) =>
+          row.market === market &&
+          row.report_date === reportDate,
+      );
+
+      if (!isReportGenerationTimeReached(market)) {
+        const pending = emptyReport(
+          market,
+          reportDate,
+          "pending",
+          scheduledPendingMessage(market),
+        );
+
+        pending.pbComment = found?.pb_comment || "";
+
+        return pending;
+      }
+
+      if (found?.generation_status === "success") {
+        return rowToReport(found);
+      }
+
+      /*
+       * 예정 시간이 지났는데
+       * 오늘 보고서가 없거나 이전 생성이 실패했다면
+       * 화면 조회 시 한 번 자동 복구를 시도한다.
+       *
+       * 따라서 Cron이 누락되거나 16:00 정각에
+       * KIS 데이터가 아직 준비되지 않았더라도
+       * 이후 새로고침 시 정상 생성될 수 있다.
+       */
+      const recovery = await generateMarketReport(
+        market,
+        "scheduled",
+        { forceAttempt: true },
+      );
+
+      return recovery.report;
+    }),
+  );
 
   return { reports };
 }
@@ -444,7 +498,10 @@ export async function runScheduledMarketReport(market: MarketReportMarket) {
   }
 
   const existing = await readExistingReport(market, reportDate);
-  if (existing?.generationStatus === "failed") return { report: existing };
+
+  if (existing?.generationStatus === "success") {
+    return { report: existing };
+  }
 
   const maxAttempts = market === "kr" ? 4 : 1;
   const retryDelayMs = 15_000;

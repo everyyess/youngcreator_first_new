@@ -693,17 +693,30 @@ export default function HomePage() {
                   <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
                 </button>
               ) : null}
+              <div className="relative">
+              <p className="absolute bottom-full right-0 mb-1.5 w-[calc(50%-0.25rem)] text-center text-xs font-bold text-slate-500">
+                {selectedCustomerName}{customerBirth(selectedCustomer ?? undefined) ? ` (${customerBirth(selectedCustomer ?? undefined)})` : ""}
+              </p>
+
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => enterCustomerRoom("/analysis")} className="min-h-11 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold leading-5 text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700">
-                    <span className="block whitespace-nowrap">{selectedCustomerName} 고객</span>
-                    <span className="block whitespace-nowrap">분석실 입장</span>
+                <button
+                  type="button"
+                  onClick={() => enterCustomerRoom("/analysis")}
+                  className="h-12 rounded-xl bg-blue-600 px-3 text-base font-extrabold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
+                >
+                  분석실 입장
                 </button>
-                <button type="button" onClick={openCreateForm} className="min-h-11 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-xs font-extrabold leading-5 text-blue-700 transition hover:bg-blue-100">
-                    <span className="block whitespace-nowrap">{selectedCustomerName} 고객</span>
-                    <span className="block whitespace-nowrap">상담실 입장</span>
+
+                <button
+                  type="button"
+                  onClick={openCreateForm}
+                  className="h-12 rounded-xl border border-blue-200 bg-blue-50 px-3 text-base font-extrabold text-blue-700 transition hover:bg-blue-100"
+                >
+                  상담실 입장
                 </button>
               </div>
-              <SideSection title="[전체 고객] 곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
+            </div>
+            <SideSection title="[전체 고객] 곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
               <RightPanelCalendar sessions={sessions} customers={customers} marketEvents={marketCalendarEvents} />
             </div>
           ) : null}
@@ -907,12 +920,6 @@ function SessionCard({ session, customer, expanded, onExpand, onDelete, onPreRec
           <button type="button" onClick={onDelete} className="shrink-0 rounded-lg bg-red-50 p-2 text-red-700 hover:bg-red-100"><Trash2 size={15} /></button>
         </div>
       </div>
-      {expanded && session.status === "draft" && onStart ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {onPreRecord ? <button type="button" onClick={onPreRecord} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100">사전 기록</button> : null}
-          <button type="button" onClick={onStart} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
-        </div>
-      ) : null}
     </article>
   );
 }

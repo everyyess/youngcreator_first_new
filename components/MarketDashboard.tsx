@@ -820,6 +820,24 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const [sendingCustomerMail, setSendingCustomerMail] = useState(false);
   const [sendingAllCustomerMail, setSendingAllCustomerMail] = useState(false);
   const [allMailProgress, setAllMailProgress] = useState("");
+  const [marketMailSends, setMarketMailSends] = useState<{
+    us: {
+      report_type: "us";
+      sent_at: string;
+      success_count: number;
+      failed_count: number;
+      skipped_count: number;
+    } | null;
+    kr: {
+      report_type: "kr";
+      sent_at: string;
+      success_count: number;
+      failed_count: number;
+      skipped_count: number;
+    } | null;
+  }>({ us: null, kr: null });
+
+  const [marketMailStatusLoaded, setMarketMailStatusLoaded] = useState(false);
   const [pdfCustomerId, setPdfCustomerId] = useState<string>("");
   const [pdfLineIncluded, setPdfLineIncluded] = useState<Record<string, boolean>>({});
   const [pdfLineEdits, setPdfLineEdits] = useState<Record<string, string>>({});
@@ -838,6 +856,44 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
     customers.find((customer) => customer.id === pdfCustomerId) ??
     selectedCustomer ??
     null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMarketMailStatus() {
+      try {
+        const query = pbId
+          ? `?pbId=${encodeURIComponent(pbId)}`
+          : "";
+
+        const response = await fetch(
+          `/api/report-mail-status${query}`,
+          { cache: "no-store" },
+        );
+
+        const result = await response.json();
+
+        if (!cancelled && response.ok) {
+          setMarketMailSends({
+            us: result?.sends?.us ?? null,
+            kr: result?.sends?.kr ?? null,
+          });
+        }
+      } catch (error) {
+        console.error("시황 메일링 상태 조회 실패", error);
+      } finally {
+        if (!cancelled) {
+          setMarketMailStatusLoaded(true);
+        }
+      }
+    }
+
+    loadMarketMailStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pbId]);
 
   const pdfCustomerState = pdfCustomer
     ? customerData[pdfCustomer.id] ??
@@ -1108,6 +1164,22 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
 
     const originalCustomerId = pdfCustomerId;
 
+    const reportTypesBeingSent: Array<"us" | "kr"> = [];
+
+    if (
+      activeIncluded.usMarket &&
+      reports.us?.generationStatus === "success"
+    ) {
+      reportTypesBeingSent.push("us");
+    }
+
+    if (
+      activeIncluded.krMarket &&
+      reports.kr?.generationStatus === "success"
+    ) {
+      reportTypesBeingSent.push("kr");
+    }
+
     let successCount = 0;
     const failedCustomers: string[] = [];
     const skippedCustomers: string[] = [];
@@ -1221,6 +1293,63 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
           failedCustomers.push(customerName);
         }
       }
+      const allCustomersSentSuccessfully =
+        successCount > 0 &&
+        failedCustomers.length === 0 &&
+        skippedCustomers.length === 0;
+
+      if (allCustomersSentSuccessfully && reportTypesBeingSent.length > 0) {
+        try {
+          const savedStatuses = await Promise.all(
+            reportTypesBeingSent.map(async (reportType) => {
+              const response = await fetch("/api/report-mail-status", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  pbId: pbId || null,
+                  reportType,
+                  successCount,
+                  failedCount: 0,
+                  skippedCount: 0,
+                }),
+              });
+
+              const result = await response.json();
+
+              if (!response.ok) {
+                throw new Error(
+                  typeof result?.error === "string"
+                    ? result.error
+                    : "메일링 상태 저장에 실패했습니다.",
+                );
+              }
+
+              return result?.send ?? null;
+            }),
+          );
+
+          setMarketMailSends((prev) => {
+            const next = { ...prev };
+
+            for (const saved of savedStatuses) {
+              if (saved?.report_type === "us") {
+                next.us = saved;
+              }
+
+              if (saved?.report_type === "kr") {
+                next.kr = saved;
+              }
+            }
+
+            return next;
+          });
+        } catch (error) {
+          console.error("시황 메일링 전송 이력 저장 실패", error);
+        }
+      }
+
 
       const resultParts = [`${successCount}명 성공`];
 
@@ -1247,6 +1376,68 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const activeIncluded = included;
   const usReport = reports.us;
   const krReport = reports.kr;
+
+  function formatMarketStatusDate(value?: string | null) {
+    const source = value || new Date().toLocaleDateString("en-CA", {
+      timeZone: "Asia/Seoul",
+    });
+
+    const parts = source.split("-").map(Number);
+    const date = new Date(parts[0], parts[1] - 1, parts[2]);
+
+    const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+
+    return `${parts[1]}/${parts[2]}(${weekdays[date.getDay()]})`;
+  }
+
+  function getMarketMailingState(market: "us" | "kr") {
+    const report = market === "us" ? usReport : krReport;
+    const send = marketMailSends[market];
+
+    if (
+      !report ||
+      report.generationStatus !== "success" ||
+      !report.generatedAt
+    ) {
+      return {
+        text: "생성 전",
+        className: "text-slate-400",
+      };
+    }
+
+    if (!marketMailStatusLoaded) {
+      return {
+        text: "확인 중",
+        className: "text-slate-400",
+      };
+    }
+
+    const generatedAt = new Date(report.generatedAt).getTime();
+
+    const sentAt = send?.sent_at
+      ? new Date(send.sent_at).getTime()
+      : 0;
+
+    const completed =
+      Boolean(send) &&
+      send!.success_count > 0 &&
+      send!.failed_count === 0 &&
+      send!.skipped_count === 0 &&
+      sentAt >= generatedAt;
+
+    return completed
+      ? {
+          text: "전송 완료",
+          className: "text-emerald-600",
+        }
+      : {
+          text: "미전송",
+          className: "text-red-600",
+        };
+  }
+
+  const usMailingState = getMarketMailingState("us");
+  const krMailingState = getMarketMailingState("kr");
 
   const pdfSections = pdfCustomer
     ? buildPdfSelectableSections({
@@ -1284,7 +1475,36 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   return (
     <section className="flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-black text-navy">시황 보고서 메일링</p>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+          <p className="text-sm font-black text-navy">시황 보고서 메일링</p>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
+                usMailingState.text === "전송 완료"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : usMailingState.text === "미전송"
+                    ? "border-red-200 bg-red-50 text-red-600"
+                    : "border-slate-200 bg-slate-50 text-slate-500"
+              }`}
+            >
+              {formatMarketStatusDate(usReport?.reportDate)} 미국 시황 {usMailingState.text}
+            </span>
+
+            <span
+              className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
+                krMailingState.text === "전송 완료"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : krMailingState.text === "미전송"
+                    ? "border-red-200 bg-red-50 text-red-600"
+                    : "border-slate-200 bg-slate-50 text-slate-500"
+              }`}
+            >
+              {formatMarketStatusDate(krReport?.reportDate)} 국내 시황 {krMailingState.text}
+            </span>
+          </div>
+        </div>
+
         <div className="flex items-center gap-2">
           <button
             type="button"
