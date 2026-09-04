@@ -35,6 +35,48 @@ interface Product {
   taxBucketExceptionReason?: string; // 절세 버킷인데 taxType이 절세 전용이 아닐 때만 필수 — validateTaxBucketExceptions 참고
 }
 
+
+// 리밸런싱 히스토리용 상품 카테고리
+// 펀드·랩은 투자지역이 아니라 운용사 국적 기준으로 구분한다.
+const FOREIGN_MANAGER_KEYWORDS = [
+  "루미스세일즈",
+  "피델리티",
+  "블랙록",
+  "제이피모건",
+  "JP모건",
+  "골드만삭스",
+  "모건스탠리",
+  "프랭클린템플턴",
+  "템플턴",
+  "슈로더",
+  "베어링",
+  "얼라이언스번스틴",
+  "뱅가드",
+  "핌코",
+  "PIMCO",
+];
+
+function historyProductCategory(
+  product: Product,
+  fallbackCategory: string,
+): string {
+  if (product.type !== "펀드" && product.type !== "랩어카운트") {
+    return fallbackCategory;
+  }
+
+  const manager = (product.manager ?? "").trim();
+
+  const isForeignManager = FOREIGN_MANAGER_KEYWORDS.some((keyword) =>
+    manager.toLowerCase().includes(keyword.toLowerCase()),
+  );
+
+  const region = isForeignManager ? "해외" : "국내";
+
+  return product.type === "랩어카운트"
+    ? `${region}랩`
+    : `${region}펀드`;
+}
+
 interface Client {
   riskAppetite: number; targetReturn: number; investmentPeriod: number;
   liquidityRatio: number; isTaxTarget: boolean; isHighIncomeWorker: boolean; age: number;
@@ -1797,22 +1839,66 @@ const additionalInvestmentAmount = (() => {
                     getBucketWeight(product.bucket)) /
                   sameBucketCount;
 
+                const historyCategory = (() => {
+                  // 채권은 Bond.market이 가장 정확함
+                  if (product.type === "채권") {
+                    if (product.bondRef?.market === "국내") return "국내채권";
+                    if (product.bondRef?.market === "해외") return "해외채권";
+                    return "채권";
+                  }
+
+                  // 펀드 / 랩은 상품의 투자대상 구분 사용
+                  if (product.type === "펀드" || product.type === "랩어카운트") {
+                    const prefix =
+                      product.taxType === "국내주식형"
+                        ? "국내"
+                        : product.taxType === "해외주식형"
+                          ? "해외"
+                          : "";
+
+                    if (!prefix) return product.type;
+
+                    return product.type === "랩어카운트"
+                      ? `${prefix}랩`
+                      : `${prefix}펀드`;
+                  }
+
+                  // ETF도 taxType으로 국내/해외 구분 가능한 경우 적용
+                  if (product.type === "ETF") {
+                    if (product.taxType === "국내주식형") return "국내ETF";
+                    if (product.taxType === "해외주식형") return "해외ETF";
+                  }
+
+                  return product.type;
+                })();
+
                 return {
                   id: product.id,
-                  category: product.type,
+                  category: historyCategory,
                   name: product.name,
                   ticker: "",
                   amountKrw,
                 };
               });
 
-              const historyRecord = createProductRebalancingRecord({
+              
+  const normalizedProductsForHistory = productsForHistory.map(
+    (item, index) => ({
+      ...item,
+      category: historyProductCategory(
+        selectedProducts[index],
+        item.category,
+      ),
+    }),
+  );
+
+const historyRecord = createProductRebalancingRecord({
                 customerId: selectedCustomer,
                 baseAssets:
                   rebalancingBuyAssets.length > 0
                     ? rebalancingBuyAssets
                     : portfolioAssets,
-                products: productsForHistory,
+                products: normalizedProductsForHistory,
               });
 
               updateSharedUiState({

@@ -46,8 +46,26 @@ function amountText(item: {
   return "-";
 }
 
+
+function historyTickerKey(ticker?: string | null) {
+  return (ticker ?? "")
+    .replace(/.[A-Za-z]+$/, "")
+    .trim()
+    .toUpperCase();
+}
+
 function snapshotKey(item: RebalancingPortfolioSnapshot) {
-  return `${item.name}::${item.ticker}`;
+  // 상품은 내부 id 기준 유지
+  if (item.source === "product") {
+    return `product:${item.id}`;
+  }
+
+  const ticker = historyTickerKey(item.ticker);
+
+  // 주식/ETF는 ticker가 있으면 이름을 무시
+  if (ticker) return `ticker:${ticker}`;
+
+  return `name:${item.name.trim().toLowerCase()}`;
 }
 
 function changeText(
@@ -162,13 +180,25 @@ function assetClassBadgeClass(category: string) {
     return "bg-sky-50 text-sky-600";
 
   if (value === "해외ETF")
-    return "bg-emerald-50 text-emerald-500";
+    return "bg-emerald-50 text-emerald-600";
 
   if (value === "국내채권")
-    return "bg-amber-50 text-amber-600";
+    return "bg-amber-50 text-amber-700";
 
   if (value === "해외채권")
     return "bg-orange-50 text-orange-600";
+
+  if (value === "국내펀드")
+    return "bg-violet-50 text-violet-700";
+
+  if (value === "해외펀드")
+    return "bg-fuchsia-50 text-fuchsia-700";
+
+  if (value === "국내랩")
+    return "bg-cyan-50 text-cyan-700";
+
+  if (value === "해외랩")
+    return "bg-teal-50 text-teal-700";
 
   if (value === "채권")
     return "bg-amber-50 text-amber-600";
@@ -346,6 +376,40 @@ function PortfolioCompareModal({
     });
   }, [record]);
 
+  const snapshotValueForTotal = (
+    item?: RebalancingPortfolioSnapshot,
+  ): number => {
+    if (!item) return 0;
+
+    if (
+      item.amountKrw != null &&
+      Number.isFinite(item.amountKrw)
+    ) {
+      return Math.max(0, item.amountKrw);
+    }
+
+    if (
+      item.quantity != null &&
+      Number.isFinite(item.quantity) &&
+      item.unitPriceKrw != null &&
+      Number.isFinite(item.unitPriceKrw)
+    ) {
+      return Math.max(0, item.quantity * item.unitPriceKrw);
+    }
+
+    return 0;
+  };
+
+  const beforeTotal = record.beforePortfolio.reduce(
+    (sum, item) => sum + snapshotValueForTotal(item),
+    0,
+  );
+
+  const afterTotal = record.afterPortfolio.reduce(
+    (sum, item) => sum + snapshotValueForTotal(item),
+    0,
+  );
+
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-6"
@@ -433,8 +497,7 @@ function PortfolioCompareModal({
                       }
                     >
                       <td className="whitespace-nowrap px-4 py-3">
-                        <span className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-600">
-                          {(() => {
+                        {(() => {
       const category = displayCategory(asset);
       return (
         <span
@@ -444,7 +507,6 @@ function PortfolioCompareModal({
         </span>
       );
     })()}
-                        </span>
                       </td>
 
                       <td className="px-4 py-3 font-bold text-slate-900">
@@ -452,7 +514,7 @@ function PortfolioCompareModal({
                       </td>
 
                       <td className="px-4 py-3 text-xs text-slate-500">
-                        {asset?.ticker || "-"}
+                        {asset?.source === "product" ? "-" : asset?.ticker || "-"}
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-700">
@@ -481,6 +543,30 @@ function PortfolioCompareModal({
                     </tr>
                   );
                 })}
+                <tr className="border-t-2 border-slate-300 bg-slate-50">
+                  <td
+                    colSpan={4}
+                    className="px-4 py-4 text-right text-sm font-black text-slate-800"
+                  >
+                    총 금액
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-4 text-right text-sm font-black text-slate-900">
+                    {`${Math.round(beforeTotal).toLocaleString("ko-KR")}원`}
+                  </td>
+
+                  <td className="px-4 py-4 text-center">
+                    <span className="text-xs font-bold text-slate-400">
+                      →
+                    </span>
+                  </td>
+
+                  <td className="px-4 py-4" />
+
+                  <td className="whitespace-nowrap px-4 py-4 text-right text-sm font-black text-slate-900">
+                    {`${Math.round(afterTotal).toLocaleString("ko-KR")}원`}
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -518,6 +604,70 @@ export default function RebalancingHistoryTab() {
   useEffect(() => {
     setOpenIds(records[0] ? new Set([records[0].id]) : new Set());
   }, [selectedCustomer, records[0]?.id]);
+
+  const sortedHistoryItems = (record: RebalancingHistoryRecord) => {
+    const itemValue = (item: RebalancingHistoryItem) => {
+      // 상품: 가입/해지 금액
+      if (
+        item.amountKrw != null &&
+        Number.isFinite(item.amountKrw)
+      ) {
+        return Math.abs(item.amountKrw);
+      }
+
+      // 주식: 수량 × 매매단가
+      if (
+        item.quantity != null &&
+        Number.isFinite(item.quantity) &&
+        item.unitPriceKrw != null &&
+        Number.isFinite(item.unitPriceKrw)
+      ) {
+        return Math.abs(item.quantity * item.unitPriceKrw);
+      }
+
+      return 0;
+    };
+
+    // 이번 상담에서 각 자산군별로 실제 거래된 금액 합계
+    const categoryTotals = new Map<string, number>();
+
+    for (const item of record.items) {
+      const category = item.category || "기타";
+      const value = itemValue(item);
+
+      categoryTotals.set(
+        category,
+        (categoryTotals.get(category) ?? 0) + value,
+      );
+    }
+
+    return [...record.items].sort((a, b) => {
+      const categoryA = a.category || "기타";
+      const categoryB = b.category || "기타";
+
+      // 1차: 자산군별 매매/가입/해지 금액 합계 내림차순
+      const categoryValueA = categoryTotals.get(categoryA) ?? 0;
+      const categoryValueB = categoryTotals.get(categoryB) ?? 0;
+
+      if (categoryValueA !== categoryValueB) {
+        return categoryValueB - categoryValueA;
+      }
+
+      // 2차: 같은 자산군 내 개별 거래금액 내림차순
+      const valueA = itemValue(a);
+      const valueB = itemValue(b);
+
+      if (valueA !== valueB) {
+        return valueB - valueA;
+      }
+
+      // 3차: 금액까지 같으면 종목명순
+      return a.name.localeCompare(b.name, "ko-KR", {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+  };
 
   const updateReason = (
     historyId: string,
@@ -628,18 +778,17 @@ export default function RebalancingHistoryTab() {
               {opened && (
                 <div className="border-t border-slate-100 p-5">
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
-                    <table className="min-w-[1080px] w-full text-left text-xs">
+                    <table className="min-w-[980px] w-full text-left text-xs">
                       <thead className="bg-slate-50 text-slate-500">
                         <tr>
                           <th className="px-3 py-3 font-bold">카테고리</th>
                           <th className="px-3 py-3 font-bold">종목명</th>
                           <th className="px-3 py-3 font-bold">티커</th>
-                          <th className="px-3 py-3 font-bold">거래</th>
-                          <th className="px-3 py-3 font-bold">
-                            수량
+                          <th className="w-[72px] whitespace-nowrap px-3 py-3 font-bold">
+                            거래
                           </th>
-                          <th className="px-3 py-3 font-bold">
-                            매매단가 · 가입금액
+                          <th className="min-w-[210px] px-3 py-3 font-bold">
+                            매매금액 · 가입금액
                           </th>
                           <th className="min-w-[280px] px-3 py-3 font-bold">
                             리밸런싱 근거 기록
@@ -648,7 +797,7 @@ export default function RebalancingHistoryTab() {
                       </thead>
 
                       <tbody className="divide-y divide-slate-100">
-                        {record.items.map((item) => (
+                        {sortedHistoryItems(record).map((item) => (
                           <tr key={item.id}>
                             <td className="px-3 py-3 font-semibold text-slate-600">
                               {(() => {
@@ -666,11 +815,11 @@ export default function RebalancingHistoryTab() {
                               {item.name}
                             </td>
                             <td className="px-3 py-3 text-slate-500">
-                              {item.ticker || "-"}
+                              {item.source === "product" ? "-" : item.ticker || "-"}
                             </td>
-                            <td className="px-3 py-3">
+                            <td className="whitespace-nowrap px-3 py-3">
                               <span
-                                className={`rounded-md px-2 py-1 font-bold ${
+                                className={`inline-flex whitespace-nowrap rounded-md px-2 py-1 font-bold ${
                                   item.action === "매도" ||
                                   item.action === "해지"
                                     ? "bg-red-50 text-red-600"
@@ -682,11 +831,26 @@ export default function RebalancingHistoryTab() {
                                 {item.action}
                               </span>
                             </td>
-                            <td className="px-3 py-3 font-semibold text-slate-700">
-                              {amountText(item)}
-                            </td>
-                            <td className="px-3 py-3 text-slate-600">
-                              {money(item.unitPriceKrw)}
+                            <td className="px-3 py-3">
+                              {item.source === "stock" &&
+                              item.unitPriceKrw != null &&
+                              item.quantity != null ? (
+                                <div className="whitespace-nowrap">
+                                  <div className="font-bold text-slate-800">
+                                    {money(
+                                      item.unitPriceKrw * item.quantity,
+                                    )}
+                                  </div>
+                                  <div className="mt-0.5 text-[11px] font-medium text-slate-400">
+                                    {item.quantity.toLocaleString("ko-KR")}주 ×{" "}
+                                    {money(item.unitPriceKrw)}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="whitespace-nowrap font-bold text-slate-800">
+                                  {money(item.amountKrw)}
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               <input

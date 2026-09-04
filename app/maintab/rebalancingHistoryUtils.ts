@@ -11,8 +11,22 @@ function finite(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function assetKey(asset: Pick<PortfolioAsset, "name" | "ticker">) {
-  return `${asset.name ?? ""}::${asset.ticker ?? ""}`;
+
+function historyTickerKey(ticker?: string | null) {
+  return (ticker ?? "")
+    .replace(/.[A-Za-z]+$/, "")
+    .trim()
+    .toUpperCase();
+}
+
+function assetKey(asset: PortfolioAsset) {
+  const ticker = historyTickerKey(asset.ticker);
+
+  // ticker가 있으면 이름과 무관하게 동일 종목
+  // 씨게이트/STX === seagate/STX
+  if (ticker) return `ticker:${ticker}`;
+
+  return `name:${asset.name.trim().toLowerCase()}`;
 }
 
 function isOverseas(asset: PortfolioAsset) {
@@ -23,10 +37,12 @@ function isOverseas(asset: PortfolioAsset) {
   );
 }
 
-function unitPriceKrw(asset: PortfolioAsset, usdKrwRate: number) {
-  const nativePrice = finite(asset.current_price) || finite(asset.buy_price);
-  if (!nativePrice) return null;
-  return Math.round(nativePrice * (isOverseas(asset) ? usdKrwRate : 1));
+function unitPriceKrw(asset: PortfolioAsset, _usdKrwRate: number) {
+  // PortfolioAsset의 current_price / buy_price는 이미 원화(KRW) 기준으로 저장된다.
+  // 해외자산에도 환율을 다시 곱하지 않는다.
+  const priceKrw = finite(asset.current_price) || finite(asset.buy_price);
+  if (!priceKrw) return null;
+  return Math.round(priceKrw);
 }
 
 function toSnapshot(

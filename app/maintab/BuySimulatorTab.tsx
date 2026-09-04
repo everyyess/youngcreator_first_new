@@ -475,7 +475,49 @@ function mergeBuyIntoBase(
     if (idx !== -1) {
       const ex = merged[idx];
       if (ex.amount_type === "quantity") {
-        merged[idx] = { ...ex, amount: ex.amount + (Number.isFinite(qty) && qty > 0 ? qty : 0) };
+        const addedQty =
+          Number.isFinite(qty) && qty > 0 ? qty : 0;
+
+        if (!isBond && addedQty > 0) {
+          const incomingPriceKrw =
+            row.priceCurrency === "USD" && row.currentPrice != null
+              ? row.currentPrice * usdKrwRate
+              : (row.currentPrice ?? 0);
+
+          const previousAvgPrice =
+            ex.buy_price ??
+            ex.current_price ??
+            incomingPriceKrw;
+
+          const nextQty = ex.amount + addedQty;
+
+          const nextAvgPrice =
+            incomingPriceKrw > 0 && nextQty > 0
+              ? (
+                  previousAvgPrice * ex.amount +
+                  incomingPriceKrw * addedQty
+                ) / nextQty
+              : previousAvgPrice;
+
+          merged[idx] = {
+            ...ex,
+            amount: nextQty,
+            buy_price: nextAvgPrice,
+            current_price:
+              incomingPriceKrw > 0
+                ? incomingPriceKrw
+                : ex.current_price,
+            current_value:
+              incomingPriceKrw > 0
+                ? nextQty * incomingPriceKrw
+                : ex.current_value,
+          };
+        } else {
+          merged[idx] = {
+            ...ex,
+            amount: ex.amount + addedQty,
+          };
+        }
       } else {
         merged[idx] = { ...ex, amount: ex.amount + krwTotal };
       }
@@ -537,13 +579,27 @@ function tickerBase(t?: string | null): string {
 
 // 티커 일치 OR 종목명 일치이면 동일 종목으로 판정
 function isSameAsset(a: PortfolioAsset, name: string, ticker?: string | null): boolean {
-  const tb = tickerBase(ticker);
-  if (tb && tickerBase(a.ticker) === tb) return true;
+  const assetTicker = tickerBase(a.ticker);
+  const incomingTicker = tickerBase(ticker);
+
+  // 둘 다 티커가 있으면 이름은 보지 않는다.
+  // 예: 씨게이트(STX) === seagate(STX)
+  if (assetTicker && incomingTicker) {
+    return assetTicker === incomingTicker;
+  }
+
+  // 티커가 없는 데이터만 종목명으로 비교
   return a.name.toLowerCase().trim() === name.toLowerCase().trim();
 }
 
 function makeAssetKey(a: PortfolioAsset): string {
-  return normalizeKey(a.name, a.ticker);
+  const tb = tickerBase(a.ticker);
+
+  // ticker가 있으면 종목명과 무관하게 ticker가 고유 식별자
+  if (tb) return `ticker:${tb}`;
+
+  // ticker가 없는 자산만 이름으로 구분
+  return `name:${a.name.toLowerCase().trim()}`;
 }
 
 function getEffectiveAssetPrice(a: PortfolioAsset): number {
@@ -750,12 +806,15 @@ export default function BuySimulatorTab() {
   }, [rebalancingSellAssets, portfolioAssets]);
 
   const { totalAllocated, remaining, isOverBudget } = useMemo(() => {
+    // availableInvestmentFunds에는 이미 확정 매수금액이 차감되어 있다.
+    // 따라서 여기서는 새로 입력 중인 PB 주문금액만 추가 예산 검사한다.
     const total = confirmedPbAmount + pbTotalAmount;
     const avail = availableInvestmentFunds ?? 0;
+
     return {
       totalAllocated: total,
-      remaining: avail - total,
-      isOverBudget: avail > 0 && total > avail,
+      remaining: avail - pbTotalAmount,
+      isOverBudget: avail > 0 && pbTotalAmount > avail,
     };
   }, [availableInvestmentFunds, confirmedPbAmount, pbTotalAmount]);
 
@@ -935,14 +994,40 @@ export default function BuySimulatorTab() {
 
   const confirmSellCard = useCallback(() => {
     if (!sellCardKey) return;
-    const asset = baseAssets.find((a) => makeAssetKey(a) === sellCardKey);
-    if (!asset) { setSellCardKey(null); return; }
+
+    const asset = baseAssets.find(
+      (a) => makeAssetKey(a) === sellCardKey,
+    );
+
+    if (!asset) {
+      setSellCardKey(null);
+      return;
+    }
+
     const price = getEffectiveAssetPrice(asset);
-    if (price <= 0 || asset.amount_type !== "quantity" || asset.amount <= 0) { setSellCardKey(null); return; }
-    const qty = Math.min(parseFloat(inlineSellQtyStr), asset.amount);
-    if (!Number.isFinite(qty) || qty <= 0) { setSellCardKey(null); return; }
+
+    if (
+      price <= 0 ||
+      asset.amount_type !== "quantity" ||
+      asset.amount <= 0
+    ) {
+      setSellCardKey(null);
+      return;
+    }
+
+    const qty = Math.min(
+      parseFloat(inlineSellQtyStr),
+      asset.amount,
+    );
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setSellCardKey(null);
+      return;
+    }
+
     const bp = asset.buy_price;
     const gain = bp != null ? (price - bp) * qty : 0;
+
     addSellRecord({
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: asset.name,
@@ -952,9 +1037,47 @@ export default function BuySimulatorTab() {
       buyPrice: bp,
       realizedGain: gain,
     });
+
+    // 실제 리밸런싱 포트폴리오에서도 매도 수량 차감
+    const currentBase =
+      rebalancingSellAssets.length > 0
+        ? rebalancingSellAssets
+        : baseAssets;
+
+    const updatedAssets = currentBase
+      .map((a) => {
+        if (makeAssetKey(a) !== sellCardKey) return a;
+
+        const remainingQty = Math.max(0, a.amount - qty);
+
+        return {
+          ...a,
+          amount: remainingQty,
+          current_value:
+            remainingQty > 0 ? remainingQty * price : 0,
+        };
+      })
+      .filter(
+        (a) =>
+          !(
+            makeAssetKey(a) === sellCardKey &&
+            a.amount_type === "quantity" &&
+            a.amount <= 0
+          ),
+      );
+
+    setRebalancingSellAssets(updatedAssets);
+
     setSellCardKey(null);
     setInlineSellQtyStr("");
-  }, [sellCardKey, inlineSellQtyStr, baseAssets, addSellRecord]);
+  }, [
+    sellCardKey,
+    inlineSellQtyStr,
+    baseAssets,
+    rebalancingSellAssets,
+    addSellRecord,
+    setRebalancingSellAssets,
+  ]);
 
   const updatePbRow = useCallback((id: string, patch: Partial<PbOrderRow>) => {
     const newType = "productType" in patch ? (patch.productType ?? "") : null;
@@ -1319,7 +1442,52 @@ export default function BuySimulatorTab() {
     return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
   });
   // PB 패널 항목이 있거나, 드래그앤드롭/PB버튼으로 이미 확정된 매수가 있으면 활성화
-  const canConfirm = (hasPbItems || confirmedPbAmount > 0) && !isOverBudget;
+  // 추천 카드에서 직접 매수/매도한 포트폴리오 변경도 감지
+
+  const hasPortfolioChanges = (() => {
+
+    if (rebalancingSellAssets.length === 0) return false;
+
+
+    const normalize = (assets: PortfolioAsset[]) =>
+
+      assets
+
+        .map((asset) => ({
+
+          key: makeAssetKey(asset),
+
+          amount: asset.amount,
+
+        }))
+
+        .sort((a, b) => a.key.localeCompare(b.key));
+
+
+    const before = normalize(portfolioAssets);
+
+    const after = normalize(rebalancingSellAssets);
+
+
+    if (before.length !== after.length) return true;
+
+
+    return before.some(
+
+      (item, index) =>
+
+        item.key !== after[index]?.key ||
+
+        item.amount !== after[index]?.amount,
+
+    );
+
+  })();
+
+
+const canConfirm =
+    (hasPbItems || confirmedPbAmount > 0 || hasPortfolioChanges) &&
+    !isOverBudget;
 
   // ── 렌더 ─────────────────────────────────────────────────────────────────
 
@@ -1656,12 +1824,49 @@ export default function BuySimulatorTab() {
                       if (existing) {
                         updated = base.map((a) =>
                           isSameAsset(a, dropModal.sector, dropModal.ticker)
-                            ? { ...a, amount: a.amount + dropQty, current_value: (a.amount + dropQty) * krwPrice }
+                            ? {
+                                ...a,
+                                amount: a.amount + dropQty,
+                                buy_price:
+                                  a.amount_type === "quantity" &&
+                                  a.amount > 0
+                                    ? (
+                                        (
+                                          (a.buy_price ??
+                                            a.current_price ??
+                                            krwPrice) *
+                                          a.amount
+                                        ) +
+                                        krwPrice * dropQty
+                                      ) /
+                                      (a.amount + dropQty)
+                                    : krwPrice,
+                                current_price: krwPrice,
+                                current_value:
+                                  (a.amount + dropQty) * krwPrice,
+                              }
                             : a,
                         );
                       } else {
+                        const canonicalAssetName =
+                          base.find((a) =>
+                            isSameAsset(
+                              a,
+                              dropModal.sector,
+                              dropModal.ticker,
+                            ),
+                          )?.name ??
+                          portfolioAssets.find((a) =>
+                            isSameAsset(
+                              a,
+                              dropModal.sector,
+                              dropModal.ticker,
+                            ),
+                          )?.name ??
+                          dropModal.sector;
+
                         const newAsset: PortfolioAsset = {
-                          name: dropModal.sector, ticker: dropModal.ticker,
+                          name: canonicalAssetName, ticker: dropModal.ticker,
                           asset_class: productType, productType,
                           theme: "기타", country: dropModal.isGlobal ? "미국" : "한국",
                           buy_price: krwPrice, amount: dropQty, amount_type: "quantity" as const,
@@ -2037,10 +2242,11 @@ export default function BuySimulatorTab() {
             {fmtKrwMan(totalAllocated)}
           </span>
         </div>
-        <button
+
+<button
           type="button"
           onClick={handleConfirm}
-          disabled={isConfirming || !canConfirm || isCustomerView}
+          disabled={isConfirming || !canConfirm || (appMode === "customer" && isCustomerView)}
           className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isConfirming ? (
