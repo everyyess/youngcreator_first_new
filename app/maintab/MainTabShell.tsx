@@ -1679,6 +1679,50 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
               >
                 <div className="flex flex-col gap-5">
                   {children}
+
+                  {appMode === "pb" && currentSegment === "tab4" ? (
+                    <div
+                      data-consultation-lock-exempt="true"
+                      className="mt-2 flex flex-wrap items-center justify-end gap-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => router.push("/home")}
+                        aria-label="HOME"
+                        className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-navy transition hover:border-blue-200 hover:bg-blue-50"
+                      >
+                        <Home size={17} /> HOME
+                      </button>
+
+                      {!isPreRecordMode ? (
+                        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 font-mono text-sm font-extrabold text-blue-800">
+                          {formatTimer(displayedConsultationElapsedSeconds)}
+                        </div>
+                      ) : null}
+
+                      {!isPreRecordMode ? (
+                        <button
+                          type="button"
+                          onClick={() => finishActiveConsultation(false)}
+                          disabled={!activeConsultation}
+                          className="h-10 rounded-lg bg-red-600 px-3 text-sm font-extrabold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                        >
+                          상담 종료
+                        </button>
+                      ) : null}
+
+                      {!isPreRecordMode ? (
+                        <button
+                          type="button"
+                          onClick={resumeLatestConsultation}
+                          disabled={Boolean(activeConsultation)}
+                          className="h-10 rounded-lg border border-blue-200 bg-blue-50 px-3 text-sm font-extrabold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                        >
+                          상담 재개
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </section>
             </div>
@@ -1738,7 +1782,7 @@ export function HeaderSummary({
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <p className="text-base font-extrabold text-slate-900">
             현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span>

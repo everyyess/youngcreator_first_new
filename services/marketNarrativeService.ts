@@ -830,81 +830,81 @@ function _summarizeUs(title: string, summary: string): string {
   // 미 국채금리
   if (/treasury|treasuries|10-year yield|2-year yield|30-year yield|bond yield/.test(lower)) {
     if (/highest|rise|rose|rising|surge|jump|climb/.test(lower)) {
-      return "미 국채금리가 상승하며 주식시장에 부담으로 작용했어요.";
+      return "미 국채금리가 상승하며 주식시장에 부담으로 작용했습니다.";
     }
 
     if (/fall|fell|decline|drop|lower/.test(lower)) {
-      return "미 국채금리가 하락하며 주식시장 투자심리에 영향을 미쳤어요.";
+      return "미 국채금리가 하락하며 주식시장 투자심리에 영향을 미쳤습니다.";
     }
 
-    return "미 국채금리 움직임이 미국 증시의 주요 변수로 작용했어요.";
+    return "미 국채금리 움직임이 미국 증시의 주요 변수로 작용했습니다.";
   }
 
   // 연준·금리
   if (/federal reserve|\bfed\b|fomc|powell|rate cut|rate hike|interest rate/.test(lower)) {
-    return "연준의 통화정책과 금리 전망을 둘러싼 변화가 미국 증시의 주요 변수로 부각됐어요.";
+    return "연준의 통화정책과 금리 전망을 둘러싼 변화가 미국 증시의 주요 변수로 부각됐습니다.";
   }
 
   // 물가
   if (/inflation|\bcpi\b|\bpce\b|consumer price/.test(lower)) {
-    return "미국 물가 관련 지표가 향후 금리 경로를 가늠할 핵심 변수로 주목받았어요.";
+    return "미국 물가 관련 지표가 향후 금리 경로를 가늠할 핵심 변수로 주목받았습니다.";
   }
 
   // 고용
   if (/payroll|jobs report|employment|unemployment|labor market/.test(lower)) {
-    return "미국 고용 관련 지표가 경기와 향후 금리 전망을 판단할 주요 재료로 작용했어요.";
+    return "미국 고용 관련 지표가 경기와 향후 금리 전망을 판단할 주요 재료로 작용했습니다.";
   }
 
   // 정부 셧다운·예산
   if (/government shutdown|shutdown|spending measure|spending bill|funding bill|government funding/.test(lower)) {
-    return "미국 정부 셧다운을 둘러싼 예산 협상이 시장의 주요 불확실성으로 부각됐어요.";
+    return "미국 정부 셧다운을 둘러싼 예산 협상이 시장의 주요 불확실성으로 부각됐습니다.";
   }
 
   // 지정학
   if (/middle east|geopolitical|iran|israel|war|conflict|tension/.test(lower)) {
-    return "지정학적 리스크가 부각되며 안전자산 선호가 강해지고 미국 증시에 부담으로 작용했어요.";
+    return "지정학적 리스크가 부각되며 안전자산 선호가 강해지고 미국 증시에 부담으로 작용했습니다.";
   }
 
   // 유가
   if (/oil|crude|opec|energy price/.test(lower)) {
-    return "국제유가 움직임이 인플레이션 우려와 에너지 업종을 통해 미국 증시에 영향을 미쳤어요.";
+    return "국제유가 움직임이 인플레이션 우려와 에너지 업종을 통해 미국 증시에 영향을 미쳤습니다.";
   }
 
   // 대형 기술주·반도체
   if (/nvidia|apple|microsoft|amazon|alphabet|google|meta|broadcom|semiconductor|chip stocks?/.test(lower)) {
-    return "미국 대형 기술주와 반도체 관련 소식이 기술주 투자심리에 영향을 미쳤어요.";
+    return "미국 대형 기술주와 반도체 관련 소식이 기술주 투자심리에 영향을 미쳤습니다.";
   }
 
   // 미국 증시 전체
   if (/s&p ?500|nasdaq|dow|wall street|u\.?s\.? stocks?|us stocks?/.test(lower)) {
     if (/fall|fell|drop|decline|plunge|tumble|selloff|lower/.test(lower)) {
-      return "미국 주요 증시가 하락하며 위험자산 투자심리가 약화됐어요.";
+      return "미국 주요 증시가 하락하며 위험자산 투자심리가 약화됐습니다.";
     }
 
     if (/rise|rose|rally|gain|surge|higher|climb/.test(lower)) {
-      return "미국 주요 증시가 상승하며 위험자산 투자심리가 개선됐어요.";
+      return "미국 주요 증시가 상승하며 위험자산 투자심리가 개선됐습니다.";
     }
 
-    return "미국 주요 증시의 움직임이 시장 투자심리에 영향을 미쳤어요.";
+    return "미국 주요 증시의 움직임이 시장 투자심리에 영향을 미쳤습니다.";
   }
 
   // 미국 정부·재정·예산
   if (/congress|house|senate|government funding|spending measure|spending bill|budget|fiscal/.test(lower)) {
-    return "미국 정부의 예산·재정 관련 논의가 금융시장의 주요 변수로 부각됐어요.";
+    return "미국 정부의 예산·재정 관련 논의가 금융시장의 주요 변수로 부각됐습니다.";
   }
 
   // 달러·환율
   if (/dollar|dollar index|dxy|currency|foreign exchange/.test(lower)) {
-    return "달러 가치의 움직임이 미국 금융시장과 투자심리에 영향을 미쳤어요.";
+    return "달러 가치의 움직임이 미국 금융시장과 투자심리에 영향을 미쳤습니다.";
   }
 
   // 미국 경기·소비
   if (/consumer|retail sales|economic growth|economy|economic data|business activity/.test(lower)) {
-    return "미국 경기와 소비 관련 소식이 향후 경기 전망을 판단할 주요 재료로 작용했어요.";
+    return "미국 경기와 소비 관련 소식이 향후 경기 전망을 판단할 주요 재료로 작용했습니다.";
   }
 
   // 분류되지 않는 기사는 기본 요약 사용
-  return "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤어요.";
+  return "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤습니다.";
 }
 
 
@@ -1023,7 +1023,7 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
   }
 
   if (!scored.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
 
   // Build Korean summaries with deduplication
@@ -1034,7 +1034,7 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
     const summary = await _translateUsNewsTitle(item.title);
     if (
       !summary ||
-      summary === "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤어요." ||
+      summary === "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤습니다." ||
       summarySeen.has(summary)
     ) continue;
     summarySeen.add(summary);
@@ -1042,7 +1042,7 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
   }
 
   if (!items.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
   return { status: "available", message: "", items: items.slice(0, 5) };
 }
@@ -1074,7 +1074,7 @@ async function fetchKrNews(reportDate: string): Promise<ReportNewsBlock> {
     .sort((a, b) => b.score - a.score);
 
   if (!scored.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
 
   const items: ReportSource[] = [];
@@ -1165,7 +1165,7 @@ async function fetchKrNews(reportDate: string): Promise<ReportNewsBlock> {
   }
 
   if (!items.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
   return { status: "available", message: "", items: items.slice(0, 5) };
 }
@@ -1212,17 +1212,17 @@ function pickMarketCauseSource(news: ReportNewsBlock) {
 function buildIndexOverview(market: Market, indices: Move[], news: ReportNewsBlock): ReportNarrativePoint {
   const available = indices.filter((item) => item.status === "available" && item.changePercent != null && (market === "kr" || item.label !== "SOX"));
   if (!available.length) {
-    return { text: `${marketLabel(market)}를 조회하지 못했어요.`, spans: [{ text: `${marketLabel(market)}를 조회하지 못했어요.` }], sources: [] };
+    return { text: `${marketLabel(market)}를 조회하지 못했습니다.`, spans: [{ text: `${marketLabel(market)}를 조회하지 못했습니다.` }], sources: [] };
   }
 
   const direction = directionFromMoves(available);
   const spans: ReportSpan[] = [
-    { text: `${marketLabel(market)}는 ${direction}였어요. ` },
+    { text: `${marketLabel(market)}는 ${direction}였습니다. ` },
   ];
   available.forEach((item, index) => {
     spans.push({ text: `${item.label} ` });
     spans.push({ text: formatPercent(item.changePercent), tone: toneForPercent(item.changePercent) });
-    spans.push({ text: index === available.length - 1 ? "를 기록했어요." : ", " });
+    spans.push({ text: index === available.length - 1 ? "를 기록했습니다." : ", " });
   });
   return { text: spans.map((span) => span.text).join(""), spans, sources: [] };
 }
@@ -1263,11 +1263,11 @@ function buildMoveSentence(move: Move, newsItems: ReportSource[], kind: "sector"
     { text: source.summary, tone: "keyword" },
     { text: ` ${noun} ` },
     { text: formatPercent(move.changePercent), tone: toneForPercent(move.changePercent) },
-    { text: kind === "sector" ? ` ${directionText}를 보였어요.` : ` ${directionText}했어요.` },
+    { text: kind === "sector" ? ` ${directionText}를 보였습니다.` : ` ${directionText}했습니다.` },
   ] : [
     { text: `${noun} ` },
     { text: formatPercent(move.changePercent), tone: toneForPercent(move.changePercent) },
-    { text: kind === "sector" ? ` ${directionText}를 보였어요.` : ` ${directionText}했어요.` },
+    { text: kind === "sector" ? ` ${directionText}를 보였습니다.` : ` ${directionText}했습니다.` },
   ];
   return { text: spans.map((span) => span.text).join(""), spans, sources: source ? [source] : [] };
 }

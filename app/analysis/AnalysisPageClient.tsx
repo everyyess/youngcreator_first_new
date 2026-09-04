@@ -1,6 +1,9 @@
 "use client";
 
+import { Home } from "lucide-react";
+
 import { useEffect, useMemo, useRef, useState } from "react";
+import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
 import { useRouter } from "next/navigation";
 import { buildHeaderAssetSummary, HeaderSummary } from "../maintab/MainTabShell";
 import TechnicalAnalysisTab from "../maintab/tab2/TechnicalAnalysisTab";
@@ -260,19 +263,24 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   return (
     <main className="min-h-screen bg-[#F7F8FC] px-5 py-6 text-ink lg:px-8" style={{ backgroundColor: "#F7F8FC" }}>
       <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
-        <HeaderSummary
-          currentCustomer={selectedCustomerProfile}
-          recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
-          assetSummary={assetSummary}
-          storageErrorMessage={storageErrorMessage}
-          activeConsultation={activeConsultation}
-          elapsedSeconds={elapsedSeconds}
-          mode="pb"
-          isPreRecordMode={false}
-          onHome={() => router.push("/home")}
-          onFinish={finishActiveConsultation}
-          onResume={() => router.push(activeConsultation?.returnPath || "/consultation/tab1")}
-        />
+        <section className="relative h-[124px] rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+          <h1 className="absolute left-6 top-1/2 -translate-y-1/2 text-2xl font-black text-slate-900">
+            분석실
+          </h1>
+
+          <div className="absolute right-6 top-1/2 flex -translate-y-1/2 flex-col items-end gap-4">
+            <SodaPopLogoImage className="h-auto w-44" />
+
+            <button
+              type="button"
+              onClick={() => router.push("/home")}
+              aria-label="HOME"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-navy transition hover:border-blue-200 hover:bg-blue-50"
+            >
+              <Home size={17} /> HOME
+            </button>
+          </div>
+        </section>
         <AnalysisTabs contextValue={analysisContextValue} activeTopTab={initialTopTab} />
       </div>
     </main>
