@@ -13,6 +13,10 @@ import { useCustomerContext, loadTaxSummaries, type PortfolioAsset } from "../Cu
 import { usePortfolioResult, HoldingsCardGrid, makeAssetKey, isProductHolding, PRODUCT_TICKER_PREFIX, BOND_TICKER_PREFIX } from "../PortfolioResultComponents";
 import { useCustomerView } from "../CustomerViewContext";
 import { parseLiquidityEntries, type LiquidityKind } from "../liquidityFields";
+import {
+  createProductRebalancingRecord,
+  upsertRebalancingHistory,
+} from "../rebalancingHistoryUtils";
 
 type BucketType = "자본증식" | "인컴창출" | "위험헷지" | "유동성" | "절세";
 type TaxType = "국내주식형" | "해외주식형" | "채권형" | "비과세연금" | "분리과세" | "소득공제";
@@ -30,6 +34,48 @@ interface Product {
   returnNote?: string; // 수익률 미산출·미공시 사유 (return1Y·return3Y가 null일 때 표시)
   bondRef?: Bond; // 개별 채권을 상품 카드로 변환했을 때만 존재 — 신용등급·만기·수익률 등 채권 고유 상세정보 보관
   taxBucketExceptionReason?: string; // 절세 버킷인데 taxType이 절세 전용이 아닐 때만 필수 — validateTaxBucketExceptions 참고
+}
+
+
+// 리밸런싱 히스토리용 상품 카테고리
+// 펀드·랩은 투자지역이 아니라 운용사 국적 기준으로 구분한다.
+const FOREIGN_MANAGER_KEYWORDS = [
+  "루미스세일즈",
+  "피델리티",
+  "블랙록",
+  "제이피모건",
+  "JP모건",
+  "골드만삭스",
+  "모건스탠리",
+  "프랭클린템플턴",
+  "템플턴",
+  "슈로더",
+  "베어링",
+  "얼라이언스번스틴",
+  "뱅가드",
+  "핌코",
+  "PIMCO",
+];
+
+function historyProductCategory(
+  product: Product,
+  fallbackCategory: string,
+): string {
+  if (product.type !== "펀드" && product.type !== "랩어카운트") {
+    return fallbackCategory;
+  }
+
+  const manager = (product.manager ?? "").trim();
+
+  const isForeignManager = FOREIGN_MANAGER_KEYWORDS.some((keyword) =>
+    manager.toLowerCase().includes(keyword.toLowerCase()),
+  );
+
+  const region = isForeignManager ? "해외" : "국내";
+
+  return product.type === "랩어카운트"
+    ? `${region}랩`
+    : `${region}펀드`;
 }
 
 interface Client {
@@ -1030,7 +1076,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, newPortfolioAnalysisResult, rebalancingSellAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState, saveTaxSummary, sellHistory } = useCustomerContext();
+  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, newPortfolioAnalysisResult, rebalancingSellAssets, rebalancingBuyAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState, saveTaxSummary, sellHistory } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const portfolioData = usePortfolioResult();
   const router = useRouter();
@@ -2126,7 +2172,94 @@ const additionalInvestmentAmount = (() => {
           type="button"
           onClick={() => {
             saveNewPortfolioTaxSummary();
-            const tab4Path = appMode === "customer" ? "/customer-maintab/tab4" : "/consultation/tab4";
+
+            if (selectedProducts.length > 0) {
+              const productsForHistory = selectedProducts.map((product) => {
+                const sameBucketCount =
+                  selectedProducts.filter(
+                    (item) => item.bucket === product.bucket,
+                  ).length || 1;
+
+                const amountKrw =
+                  (client.investableAssets *
+                    getBucketWeight(product.bucket)) /
+                  sameBucketCount;
+
+                const historyCategory = (() => {
+                  // 채권은 Bond.market이 가장 정확함
+                  if (product.type === "채권") {
+                    if (product.bondRef?.market === "국내") return "국내채권";
+                    if (product.bondRef?.market === "해외") return "해외채권";
+                    return "채권";
+                  }
+
+                  // 펀드 / 랩은 상품의 투자대상 구분 사용
+                  if (product.type === "펀드" || product.type === "랩어카운트") {
+                    const prefix =
+                      product.taxType === "국내주식형"
+                        ? "국내"
+                        : product.taxType === "해외주식형"
+                          ? "해외"
+                          : "";
+
+                    if (!prefix) return product.type;
+
+                    return product.type === "랩어카운트"
+                      ? `${prefix}랩`
+                      : `${prefix}펀드`;
+                  }
+
+                  // ETF도 taxType으로 국내/해외 구분 가능한 경우 적용
+                  if (product.type === "ETF") {
+                    if (product.taxType === "국내주식형") return "국내ETF";
+                    if (product.taxType === "해외주식형") return "해외ETF";
+                  }
+
+                  return product.type;
+                })();
+
+                return {
+                  id: product.id,
+                  category: historyCategory,
+                  name: product.name,
+                  ticker: "",
+                  amountKrw,
+                };
+              });
+
+              const normalizedProductsForHistory = productsForHistory.map(
+                (item, index) => ({
+                  ...item,
+                  category: historyProductCategory(
+                    selectedProducts[index],
+                    item.category,
+                  ),
+                }),
+              );
+
+              const historyRecord = createProductRebalancingRecord({
+                customerId: selectedCustomer,
+                baseAssets:
+                  rebalancingBuyAssets.length > 0
+                    ? rebalancingBuyAssets
+                    : portfolioAssets,
+                products: normalizedProductsForHistory,
+              });
+
+              updateSharedUiState({
+                tab3: {
+                  rebalancingHistory: upsertRebalancingHistory(
+                    sharedUiState.tab3?.rebalancingHistory ?? [],
+                    historyRecord,
+                  ),
+                },
+              });
+            }
+
+            const tab4Path =
+              appMode === "customer"
+                ? "/customer-maintab/tab4"
+                : "/consultation/tab4";
             router.push(tab4Path);
           }}
           disabled={isCustomerView}

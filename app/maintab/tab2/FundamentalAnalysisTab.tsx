@@ -652,12 +652,17 @@ function ReportCard({
 // ─── 유틸 ────────────────────────────────────────────────────────────────────
 
 function isDomestic(ticker: string) {
-  return /\.(KS|KQ)$/i.test(ticker);
+  return /\.(KS|KQ)$/i.test(ticker) || /^\d{6}$/.test(ticker);
 }
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 
-export default function FundamentalAnalysisTab() {
+interface FundamentalAnalysisTabProps {
+  selectedStock?: { ticker: string; name: string } | null;
+  onStockChange?: (stock: { ticker: string; name: string } | null) => void;
+}
+
+export default function FundamentalAnalysisTab({ selectedStock, onStockChange }: FundamentalAnalysisTabProps = {}) {
   const portfolioData = usePortfolioResult();
 
   // 국내 + 해외 주식 모두 포함 (ticker 있는 것)
@@ -746,16 +751,28 @@ export default function FundamentalAnalysisTab() {
       .then(d => setSummaryState(prev => prev ? { ...prev, loading: false, summary: d.summary ?? null, error: d.error ?? null } : null))
       .catch(e => setSummaryState(prev => prev ? { ...prev, loading: false, error: e instanceof Error ? e.message : "요약 실패" } : null));
   };
-
-  // 첫 종목 자동 선택 (국내 우선)
+   // 부모(AnalysisTabs)가 관리하는 공유 종목 상태를 최우선 반영.
+  // 종목분석 탭에서 종목을 바꾸면 여기도 즉시 동기화됨.
   useEffect(() => {
+    if (selectedStock && selectedStock.ticker !== selectedTicker) {
+      setSelectedTicker(selectedStock.ticker);
+      setSelectedName(selectedStock.name);
+      setSelectedCurrentPrice(undefined);
+    }
+  }, [selectedStock]); // eslint-disable-line react-hooks/exhaustive-deps
+
+ 
+
+  // 첫 종목 자동 선택 (부모 상태도 스크리너 값도 없을 때만, 국내 우선)
+  useEffect(() => {
+    if (selectedStock) return;
     if (allStocks.length > 0 && !selectedTicker) {
       const first = domesticList[0] ?? allStocks[0];
       setSelectedTicker(first.ticker!);
       setSelectedName(first.name);
       setSelectedCurrentPrice(first.current_price);
     }
-  }, [allStocks, domesticList, selectedTicker]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [allStocks, domesticList, selectedTicker, selectedStock]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 네이버 리포트 로드 (국내 종목만)
   useEffect(() => {
@@ -784,6 +801,7 @@ export default function FundamentalAnalysisTab() {
     setSelectedTicker(a.ticker!);
     setSelectedName(a.name);
     setSelectedCurrentPrice(a.current_price);
+    onStockChange?.({ ticker: a.ticker!, name: a.name });
   };
 
   const selectedIsDomestic = isDomestic(selectedTicker);
@@ -828,6 +846,7 @@ export default function FundamentalAnalysisTab() {
           setSelectedTicker(item.ticker);
           setSelectedName(item.name);
           setSelectedCurrentPrice(undefined);
+          onStockChange?.({ ticker: item.ticker, name: item.name });
         }}
       />
 

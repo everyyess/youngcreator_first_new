@@ -1,11 +1,14 @@
 "use client";
 
+import { Home } from "lucide-react";
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { buildHeaderAssetSummary, HeaderSummary } from "../maintab/MainTabShell";
 import TechnicalAnalysisTab from "../maintab/tab2/TechnicalAnalysisTab";
 import FundamentalAnalysisTab from "../maintab/tab2/FundamentalAnalysisTab";
 import DartAnalysisTab from "../maintab/tab2/DartAnalysisTab";
+import StockScreenerTab from "../maintab/tab2/StockScreenerTab";
 import {
   CustomerContext,
   customerRowsToStoredState,
@@ -44,7 +47,7 @@ export type AnalysisTabSegment = (typeof analysisTabSegments)[number];
 
 const analysisTopTabs: { id: AnalysisTopTab; label: string; path: `/analysis/${AnalysisTabSegment}` }[] = [
   { id: "stock", label: "종목 분석", path: "/analysis/tab1" },
-  { id: "screener", label: "종목 보조지표 스크리너", path: "/analysis/tab2" },
+  { id: "screener", label: "종목 지표 스크리너", path: "/analysis/tab2" },
   { id: "competitors", label: "경쟁사 분석", path: "/analysis/tab3" },
   { id: "insight", label: "통합 인사이트", path: "/analysis/tab4" },
   { id: "elbEls", label: "ELB·ELS 시뮬레이터", path: "/analysis/tab5" },
@@ -76,10 +79,35 @@ function PlaceholderContent({ label }: { label: string }) {
   );
 }
 
-function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerContextValue; activeTopTab: AnalysisTopTab }) {
+function AnalysisTabs({
+  contextValue,
+  activeTopTab,
+  urlSelectedStock,
+}: {
+  contextValue: CustomerContextValue;
+  activeTopTab: AnalysisTopTab;
+  urlSelectedStock: { ticker: string; name: string } | null;
+}) {
   const router = useRouter();
   const [activeStockTab, setActiveStockTab] = useState<StockAnalysisTab>("technical");
   const [mountedStockTabs, setMountedStockTabs] = useState<Set<StockAnalysisTab>>(new Set(["technical"]));
+
+  // 종목분석·외부자료분석·공시분석 세 탭이 공유하는 "현재 선택된 종목".
+  // useState 초기값 계산 함수 안에서 sessionStorage를 즉시 읽어, 렌더링 첫 순간부터
+  // 값이 채워진 채로 시작함(이후 useEffect 실행 순서 경쟁으로 인한 초기화 방지).
+  const [sharedStock, setSharedStock] = useState<{ ticker: string; name: string } | null>(() => {
+    if (urlSelectedStock) return urlSelectedStock;
+    if (typeof window !== "undefined") {
+      const savedTicker = sessionStorage.getItem("screenerSelectedTicker");
+      const savedName = sessionStorage.getItem("screenerSelectedName");
+      if (savedTicker && savedName) return { ticker: savedTicker, name: savedName };
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (urlSelectedStock) setSharedStock(urlSelectedStock);
+  }, [urlSelectedStock]);
 
   const selectStockTab = (tab: StockAnalysisTab) => {
     setActiveStockTab(tab);
@@ -105,7 +133,9 @@ function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerCo
           ))}
         </div>
 
-        {activeTopTab === "stock" ? (
+        {activeTopTab === "screener" ? (
+          <StockScreenerTab />
+        ) : activeTopTab === "stock" ? (
           <div className="flex flex-col gap-4">
             <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
               {stockAnalysisTabs.map((tab) => (
@@ -125,17 +155,17 @@ function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerCo
 
             {mountedStockTabs.has("technical") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "technical" ? undefined : "none" }}>
-                <TechnicalAnalysisTab />
+                <TechnicalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
             {mountedStockTabs.has("fundamental") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "fundamental" ? undefined : "none" }}>
-                <FundamentalAnalysisTab />
+                <FundamentalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
             {mountedStockTabs.has("dart") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "dart" ? undefined : "none" }}>
-                <DartAnalysisTab />
+                <DartAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
           </div>
@@ -149,6 +179,10 @@ function AnalysisTabs({ contextValue, activeTopTab }: { contextValue: CustomerCo
 
 export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: AnalysisTopTab }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlTicker = searchParams.get("ticker");
+  const urlName = searchParams.get("name");
+
   const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>([]);
   const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>({});
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>("");
@@ -260,7 +294,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   return (
     <main className="min-h-screen bg-[#F7F8FC] px-5 py-6 text-ink lg:px-8" style={{ backgroundColor: "#F7F8FC" }}>
       <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
-        <HeaderSummary
+<HeaderSummary
           currentCustomer={selectedCustomerProfile}
           recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
           assetSummary={assetSummary}
@@ -273,7 +307,11 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
           onFinish={finishActiveConsultation}
           onResume={() => router.push(activeConsultation?.returnPath || "/consultation/tab1")}
         />
-        <AnalysisTabs contextValue={analysisContextValue} activeTopTab={initialTopTab} />
+        <AnalysisTabs
+          contextValue={analysisContextValue}
+          activeTopTab={initialTopTab}
+          urlSelectedStock={urlTicker && urlName ? { ticker: urlTicker, name: urlName } : null}
+        />
       </div>
     </main>
   );

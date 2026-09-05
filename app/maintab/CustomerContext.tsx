@@ -293,7 +293,42 @@ export type PbOrderRow = {
   maturityYears: string;       // 만기(년)
 };
 
-export type Tab3InnerTab = "stock-rebalancing" | "product-rebalancing";
+export type RebalancingHistoryItem = {
+  id: string;
+  source: "stock" | "product";
+  category: string;
+  name: string;
+  ticker: string;
+  action: "매수" | "매도" | "가입" | "해지";
+  quantity: number | null;
+  amountKrw: number | null;
+  unitPriceKrw: number | null;
+  reason: string;
+};
+
+export type RebalancingPortfolioSnapshot = {
+  id: string;
+  source: "holding" | "product";
+  category: string;
+  name: string;
+  ticker: string;
+  quantity: number | null;
+  amountKrw: number | null;
+  unitPriceKrw: number | null;
+};
+
+export type RebalancingHistoryRecord = {
+  id: string;
+  customerId: string;
+  consultationId: string;
+  consultationAt: string;
+  confirmedAt: string;
+  items: RebalancingHistoryItem[];
+  beforePortfolio: RebalancingPortfolioSnapshot[];
+  afterPortfolio: RebalancingPortfolioSnapshot[];
+};
+
+export type Tab3InnerTab = "stock-rebalancing" | "product-rebalancing" | "rebalancing-history";
 export type CorrelationPeriodRange = "1W" | "1M" | "3M" | "6M" | "1Y" | "3Y";
 export type CorrelationInnerViewTab = "optimal" | "heatmap" | "chart" | "weight" | "sectorlist";
 export type CorrelationAnalysisState = {
@@ -335,6 +370,7 @@ export type SharedMaintabUiState = {
     modalIsGlobal?: boolean;
     modalFocusTicker?: string | null;
     unsuitableWarningProductId?: string | null;
+    rebalancingHistory?: RebalancingHistoryRecord[];
   };
   tab5?: {
     bucketOffset?: Record<string, number>;
@@ -565,7 +601,7 @@ const embeddedAppStateKey = "__app_state";
 type CustomerScopedTableName = "rebalancing_state" | "new_analysis_results" | "tax_summaries" | "product_selections";
 
 const scopedPayloadColumns: Record<CustomerScopedTableName, string[]> = {
-  rebalancing_state: ["state", "data"],
+  rebalancing_state: ["state"],
   new_analysis_results: ["result", "data"],
   tax_summaries: ["summary", "data"],
   product_selections: ["selections", "data"],
@@ -606,7 +642,9 @@ async function upsertScopedPayload(
   const preferredColumn = scopedPayloadColumns[table][0];
   const candidates: Record<string, unknown>[] = [
     { customer_id: customerId, [preferredColumn]: payload, updated_at: updatedAt },
-    { customer_id: customerId, data: payload, updated_at: updatedAt },
+    ...(scopedPayloadColumns[table].includes("data")
+      ? [{ customer_id: customerId, data: payload, updated_at: updatedAt }]
+      : []),
     ...extraCandidates.map((candidate) => ({ customer_id: customerId, ...candidate, updated_at: updatedAt })),
   ];
   let lastError = "";
@@ -695,8 +733,8 @@ function customerOwnerPayload(scope?: CustomerOwnerScope | string, pbId?: string
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyCustomerOwnerFilter(query: any, scope?: CustomerOwnerScope | string, pbId?: string) {
   const owner = normalizeCustomerOwnerScope(scope, pbId);
-  if (owner.pbId?.trim()) return query.eq("pb_id", owner.pbId.trim());
   if (owner.pbEmployeeId?.trim()) return query.eq("pb_employee_id", owner.pbEmployeeId.trim());
+  if (owner.pbId?.trim()) return query.eq("pb_id", owner.pbId.trim());
   return query;
 }
 
@@ -1157,13 +1195,25 @@ export async function loadPortfolioAssets(customerId: CustomerId): Promise<Portf
   }
 }
 
-export async function savePortfolioAssets(customerId: CustomerId, assets: PortfolioAsset[]): Promise<void> {
+export async function savePortfolioAssets(
+  customerId: CustomerId,
+  assets: PortfolioAsset[],
+): Promise<void> {
   if (!supabase) return;
-  if (!customerId) throw new Error("Portfolio asset save failed: missing customer_id.");
-  if (assets.length > 0) {
-    const isOwnershipValid = assets.every(a => a.owner_customer_id === customerId);
-    if (!isOwnershipValid) throw new Error("Portfolio asset ownership mismatch.");
-    const hasContent = assets.some(a =>
+
+  if (!customerId) {
+    throw new Error("Portfolio asset save failed: missing customer_id.");
+  }
+
+  // PDF/CSV/수기 입력 자산에도 현재 고객 ID를 확실하게 부여
+  const ownedAssets = assets.map((asset) => ({
+    ...asset,
+    owner_customer_id: customerId,
+  }));
+
+  // 내용 없는 placeholder만 있는 경우 저장하지 않음
+  if (ownedAssets.length > 0) {
+    const hasContent = ownedAssets.some((a) =>
       (a.name ?? "").trim() ||
       (a.ticker ?? "").trim() ||
       (a.productType ?? "").trim() ||
@@ -1174,33 +1224,44 @@ export async function savePortfolioAssets(customerId: CustomerId, assets: Portfo
       a.bond_yield != null ||
       a.bond_maturity != null
     );
+
     if (!hasContent) return;
   }
-  const payload = { portfolio_assets: assets, updated_at: new Date().toISOString() };
+
+  const payload = {
+    portfolio_assets: ownedAssets,
+    updated_at: new Date().toISOString(),
+  };
+
+  // 기존 고객 행이 있으면 update
   const updateResult = await rebSB()
     .update(payload)
     .eq("customer_id", customerId)
     .select("customer_id");
 
   if (updateResult.error) {
-    console.error("Supabase rebalancing_state.portfolio_assets update failed", {
-      customerId,
-      assetCount: assets.length,
-      error: describeSupabaseError(updateResult.error),
-    });
-    throw updateResult.error;
+    throw new Error(
+      `Portfolio asset update failed: ${updateResult.error.message}`
+    );
   }
 
-  if (Array.isArray(updateResult.data) && updateResult.data.length > 0) return;
+  if (
+    Array.isArray(updateResult.data) &&
+    updateResult.data.length > 0
+  ) {
+    return;
+  }
 
-  const insertResult = await rebSB().insert({ customer_id: customerId, ...payload });
+  // 아직 rebalancing_state 행이 없는 고객이면 생성
+  const insertResult = await rebSB().insert({
+    customer_id: customerId,
+    ...payload,
+  });
+
   if (insertResult.error) {
-    console.error("Supabase rebalancing_state row insert for portfolio_assets failed", {
-      customerId,
-      assetCount: assets.length,
-      error: describeSupabaseError(insertResult.error),
-    });
-    throw insertResult.error;
+    throw new Error(
+      `Portfolio asset insert failed: ${insertResult.error.message}`
+    );
   }
 }
 
@@ -1270,20 +1331,26 @@ export async function loadRebalancingState(customerId: CustomerId): Promise<{ se
 
 // TAB2 매도 → rebalancing_state.sell_assets 전용 컬럼
 export async function saveRebalancingState(customerId: CustomerId, sellAssets: PortfolioAsset[]): Promise<void> {
-  if (!supabase) return;
-  await rebSB().upsert(
+  if (!supabase || !customerId) return;
+
+  const { error } = await rebSB().upsert(
     { customer_id: customerId, sell_assets: sellAssets, updated_at: new Date().toISOString() },
     { onConflict: "customer_id" },
   );
+
+  if (error) throw error;
 }
 
 // TAB3 매수 → new_analysis_results.buy_assets 전용 컬럼
 export async function saveRebalancingBuyAssets(customerId: CustomerId, buyAssets: PortfolioAsset[]): Promise<void> {
-  if (!supabase) return;
-  await narSB().upsert(
+  if (!supabase || !customerId) return;
+
+  const { error } = await narSB().upsert(
     { customer_id: customerId, buy_assets: buyAssets, updated_at: new Date().toISOString() },
     { onConflict: "customer_id" },
   );
+
+  if (error) throw error;
 }
 
 // TAB2-5 매도 시뮬레이터 확정 이력 → rebalancing_state.sell_history 컬럼
@@ -1410,6 +1477,8 @@ export async function loadSharedMaintabUiState(customerId: CustomerId): Promise<
 }
 
 export async function saveSharedMaintabUiState(customerId: CustomerId, state: SharedMaintabUiState): Promise<void> {
+  if (!customerId) return;
+
   try {
     const current = await loadScopedPayload("rebalancing_state", customerId);
     const existing = (current && typeof current === "object") ? { ...(current as Record<string, unknown>) } : {};

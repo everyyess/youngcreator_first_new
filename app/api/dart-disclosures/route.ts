@@ -3,47 +3,6 @@ import { unstable_cache } from "next/cache";
 
 // ─── 데모 데이터 (SK하이닉스 · 최상단 공시 AI 요약만 즉시 주입) ─────────────────
 
-const DEMO_SEARCH_KEY = "000660";
-
-const DEMO_DART_EARNINGS_SUMMARY = `**📌 핵심 내용**
-- SK하이닉스는 2024년 AI 메모리 수요 급증에 힘입어 매출 66조 1,930억원, 영업이익 23조 4,673억원을 기록하며 역대 두 번째 영업이익을 달성했습니다. HBM 중심의 프리미엄 D램 성장이 실적을 견인했으며, 낸드 부문도 흑자로 전환했습니다.
-
-**📊 주요 수치 (전기 대비 변화)**
-- 매출액: 66조 1,930억원 (전년 32조 7,660억원 대비 **+102%**)
-- 영업이익: 23조 4,673억원 (전년 영업손실 7조 7,303억원에서 **흑자 전환**)
-- 당기순이익: 19조 7,797억원 (전년 당기순손실 9조 8,199억원에서 **흑자 전환**)
-- 영업이익률: 35.5% (전년 -23.6%)
-- HBM 매출: D램 전체의 약 40% 차지 (전년 약 16%)
-
-**🏢 사업 현황 (II. 사업의 내용)**
-- 주요 제품: D램(HBM3E·DDR5·LPDDR5X), 낸드(eSSD·모바일), CXL 메모리
-- HBM3E 128GB 12단 세계 최초 양산 개시 — NVIDIA H200 전량 공급
-- 낸드: 321단 TLC 낸드 양산 전환 완료, 기업용 SSD 시장 점유율 확대
-- 수주 동향: AI 가속기 수요 급증으로 HBM 수주잔고 2025년 말까지 완판 수준
-
-**💡 투자 시사점**
-- 2025년에도 HBM4 공급 확대와 높은 ASP 유지로 실적 성장세 지속 전망
-- 낸드 부문 흑자 전환 → 포트폴리오 개선으로 전사 수익성 안정화
-- NVIDIA 의존도(HBM 매출의 약 70%) 리스크는 고객 다변화(MS·구글·아마존) 진행 중`;
-
-const DEMO_DART_STAKES_SUMMARY = `**📌 핵심 내용**
-- 글로벌 최대 자산운용사 블랙록(BlackRock, Inc.)이 SK하이닉스 지분을 5.23%에서 5.71%로 0.48%p 확대했습니다. 장내 매수를 통해 약 2,950억원 규모를 추가 매입한 것으로 보유 목적은 '단순 투자'입니다.
-
-**📊 주요 수치**
-- 보유 주식수: 39,521,480주 → 43,094,200주 (**+3,572,720주** 증가)
-- 보유 비율: 5.23% → **5.71%** (+0.48%p)
-- 신규 취득 단가: 약 225,000~228,000원/주 (추정)
-- 취득 금액: 약 **2,950억원** (시장가 기준)
-- 보유 목적: 단순 투자
-
-**📋 변동 사유**
-- 변동방법: 장내 매수
-- 변동사유: 투자 포트폴리오 비중 조정을 위한 추가 매수
-
-**💡 투자 시사점**
-- 블랙록의 지분 확대는 글로벌 기관의 SK하이닉스 HBM 성장 스토리에 대한 장기 신뢰를 반영합니다.
-- 외국인 지분율 상승은 수급 측면에서 긍정적 신호이며, 패시브 자금 추가 유입 가능성도 있습니다.`;
-
 // ── 캐시 ─────────────────────────────────────────────────────────────────────
 
 const dartCache = new Map<string, { data: unknown; ts: number }>();
@@ -371,7 +330,7 @@ async function fetchEarnings(searchKey: string): Promise<DartDisclosure[]> {
 
 // ── Next.js Data Cache (Vercel에서 함수 인스턴스 간 공유) ─────────────────────
 
-const fetchDartCached = unstable_cache(
+export const fetchDartCached = unstable_cache(
   async (searchKey: string): Promise<DartDisclosuresResponse> => {
     console.log(`[dart] unstable_cache miss — searchKey="${searchKey}"`);
     const [contracts, stakes, insiders, earnings, agreements] = await Promise.all([
@@ -414,7 +373,7 @@ export async function GET(req: NextRequest) {
   if (!refresh) {
     const hit = dartCache.get(cacheKey);
     if (hit && Date.now() - hit.ts < CACHE_TTL) {
-      return NextResponse.json({ ...injectSKHynixSummaries(hit.data as DartDisclosuresResponse, searchKey), _cached: true });
+      return NextResponse.json({ ...(hit.data as DartDisclosuresResponse), _cached: true });
     }
   }
 
@@ -436,13 +395,13 @@ export async function GET(req: NextRequest) {
         agreements[0]?.company || searchKey;
       const data: DartDisclosuresResponse = { company: displayCompany, contracts, stakes, insiders, earnings, agreements };
       dartCache.set(cacheKey, { data, ts: Date.now() });
-      return NextResponse.json(injectSKHynixSummaries(data, searchKey));
+      return NextResponse.json(data);
     }
 
     // 일반 요청: Next.js Data Cache 사용 (Vercel에서 인스턴스 간 공유됨)
     const data = await fetchDartCached(searchKey);
     console.log(`[dart] results — earnings:${data.earnings.length} stakes:${data.stakes.length}`);
-    return NextResponse.json(injectSKHynixSummaries(data, searchKey));
+    return NextResponse.json(data);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[dart-disclosures]", msg);
@@ -450,12 +409,4 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// SK하이닉스 최상단 실적·지분 공시에 AI 요약을 즉시 주입하는 헬퍼
-function injectSKHynixSummaries(data: DartDisclosuresResponse, searchKey: string): DartDisclosuresResponse {
-  if (searchKey !== DEMO_SEARCH_KEY) return data;
-  const earnings = [...data.earnings];
-  const stakes   = [...data.stakes];
-  if (earnings.length > 0) earnings[0] = { ...earnings[0], preloadedSummary: DEMO_DART_EARNINGS_SUMMARY };
-  if (stakes.length   > 0) stakes[0]   = { ...stakes[0],   preloadedSummary: DEMO_DART_STAKES_SUMMARY };
-  return { ...data, earnings, stakes };
-}
+

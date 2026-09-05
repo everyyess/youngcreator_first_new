@@ -399,7 +399,7 @@ export default function HomePage() {
 
   const enterCustomerRoom = (path: "/analysis" | "/consultation") => {
     if (selectedCustomerId) storeSelectedCustomerId(selectedCustomerId);
-    router.push(path);
+    window.open(path, "_blank", "noopener,noreferrer");
   };
 
   useEffect(() => {
@@ -500,7 +500,7 @@ export default function HomePage() {
     storeSelectedCustomerId(session.customerId);
     writePreRecordConsultation(null);
     writeActiveConsultation({ sessionId: session.id, customerId: session.customerId, startedAt: new Date().toISOString(), returnPath: "/consultation/tab1" });
-    router.push("/consultation/tab1");
+    window.open("/consultation/tab1", "_blank", "noopener,noreferrer");
   }
 
   function preRecordSession(session: ConsultationSession) {
@@ -509,7 +509,7 @@ export default function HomePage() {
     storeSelectedCustomerId(session.customerId);
     writeActiveConsultation(null);
     writePreRecordConsultation({ sessionId: session.id, customerId: session.customerId, returnPath: "/consultation/tab1" });
-    router.push("/consultation/tab1");
+    window.open("/consultation/tab1", "_blank", "noopener,noreferrer");
   }
 
   function finishActiveSession(autoEnded = false) {
@@ -620,20 +620,43 @@ export default function HomePage() {
               </div>
               <div className={`grid ${leftPanelInnerWidthClass} max-h-[122px] min-w-0 gap-1 overflow-y-auto pr-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}>
                 {filteredCustomers.map((customer) => (
-                  <button key={customer.id} type="button" onClick={() => selectCustomer(customer.id)} className={`min-w-0 rounded-lg px-3 py-2 text-left text-sm font-bold transition ${customer.id === selectedCustomerId ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-700 hover:bg-blue-50"}`}>
-                    {customerName(customer)} <span className="text-xs opacity-70">{customerBirth(customer)}</span>
-                  </button>
+                  <div
+                    key={customer.id}
+                    className={`grid min-w-0 gap-1 ${customer.id === selectedCustomerId ? "grid-cols-[minmax(0,1fr)_38px]" : "grid-cols-1"}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => selectCustomer(customer.id)}
+                      className={`min-w-0 rounded-lg px-3 py-2 text-left text-sm font-bold transition ${
+                        customer.id === selectedCustomerId
+                          ? "bg-blue-600 text-white"
+                          : "bg-slate-50 text-slate-700 hover:bg-blue-50"
+                      }`}
+                    >
+                      {customerName(customer)}{" "}
+                      <span className="text-xs opacity-70">{customerBirth(customer)}</span>
+                    </button>
+
+                    {customer.id === selectedCustomerId ? (
+                      <button
+                        type="button"
+                        aria-label={`${customerName(customer)} 고객 정보 삭제`}
+                        title="고객 정보 삭제"
+                        onClick={() => setCustomerDeleteTarget(customer)}
+                        className="flex min-w-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 transition hover:bg-red-100"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    ) : null}
+                  </div>
                 ))}
               </div>
               {showAddCustomerForm ? <CustomerProfileEditor profile={newCustomer} setProfile={setNewCustomer} onSave={addCustomer} onCancel={() => setShowAddCustomerForm(false)} /> : null}
-              {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} onCreate={openCreateForm} onDelete={() => setCustomerDeleteTarget(selectedCustomer)} /> : null}
-              {showCreateForm && draftSession ? (
-                <CreateSessionForm draft={draftSession} setDraft={(updater) => setDraftSession((prev) => prev ? updater(prev) : prev)} onCancel={() => setShowCreateForm(false)} onSave={() => saveDraftSession("save")} onPreRecord={() => saveDraftSession("preRecord")} onStart={() => saveDraftSession("start")} />
-              ) : null}
+              {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} /> : null}
               <section className={`${leftPanelInnerWidthClass} min-w-0 overflow-hidden`}>
-                <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">상담 내역</p>
+                <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">[{selectedCustomerName} 고객] 과거 상담 내역</p>
                 <div className="grid max-h-[440px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                  {selectedSessions.length ? selectedSessions.map((session) => (
+                  {selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).length ? selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).map((session) => (
                     <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onPreRecord={() => preRecordSession(session)} onStart={() => startSession(session)} />
                   )) : <EmptyBox text="상담 내역이 없습니다." />}
                 </div>
@@ -643,7 +666,7 @@ export default function HomePage() {
         </aside>
 
         <section className="flex flex-col min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/70 bg-white/75 p-4 shadow-xl shadow-blue-900/5 backdrop-blur">
-          <MarketDashboard />
+          <MarketDashboard selectedCustomer={selectedCustomer} selectedState={selectedState} customers={customers} customerData={customerData} pbName={pbSession?.name || tempPbName} pbId={pbSession?.id} pbEmployeeId={pbSession?.employeeId} />
         </section>
 
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>
@@ -670,20 +693,49 @@ export default function HomePage() {
                   <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
                 </button>
               ) : null}
+              <div className="relative">
+              <p className="absolute bottom-full right-0 mb-1.5 w-[calc(50%-0.25rem)] text-center text-xs font-bold text-slate-500">
+                {selectedCustomerName}{customerBirth(selectedCustomer ?? undefined) ? ` (${customerBirth(selectedCustomer ?? undefined)})` : ""}
+              </p>
+
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => enterCustomerRoom("/analysis")} className="min-h-11 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold leading-5 text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700">
-                  {selectedCustomerName} 고객 분석실 입장
+                <button
+                  type="button"
+                  onClick={() => enterCustomerRoom("/analysis")}
+                  className="h-12 rounded-xl bg-blue-600 px-3 text-base font-extrabold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700"
+                >
+                  분석실 입장
                 </button>
-                <button type="button" onClick={() => enterCustomerRoom("/consultation")} className="min-h-11 rounded-xl border border-blue-200 bg-blue-50 px-3 py-3 text-xs font-extrabold leading-5 text-blue-700 transition hover:bg-blue-100">
-                  {selectedCustomerName} 고객 상담실 입장
+
+                <button
+                  type="button"
+                  onClick={openCreateForm}
+                  className="h-12 rounded-xl border border-blue-200 bg-blue-50 px-3 text-base font-extrabold text-blue-700 transition hover:bg-blue-100"
+                >
+                  상담실 입장
                 </button>
               </div>
-              <SideSection title="곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
+            </div>
+            <SideSection title="[전체 고객] 곧 예정된 상담 일정" sessions={upcoming} customers={customers} expandedSessionId={expandedSessionId} setExpandedSessionId={setExpandedSessionId} deleteSession={deleteSession} preRecordSession={preRecordSession} startSession={startSession} />
               <RightPanelCalendar sessions={sessions} customers={customers} marketEvents={marketCalendarEvents} />
             </div>
           ) : null}
         </aside>
       </div>
+      {showCreateForm && draftSession ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md">
+            <CreateSessionForm
+              customerName={selectedCustomerName}
+              draft={draftSession}
+              setDraft={(updater) => setDraftSession((prev) => prev ? updater(prev) : prev)}
+              onCancel={() => setShowCreateForm(false)}
+              onReserve={() => saveDraftSession("save")}
+              onStart={() => saveDraftSession("start")}
+            />
+          </div>
+        </div>
+      ) : null}
       {expandedSession ? (
         <SummaryModal
           session={expandedSession}
@@ -762,7 +814,7 @@ function CustomerProfileEditor({ profile, setProfile, onSave, onCancel }: { prof
   );
 }
 
-function SelectedCustomerInfo({ customer, onChange, onCreate, onDelete }: { customer: CustomerProfile; onChange: (id: CustomerId, patch: Partial<CustomerProfile>) => void; onCreate: () => void; onDelete: () => void }) {
+function SelectedCustomerInfo({ customer, onChange }: { customer: CustomerProfile; onChange: (id: CustomerId, patch: Partial<CustomerProfile>) => void }) {
   const birth = customer.birthYear || customer.birth_year || "";
   return (
     <section className="box-border min-w-0 max-w-full overflow-hidden">
@@ -778,12 +830,6 @@ function SelectedCustomerInfo({ customer, onChange, onCreate, onDelete }: { cust
           <div className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-xs font-bold text-slate-500">{ageDisplay(customer.age)}</div>
         </div>
         <ProfileInput label="직업" value={customer.job} placeholder="직업" onChange={(value) => onChange(customer.id, { job: value })} />
-        <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_40px] gap-2 overflow-hidden">
-          <button type="button" onClick={onCreate} className="min-h-12 min-w-0 whitespace-nowrap rounded-lg bg-blue-600 px-1.5 text-[11px] font-extrabold text-white hover:bg-blue-700">신규 상담 일지 생성</button>
-          <button type="button" onClick={onDelete} aria-label="고객 정보 삭제" className="flex min-h-12 min-w-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 hover:bg-red-100">
-            <Trash2 size={16} />
-          </button>
-        </div>
       </div>
       </div>
     </section>
@@ -812,11 +858,11 @@ function ProfileInput({ label, value, placeholder, onChange, compact = false, na
   );
 }
 
-function CreateSessionForm({ draft, setDraft, onCancel, onSave, onPreRecord, onStart }: { draft: ConsultationSession; setDraft: (updater: (prev: ConsultationSession) => ConsultationSession) => void; onCancel: () => void; onSave: () => void; onPreRecord: () => void; onStart: () => void }) {
+function CreateSessionForm({ customerName, draft, setDraft, onCancel, onReserve, onStart }: { customerName: string; draft: ConsultationSession; setDraft: (updater: (prev: ConsultationSession) => ConsultationSession) => void; onCancel: () => void; onReserve: () => void; onStart: () => void }) {
   const { date, time } = splitSessionDateTime(draft.date);
   return (
     <section className="box-border w-full max-w-full min-w-0 overflow-hidden rounded-xl border border-slate-900 bg-blue-50/70 p-3">
-      <p className="mb-3 text-sm font-extrabold text-blue-900">신규 상담 생성</p>
+      <p className="mb-3 text-sm font-extrabold text-blue-900">{customerName} 고객님 상담 예약</p>
       <div className="grid min-w-0 gap-2">
         <input className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="상담 제목" value={draft.title} onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))} />
         <div className="grid min-w-0 gap-1.5">
@@ -825,11 +871,30 @@ function CreateSessionForm({ draft, setDraft, onCancel, onSave, onPreRecord, onS
             <input className="h-7 min-w-0 bg-transparent text-xs font-bold outline-none" type="time" value={time} onChange={(e) => setDraft((prev) => ({ ...prev, date: combineSessionDateTime(splitSessionDateTime(prev.date).date, e.target.value) }))} />
           </div>
         </div>
-        <div className="grid min-w-0 grid-cols-2 gap-1.5">
-          <button type="button" onClick={onCancel} className="min-w-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">취소</button>
-          <button type="button" onClick={onSave} className="min-w-0 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-extrabold text-slate-700">임시저장</button>
-          <button type="button" onClick={onPreRecord} className="min-w-0 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100">사전 기록</button>
-          <button type="button" onClick={onStart} className="min-w-0 whitespace-nowrap rounded-lg bg-blue-600 px-2 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
+        <div className="grid min-w-0 grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={onReserve}
+            className="min-w-0 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-xs font-extrabold text-blue-700 transition hover:bg-blue-100"
+          >
+            상담 사전 예약
+          </button>
+
+          <button
+            type="button"
+            onClick={onStart}
+            className="min-w-0 rounded-lg bg-blue-600 px-3 py-3 text-xs font-extrabold text-white transition hover:bg-blue-700"
+          >
+            바로 상담 시작
+          </button>
+
+          <button
+            type="button"
+            onClick={onCancel}
+            className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-3 text-xs font-extrabold text-slate-700 transition hover:bg-slate-50"
+          >
+            취소
+          </button>
         </div>
       </div>
     </section>
@@ -855,12 +920,6 @@ function SessionCard({ session, customer, expanded, onExpand, onDelete, onPreRec
           <button type="button" onClick={onDelete} className="shrink-0 rounded-lg bg-red-50 p-2 text-red-700 hover:bg-red-100"><Trash2 size={15} /></button>
         </div>
       </div>
-      {expanded && session.status === "draft" && onStart ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {onPreRecord ? <button type="button" onClick={onPreRecord} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-extrabold text-blue-700 hover:bg-blue-100">사전 기록</button> : null}
-          <button type="button" onClick={onStart} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-blue-700">상담 시작</button>
-        </div>
-      ) : null}
     </article>
   );
 }
@@ -1126,7 +1185,7 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
-  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(() => dateKeyFromDate(new Date()));
 
   const consultationByDate = useMemo(() => {
     const map = new Map<string, ConsultationSession[]>();
@@ -1170,7 +1229,7 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
       const customer = customers.find((item) => item.id === session.customerId);
       return {
         id: `consultation-${session.id}`,
-        line: `${formatCalendarItemTime(session.date)} ${customerDisplay(customer)} 상담`,
+        line: `${formatCalendarItemTime(session.date)} ${customerDisplay(customer)} 상담 일정`,
         type: "consultation" as const,
       };
     });
@@ -1179,7 +1238,10 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
       line: `${formatCalendarItemTime(event.startsAt)} ${rightPanelMarketTitle(event)}`,
       type: "market" as const,
     }));
-    return [...consultationItems, ...marketItems].sort((a, b) => a.line.localeCompare(b.line, "ko-KR"));
+    return [
+      ...consultationItems.sort((a, b) => a.line.localeCompare(b.line, "ko-KR")),
+      ...marketItems.sort((a, b) => a.line.localeCompare(b.line, "ko-KR")),
+    ];
   }, [consultationByDate, customers, marketByDate, selectedDateKey]);
 
   const moveMonth = (offset: number) => {
@@ -1191,7 +1253,7 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-xs font-extrabold uppercase tracking-wide text-slate-500">캘린더</p>
+        <p className="text-xs font-extrabold uppercase tracking-wide text-slate-500">전체 일정 캘린더</p>
         <CalendarDays size={15} className="text-blue-600" />
       </div>
       <div className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm">
@@ -1238,7 +1300,7 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
           })}
         </div>
         <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-slate-500">
-          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> 상담</span>
+          <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> 상담 일정</span>
           <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> 주요 일정</span>
         </div>
         <div className="mt-3 border-t border-slate-100 pt-2">
@@ -1289,3 +1351,5 @@ function DeleteConfirmModal({ title, body, onCancel, onConfirm }: { title: strin
     </div>
   );
 }
+
+
