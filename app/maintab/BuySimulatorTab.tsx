@@ -36,6 +36,10 @@ import { useCustomerView } from "./CustomerViewContext";
 import { WeeklyTopPicksCard } from "./WeeklyTopPicksCard";
 import { AiStockPicksCard } from "./AiStockPicksCard";
 import { formatLocalTickerName } from "./tickerUtils";
+import {
+  createStockRebalancingRecord,
+  upsertRebalancingHistory,
+} from "./rebalancingHistoryUtils";
 import { parseKoreanNumber } from "@/lib/portfolioLogic";
 import {
   calcFinancialIncomeSummary,
@@ -46,6 +50,7 @@ import {
   CLASS_COLORS,
   formatKrwAmount,
   normalizeAssetClass,
+  isProductHolding,
 } from "./PortfolioResultComponents";
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -470,7 +475,49 @@ function mergeBuyIntoBase(
     if (idx !== -1) {
       const ex = merged[idx];
       if (ex.amount_type === "quantity") {
-        merged[idx] = { ...ex, amount: ex.amount + (Number.isFinite(qty) && qty > 0 ? qty : 0) };
+        const addedQty =
+          Number.isFinite(qty) && qty > 0 ? qty : 0;
+
+        if (!isBond && addedQty > 0) {
+          const incomingPriceKrw =
+            row.priceCurrency === "USD" && row.currentPrice != null
+              ? row.currentPrice * usdKrwRate
+              : (row.currentPrice ?? 0);
+
+          const previousAvgPrice =
+            ex.buy_price ??
+            ex.current_price ??
+            incomingPriceKrw;
+
+          const nextQty = ex.amount + addedQty;
+
+          const nextAvgPrice =
+            incomingPriceKrw > 0 && nextQty > 0
+              ? (
+                  previousAvgPrice * ex.amount +
+                  incomingPriceKrw * addedQty
+                ) / nextQty
+              : previousAvgPrice;
+
+          merged[idx] = {
+            ...ex,
+            amount: nextQty,
+            buy_price: nextAvgPrice,
+            current_price:
+              incomingPriceKrw > 0
+                ? incomingPriceKrw
+                : ex.current_price,
+            current_value:
+              incomingPriceKrw > 0
+                ? nextQty * incomingPriceKrw
+                : ex.current_value,
+          };
+        } else {
+          merged[idx] = {
+            ...ex,
+            amount: ex.amount + addedQty,
+          };
+        }
       } else {
         merged[idx] = { ...ex, amount: ex.amount + krwTotal };
       }
@@ -532,13 +579,27 @@ function tickerBase(t?: string | null): string {
 
 // 티커 일치 OR 종목명 일치이면 동일 종목으로 판정
 function isSameAsset(a: PortfolioAsset, name: string, ticker?: string | null): boolean {
-  const tb = tickerBase(ticker);
-  if (tb && tickerBase(a.ticker) === tb) return true;
+  const assetTicker = tickerBase(a.ticker);
+  const incomingTicker = tickerBase(ticker);
+
+  // 둘 다 티커가 있으면 이름은 보지 않는다.
+  // 예: 씨게이트(STX) === seagate(STX)
+  if (assetTicker && incomingTicker) {
+    return assetTicker === incomingTicker;
+  }
+
+  // 티커가 없는 데이터만 종목명으로 비교
   return a.name.toLowerCase().trim() === name.toLowerCase().trim();
 }
 
 function makeAssetKey(a: PortfolioAsset): string {
-  return normalizeKey(a.name, a.ticker);
+  const tb = tickerBase(a.ticker);
+
+  // ticker가 있으면 종목명과 무관하게 ticker가 고유 식별자
+  if (tb) return `ticker:${tb}`;
+
+  // ticker가 없는 자산만 이름으로 구분
+  return `name:${a.name.toLowerCase().trim()}`;
 }
 
 function getEffectiveAssetPrice(a: PortfolioAsset): number {
@@ -598,6 +659,7 @@ export default function BuySimulatorTab() {
     setBuySimUncheckedTickers,
     pbOrderRows,
     setPbOrderRows,
+    sellHistory,
     addSellRecord,
     addBuyCost,
     appMode,
@@ -609,18 +671,20 @@ export default function BuySimulatorTab() {
   const router = useRouter();
 
   // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
+  // 이 탭(리밸런싱-주식)에는 "기존 포트폴리오 보유 자산 + 이 탭에서 담은 신규 매수 주식"만 표시한다.
+  // 탭3-2(리밸런싱-상품)에서 담은 펀드·랩·채권은 같은 rebalancingSellAssets에 들어있지만 여기서는 제외한다.
   const baseAssets = useMemo<PortfolioAsset[]>(() => {
     const enriched = (analysisResult?.enrichedAssets ?? []) as PortfolioAsset[];
     const priceMap = new Map(enriched.map((a) => [makeAssetKey(a), a]));
-    if (rebalancingSellAssets.length > 0) {
-      return rebalancingSellAssets
-        .filter((a) => a.name)
-        .map((a) => {
-          const e = priceMap.get(makeAssetKey(a));
-          const cp = Number(e?.current_price ?? a.current_price);
-          return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
-        });
+    const stockSide = rebalancingSellAssets.filter((a) => a.name && !isProductHolding(a));
+    if (stockSide.length > 0) {
+      return stockSide.map((a) => {
+        const e = priceMap.get(makeAssetKey(a));
+        const cp = Number(e?.current_price ?? a.current_price);
+        return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
+      });
     }
+    // 주식 쪽 리밸런싱 이력이 아직 없으면(상품만 담긴 경우 포함) 원본 포트폴리오를 그대로 보여준다.
     const src = enriched.length ? enriched : portfolioAssets;
     return src.filter((a) => a.name);
   }, [analysisResult, portfolioAssets, rebalancingSellAssets]);
@@ -728,6 +792,7 @@ export default function BuySimulatorTab() {
   // 신규 편입: current_value(KRW 확정값), 기존 증가분: deltaQty × current_price(KRW)
   const confirmedPbAmount = useMemo(() => {
     return rebalancingSellAssets.reduce((sum, a) => {
+      if (isProductHolding(a)) return sum; // 탭3-2에서 담은 상품·채권은 주식 매수 예산과 무관
       const origAsset = portfolioAssets.find((pa) => isSameAsset(pa, a.name, a.ticker));
       if (!origAsset) {
         return sum + (a.current_value ?? 0);
@@ -742,12 +807,15 @@ export default function BuySimulatorTab() {
   }, [rebalancingSellAssets, portfolioAssets]);
 
   const { totalAllocated, remaining, isOverBudget } = useMemo(() => {
+    // availableInvestmentFunds에는 이미 확정 매수금액이 차감되어 있다.
+    // 따라서 여기서는 새로 입력 중인 PB 주문금액만 추가 예산 검사한다.
     const total = confirmedPbAmount + pbTotalAmount;
     const avail = availableInvestmentFunds ?? 0;
+
     return {
       totalAllocated: total,
-      remaining: avail - total,
-      isOverBudget: avail > 0 && total > avail,
+      remaining: avail - pbTotalAmount,
+      isOverBudget: avail > 0 && pbTotalAmount > avail,
     };
   }, [availableInvestmentFunds, confirmedPbAmount, pbTotalAmount]);
 
@@ -927,14 +995,40 @@ export default function BuySimulatorTab() {
 
   const confirmSellCard = useCallback(() => {
     if (!sellCardKey) return;
-    const asset = baseAssets.find((a) => makeAssetKey(a) === sellCardKey);
-    if (!asset) { setSellCardKey(null); return; }
+
+    const asset = baseAssets.find(
+      (a) => makeAssetKey(a) === sellCardKey,
+    );
+
+    if (!asset) {
+      setSellCardKey(null);
+      return;
+    }
+
     const price = getEffectiveAssetPrice(asset);
-    if (price <= 0 || asset.amount_type !== "quantity" || asset.amount <= 0) { setSellCardKey(null); return; }
-    const qty = Math.min(parseFloat(inlineSellQtyStr), asset.amount);
-    if (!Number.isFinite(qty) || qty <= 0) { setSellCardKey(null); return; }
+
+    if (
+      price <= 0 ||
+      asset.amount_type !== "quantity" ||
+      asset.amount <= 0
+    ) {
+      setSellCardKey(null);
+      return;
+    }
+
+    const qty = Math.min(
+      parseFloat(inlineSellQtyStr),
+      asset.amount,
+    );
+
+    if (!Number.isFinite(qty) || qty <= 0) {
+      setSellCardKey(null);
+      return;
+    }
+
     const bp = asset.buy_price;
     const gain = bp != null ? (price - bp) * qty : 0;
+
     addSellRecord({
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       name: asset.name,
@@ -944,9 +1038,47 @@ export default function BuySimulatorTab() {
       buyPrice: bp,
       realizedGain: gain,
     });
+
+    // 실제 리밸런싱 포트폴리오에서도 매도 수량 차감
+    const currentBase =
+      rebalancingSellAssets.length > 0
+        ? rebalancingSellAssets
+        : baseAssets;
+
+    const updatedAssets = currentBase
+      .map((a) => {
+        if (makeAssetKey(a) !== sellCardKey) return a;
+
+        const remainingQty = Math.max(0, a.amount - qty);
+
+        return {
+          ...a,
+          amount: remainingQty,
+          current_value:
+            remainingQty > 0 ? remainingQty * price : 0,
+        };
+      })
+      .filter(
+        (a) =>
+          !(
+            makeAssetKey(a) === sellCardKey &&
+            a.amount_type === "quantity" &&
+            a.amount <= 0
+          ),
+      );
+
+    setRebalancingSellAssets(updatedAssets);
+
     setSellCardKey(null);
     setInlineSellQtyStr("");
-  }, [sellCardKey, inlineSellQtyStr, baseAssets, addSellRecord]);
+  }, [
+    sellCardKey,
+    inlineSellQtyStr,
+    baseAssets,
+    rebalancingSellAssets,
+    addSellRecord,
+    setRebalancingSellAssets,
+  ]);
 
   const updatePbRow = useCallback((id: string, patch: Partial<PbOrderRow>) => {
     const newType = "productType" in patch ? (patch.productType ?? "") : null;
@@ -975,20 +1107,20 @@ export default function BuySimulatorTab() {
   // stale-closure 방지용 ref — 렌더 시점에 동기 갱신 (useEffect 패턴 대비 1 tick 빠름)
   const sellAssetsRef = useRef(rebalancingSellAssets);
   const portfolioRef = useRef(portfolioAssets);
-  const analysisRef = useRef(analysisResult);
   const tMarginalRef = useRef(tMarginal);
   const formDataRef = useRef(formData);
   const selectedCustomerRef = useRef(selectedCustomer);
   const pbOrderRowsRef = useRef<PbOrderRow[]>(pbOrderRows);
   const usdKrwRateRef = useRef<number>(usdKrwRate);
+  const sellHistoryRef = useRef(sellHistory);
   sellAssetsRef.current = rebalancingSellAssets;
   portfolioRef.current = portfolioAssets;
-  analysisRef.current = analysisResult;
   tMarginalRef.current = tMarginal;
   formDataRef.current = formData;
   selectedCustomerRef.current = selectedCustomer;
   pbOrderRowsRef.current = pbOrderRows;
   usdKrwRateRef.current = usdKrwRate;
+  sellHistoryRef.current = sellHistory;
 
   // PB 행별 검색 상태 (로딩/오류) — 컴포넌트 로컬, Context 비동기 업데이트와 분리
   const [pbSearchState, setPbSearchState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
@@ -1077,6 +1209,38 @@ export default function BuySimulatorTab() {
 
       if (result) {
         confirmRebalancingBuy();
+
+
+        const historyRecord = createStockRebalancingRecord({
+
+          customerId: selectedCustomer,
+
+          beforeAssets: portfolioRef.current,
+
+          afterAssets: mergedAssets,
+
+          usdKrwRate: usdKrwRateRef.current,
+
+        });
+
+
+        updateSharedUiState({
+
+          tab3: {
+
+            rebalancingHistory: upsertRebalancingHistory(
+
+              sharedUiState.tab3?.rebalancingHistory ?? [],
+
+              historyRecord,
+
+            ),
+
+          },
+
+        });
+
+
         setNewPortfolioAnalysisResult(result);
 
         // enrichedAssets의 dividendYield를 mergedAssets에 반영 → PensionTaxPanel 연동
@@ -1133,106 +1297,19 @@ export default function BuySimulatorTab() {
           })
           .filter((x): x is AssetForIncomeCalc => x !== null);
 
-        if (assetsForCalc.length > 0) {
-          const originalEnrichedMap = new Map(
-            (analysisRef.current?.enrichedAssets ?? []).map((e) => [
-              `${e.name ?? ""}::${e.ticker ?? ""}`,
-              e as Record<string, unknown>,
-            ]),
-          );
-          const keepSet = new Set(
-            sellAssetsRef.current.map(
-              (a) => `${a.name ?? ""}::${a.ticker ?? ""}`,
-            ),
-          );
-          const soldAssets = portfolioRef.current.filter(
-            (a) => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`),
-          );
-
-          const soldAssetsForCalc: AssetForIncomeCalc[] = soldAssets
-            .map((a) => {
-              const isBond =
-                a.productType === "국내채권" || a.productType === "해외채권";
-              const resolvedName =
-                a.name || (isBond ? (a.productType ?? "채권") : "");
-              if (!resolvedName) return null;
-              const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
-              const enriched = originalEnrichedMap.get(key);
-              return {
-                name: resolvedName,
-                ticker: a.ticker ?? "",
-                asset_class: a.asset_class,
-                productType: a.productType,
-                country: a.country,
-                current_price:
-                  (enriched?.current_price as number | undefined) ??
-                  a.current_price,
-                current_value:
-                  (enriched?.current_value as number | undefined) ??
-                  a.current_value,
-                amount: a.amount,
-                amount_type: a.amount_type,
-                buy_price: a.buy_price,
-                dividendYield: undefined,
-                interestRate: undefined,
-              } as AssetForIncomeCalc;
-            })
-            .filter((x): x is AssetForIncomeCalc => x !== null);
-
-          const originalAmountMap = new Map(
-            portfolioRef.current.map((a) => [
-              `${a.name ?? ""}::${a.ticker ?? ""}`,
-              a,
-            ]),
-          );
-          const partiallySoldForCalc: AssetForIncomeCalc[] =
-            sellAssetsRef.current
-              .map((a) => {
-                if (a.amount_type !== "quantity") return null;
-                const isBond =
-                  a.productType === "국내채권" ||
-                  a.productType === "해외채권";
-                if (isBond) return null;
-                const resolvedName = a.name || "";
-                if (!resolvedName) return null;
-                const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
-                const original = originalAmountMap.get(key);
-                const enriched = originalEnrichedMap.get(key);
-                if (
-                  !original ||
-                  original.amount_type !== "quantity" ||
-                  original.buy_price == null
-                )
-                  return null;
-                const soldAmount = original.amount - a.amount;
-                if (soldAmount <= 0) return null;
-                return {
-                  name: resolvedName,
-                  ticker: a.ticker ?? "",
-                  asset_class: a.asset_class,
-                  productType: a.productType,
-                  country: a.country,
-                  current_price:
-                    (enriched?.current_price as number | undefined) ??
-                    a.current_price,
-                  current_value: undefined,
-                  amount: soldAmount,
-                  amount_type: "quantity" as const,
-                  buy_price: original.buy_price,
-                  dividendYield: undefined,
-                  interestRate: undefined,
-                } as AssetForIncomeCalc;
-              })
-              .filter((x): x is AssetForIncomeCalc => x !== null);
-
-          const combinedForCalc = [
-            ...soldAssetsForCalc,
-            ...partiallySoldForCalc,
-            ...assetsForCalc,
-          ];
+        if (assetsForCalc.length > 0 || sellHistoryRef.current.length > 0) {
+          // 매도로 실현된 손익(해외주식 양도소득세 대상)은 현재 보유 목록엔 안 남으므로 sellHistory에서 따로 가져온다.
+          // (예전엔 매도된 종목을 "오늘 시세로 아직 보유 중인 것처럼" 재구성해서 미실현 손익처럼 계산했는데,
+          //  이미 실제로 체결된 매도가 이후 시세 변동에 따라 세액이 계속 바뀌는 건 맞지 않음 — 체결 시점 실현손익 고정값을 씀)
+          const realizedSales = sellHistoryRef.current.map((r) => ({
+            name: r.name,
+            productType: r.productType,
+            realizedGain: r.realizedGain,
+          }));
           const newTaxSummary = calcFinancialIncomeSummary(
-            combinedForCalc,
+            assetsForCalc,
             tm,
+            realizedSales,
           );
           try {
             localStorage.setItem(
@@ -1278,8 +1355,10 @@ export default function BuySimulatorTab() {
     const qty = parseFloat(r.quantity);
     return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
   });
-  // PB 패널 항목이 있거나, 드래그앤드롭/PB버튼으로 이미 확정된 매수가 있으면 활성화
-  const canConfirm = (hasPbItems || confirmedPbAmount > 0) && !isOverBudget;
+  // 신규 매수 종목이 하나도 없어도(주식 리밸런싱 없이 상품 리밸런싱으로 바로 넘어가는 경우), 드래그앤드롭 등으로
+  // 포트폴리오 변경만 있어도 확정 가능하도록 hasPbItems/confirmedPbAmount 존재 여부 조건을 제거 — 예산 초과 상태만 막는다.
+  // (origin/main에 있던 hasPortfolioChanges 감지 로직은 이 완화로 더 이상 필요 없어져 제거함 — 이 조건 없이도 항상 확정 가능)
+  const canConfirm = !isOverBudget;
 
   // ── 렌더 ─────────────────────────────────────────────────────────────────
 
@@ -1616,12 +1695,49 @@ export default function BuySimulatorTab() {
                       if (existing) {
                         updated = base.map((a) =>
                           isSameAsset(a, dropModal.sector, dropModal.ticker)
-                            ? { ...a, amount: a.amount + dropQty, current_value: (a.amount + dropQty) * krwPrice }
+                            ? {
+                                ...a,
+                                amount: a.amount + dropQty,
+                                buy_price:
+                                  a.amount_type === "quantity" &&
+                                  a.amount > 0
+                                    ? (
+                                        (
+                                          (a.buy_price ??
+                                            a.current_price ??
+                                            krwPrice) *
+                                          a.amount
+                                        ) +
+                                        krwPrice * dropQty
+                                      ) /
+                                      (a.amount + dropQty)
+                                    : krwPrice,
+                                current_price: krwPrice,
+                                current_value:
+                                  (a.amount + dropQty) * krwPrice,
+                              }
                             : a,
                         );
                       } else {
+                        const canonicalAssetName =
+                          base.find((a) =>
+                            isSameAsset(
+                              a,
+                              dropModal.sector,
+                              dropModal.ticker,
+                            ),
+                          )?.name ??
+                          portfolioAssets.find((a) =>
+                            isSameAsset(
+                              a,
+                              dropModal.sector,
+                              dropModal.ticker,
+                            ),
+                          )?.name ??
+                          dropModal.sector;
+
                         const newAsset: PortfolioAsset = {
-                          name: dropModal.sector, ticker: dropModal.ticker,
+                          name: canonicalAssetName, ticker: dropModal.ticker,
                           asset_class: productType, productType,
                           theme: "기타", country: dropModal.isGlobal ? "미국" : "한국",
                           buy_price: krwPrice, amount: dropQty, amount_type: "quantity" as const,
@@ -1997,10 +2113,11 @@ export default function BuySimulatorTab() {
             {fmtKrwMan(totalAllocated)}
           </span>
         </div>
-        <button
+
+<button
           type="button"
           onClick={handleConfirm}
-          disabled={isConfirming || !canConfirm || isCustomerView}
+          disabled={isConfirming || !canConfirm || (appMode === "customer" && isCustomerView)}
           className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isConfirming ? (

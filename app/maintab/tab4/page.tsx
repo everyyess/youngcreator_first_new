@@ -130,7 +130,10 @@ export default function Tab4Page() {
     setNewSummary(null);
     const wasReset = sessionStorage.getItem(FINANCIAL_INCOME_RESET_KEY) === '1';
     if (wasReset) {
-      loadTaxSummaries(selectedCustomer).then(({ newSummary }) => {
+      // 신규 포트폴리오만 리셋된 상태 — 기존(현재) 세금 점검은 그대로 로드해야 함
+      loadTaxSummaries(selectedCustomer).then(({ currentSummary, newSummary }) => {
+        if (currentSummary) setSummary(currentSummary as FinancialIncomeSummary);
+        else { try { const l = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY); if (l) setSummary(JSON.parse(l)); } catch {} }
         if (newSummary) setNewSummary(newSummary as FinancialIncomeSummary);
         else { try { const l = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY); if (l) setNewSummary(JSON.parse(l)); } catch {} }
       });
@@ -198,6 +201,7 @@ export default function Tab4Page() {
   return (
     <div className="space-y-6">
 
+      {/* 절세 제안 전략 — 2026-09-05 임시 비활성화(사용자 요청). 복구하려면 이 주석과 아래 트리거 버튼 주석을 해제할 것.
       {showPensionPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowPensionPanel(false)}>
           <div className="relative w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -216,6 +220,7 @@ export default function Tab4Page() {
           </div>
         </div>
       )}
+      */}
 
 <ProposalGenerator
         open={showProposalGenerator}
@@ -381,14 +386,16 @@ export default function Tab4Page() {
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="flex flex-col gap-2">
-              {summary && (
-                <>
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-samsung text-[10px] font-bold text-white">A</span>
-                    <span className="text-xs font-bold text-navy">기존 포트폴리오 세금 점검</span>
-                  </div>
-                  <FinancialIncomeGauge summary={summary} hideCapitalGains={true} />
-                </>
+              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${summary ? "bg-samsung" : "bg-slate-300"}`}>A</span>
+                <span className={`text-xs font-bold ${summary ? "text-navy" : "text-slate-400"}`}>기존 포트폴리오 세금 점검</span>
+              </div>
+              {summary ? (
+                <FinancialIncomeGauge summary={summary} hideCapitalGains={true} />
+              ) : (
+                <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
+                  <p className="text-xs font-semibold text-slate-400">TAB1에서 기존 포트폴리오 자산 입력 후<br />기존 세금 점검이 표시됩니다.</p>
+                </div>
               )}
             </div>
             <div className="flex flex-col gap-2">
@@ -397,9 +404,11 @@ export default function Tab4Page() {
                   <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${newSummary ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
                   <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
                 </div>
+                {/* 절세 제안 전략 트리거 버튼 — 2026-09-05 임시 비활성화(사용자 요청). 복구하려면 주석 해제.
                 <button type="button" onClick={() => setShowPensionPanel(true)} className="flex items-center gap-1.5 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition shrink-0">
                   <Sparkles size={11} /> 절세 제안 전략
                 </button>
+                */}
               </div>
               {newSummary ? (
                 <FinancialIncomeGauge summary={newSummary} />

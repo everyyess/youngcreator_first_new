@@ -1,5 +1,7 @@
 "use client";
 
+import { Home } from "lucide-react";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { buildHeaderAssetSummary, HeaderSummary } from "../maintab/MainTabShell";
@@ -292,7 +294,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   return (
     <main className="min-h-screen bg-[#F7F8FC] px-5 py-6 text-ink lg:px-8" style={{ backgroundColor: "#F7F8FC" }}>
       <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
-        <HeaderSummary
+<HeaderSummary
           currentCustomer={selectedCustomerProfile}
           recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
           assetSummary={assetSummary}

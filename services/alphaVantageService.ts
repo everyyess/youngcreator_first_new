@@ -337,3 +337,51 @@ export async function fetchPreviousUsMarketBrief(reportDate: string): Promise<Ex
 }
 
 
+
+export type HoldingStockNewsItem = {
+  title: string;
+  source?: string;
+  url?: string;
+  publishedAt?: string;
+  sentiment?: string;
+};
+
+export async function fetchHoldingStockNews(
+  ticker: string,
+  fromDate: string,
+  toDate: string,
+): Promise<HoldingStockNewsItem[]> {
+  try {
+    const data = await fetchAlpha<AlphaNewsResponse>(
+      `holding-news:${ticker}`,
+      {
+        function: "NEWS_SENTIMENT",
+        tickers: ticker,
+        time_from: alphaTime(fromDate),
+        time_to: alphaTime(toDate),
+        limit: "20",
+        sort: "LATEST",
+      },
+    );
+
+    const feed = Array.isArray(data.feed) ? data.feed : [];
+
+    return feed.map((item) => ({
+      title: item.title || "제목 없음",
+      source: item.source,
+      url: item.url,
+      publishedAt: formatAlphaPublishedAt(item.time_published),
+      sentiment: item.overall_sentiment_label,
+    }));
+  } catch (error) {
+    console.warn("[holding-issues][alpha] news request failed", {
+      ticker,
+      reason:
+        error instanceof Error
+          ? redactAlphaSecrets(error.message)
+          : "Alpha Vantage 뉴스 조회 실패",
+    });
+
+    return [];
+  }
+}

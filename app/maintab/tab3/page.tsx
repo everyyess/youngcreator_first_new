@@ -1,20 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PackageCheck, RefreshCcw } from "lucide-react";
+import { History, PackageCheck, RefreshCcw } from "lucide-react";
 import BuySimulatorTab from "../BuySimulatorTab";
 import ProductMatchingTab from "../tab5/page";
+import RebalancingHistoryTab from "../RebalancingHistoryTab";
 import { useCustomerContext } from "../CustomerContext";
 
-type InnerTab = "stock-rebalancing" | "product-rebalancing";
+type InnerTab = "stock-rebalancing" | "product-rebalancing" | "rebalancing-history";
 
 const innerTabs: { id: InnerTab; label: string; icon: React.ReactNode }[] = [
   { id: "stock-rebalancing", label: "리밸런싱(주식)", icon: <RefreshCcw size={15} /> },
   { id: "product-rebalancing", label: "리밸런싱(상품)", icon: <PackageCheck size={15} /> },
+  { id: "rebalancing-history", label: "리밸런싱 히스토리", icon: <History size={15} /> },
 ];
 
 function isVisibleInnerTab(value: unknown): value is InnerTab {
-  return value === "stock-rebalancing" || value === "product-rebalancing";
+  return value === "stock-rebalancing" || value === "product-rebalancing" || value === "rebalancing-history";
 }
 
 export default function Tab3Page() {
@@ -56,6 +58,7 @@ export default function Tab3Page() {
 
       {activeInnerTab === "stock-rebalancing" && <BuySimulatorTab />}
       {activeInnerTab === "product-rebalancing" && <ProductMatchingTab />}
+      {activeInnerTab === "rebalancing-history" && <RebalancingHistoryTab />}
     </>
   );
 }

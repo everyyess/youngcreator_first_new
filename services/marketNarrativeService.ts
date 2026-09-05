@@ -473,8 +473,8 @@ async function _fetchAlphaVantageNews(reportDate: string): Promise<{ items: RawN
   const apiKey = process.env.ALPHA_VANTAGE_API_KEY?.trim();
   if (!apiKey) return { items: [], error: "ALPHA_VANTAGE_API_KEY 미설정" };
   try {
-    const timeFrom = reportDate.replace(/-/g, "") + "T0000";
-    const timeTo = addDaysIso(reportDate, 1).replace(/-/g, "") + "T0600";
+    const timeFrom = addDaysIso(reportDate, -1).replace(/-/g, "") + "T1800";
+    const timeTo = addDaysIso(reportDate, 1).replace(/-/g, "") + "T1000";
     const url = new URL("https://www.alphavantage.co/query");
     ([["function", "NEWS_SENTIMENT"], ["topics", "financial_markets,economy_macro,earnings,ipo,mergers_and_acquisitions"],
     ["time_from", timeFrom], ["time_to", timeTo], ["sort", "RELEVANCE"], ["limit", "50"], ["apikey", apiKey],
@@ -520,7 +520,12 @@ async function _fetchFinnhubNews(reportDate: string): Promise<{ items: RawNewsIt
       .filter((item) => {
         const ts = Number(item.datetime);
         if (!Number.isFinite(ts)) return false;
-        return dateInTimeZone(new Date(ts * 1000).toISOString(), "America/New_York") === reportDate;
+
+        const publishedAt = new Date(ts * 1000);
+        const targetEnd = new Date(`${addDaysIso(reportDate, 1)}T06:00:00Z`);
+        const targetStart = new Date(targetEnd.getTime() - 36 * 60 * 60 * 1000);
+
+        return publishedAt >= targetStart && publishedAt <= targetEnd;
       })
       .map((item) => ({
         title: String(item.headline || ""),
@@ -731,6 +736,90 @@ function _isSimilarTitle(a: string, b: string) {
 
 // ─── Korean summary builders ──────────────────────────────────────────────
 
+function _hasInformativeUsTitle(title: string): boolean {
+  const t = title.toLowerCase().trim();
+
+  if (t.length < 18) return false;
+
+  const hasOutcome =
+    /hold|holds|held|cut|cuts|raise|raises|hike|hikes|rise|rises|rose|fall|falls|fell|drop|drops|dropped|surge|surges|jump|jumps|gain|gains|slip|slips|decline|declines|plunge|plunges|rally|rallies|beat|beats|miss|misses|higher|lower|record|forecast|guidance|warn|warns|downgrade|upgrade|approve|reject|pause|unchanged|steady|동결|인상|인하|상승|하락|급등|급락|강세|약세/.test(t);
+
+  const hasNumber =
+    /\d+(\.\d+)?%|\$\d+|\d+\s?(bp|bps|million|billion|trillion|mn|bn)/.test(t);
+
+  const hasMarketEvent =
+    /fed|fomc|powell|treasury|yield|inflation|cpi|pce|jobs|payroll|unemployment|gdp|nvidia|broadcom|apple|microsoft|amazon|meta|oil|crude|opec|s&p|nasdaq|dow|wall street/.test(t);
+
+  const isForeignOnly =
+    /\buk\b|britain|british|europe|european|china|chinese|japan|japanese/.test(t) &&
+    !/u\.?s\.?|us |s&p|nasdaq|dow|wall street|fed|federal reserve/.test(t);
+
+  const isInvestmentFeature =
+    /why .*invest|wealthy|personal finance|portfolio tips|how to invest|investing strategy/.test(t);
+
+  if (isForeignOnly || isInvestmentFeature) return false;
+
+
+  return t.length >= 30;
+}
+async function _translateUsNewsTitle(title: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) return title;
+
+  const prompt = `다음 미국 금융뉴스의 영문 제목을 자연스러운 한국어 기사 제목으로 번역하세요.
+
+규칙:
+- 원문 제목에 없는 사실, 원인, 해석을 절대 추가하지 마세요.
+- 요약하지 말고 제목에 담긴 정보를 빠짐없이 번역하세요.
+- 기업명, 인명, 수치, 상승·하락·동결 등 방향성을 정확히 유지하세요.
+- 한국 증권사 PB가 고객에게 보여주는 뉴스 제목처럼 간결하고 자연스럽게 표현하세요.
+- 번역된 제목 한 줄만 출력하세요.
+
+원문 제목: ${title}`;
+
+  try {
+    const models = [
+      "gemini-3.1-flash-lite",
+      "gemini-1.5-flash",
+      "gemini-2.5-flash-lite",
+      "gemini-2.5-flash",
+    ] as const;
+
+    for (const model of models) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                temperature: 0,
+                maxOutputTokens: 120,
+              },
+            }),
+            signal: AbortSignal.timeout(12000),
+          },
+        );
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const translated =
+          data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+        if (translated) return translated;
+      } catch {
+        continue;
+      }
+    }
+
+    return title;
+  } catch {
+    return title;
+  }
+}
 function _summarizeUs(title: string, summary: string): string {
   const text = `${title} ${summary}`
     .replace(/\s+/g, " ")
@@ -741,81 +830,81 @@ function _summarizeUs(title: string, summary: string): string {
   // 미 국채금리
   if (/treasury|treasuries|10-year yield|2-year yield|30-year yield|bond yield/.test(lower)) {
     if (/highest|rise|rose|rising|surge|jump|climb/.test(lower)) {
-      return "미 국채금리가 상승하며 주식시장에 부담으로 작용했어요.";
+      return "미 국채금리가 상승하며 주식시장에 부담으로 작용했습니다.";
     }
 
     if (/fall|fell|decline|drop|lower/.test(lower)) {
-      return "미 국채금리가 하락하며 주식시장 투자심리에 영향을 미쳤어요.";
+      return "미 국채금리가 하락하며 주식시장 투자심리에 영향을 미쳤습니다.";
     }
 
-    return "미 국채금리 움직임이 미국 증시의 주요 변수로 작용했어요.";
+    return "미 국채금리 움직임이 미국 증시의 주요 변수로 작용했습니다.";
   }
 
   // 연준·금리
   if (/federal reserve|\bfed\b|fomc|powell|rate cut|rate hike|interest rate/.test(lower)) {
-    return "연준의 통화정책과 금리 전망을 둘러싼 변화가 미국 증시의 주요 변수로 부각됐어요.";
+    return "연준의 통화정책과 금리 전망을 둘러싼 변화가 미국 증시의 주요 변수로 부각됐습니다.";
   }
 
   // 물가
   if (/inflation|\bcpi\b|\bpce\b|consumer price/.test(lower)) {
-    return "미국 물가 관련 지표가 향후 금리 경로를 가늠할 핵심 변수로 주목받았어요.";
+    return "미국 물가 관련 지표가 향후 금리 경로를 가늠할 핵심 변수로 주목받았습니다.";
   }
 
   // 고용
   if (/payroll|jobs report|employment|unemployment|labor market/.test(lower)) {
-    return "미국 고용 관련 지표가 경기와 향후 금리 전망을 판단할 주요 재료로 작용했어요.";
+    return "미국 고용 관련 지표가 경기와 향후 금리 전망을 판단할 주요 재료로 작용했습니다.";
   }
 
   // 정부 셧다운·예산
   if (/government shutdown|shutdown|spending measure|spending bill|funding bill|government funding/.test(lower)) {
-    return "미국 정부 셧다운을 둘러싼 예산 협상이 시장의 주요 불확실성으로 부각됐어요.";
+    return "미국 정부 셧다운을 둘러싼 예산 협상이 시장의 주요 불확실성으로 부각됐습니다.";
   }
 
   // 지정학
   if (/middle east|geopolitical|iran|israel|war|conflict|tension/.test(lower)) {
-    return "지정학적 리스크가 부각되며 안전자산 선호가 강해지고 미국 증시에 부담으로 작용했어요.";
+    return "지정학적 리스크가 부각되며 안전자산 선호가 강해지고 미국 증시에 부담으로 작용했습니다.";
   }
 
   // 유가
   if (/oil|crude|opec|energy price/.test(lower)) {
-    return "국제유가 움직임이 인플레이션 우려와 에너지 업종을 통해 미국 증시에 영향을 미쳤어요.";
+    return "국제유가 움직임이 인플레이션 우려와 에너지 업종을 통해 미국 증시에 영향을 미쳤습니다.";
   }
 
   // 대형 기술주·반도체
   if (/nvidia|apple|microsoft|amazon|alphabet|google|meta|broadcom|semiconductor|chip stocks?/.test(lower)) {
-    return "미국 대형 기술주와 반도체 관련 소식이 기술주 투자심리에 영향을 미쳤어요.";
+    return "미국 대형 기술주와 반도체 관련 소식이 기술주 투자심리에 영향을 미쳤습니다.";
   }
 
   // 미국 증시 전체
   if (/s&p ?500|nasdaq|dow|wall street|u\.?s\.? stocks?|us stocks?/.test(lower)) {
     if (/fall|fell|drop|decline|plunge|tumble|selloff|lower/.test(lower)) {
-      return "미국 주요 증시가 하락하며 위험자산 투자심리가 약화됐어요.";
+      return "미국 주요 증시가 하락하며 위험자산 투자심리가 약화됐습니다.";
     }
 
     if (/rise|rose|rally|gain|surge|higher|climb/.test(lower)) {
-      return "미국 주요 증시가 상승하며 위험자산 투자심리가 개선됐어요.";
+      return "미국 주요 증시가 상승하며 위험자산 투자심리가 개선됐습니다.";
     }
 
-    return "미국 주요 증시의 움직임이 시장 투자심리에 영향을 미쳤어요.";
+    return "미국 주요 증시의 움직임이 시장 투자심리에 영향을 미쳤습니다.";
   }
 
   // 미국 정부·재정·예산
   if (/congress|house|senate|government funding|spending measure|spending bill|budget|fiscal/.test(lower)) {
-    return "미국 정부의 예산·재정 관련 논의가 금융시장의 주요 변수로 부각됐어요.";
+    return "미국 정부의 예산·재정 관련 논의가 금융시장의 주요 변수로 부각됐습니다.";
   }
 
   // 달러·환율
   if (/dollar|dollar index|dxy|currency|foreign exchange/.test(lower)) {
-    return "달러 가치의 움직임이 미국 금융시장과 투자심리에 영향을 미쳤어요.";
+    return "달러 가치의 움직임이 미국 금융시장과 투자심리에 영향을 미쳤습니다.";
   }
 
   // 미국 경기·소비
   if (/consumer|retail sales|economic growth|economy|economic data|business activity/.test(lower)) {
-    return "미국 경기와 소비 관련 소식이 향후 경기 전망을 판단할 주요 재료로 작용했어요.";
+    return "미국 경기와 소비 관련 소식이 향후 경기 전망을 판단할 주요 재료로 작용했습니다.";
   }
 
   // 분류되지 않는 기사는 기본 요약 사용
-  return "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤어요.";
+  return "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤습니다.";
 }
 
 
@@ -919,13 +1008,22 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
   }
 
   // Score and filter
-  const scored = merged
+  const ranked = merged
     .map((item) => ({ item, score: _scoreUs(item.title, item.summary) }))
-    .filter((s) => s.score >= 4)
+    .filter((s) => _hasInformativeUsTitle(s.item.title))
     .sort((a, b) => b.score - a.score);
 
+  const primary = ranked.filter((s) => s.score >= 4);
+  const fallback = ranked.filter((s) => s.score >= 2 && s.score < 4);
+
+  const scored = [...primary];
+  for (const candidate of fallback) {
+    if (scored.length >= 3) break;
+    scored.push(candidate);
+  }
+
   if (!scored.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
 
   // Build Korean summaries with deduplication
@@ -933,10 +1031,10 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
   const summarySeen = new Set<string>();
   for (const { item } of scored) {
     if (items.length >= 5) break;
-    const summary = _summarizeUs(item.title, item.summary);
+    const summary = await _translateUsNewsTitle(item.title);
     if (
       !summary ||
-      summary === "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤어요." ||
+      summary === "미국 금융시장 관련 주요 소식이 투자심리에 영향을 미쳤습니다." ||
       summarySeen.has(summary)
     ) continue;
     summarySeen.add(summary);
@@ -944,7 +1042,7 @@ async function fetchUsNews(reportDate: string): Promise<ReportNewsBlock> {
   }
 
   if (!items.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
   return { status: "available", message: "", items: items.slice(0, 5) };
 }
@@ -976,7 +1074,7 @@ async function fetchKrNews(reportDate: string): Promise<ReportNewsBlock> {
     .sort((a, b) => b.score - a.score);
 
   if (!scored.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
 
   const items: ReportSource[] = [];
@@ -1067,7 +1165,7 @@ async function fetchKrNews(reportDate: string): Promise<ReportNewsBlock> {
   }
 
   if (!items.length) {
-    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었어요.", items: [] };
+    return { status: "none", message: "시장 방향성에 영향을 줄 만한 주요 이벤트가 없었습니다.", items: [] };
   }
   return { status: "available", message: "", items: items.slice(0, 5) };
 }
@@ -1114,17 +1212,17 @@ function pickMarketCauseSource(news: ReportNewsBlock) {
 function buildIndexOverview(market: Market, indices: Move[], news: ReportNewsBlock): ReportNarrativePoint {
   const available = indices.filter((item) => item.status === "available" && item.changePercent != null && (market === "kr" || item.label !== "SOX"));
   if (!available.length) {
-    return { text: `${marketLabel(market)}를 조회하지 못했어요.`, spans: [{ text: `${marketLabel(market)}를 조회하지 못했어요.` }], sources: [] };
+    return { text: `${marketLabel(market)}를 조회하지 못했습니다.`, spans: [{ text: `${marketLabel(market)}를 조회하지 못했습니다.` }], sources: [] };
   }
 
   const direction = directionFromMoves(available);
   const spans: ReportSpan[] = [
-    { text: `${marketLabel(market)}는 ${direction}였어요. ` },
+    { text: `${marketLabel(market)}는 ${direction}였습니다. ` },
   ];
   available.forEach((item, index) => {
     spans.push({ text: `${item.label} ` });
     spans.push({ text: formatPercent(item.changePercent), tone: toneForPercent(item.changePercent) });
-    spans.push({ text: index === available.length - 1 ? "를 기록했어요." : ", " });
+    spans.push({ text: index === available.length - 1 ? "를 기록했습니다." : ", " });
   });
   return { text: spans.map((span) => span.text).join(""), spans, sources: [] };
 }
@@ -1157,7 +1255,7 @@ function topicLabel(label: string) {
 }
 
 function buildMoveSentence(move: Move, newsItems: ReportSource[], kind: "sector" | "stock"): ReportNarrativePoint {
-  const source = findMoveSource(move, newsItems);
+  const source = kind === "sector" ? findMoveSource(move, newsItems) : undefined;
   const isPositive = (move.changePercent ?? 0) >= 0;
   const directionText = kind === "sector" ? (isPositive ? "강세" : "약세") : (isPositive ? "상승" : "하락");
   const noun = kind === "sector" ? `${move.label} 업종은` : topicLabel(move.label);
@@ -1165,11 +1263,11 @@ function buildMoveSentence(move: Move, newsItems: ReportSource[], kind: "sector"
     { text: source.summary, tone: "keyword" },
     { text: ` ${noun} ` },
     { text: formatPercent(move.changePercent), tone: toneForPercent(move.changePercent) },
-    { text: kind === "sector" ? ` ${directionText}를 보였어요.` : ` ${directionText}했어요.` },
+    { text: kind === "sector" ? ` ${directionText}를 보였습니다.` : ` ${directionText}했습니다.` },
   ] : [
     { text: `${noun} ` },
     { text: formatPercent(move.changePercent), tone: toneForPercent(move.changePercent) },
-    { text: kind === "sector" ? ` ${directionText}를 보였어요.` : ` ${directionText}했어요.` },
+    { text: kind === "sector" ? ` ${directionText}를 보였습니다.` : ` ${directionText}했습니다.` },
   ];
   return { text: spans.map((span) => span.text).join(""), spans, sources: source ? [source] : [] };
 }
