@@ -9,9 +9,95 @@ export const FINANCIAL_INCOME_STORAGE_KEY = "financial-income-summary-v1";
 export const NEW_PORTFOLIO_INCOME_STORAGE_KEY = "new-portfolio-income-summary-v1";
 export const FINANCIAL_INCOME_RESET_KEY = "financial-income-reset-v1";
 
-const INTEREST_WITHHOLDING  = 0.154; // 이자소득 원천징수 14% + 지방세 1.4%
-const DOMESTIC_DIV_WITHHOLDING = 0.154;
-const FOREIGN_DIV_WITHHOLDING  = 0.15;  // 미국 조세조약 기준
+const INTEREST_WITHHOLDING  = 0.154; // 이자소득 원천징수 14% + 지방세 1.4% (표시용 — 실제 세액은 calcWithholdingKRW로 국세·지방세 분리 절사 계산)
+const DOMESTIC_DIV_WITHHOLDING = 0.154; // 국내배당 원천징수 14% + 지방세 1.4% (표시용, 계산은 calcWithholdingKRW)
+const FOREIGN_DIV_WITHHOLDING  = 0.15;  // 미국 조세조약 기준 (표시용 기본값 — 실제 계산은 국가별 calcForeignDividendWithholding)
+
+// ─── 세율·상수 테이블 (하드코딩 금지 — 배당·이자소득세 계산에 필요한 값은 전부 여기서 관리) ──
+// 조문 근거는 각 항목 옆 주석 참고. "확인 필요"로 표시된 항목은 개정 여부·실무 처리를 세무 담당자가 재확인할 것.
+export const TAX_RATES = {
+  incomeWithholdingRate: 0.14,   // 이자·배당소득 원천징수(국세) — 소득세법 §127①
+  localSurtaxRate: 0.10,         // 지방소득세 = 소득세액 × 10% — 지방세법 §92
+  grossUpRate: 0.11,             // 배당가산율(Gross-up) — 소득세법 §17③ (2025년 기준. 개정 가능성 있어 확인 필요)
+  foreignStockCapitalGainsExemption: 2_500_000, // 해외주식 양도소득 기본공제(연간) — 소득세법 §118의4
+  foreignStockCapitalGainsRate: 0.22,           // 지방세 포함 22%(국세 20%+지방세 2%) — 소득세법 §118의5
+  domesticMajorShareholderValueThreshold: 5_000_000_000, // 대주주 판정 기준(종목당 보유액) — 소득세법 시행령 §157
+  // 해외주식 배당 현지 원천징수세율(조세조약 제한세율). 국가명은 이 대시보드 자산입력 폼(COUNTRIES: 국내/미국/일본/중국/유럽/기타)과 일치.
+  // 실사용 고객 자산이 사실상 미국주식 위주라 "유럽"·"기타"는 국가별 세율을 별도 관리하지 않기로 함(의도적 범위 제한).
+  // 해당 국가는 getForeignDividendWithholdingRate()에서 국내세율(14%)로 폴백 — 추가징수 없음으로 처리.
+  foreignDividendWithholdingByCountry: {
+    "미국": 0.15, // 한미 조세조약 제12조
+    "일본": 0.15, // 한일 조세조약 제10조
+    "중국": 0.10, // 한중 조세조약 제10조
+  } as Record<string, number>,
+};
+
+// 해외주식 배당 현지 원천징수세율 조회 — 등록 안 된 국가("유럽"·"기타" 포함)는 0.14로 폴백(의도적 범위 제한, 위 주석 참고)
+function getForeignDividendWithholdingRate(country?: string): number {
+  if (!country) return TAX_RATES.incomeWithholdingRate;
+  return TAX_RATES.foreignDividendWithholdingByCountry[country] ?? TAX_RATES.incomeWithholdingRate;
+}
+
+// 국세(소득세)·지방소득세를 원 단위 절사(floor)로 순차 계산 — 원천징수세액 원 미만은 절사하는 실무 방식.
+function calcWithholdingKRW(grossIncomeKRW: number): { nationalTax: number; localTax: number; totalTax: number; net: number } {
+  const nationalTax = Math.floor(grossIncomeKRW * TAX_RATES.incomeWithholdingRate);
+  const localTax = Math.floor(nationalTax * TAX_RATES.localSurtaxRate);
+  const totalTax = nationalTax + localTax;
+  return { nationalTax, localTax, totalTax, net: grossIncomeKRW - totalTax };
+}
+
+// 해외배당: 현지 원천징수세율과 국내세율(14%) 비교 — 현지세율이 국내세율 이상이면 국내 추가징수 없음(예: 미국 15%),
+// 현지세율이 국내세율보다 낮으면 차액만 국내에서 추가 원천징수(예: 중국 10% → 국내서 4%+지방세 0.4% 추가).
+function calcForeignDividendWithholding(grossIncomeKRW: number, country?: string): { localWithholding: number; domesticTopUpNational: number; domesticTopUpLocal: number; totalTax: number; net: number; effectiveRate: number } {
+  const localRate = getForeignDividendWithholdingRate(country);
+  const localWithholding = Math.floor(grossIncomeKRW * localRate);
+  if (localRate >= TAX_RATES.incomeWithholdingRate) {
+    return { localWithholding, domesticTopUpNational: 0, domesticTopUpLocal: 0, totalTax: localWithholding, net: grossIncomeKRW - localWithholding, effectiveRate: grossIncomeKRW > 0 ? localWithholding / grossIncomeKRW : localRate };
+  }
+  const domesticTopUpNational = Math.floor(grossIncomeKRW * (TAX_RATES.incomeWithholdingRate - localRate));
+  const domesticTopUpLocal = Math.floor(domesticTopUpNational * TAX_RATES.localSurtaxRate);
+  const totalTax = localWithholding + domesticTopUpNational + domesticTopUpLocal;
+  return { localWithholding, domesticTopUpNational, domesticTopUpLocal, totalTax, net: grossIncomeKRW - totalTax, effectiveRate: grossIncomeKRW > 0 ? totalTax / grossIncomeKRW : localRate };
+}
+
+// 금융소득종합과세 계산 — rolling(트레일링 365일)·calendarYtd(달력연도 누적) 두 기준에 동일하게 적용하는 공용 로직.
+// (비교과세: 2,000만원까지 14%+초과분 한계세율 vs 전액 14% 중 큰 쪽 — 소득세법 §14③)
+function computeComprehensiveTax(
+  dividendIncomeAmt: number,
+  grossUpTargetAmt: number,
+  interestIncomeAmt: number,
+  withholdingCollected: number,
+  tMarginal: number
+): ComprehensiveTaxResult {
+  const totalFinancialIncome = interestIncomeAmt + dividendIncomeAmt;
+  const grossUpAmount = grossUpTargetAmt * TAX_RATES.grossUpRate;
+  const taxableFinancialIncome = totalFinancialIncome + grossUpAmount;
+  let generalTax = 0;
+  let comparisonTax = 0;
+  let finalTax = 0;
+  let dividendTaxCredit = 0;
+  let additionalTax = 0;
+  if (totalFinancialIncome > THRESHOLD) {
+    generalTax = (taxableFinancialIncome - THRESHOLD) * tMarginal + THRESHOLD * TAX_RATES.incomeWithholdingRate;
+    comparisonTax = taxableFinancialIncome * TAX_RATES.incomeWithholdingRate;
+    finalTax = Math.max(generalTax, comparisonTax);
+    dividendTaxCredit = Math.min(grossUpAmount, finalTax * 0.1);
+    additionalTax = Math.max(finalTax - dividendTaxCredit - withholdingCollected, 0);
+  }
+  return {
+    dividendIncome: Math.round(dividendIncomeAmt),
+    totalFinancialIncome: Math.round(totalFinancialIncome),
+    grossUpAmount: Math.round(grossUpAmount),
+    taxableFinancialIncome: Math.round(taxableFinancialIncome),
+    generalTax: Math.round(generalTax),
+    comparisonTax: Math.round(comparisonTax),
+    finalTax: Math.round(finalTax),
+    dividendTaxCredit: Math.round(dividendTaxCredit),
+    withholdingTax: Math.round(withholdingCollected),
+    additionalTax: Math.round(additionalTax),
+    isOverThreshold: totalFinancialIncome > THRESHOLD,
+  };
+}
 
 // ─── 타입 ──────────────────────────────────────────────────────────────────────
 export interface IncomeBreakdownItem {
@@ -34,6 +120,23 @@ export interface CapitalGainsBreakdownItem {
   category: "해외주식" | "국내대주주" | "해외펀드";
 }
 
+// 금융소득종합과세 계산 결과 한 벌 — rolling(트레일링 365일)과 calendarYtd(달력연도 누적) 두 기준에
+// 각각 동일한 모양으로 계산해서 쓴다. 종합과세는 법적으로 달력연도 기준으로만 판정되므로
+// FinancialIncomeSummary 최상위 필드(rolling, "향후 1년 예상" 표시용)와 calendarYtd(종합과세 판정 전용)를 분리해서 둔다.
+export interface ComprehensiveTaxResult {
+  dividendIncome: number;
+  totalFinancialIncome: number;
+  grossUpAmount: number;
+  taxableFinancialIncome: number;
+  generalTax: number;
+  comparisonTax: number;
+  finalTax: number;
+  dividendTaxCredit: number;
+  withholdingTax: number;
+  additionalTax: number;
+  isOverThreshold: boolean;
+}
+
 export interface FinancialIncomeSummary {
   interestIncome: number;
   dividendIncome: number;
@@ -54,6 +157,9 @@ export interface FinancialIncomeSummary {
   additionalTax: number;
   tMarginal: number;
   isOverThreshold: boolean;
+  // 달력연도(1/1~오늘) 누적 기준 종합과세 점검 — 위 최상위 필드들("향후 1년 예상" 트레일링 365일)과는
+  // 별개 판정. 연말에 배당이 몰린 경우처럼 두 기준의 임계값 통과 여부가 달라질 수 있어 반드시 분리해서 봐야 함.
+  calendarYtd: ComprehensiveTaxResult;
   breakdown: IncomeBreakdownItem[];
   capitalGainsBreakdown: CapitalGainsBreakdownItem[];
   majorShareholderWarning: boolean;
@@ -79,9 +185,13 @@ export interface TLHData {
 }
 
 // ─── 포맷 유틸 ─────────────────────────────────────────────────────────────────
+// 100만원 미만은 "만원" 단위로 반올림하지 않고 원 단위 그대로 표시한다.
+// (개별 항목을 각자 만원 단위로 반올림해서 보여주면, 정확한 합계와 화면에 보이는
+//  항목별 숫자를 더한 값이 달라 보이는 착시가 생김 — 예: 3.55만+1.55만인데 화면엔 4만+2만=6만처럼 보이고
+//  실제 합계 5.1만은 5만으로 표시되는 식. 소액 구간에서는 절사·반올림 오차가 커서 원 단위로 정확히 보여줌.)
 function fmtWon(n: number) {
   if (Math.abs(n) >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}억원`;
-  if (Math.abs(n) >= 10_000) return `${Math.round(n / 10_000).toLocaleString("ko-KR")}만원`;
+  if (Math.abs(n) >= 1_000_000) return `${Math.round(n / 10_000).toLocaleString("ko-KR")}만원`;
   return `${Math.round(n).toLocaleString("ko-KR")}원`;
 }
 
@@ -259,6 +369,7 @@ export function FinancialIncomeGauge({
 
       {/* 금액 + 게이지 */}
       <div className="px-4 pt-4 pb-3">
+        <p className="text-[10px] font-bold text-slate-400 mb-1">향후 1년 예상 (최근 12개월 실지급 기준 투영)</p>
         <div className="flex items-end gap-1.5 mb-1">
           <span className="text-3xl font-black tracking-tight text-slate-800">
             {fmtWon(totalIncome)}
@@ -314,6 +425,34 @@ export function FinancialIncomeGauge({
             </div>
           )}
         </div>
+
+        {/* 달력연도 누적 종합과세 점검 — "향후 1년 예상"(위 큰 숫자)과는 별도 기준.
+            금융소득종합과세는 법적으로 달력연도(1/1~12/31) 기준으로만 판정되므로, 연말에 배당이
+            몰린 고객은 두 기준의 임계값 통과 여부가 달라질 수 있어 반드시 따로 확인해야 함. */}
+        {/* summary?.calendarYtd — 이 필드 추가 이전(구버전)에 저장된 캐시 데이터엔 없을 수 있어 옵셔널 체이닝 필수 */}
+        {summary?.calendarYtd && (
+          <div className={`mt-3 rounded-lg border px-3 py-2.5 ${summary.calendarYtd.isOverThreshold ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                {new Date().getFullYear()}년 누적(1/1~오늘) 종합과세 점검
+              </span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  summary.calendarYtd.isOverThreshold ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-600"
+                }`}
+              >
+                {summary.calendarYtd.isOverThreshold ? "종합과세 해당" : "안전"}
+              </span>
+            </div>
+            <div className="text-sm font-black text-slate-800">
+              {fmtWon(summary.calendarYtd.totalFinancialIncome)}
+              <span className="ml-1 text-[11px] font-bold text-slate-400">/ 2,000만원</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              올해 실제 지급된 배당·이자만 합산 — 위 "향후 1년 예상"과는 다른 기준입니다
+            </p>
+          </div>
+        )}
 
         {/* 대주주 요건 알림 */}
         {summary?.majorShareholderWarning && (
@@ -750,15 +889,25 @@ export interface AssetForIncomeCalc {
   amount_type: "quantity" | "value";
   buy_price?: number | null;
   dividendYield?: number;              // 연간 배당수익률 (소수)
-  trailingAnnualDividendRate?: number; // 주당 연간 배당금
+  trailingAnnualDividendRate?: number; // 주당 연간 배당금 (최근 365일 트레일링 — "향후 1년 예상" 투영용)
   annualDividendRate?: number;         // 주당 연간 배당금 (대체 필드)
+  calendarYtdDividendRate?: number;    // 달력연도 1/1~오늘 실지급 주당 배당금 합 — 종합과세 판정 전용
   interestRate?: number;               // 채권 이자율 (소수 — bond_yield/100)
+}
+
+// 매도로 실현된 손익(예: CustomerContext의 SellRecord) — 보유 중인 자산의 미실현 평가손익과 별개로
+// 양도소득세 계산에 반영해야 함. 매도 시점엔 이미 포지션이 사라지므로 assets 루프만으로는 절대 안 잡힘.
+export interface RealizedSaleForIncomeCalc {
+  name: string;
+  productType?: string; // "해외주식"/"해외ETF"만 명확히 분류과세 대상으로 반영(국내는 원칙적으로 비과세라 계산 제외)
+  realizedGain: number;
 }
 
 // ─── calcFinancialIncomeSummary ────────────────────────────────────────────────
 export function calcFinancialIncomeSummary(
   assets: AssetForIncomeCalc[],
-  tMarginal: number = 0.385
+  tMarginal: number = 0.385,
+  realizedSales: RealizedSaleForIncomeCalc[] = []
 ): FinancialIncomeSummary {
   const breakdown: IncomeBreakdownItem[] = [];
   const cgBreakdownTemp: CapitalGainsBreakdownItem[] = [];
@@ -770,6 +919,15 @@ export function calcFinancialIncomeSummary(
   let totalCapitalLosses = 0;
   let domesticMajorShareholderTax = 0;
   let grossUpTargetDividend = 0;
+  let totalWithholdingCollected = 0; // 실제 원천징수세액 합계 (국내·해외 항목별 실제 계산값의 합 — 종합과세 기납부세액 계산에 사용)
+
+  // 달력연도(1/1~오늘) 누적 배당소득 — "향후 1년 예상"(트레일링 365일)과는 별도로 집계.
+  // 금융소득종합과세는 법적으로 달력연도 기준으로만 판정되므로 이 값으로 별도 종합과세 판정을 만든다.
+  // ※ 이자소득(채권)은 원금×표면이율 기반 단순 연환산이라 "실지급 이벤트" 개념이 없어 달력연도 분리를 안 함 —
+  //    rolling과 동일한 interestIncome을 그대로 재사용.
+  let calendarYtdDividendIncome = 0;
+  let calendarYtdGrossUpTargetDividend = 0;
+  let calendarYtdWithholdingCollected = 0;
 
   for (const a of assets) {
     const assetClass = (a.asset_class ?? "").trim();
@@ -814,14 +972,15 @@ export function calcFinancialIncomeSummary(
       // 이자 지급 일수 = 365 (연간 기준)
       const annualGross = principal * rate * (365 / 365);
       if (annualGross > 0 && principal > 0) {
-        const annualNet = Math.round(annualGross * (1 - INTEREST_WITHHOLDING));
+        const w = calcWithholdingKRW(annualGross);
         interestIncome += annualGross;
+        totalWithholdingCollected += w.totalTax;
         breakdown.push({
           name,  // a.name || productType || "채권"
           ticker,
           incomeType: "이자",
           annualIncome: Math.round(annualGross),
-          netIncome: annualNet,
+          netIncome: w.net,
           yieldRate: rate,
           value: value > 0 ? Math.round(value) : Math.round(principal),
           principal: Math.round(principal),
@@ -832,31 +991,57 @@ export function calcFinancialIncomeSummary(
     }
 
     // ── 리츠 / 주식 / ETF: 배당소득 ────────────────────────────────────────────
+    // 주의: 여기서 쓰는 건 "배당수익률"이 아니라 "주당 실제 배당금(dividendPerShare) × 보유수량"이다.
+    // dividendYield(배당수익률)는 세액 계산에 절대 쓰지 않는다 — 표시(yieldRate)용으로만 보관.
     if (value > 0) {
       const yieldRate = a.dividendYield ?? 0;
       const dividendPerShare = a.trailingAnnualDividendRate ?? a.annualDividendRate ?? 0;
 
       if (dividendPerShare > 0 && a.amount_type === "quantity" && a.amount > 0) {
         const annualGross = dividendPerShare * a.amount;
-        const withholdingRate = isDomesticListed ? DOMESTIC_DIV_WITHHOLDING : FOREIGN_DIV_WITHHOLDING;
-        const annualNet = Math.round(annualGross * (1 - withholdingRate));
-        dividendIncome += annualGross;
+        // 달력연도(1/1~오늘) 누적분 — 종합과세 판정 전용, 데이터 없으면 0(=올해 아직 배당 없음으로 취급)
+        const calendarYtdPerShare = a.calendarYtdDividendRate ?? 0;
+        const calendarYtdGross = calendarYtdPerShare * a.amount;
 
-        // 소득유형 분류
+        // 소득유형 분류 (원천징수 계산 방식도 여기서 갈림 — 국내: 소득세14%+지방세1.4%,
+        // 해외직접: 현지 조세조약세율과 국내14% 비교 후 낮은 쪽만 국내 추가징수)
         let incomeType: IncomeBreakdownItem["incomeType"] = "배당";
+        let withholdingRate: number;
+        let annualNet: number;
         if (isDomesticListed && productType === "국내주식") {
           incomeType = "배당(국내직접)";
           grossUpTargetDividend += annualGross; // Gross-up (11%) 대상
+          calendarYtdGrossUpTargetDividend += calendarYtdGross;
+          const w = calcWithholdingKRW(annualGross);
+          withholdingRate = DOMESTIC_DIV_WITHHOLDING;
+          annualNet = w.net;
+          totalWithholdingCollected += w.totalTax;
+          calendarYtdWithholdingCollected += calcWithholdingKRW(calendarYtdGross).totalTax;
         } else if (!isDomesticListed && productType === "해외주식") {
           incomeType = "배당(해외직접)";
-        } else if (
-          productType === "국내ETF" || productType === "해외ETF" ||
-          productType === "ETF" || productType === "펀드" ||
-          productType === "채권형" || productType === "리츠" ||
-          productType === "집합투자"
-        ) {
-          incomeType = "배당(집합투자)";
+          const w = calcForeignDividendWithholding(annualGross, a.country);
+          withholdingRate = w.effectiveRate;
+          annualNet = w.net;
+          totalWithholdingCollected += w.totalTax;
+          calendarYtdWithholdingCollected += calcForeignDividendWithholding(calendarYtdGross, a.country).totalTax;
+        } else {
+          if (
+            productType === "국내ETF" || productType === "해외ETF" ||
+            productType === "ETF" || productType === "펀드" ||
+            productType === "채권형" || productType === "리츠" ||
+            productType === "집합투자"
+          ) {
+            incomeType = "배당(집합투자)";
+          }
+          // 집합투자기구(펀드·ETF·리츠 등)는 국내 상장/설정 여부로만 구분(국가별 조약세율 비교 대상 아님)
+          const w = calcWithholdingKRW(annualGross);
+          withholdingRate = DOMESTIC_DIV_WITHHOLDING;
+          annualNet = w.net;
+          totalWithholdingCollected += w.totalTax;
+          calendarYtdWithholdingCollected += calcWithholdingKRW(calendarYtdGross).totalTax;
         }
+        dividendIncome += annualGross;
+        calendarYtdDividendIncome += calendarYtdGross;
 
         breakdown.push({
           name,  // a.name || productType || "채권" (fallback 적용)
@@ -872,7 +1057,7 @@ export function calcFinancialIncomeSummary(
     }
 
     // ── ② 국내 대주주 (보유액 50억 이상 국내주식) — gain 여부와 무관하게 항상 체크 ──────
-    if (isDomesticListed && value >= 5_000_000_000 && productType === "국내주식") {
+    if (isDomesticListed && value >= TAX_RATES.domesticMajorShareholderValueThreshold && productType === "국내주식") {
       // 기본공제 250만원 (국내 주식 양도소득 그룹 — 해외주식 그룹과 별도 적용)
       const taxableGain = gain <= 0 ? 0 : Math.max(0, gain - 2_500_000);
       // 세율: 3억 이하 22%, 3억 초과 27.5% (지방소득세 10% 포함)
@@ -911,13 +1096,15 @@ export function calcFinancialIncomeSummary(
 
       // ③ 국내상장 해외ETF (자산 = 해외) 매매차익 → 배당소득(집합투자)
       } else if (isDomesticListed && gain > 0 && assetClass === "해외주식") {
+        const w = calcWithholdingKRW(gain);
         dividendIncome += gain;
+        totalWithholdingCollected += w.totalTax;
         breakdown.push({
           name: a.name + " (매매차익)",
           ticker,
           incomeType: "배당(집합투자)",
           annualIncome: Math.round(gain),
-          netIncome: Math.round(gain * (1 - DOMESTIC_DIV_WITHHOLDING)),
+          netIncome: w.net,
           yieldRate: (a.buy_price && a.amount) ? gain / (a.buy_price * a.amount) : 0,
           value: Math.round(value),
           withholdingRate: DOMESTIC_DIV_WITHHOLDING,
@@ -927,10 +1114,29 @@ export function calcFinancialIncomeSummary(
     }
   }
 
+  // ── 매도로 실현된 손익(해외주식·해외ETF만) — 보유 중인 자산 루프와는 별개로 합산 ─────────
+  // 매도 시점엔 이미 포지션이 사라져 위 루프에서 절대 안 잡히므로, 별도 realizedSales로 받은 값을 더한다.
+  // productType이 "해외주식"/"해외ETF"로 명확한 경우만 반영 — 국내/해외 구분이 모호한 값(예: 레거시 "ETF")은
+  // 잘못 과세될 위험이 있어 보수적으로 제외한다(국내 매매차익은 원칙적으로 비과세라 반영 안 해도 세액 누락 없음).
+  for (const s of realizedSales) {
+    if (!s.realizedGain) continue;
+    const pt = (s.productType ?? "").trim();
+    if (pt !== "해외주식" && pt !== "해외ETF") continue;
+    if (s.realizedGain > 0) totalCapitalGains += s.realizedGain;
+    else totalCapitalLosses += s.realizedGain;
+    cgBreakdownTemp.push({
+      name: `${s.name} (매도 실현)`,
+      ticker: "",
+      gain: s.realizedGain,
+      tax: 0,
+      category: "해외주식",
+    });
+  }
+
   // ── 해외 손익통산 및 양도소득세 ──────────────────────────────────────────────
   const netCapitalGains = totalCapitalGains + totalCapitalLosses;
-  const foreignCapitalGainsTax = netCapitalGains > 2_500_000
-    ? Math.round((netCapitalGains - 2_500_000) * 0.22)
+  const foreignCapitalGainsTax = netCapitalGains > TAX_RATES.foreignStockCapitalGainsExemption
+    ? Math.round((netCapitalGains - TAX_RATES.foreignStockCapitalGainsExemption) * TAX_RATES.foreignStockCapitalGainsRate)
     : 0;
 
   const capitalGainsTax = foreignCapitalGainsTax + Math.round(domesticMajorShareholderTax);
@@ -946,47 +1152,32 @@ export function calcFinancialIncomeSummary(
   }).sort((a, b) => b.gain - a.gain);
 
   // ── 금융소득 종합과세 계산 (gross 기준) ─────────────────────────────────────
-  const totalFinancialIncome = interestIncome + dividendIncome; // gross (세전)
-
-  const grossUpAmount = grossUpTargetDividend * 0.11;
-  const taxableFinancialIncome = totalFinancialIncome + grossUpAmount;
-  let generalTax = 0;
-  let comparisonTax = 0;
-  let finalTax = 0;
-  let dividendTaxCredit = 0;
-  const withholdingTax = totalFinancialIncome * 0.154;
-  let additionalTax = 0;
-
-  if (totalFinancialIncome > THRESHOLD) {
-    // 일반산출세액: 2,000만원 초과분에 한계세율, 이하에 14%
-    generalTax = (taxableFinancialIncome - THRESHOLD) * tMarginal + THRESHOLD * 0.14;
-    // 비교산출세액: 전액 14%
-    comparisonTax = taxableFinancialIncome * 0.14;
-    finalTax = Math.max(generalTax, comparisonTax);
-    dividendTaxCredit = Math.min(grossUpAmount, finalTax * 0.1);
-    additionalTax = Math.max(finalTax - dividendTaxCredit - withholdingTax, 0);
-  }
+  // rolling(트레일링 365일, "향후 1년 예상" 헤드라인용) — 종전과 동일한 기준·필드
+  const rolling = computeComprehensiveTax(dividendIncome, grossUpTargetDividend, interestIncome, totalWithholdingCollected, tMarginal);
+  // calendarYtd(달력연도 1/1~오늘 누적, 종합과세 판정 전용) — 이자소득은 이벤트 기반 데이터가 없어 rolling과 동일한 값 재사용
+  const calendarYtd = computeComprehensiveTax(calendarYtdDividendIncome, calendarYtdGrossUpTargetDividend, interestIncome, calendarYtdWithholdingCollected, tMarginal);
 
   return {
     interestIncome: Math.round(interestIncome),
-    dividendIncome: Math.round(dividendIncome),
+    dividendIncome: rolling.dividendIncome,
     totalCapitalGains: Math.round(totalCapitalGains),
     totalCapitalLosses: Math.round(totalCapitalLosses),
     netCapitalGains: Math.round(netCapitalGains),
     foreignCapitalGainsTax,
     domesticMajorShareholderTax: Math.round(domesticMajorShareholderTax),
     capitalGainsTax,
-    totalFinancialIncome: Math.round(totalFinancialIncome),
-    grossUpAmount: Math.round(grossUpAmount),
-    taxableFinancialIncome: Math.round(taxableFinancialIncome),
-    generalTax: Math.round(generalTax),
-    comparisonTax: Math.round(comparisonTax),
-    finalTax: Math.round(finalTax),
-    dividendTaxCredit: Math.round(dividendTaxCredit),
-    withholdingTax: Math.round(withholdingTax),
-    additionalTax: Math.round(additionalTax),
+    totalFinancialIncome: rolling.totalFinancialIncome,
+    grossUpAmount: rolling.grossUpAmount,
+    taxableFinancialIncome: rolling.taxableFinancialIncome,
+    generalTax: rolling.generalTax,
+    comparisonTax: rolling.comparisonTax,
+    finalTax: rolling.finalTax,
+    dividendTaxCredit: rolling.dividendTaxCredit,
+    withholdingTax: rolling.withholdingTax,
+    additionalTax: rolling.additionalTax,
     tMarginal,
-    isOverThreshold: totalFinancialIncome > THRESHOLD,
+    isOverThreshold: rolling.isOverThreshold,
+    calendarYtd,
     breakdown: (() => {
       const map = new Map<string, IncomeBreakdownItem>();
       for (const item of breakdown) {

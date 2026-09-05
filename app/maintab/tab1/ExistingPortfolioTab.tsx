@@ -132,6 +132,7 @@ function toUnifiedProductType(assetClass: string, productType: string): string {
 interface PortfolioAssetEnriched extends PortfolioAsset {
   dividendYield?: number;
   trailingAnnualDividendRate?: number;
+  calendarYtdDividendRate?: number; // 달력연도 1/1~오늘 누적 배당 (종합과세 판정 전용)
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -293,6 +294,7 @@ export default function ExistingPortfolioTab() {
             buy_price: isBondOrig ? (orig?.buy_price ?? enriched.buy_price) : undefined,
             dividendYield: ae.dividendYield,
             trailingAnnualDividendRate: ae.trailingAnnualDividendRate,
+            calendarYtdDividendRate: ae.calendarYtdDividendRate,
             interestRate,
           };
         });

@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
+import { calcFinancialIncomeSummary, NEW_PORTFOLIO_INCOME_STORAGE_KEY, type AssetForIncomeCalc } from "../tab1/FinancialIncomeGauge";
 import {
   Sparkles, ShieldCheck, TrendingUp, Landmark, PiggyBank,
   FileText, BarChart3, AlertCircle,
@@ -669,7 +670,7 @@ function getBucketMerit(p: Product, c: Client, w: ReturnType<typeof calcWeights>
 type FitReason = { label: string; desc: string; type: "good"|"caution"|"bad" };
 type UpsideItem = { label: string; desc: string };
 
-function analyzeProductFit(p: Product, c: Client, w: ReturnType<typeof calcWeights>, sameBucketCount: number): {
+function analyzeProductFit(p: Product, c: Client, w: ReturnType<typeof calcWeights>, sameBucketCount: number, effectiveAmtOverride?: number): {
   unsuitable: boolean;
   reasons: FitReason[];
   upsides: UpsideItem[];
@@ -739,10 +740,26 @@ function analyzeProductFit(p: Product, c: Client, w: ReturnType<typeof calcWeigh
 
   const bucketW = p.bucket==="자본증식"?w.G:p.bucket==="인컴창출"?w.I:p.bucket==="위험헷지"?w.H:p.bucket==="유동성"?w.L:w.T;
   const bucketAmt = c.investableAssets * bucketW;
-  const perProductAmt = sameBucketCount > 0 ? bucketAmt / sameBucketCount : bucketAmt;
+  // effectiveAmtOverride: PB가 이 상품 편입 금액을 직접 수정했으면(고정) 그 값을 그대로 씀 — 없으면 기존처럼 버킷 총액 ÷ 동일 버킷 상품 수(균등분배)
+  const perProductAmt = effectiveAmtOverride ?? (sameBucketCount > 0 ? bucketAmt / sameBucketCount : bucketAmt);
   const minInvestOk = !p.minInvest || perProductAmt >= parseAmount(p.minInvest);
 
   return { unsuitable, reasons, upsides, bucketAmt, perProductAmt, minInvestOk };
+}
+
+// 버킷 내 상품별 편입 금액 계산 — PB가 특정 상품 금액을 직접 고정(pin)하면 그 금액 그대로 쓰고,
+// 나머지(고정 안 한) 상품들은 "버킷 총액 − 고정된 금액 합"을 남은 상품 수로 균등분배한다.
+// (버킷 비중·총액은 그대로 유지 — 상품 개수로 무조건 나누기만 안 하는 게 목적)
+function computeBucketAmounts(bucketAmt: number, productsInBucket: Product[], pins: Record<string, number>): Record<string, number> {
+  const result: Record<string, number> = {};
+  const pinned = productsInBucket.filter((p) => pins[p.id] != null);
+  const unpinned = productsInBucket.filter((p) => pins[p.id] == null);
+  let sumPinned = 0;
+  for (const p of pinned) { result[p.id] = pins[p.id]; sumPinned += pins[p.id]; }
+  const remaining = bucketAmt - sumPinned;
+  const perUnpinned = unpinned.length > 0 ? remaining / unpinned.length : 0;
+  for (const p of unpinned) result[p.id] = perUnpinned;
+  return result;
 }
 
 function riskLevelToAppetite(l: string): number {
@@ -1059,7 +1076,7 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, rebalancingSellAssets, rebalancingBuyAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState } = useCustomerContext();
+  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, newPortfolioAnalysisResult, rebalancingSellAssets, rebalancingBuyAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState, saveTaxSummary, sellHistory } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const portfolioData = usePortfolioResult();
   const router = useRouter();
@@ -1069,6 +1086,13 @@ export default function Tab5Page() {
   const [salesSolutionMonth, setSalesSolutionMonth] = useState<string>(SALES_SOLUTIONS[SALES_SOLUTIONS.length - 1].month);
   const [activeEffectId, setActiveEffectId] = useState<string|null>(null);
   const [unsuitableWarning, setUnsuitableWarning] = useState<Product|null>(null);
+  const [minInvestBlocked, setMinInvestBlocked] = useState<{ product: Product; perProductAmt: number; requiredAmt: number; blockedBy: Product | null } | null>(null);
+  // 버킷 내 상품별 편입 금액 수동 고정(pin) — productId → PB가 직접 지정한 금액(원). 없으면 버킷 균등분배.
+  const [pinnedAmounts, setPinnedAmounts] = useState<Record<string, number>>({});
+  const [amountEditError, setAmountEditError] = useState<{ product: Product; message: string } | null>(null);
+  // 상품을 새로 담기 전, 얼마 담을지 먼저 입력받는 단계(주식 리밸런싱 탭의 매수 모달과 같은 흐름)
+  const [pendingAdd, setPendingAdd] = useState<Product | null>(null);
+  const [pendingAddAmountStr, setPendingAddAmountStr] = useState("");
   const [newSummary, setNewSummary] = useState<FinancialIncomeSummary | null>(null);
   // 버킷별 매칭 상품 카드 — 상품유형(랩어카운트/펀드/채권 등) 별로 따로 볼 수 있게 하는 필터(버킷별로 독립)
   const [bucketItemFilter, setBucketItemFilter] = useState<Partial<Record<BucketType, ProductType|"all">>>({});
@@ -1080,7 +1104,20 @@ export default function Tab5Page() {
     setActiveEffectId(syncedTab5Ui.activeEffectId ?? null);
     setModalProduct(ALL_ITEMS.find((product) => product.id === syncedTab5Ui.modalProductId) ?? null);
     setUnsuitableWarning(ALL_ITEMS.find((product) => product.id === syncedTab5Ui.unsuitableWarningProductId) ?? null);
+    setPinnedAmounts(syncedTab5Ui.pinnedAmounts ?? {});
   }, [isCustomerView, syncedTab5Ui]);
+
+  // PB 화면(고객 미러링 아님): 고객 전환 시 저장돼 있던 pinnedAmounts를 딱 1번만 복원.
+  // (isCustomerView 미러링 effect처럼 syncedTab5Ui가 바뀔 때마다 계속 덮어쓰면, PB가 방금 입력한
+  //  값이 저장 요청 왕복 사이에 되돌아와 충돌할 수 있어 — 고객이 바뀔 때만 복원한다.)
+  const pinnedRestoredForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isCustomerView || !selectedCustomer) return;
+    if (pinnedRestoredForRef.current === selectedCustomer) return;
+    if (!syncedTab5Ui) return; // 아직 로드 전 — 로드되면 다시 실행됨(syncedTab5Ui deps)
+    pinnedRestoredForRef.current = selectedCustomer;
+    setPinnedAmounts(syncedTab5Ui.pinnedAmounts ?? {});
+  }, [isCustomerView, selectedCustomer, syncedTab5Ui]);
 
   useEffect(() => {
     if (isCustomerView) return;
@@ -1089,9 +1126,10 @@ export default function Tab5Page() {
         modalProductId: modalProduct?.id ?? null,
         activeEffectId,
         unsuitableWarningProductId: unsuitableWarning?.id ?? null,
+        pinnedAmounts,
       },
     });
-  }, [isCustomerView, modalProduct, activeEffectId, unsuitableWarning, updateSharedUiState]);
+  }, [isCustomerView, modalProduct, activeEffectId, unsuitableWarning, pinnedAmounts, updateSharedUiState]);
 
 useEffect(() => {
   if (!selectedCustomer) return;
@@ -1156,6 +1194,68 @@ const additionalInvestmentAmount = (() => {
   }, [formData,riskResult,selectedCustomerProfile,internalJsonPayload,rrttlluReady,newSummary]);
 
   const weights = useMemo(() => rrttlluReady ? calcWeights(client) : null, [client,rrttlluReady]);
+
+  // ExistingPortfolioTab·BuySimulatorTab과 동일한 한계세율 근사식 (총자산 구간 기준) — 신규 세금 점검 계산에 사용
+  const tMarginal = useMemo(() => {
+    const total = parseFloat(formData.financial.totalAssets.replace(/[^0-9.]/g, "")) || 0;
+    if (total >= 5e9) return 0.45;
+    if (total >= 3e9) return 0.40;
+    if (total >= 1.2e9) return 0.35;
+    return 0.38;
+  }, [formData.financial.totalAssets]);
+
+  // 탭3-2 "리밸런싱 확정" 시점의 신규 포트폴리오(주식+상품+채권 전체) 세금 요약 계산·저장.
+  // rebalancingSellAssets는 탭3-1(주식)에서 이미 반영된 보유분 + 탭3-2에서 담은 상품·채권을 모두 포함하므로
+  // (baseAssets useMemo 주석 참고), 여기서 계산해야 TAB4 B패널(신규 포트폴리오 세금 점검)이 최종 구성을 반영한다.
+  // ※ 펀드/랩어카운트는 Product 데이터에 배당·분배율 필드가 없어 현재는 이자·배당소득에 반영되지 않음
+  //   (실제 값 없이 추정치를 넣지 않기 위함 — 채권은 couponRate가 있어 이자소득 계산에 반영됨).
+  const saveNewPortfolioTaxSummary = () => {
+    if (typeof window === "undefined") return;
+    // 기존 보유(analysisResult)와 탭3-1에서 신규 매수한 종목(newPortfolioAnalysisResult) 둘 다 배당 데이터 소스로 병합.
+    // rebalancingSellAssets엔 신규 매수 종목도 섞여 있는데, 그 배당수익률/배당금은 newPortfolioAnalysisResult에만
+    // 들어있어서 analysisResult(기존 보유분)만 보면 신규 매수 종목은 매칭이 안 돼 배당소득이 0으로 계산됨.
+    const enrichedMap = new Map(
+      [...(analysisResult?.enrichedAssets ?? []), ...(newPortfolioAnalysisResult?.enrichedAssets ?? [])]
+        .map((e) => [makeAssetKey(e), e as unknown as Record<string, unknown>])
+    );
+    const assetsForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
+      .filter((a) => a.amount > 0)
+      .map((a) => {
+        const isBond = a.productType === "국내채권" || a.productType === "해외채권";
+        const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
+        if (!resolvedName) return null;
+        const enriched = enrichedMap.get(makeAssetKey(a));
+        const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
+        return {
+          name: resolvedName,
+          ticker: a.ticker ?? "",
+          asset_class: a.asset_class,
+          productType: a.productType,
+          country: a.country,
+          current_price: a.current_price,
+          current_value: a.current_value,
+          amount: a.amount,
+          amount_type: a.amount_type,
+          buy_price: isBond ? a.buy_price : undefined,
+          dividendYield: enriched?.dividendYield as number | undefined,
+          trailingAnnualDividendRate: enriched?.trailingAnnualDividendRate as number | undefined,
+          calendarYtdDividendRate: enriched?.calendarYtdDividendRate as number | undefined,
+          interestRate,
+        } as AssetForIncomeCalc;
+      })
+      .filter((x): x is AssetForIncomeCalc => x !== null);
+
+    // 탭3-1에서 이미 매도해 실현된 손익(해외주식 양도소득세 대상) — 현재 보유 목록에는 안 잡히므로 별도 전달
+    const realizedSales = sellHistory.map((r) => ({ name: r.name, productType: r.productType, realizedGain: r.realizedGain }));
+    const newTaxSummary = calcFinancialIncomeSummary(assetsForCalc, tMarginal, realizedSales);
+    try {
+      localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newTaxSummary));
+      window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
+    } catch {
+      // localStorage 실패 무시
+    }
+    saveTaxSummary("new", newTaxSummary);
+  };
 
   const bucketAllProducts = useMemo(() => {
     if (!weights) return null;
@@ -1222,12 +1322,23 @@ const additionalInvestmentAmount = (() => {
     if (!w) return;
     const bucketWeight = (b: BucketType) => b==="자본증식"?w.G:b==="인컴창출"?w.I:b==="위험헷지"?w.H:b==="유동성"?w.L:w.T;
     const selected = ALL_ITEMS.filter((p) => selectedIds.includes(p.id));
-    const bucketCounts: Partial<Record<BucketType, number>> = {};
-    for (const p of selected) bucketCounts[p.bucket] = (bucketCounts[p.bucket] ?? 0) + 1;
+
+    // 버킷별로 상품 금액 계산 — pinnedAmounts에 고정된 상품은 그 금액 그대로, 나머지는 "버킷 총액 − 고정분"을 균등분배
+    const byBucket = new Map<BucketType, Product[]>();
+    for (const p of selected) {
+      const list = byBucket.get(p.bucket) ?? [];
+      list.push(p);
+      byBucket.set(p.bucket, list);
+    }
+    const amountById = new Map<string, number>();
+    for (const [bucket, products] of byBucket) {
+      const bucketAmt = investableAssetsRef.current * bucketWeight(bucket);
+      const amounts = computeBucketAmounts(bucketAmt, products, pinnedAmounts);
+      for (const p of products) amountById.set(p.id, Math.round(amounts[p.id] ?? 0));
+    }
 
     const productAssets: PortfolioAsset[] = selected.map((p) => {
-      const bucketAmt = investableAssetsRef.current * bucketWeight(p.bucket);
-      const perProductAmt = Math.round(bucketAmt / (bucketCounts[p.bucket] ?? 1));
+      const perProductAmt = amountById.get(p.id) ?? 0;
       if (p.bondRef) {
         const isForeign = p.bondRef.market === "해외";
         return {
@@ -1237,7 +1348,10 @@ const additionalInvestmentAmount = (() => {
           productType: isForeign ? "해외채권" : "국내채권",
           theme: "기타",
           country: isForeign ? "미국" : "한국",
-          buy_price: null,
+          // amount_type "value"일 때 세금 계산 로직(calcFinancialIncomeSummary)은
+          // buy_price를 원금(액면)으로 읽는다 — 표면이율(couponRate) 기반 이자소득 계산에 필요.
+          buy_price: perProductAmt,
+          bond_yield: p.bondRef.couponRate ?? null,
           amount: perProductAmt,
           amount_type: "value" as const,
           is_hedged: false,
@@ -1269,21 +1383,134 @@ const additionalInvestmentAmount = (() => {
     setRebalancingSellAssets([...nonProduct, ...productAssets]);
     // selectedIds는 참조가 매 렌더 바뀔 수 있어(빈 배열 리터럴 등) 배열 자체가 아닌
     // 내용물(join)을 deps로 사용 — 그래야 실제 선택이 바뀔 때만 재실행된다.
+    // pinnedAmounts는 setPinnedAmounts에서 항상 새 객체로 교체하므로 참조 비교로 재실행 여부 판단이 안전함.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds.join(",")]);
+  }, [selectedIds.join(","), pinnedAmounts]);
+
+  // 최소가입금액 미달 상품은 어떤 경로로도 포트폴리오에 담기지 않도록, 실제 추가는 전부 이 함수를 거친다.
+  // (경고만 하고 통과시키는 게 아니라 실제로 차단한다 — "그래도 진행" 옵션이 있는 성향 부적합과는 다름)
+  // investableAssets가 아직 입력 안 된 상태(perProductAmt===0)는 "미달"이 아니라 "데이터 없음"이라 막지 않는다.
+  // 반환값: 실제로 담겼으면 true, 최소가입금액 미달로 막혔으면 false.
+  const tryAddProduct = (p: Product): boolean => {
+    if (weights) {
+      const bucketW = getBucketWeight(p.bucket);
+      const bucketAmt = client.investableAssets * bucketW;
+      const sameBucketSelected = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
+      // pinnedAmounts 반영: 이미 고정된 상품은 그 금액 그대로 두고, 새로 담는 이 상품 포함 나머지(미고정)만 잔여분을 균등분배
+      const amounts = computeBucketAmounts(bucketAmt, [...sameBucketSelected, p], pinnedAmounts);
+      const perProductAmt = amounts[p.id] ?? 0;
+      if (perProductAmt > 0) {
+        if (p.minInvest && perProductAmt < parseAmount(p.minInvest)) {
+          setMinInvestBlocked({ product: p, perProductAmt, requiredAmt: parseAmount(p.minInvest), blockedBy: null });
+          return false;
+        }
+        // 이 상품을 추가하면 버킷 인원이 늘어 이미 선택된 상품(미고정) 중 하나가 자기 최소가입금액 밑으로 떨어지는지도 확인
+        const breaks = sameBucketSelected.find((x) => x.minInvest && (amounts[x.id] ?? 0) < parseAmount(x.minInvest));
+        if (breaks) {
+          setMinInvestBlocked({ product: p, perProductAmt, requiredAmt: parseAmount(breaks.minInvest!), blockedBy: breaks });
+          return false;
+        }
+      }
+    }
+    setSelectedIdsRaw([...selectedIds, p.id]);
+    setActiveEffectId(p.id);
+    return true;
+  };
+
+  // 상품 편입 금액을 PB가 직접 고정(pin). 버킷 총액을 넘거나, 이 상품(또는 같은 버킷의 다른 미고정 상품)의
+  // 최소가입금액을 밑돌게 되면 차단한다. 성공하면 true.
+  const trySetProductAmount = (p: Product, newAmt: number): boolean => {
+    if (!weights || !Number.isFinite(newAmt) || newAmt < 0) return false;
+    const bucketW = getBucketWeight(p.bucket);
+    const bucketAmt = client.investableAssets * bucketW;
+    const bucketProducts = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
+    const others = bucketProducts.filter((x) => x.id !== p.id);
+    const othersPinned = others.filter((x) => pinnedAmounts[x.id] != null);
+    const othersUnpinned = others.filter((x) => pinnedAmounts[x.id] == null);
+    const sumOthersPinned = othersPinned.reduce((s, x) => s + (pinnedAmounts[x.id] ?? 0), 0);
+    const remaining = bucketAmt - sumOthersPinned - newAmt;
+
+    if (remaining < -1) { // 부동소수점 오차 허용 오차 1원
+      setAmountEditError({ product: p, message: `버킷 총액(${fmtWon(bucketAmt)})을 초과합니다.` });
+      return false;
+    }
+    if (p.minInvest && newAmt < parseAmount(p.minInvest)) {
+      setAmountEditError({ product: p, message: `최소 가입금액(${p.minInvest}) 미달입니다.` });
+      return false;
+    }
+    if (othersUnpinned.length > 0) {
+      const perRemaining = Math.max(0, remaining) / othersUnpinned.length;
+      const breaks = othersUnpinned.find((x) => x.minInvest && perRemaining < parseAmount(x.minInvest));
+      if (breaks) {
+        setAmountEditError({ product: p, message: `이 금액으로 설정하면 같은 버킷의 '${breaks.name}'이(가) 최소 가입금액(${breaks.minInvest}) 밑으로 떨어집니다.` });
+        return false;
+      }
+    }
+    setAmountEditError(null);
+    setPinnedAmounts((prev) => ({ ...prev, [p.id]: newAmt }));
+    return true;
+  };
+
+  // 고정 해제 → 다시 버킷 균등분배로 되돌림
+  const resetProductAmount = (productId: string) => {
+    setPinnedAmounts((prev) => {
+      if (!(productId in prev)) return prev;
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+    setAmountEditError(null);
+  };
+
+  // 상품을 새로 담을 때 "얼마 담을지" 먼저 입력받는 단계 — 주식 리밸런싱 탭의 매수 모달과 같은 느낌.
+  // 자동분배 기준 금액을 기본값으로 채워주고, 최대 한도(=버킷 잔여 배분 가능액)를 같이 보여준다.
+  const openPendingAdd = (p: Product) => {
+    if (!weights) { tryAddProduct(p); return; } // 투자가능자산 계산 전이면 예전처럼 바로 담기 시도(실패 시 자체 처리됨)
+    const bucketAmt = client.investableAssets * getBucketWeight(p.bucket);
+    const bucketProducts = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
+    const amounts = computeBucketAmounts(bucketAmt, [...bucketProducts, p], pinnedAmounts);
+    setPendingAdd(p);
+    setPendingAddAmountStr(String(Math.round(amounts[p.id] ?? 0)));
+  };
+
+  // 잔여 배분 가능액(=최대 한도) — 같은 버킷에 이미 담긴 상품들의 현재 금액(고정이든 자동분배든)을 뺀 나머지
+  const pendingAddMaxLimit = (p: Product): number => {
+    const bucketAmt = client.investableAssets * getBucketWeight(p.bucket);
+    const bucketProducts = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
+    const currentAmounts = computeBucketAmounts(bucketAmt, bucketProducts, pinnedAmounts);
+    const sumOthers = bucketProducts.reduce((s, x) => s + (currentAmounts[x.id] ?? 0), 0);
+    return Math.max(0, bucketAmt - sumOthers);
+  };
+
+  const confirmPendingAdd = () => {
+    if (!pendingAdd) return;
+    const p = pendingAdd;
+    const bucketAmt = client.investableAssets * getBucketWeight(p.bucket);
+    const bucketProducts = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
+    const defaultAmt = Math.round(computeBucketAmounts(bucketAmt, [...bucketProducts, p], pinnedAmounts)[p.id] ?? 0);
+    const typedAmt = parseInt(pendingAddAmountStr.replace(/[^0-9]/g, ""), 10) || 0;
+
+    const added = tryAddProduct(p); // 기존 최소가입금액 하드블록 그대로 재사용(자동분배 기준으로 우선 검증)
+    if (!added) { setPendingAdd(null); return; } // 실패 시 minInvestBlocked 모달이 대신 뜸
+    if (typedAmt !== defaultAmt) {
+      const ok = trySetProductAmount(p, typedAmt);
+      if (!ok) return; // 초과·미달 — 상품은 이미 자동분배 금액으로 담긴 상태로 유지, 이 모달은 열어두고 에러 표시
+    }
+    setPendingAdd(null);
+  };
 
   const handleSelect = (p: Product) => {
     if (selectedIds.includes(p.id)) {
       if (isCustomerView) return;
       setSelectedIdsRaw(selectedIds.filter(x=>x!==p.id));
+      resetProductAmount(p.id);
       return;
     }
     if (isUnsuitable(p, client)) {
       setUnsuitableWarning(p);
       return;
     }
-    setSelectedIdsRaw([...selectedIds, p.id]);
-    setActiveEffectId(p.id);
+    openPendingAdd(p);
   };
 
   // 보유 자산 카드의 "매도" — 상품·채권 모두 버킷 카드의 선택(체크) 해제로 통일 처리. 그 외(탭3-1 매수 종목)는 여기서 관리하지 않음
@@ -1292,19 +1519,23 @@ const additionalInvestmentAmount = (() => {
     const asset = baseAssets.find((a) => makeAssetKey(a) === assetKey);
     if (!asset?.ticker) return;
     if (asset.ticker.startsWith(PRODUCT_TICKER_PREFIX)) {
-      setSelectedIdsRaw(selectedIds.filter((id) => id !== asset.ticker!.slice(PRODUCT_TICKER_PREFIX.length)));
+      const id = asset.ticker.slice(PRODUCT_TICKER_PREFIX.length);
+      setSelectedIdsRaw(selectedIds.filter((x) => x !== id));
+      resetProductAmount(id);
       return;
     }
     if (asset.ticker.startsWith(BOND_TICKER_PREFIX)) {
-      setSelectedIdsRaw(selectedIds.filter((id) => id !== asset.ticker!.slice(BOND_TICKER_PREFIX.length)));
+      const id = asset.ticker.slice(BOND_TICKER_PREFIX.length);
+      setSelectedIdsRaw(selectedIds.filter((x) => x !== id));
+      resetProductAmount(id);
     }
   };
 
   const confirmUnsuitable = () => {
     if (!unsuitableWarning) return;
-    setSelectedIdsRaw([...selectedIds, unsuitableWarning.id]);
-    setActiveEffectId(unsuitableWarning.id);
+    const product = unsuitableWarning;
     setUnsuitableWarning(null);
+    openPendingAdd(product);
   };
 
   const selectedProducts = ALL_ITEMS.filter(p=>selectedIds.includes(p.id));
@@ -1431,6 +1662,109 @@ const additionalInvestmentAmount = (() => {
           </div>
         </div>
       )}
+
+      {minInvestBlocked && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={()=>setMinInvestBlocked(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e)=>e.stopPropagation()}>
+            <div className="px-6 py-5 bg-amber-50 border-b border-amber-100">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100">
+                  <AlertTriangle size={20} className="text-amber-600"/>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wide">최소 가입금액 미달</p>
+                  <h3 className="text-base font-bold text-navy mt-0.5">{minInvestBlocked.product.name}</h3>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              {minInvestBlocked.blockedBy ? (
+                <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <p className="text-sm font-bold text-amber-800 mb-1">이미 담긴 상품이 최소가입금액 밑으로 떨어집니다</p>
+                  <p className="text-xs leading-5 text-amber-700">
+                    이 상품을 추가하면 같은 버킷({minInvestBlocked.product.bucket}) 배분액을 더 많은 상품이 나눠 갖게 되어, 이미 선택된 <b>{minInvestBlocked.blockedBy.name}</b>의 편입 권고 금액이 최소 가입금액({minInvestBlocked.blockedBy.minInvest}) 밑으로 떨어집니다.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <p className="text-sm font-bold text-amber-800 mb-1">편입 권고 금액이 최소 가입금액에 못 미칩니다</p>
+                  <p className="text-xs leading-5 text-amber-700">
+                    현재 버킷 배분 기준 편입 권고 금액은 <b>{fmtWon(minInvestBlocked.perProductAmt)}</b>인데, 이 상품의 최소 가입금액은 <b>{minInvestBlocked.product.minInvest}</b>({fmtWon(minInvestBlocked.requiredAmt)})입니다.
+                  </p>
+                </div>
+              )}
+              <p className="text-sm font-semibold text-slate-600 leading-6">투자가능자산을 늘리거나, 같은 버킷 내 다른 선택 상품 수를 줄여 1개당 배분액을 키운 뒤 다시 담아주세요. 최소가입금액 미달 상품은 포트폴리오에 담을 수 없습니다.</p>
+              <button type="button" onClick={()=>setMinInvestBlocked(null)}
+                className="min-h-11 w-full rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 transition">
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingAdd && (() => {
+        const p = pendingAdd;
+        const maxLimit = pendingAddMaxLimit(p);
+        const err = amountEditError && amountEditError.product.id === p.id ? amountEditError.message : null;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setPendingAdd(null)}>
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+              <div className="px-6 py-5 bg-blue-50 border-b border-blue-100">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100">
+                    <Landmark size={20} className="text-samsung"/>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-samsung uppercase tracking-wide">{p.bucket} 버킷 · 편입 금액 입력</p>
+                    <h3 className="text-base font-bold text-navy mt-0.5">{p.name}</h3>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5">
+                  <span className="text-xs font-semibold text-slate-500">최대 한도(버킷 잔여 배분 가능액)</span>
+                  <span className="text-sm font-bold text-navy">{fmtWon(maxLimit)}</span>
+                </div>
+                {p.minInvest && (
+                  <div className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2.5">
+                    <span className="text-xs font-semibold text-slate-500">최소 가입금액</span>
+                    <span className="text-sm font-bold text-navy">{p.minInvest}</span>
+                  </div>
+                )}
+                <div>
+                  <p className="mb-1.5 text-xs font-bold text-slate-600">편입 금액</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={pendingAddAmountStr}
+                      onChange={(e) => setPendingAddAmountStr(e.target.value.replace(/[^0-9]/g, ""))}
+                      className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-right text-lg font-black text-samsung focus:border-samsung focus:outline-none"
+                    />
+                    <span className="text-sm font-bold text-slate-400">원</span>
+                  </div>
+                  <button type="button" onClick={() => openPendingAdd(p)}
+                    className="mt-1.5 text-[11px] font-semibold text-slate-400 underline hover:text-slate-600">
+                    자동분배 금액으로
+                  </button>
+                </div>
+                {err && <p className="text-xs font-semibold text-red-500">{err}</p>}
+                <div className="grid grid-cols-2 gap-3">
+                  <button type="button" onClick={() => setPendingAdd(null)}
+                    className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50 transition">
+                    취소
+                  </button>
+                  <button type="button" onClick={confirmPendingAdd}
+                    className="min-h-11 rounded-xl bg-samsung px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 transition">
+                    담기
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {!rrttlluReady && (
         <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4">
@@ -1697,8 +2031,14 @@ const additionalInvestmentAmount = (() => {
           {(() => {
             const p = selectedProducts.find(x=>x.id===(activeEffectId??selectedProducts[0]?.id)) ?? selectedProducts[0];
             if (!p || !weights) return null;
-            const sameBucketCount = selectedProducts.filter(x=>x.bucket===p.bucket).length;
-            const { unsuitable, reasons, upsides, bucketAmt, perProductAmt, minInvestOk } = analyzeProductFit(p, client, weights, sameBucketCount);
+            const sameBucketProducts = selectedProducts.filter(x=>x.bucket===p.bucket);
+            const sameBucketCount = sameBucketProducts.length;
+            const bucketWForAmt = getBucketWeight(p.bucket);
+            const bucketAmtForAmt = client.investableAssets * bucketWForAmt;
+            const bucketAmounts = computeBucketAmounts(bucketAmtForAmt, sameBucketProducts, pinnedAmounts);
+            const isPinned = pinnedAmounts[p.id] != null;
+            const roundedAmt = bucketAmounts[p.id] != null ? Math.round(bucketAmounts[p.id]) : undefined;
+            const { unsuitable, reasons, upsides, bucketAmt, perProductAmt, minInvestOk } = analyzeProductFit(p, client, weights, sameBucketCount, roundedAmt);
             const cfg = BUCKET_CFG[p.bucket];
             const bw = getBucketWeight(p.bucket);
             const realHoldings = (p.topHoldings??[]).filter(isRealHolding);
@@ -1778,11 +2118,15 @@ const additionalInvestmentAmount = (() => {
                       {sameBucketCount>1&&<p className="text-[10px] text-slate-400 mt-0.5">동일 버킷 {sameBucketCount}개 선택</p>}
                     </div>
                     <div className="rounded-lg bg-white border border-slate-200 p-3 text-center">
-                      <p className="text-xs text-slate-400 mb-1">이 상품 권고 편입 금액</p>
+                      <p className="text-xs text-slate-400 mb-1">이 상품 편입 금액{isPinned ? " (직접 지정)" : ""}</p>
                       <p className={`text-lg font-black ${perProductAmt>0?"text-samsung":"text-slate-300"}`}>
                         {perProductAmt>0?fmtWon(perProductAmt):"투자금액 미입력"}
                       </p>
-                      {sameBucketCount>1&&perProductAmt>0&&<p className="text-[10px] text-slate-400 mt-0.5">버킷 총액 {fmtWon(bucketAmt)} ÷ {sameBucketCount}</p>}
+                      {sameBucketCount>1&&perProductAmt>0&&(
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {isPinned ? "직접 지정한 금액" : `버킷 총액 ${fmtWon(bucketAmt)} 중 균등분배`}
+                        </p>
+                      )}
                     </div>
                   </div>
                   {p.minInvest && perProductAmt > 0 && (
@@ -1827,6 +2171,8 @@ const additionalInvestmentAmount = (() => {
         <button
           type="button"
           onClick={() => {
+            saveNewPortfolioTaxSummary();
+
             if (selectedProducts.length > 0) {
               const productsForHistory = selectedProducts.map((product) => {
                 const sameBucketCount =
@@ -1881,18 +2227,17 @@ const additionalInvestmentAmount = (() => {
                 };
               });
 
-              
-  const normalizedProductsForHistory = productsForHistory.map(
-    (item, index) => ({
-      ...item,
-      category: historyProductCategory(
-        selectedProducts[index],
-        item.category,
-      ),
-    }),
-  );
+              const normalizedProductsForHistory = productsForHistory.map(
+                (item, index) => ({
+                  ...item,
+                  category: historyProductCategory(
+                    selectedProducts[index],
+                    item.category,
+                  ),
+                }),
+              );
 
-const historyRecord = createProductRebalancingRecord({
+              const historyRecord = createProductRebalancingRecord({
                 customerId: selectedCustomer,
                 baseAssets:
                   rebalancingBuyAssets.length > 0
