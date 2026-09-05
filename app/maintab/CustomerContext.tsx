@@ -341,6 +341,7 @@ export type SharedMaintabUiState = {
     modalProductId?: string | null;
     activeEffectId?: string | null;
     unsuitableWarningProductId?: string | null;
+    pinnedAmounts?: Record<string, number>; // 상품 편입 금액 PB 직접 지정(pin) — 고객 화면 미러링용
   };
 };
 

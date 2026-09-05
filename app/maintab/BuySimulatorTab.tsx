@@ -599,6 +599,7 @@ export default function BuySimulatorTab() {
     setBuySimUncheckedTickers,
     pbOrderRows,
     setPbOrderRows,
+    sellHistory,
     addSellRecord,
     addBuyCost,
     appMode,
@@ -979,20 +980,20 @@ export default function BuySimulatorTab() {
   // stale-closure 방지용 ref — 렌더 시점에 동기 갱신 (useEffect 패턴 대비 1 tick 빠름)
   const sellAssetsRef = useRef(rebalancingSellAssets);
   const portfolioRef = useRef(portfolioAssets);
-  const analysisRef = useRef(analysisResult);
   const tMarginalRef = useRef(tMarginal);
   const formDataRef = useRef(formData);
   const selectedCustomerRef = useRef(selectedCustomer);
   const pbOrderRowsRef = useRef<PbOrderRow[]>(pbOrderRows);
   const usdKrwRateRef = useRef<number>(usdKrwRate);
+  const sellHistoryRef = useRef(sellHistory);
   sellAssetsRef.current = rebalancingSellAssets;
   portfolioRef.current = portfolioAssets;
-  analysisRef.current = analysisResult;
   tMarginalRef.current = tMarginal;
   formDataRef.current = formData;
   selectedCustomerRef.current = selectedCustomer;
   pbOrderRowsRef.current = pbOrderRows;
   usdKrwRateRef.current = usdKrwRate;
+  sellHistoryRef.current = sellHistory;
 
   // PB 행별 검색 상태 (로딩/오류) — 컴포넌트 로컬, Context 비동기 업데이트와 분리
   const [pbSearchState, setPbSearchState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
@@ -1137,106 +1138,19 @@ export default function BuySimulatorTab() {
           })
           .filter((x): x is AssetForIncomeCalc => x !== null);
 
-        if (assetsForCalc.length > 0) {
-          const originalEnrichedMap = new Map(
-            (analysisRef.current?.enrichedAssets ?? []).map((e) => [
-              `${e.name ?? ""}::${e.ticker ?? ""}`,
-              e as Record<string, unknown>,
-            ]),
-          );
-          const keepSet = new Set(
-            sellAssetsRef.current.map(
-              (a) => `${a.name ?? ""}::${a.ticker ?? ""}`,
-            ),
-          );
-          const soldAssets = portfolioRef.current.filter(
-            (a) => !keepSet.has(`${a.name ?? ""}::${a.ticker ?? ""}`),
-          );
-
-          const soldAssetsForCalc: AssetForIncomeCalc[] = soldAssets
-            .map((a) => {
-              const isBond =
-                a.productType === "국내채권" || a.productType === "해외채권";
-              const resolvedName =
-                a.name || (isBond ? (a.productType ?? "채권") : "");
-              if (!resolvedName) return null;
-              const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
-              const enriched = originalEnrichedMap.get(key);
-              return {
-                name: resolvedName,
-                ticker: a.ticker ?? "",
-                asset_class: a.asset_class,
-                productType: a.productType,
-                country: a.country,
-                current_price:
-                  (enriched?.current_price as number | undefined) ??
-                  a.current_price,
-                current_value:
-                  (enriched?.current_value as number | undefined) ??
-                  a.current_value,
-                amount: a.amount,
-                amount_type: a.amount_type,
-                buy_price: a.buy_price,
-                dividendYield: undefined,
-                interestRate: undefined,
-              } as AssetForIncomeCalc;
-            })
-            .filter((x): x is AssetForIncomeCalc => x !== null);
-
-          const originalAmountMap = new Map(
-            portfolioRef.current.map((a) => [
-              `${a.name ?? ""}::${a.ticker ?? ""}`,
-              a,
-            ]),
-          );
-          const partiallySoldForCalc: AssetForIncomeCalc[] =
-            sellAssetsRef.current
-              .map((a) => {
-                if (a.amount_type !== "quantity") return null;
-                const isBond =
-                  a.productType === "국내채권" ||
-                  a.productType === "해외채권";
-                if (isBond) return null;
-                const resolvedName = a.name || "";
-                if (!resolvedName) return null;
-                const key = `${a.name ?? ""}::${a.ticker ?? ""}`;
-                const original = originalAmountMap.get(key);
-                const enriched = originalEnrichedMap.get(key);
-                if (
-                  !original ||
-                  original.amount_type !== "quantity" ||
-                  original.buy_price == null
-                )
-                  return null;
-                const soldAmount = original.amount - a.amount;
-                if (soldAmount <= 0) return null;
-                return {
-                  name: resolvedName,
-                  ticker: a.ticker ?? "",
-                  asset_class: a.asset_class,
-                  productType: a.productType,
-                  country: a.country,
-                  current_price:
-                    (enriched?.current_price as number | undefined) ??
-                    a.current_price,
-                  current_value: undefined,
-                  amount: soldAmount,
-                  amount_type: "quantity" as const,
-                  buy_price: original.buy_price,
-                  dividendYield: undefined,
-                  interestRate: undefined,
-                } as AssetForIncomeCalc;
-              })
-              .filter((x): x is AssetForIncomeCalc => x !== null);
-
-          const combinedForCalc = [
-            ...soldAssetsForCalc,
-            ...partiallySoldForCalc,
-            ...assetsForCalc,
-          ];
+        if (assetsForCalc.length > 0 || sellHistoryRef.current.length > 0) {
+          // 매도로 실현된 손익(해외주식 양도소득세 대상)은 현재 보유 목록엔 안 남으므로 sellHistory에서 따로 가져온다.
+          // (예전엔 매도된 종목을 "오늘 시세로 아직 보유 중인 것처럼" 재구성해서 미실현 손익처럼 계산했는데,
+          //  이미 실제로 체결된 매도가 이후 시세 변동에 따라 세액이 계속 바뀌는 건 맞지 않음 — 체결 시점 실현손익 고정값을 씀)
+          const realizedSales = sellHistoryRef.current.map((r) => ({
+            name: r.name,
+            productType: r.productType,
+            realizedGain: r.realizedGain,
+          }));
           const newTaxSummary = calcFinancialIncomeSummary(
-            combinedForCalc,
+            assetsForCalc,
             tm,
+            realizedSales,
           );
           try {
             localStorage.setItem(
@@ -1282,8 +1196,9 @@ export default function BuySimulatorTab() {
     const qty = parseFloat(r.quantity);
     return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
   });
-  // PB 패널 항목이 있거나, 드래그앤드롭/PB버튼으로 이미 확정된 매수가 있으면 활성화
-  const canConfirm = (hasPbItems || confirmedPbAmount > 0) && !isOverBudget;
+  // 신규 매수 종목이 하나도 없어도(주식 리밸런싱 없이 상품 리밸런싱으로 바로 넘어가는 경우) 확정 가능하도록
+  // hasPbItems/confirmedPbAmount 존재 여부 조건을 제거 — 예산 초과 상태만 막는다.
+  const canConfirm = !isOverBudget;
 
   // ── 렌더 ─────────────────────────────────────────────────────────────────
 

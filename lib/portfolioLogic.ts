@@ -305,7 +305,8 @@ export interface PortfolioAssetInput {
   bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만
   bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만
   dividendYield?: number;              // Yahoo Finance 연간 배당수익률 (소수)
-  trailingAnnualDividendRate?: number; // Yahoo Finance 주당 연간 배당금
+  trailingAnnualDividendRate?: number; // Yahoo Finance 주당 연간 배당금 (최근 365일 트레일링 — "향후 1년 예상" 투영용)
+  calendarYtdDividendRate?: number;    // 달력연도 1/1~오늘 실지급 주당 배당금 합 — 종합과세 판정 전용(트레일링과 다른 개념)
   sector?: string;           // 한글 변환 섹터명 (Yahoo Finance assetProfile.sector/industry → 매핑)
 }
 
@@ -399,6 +400,9 @@ export const runAnalysis = async (
           ? json.dividendYield : undefined;
         const tadr = typeof json.trailingAnnualDividendRate === "number" && json.trailingAnnualDividendRate > 0
           ? json.trailingAnnualDividendRate : undefined;
+        // 달력연도 누적 배당(종합과세 판정용) — 0도 유효한 값(올해 아직 배당 없음)이라 > 0 조건 없이 그대로 받음
+        const calendarYtd = typeof json.calendarYtdDividendPerShare === "number"
+          ? json.calendarYtdDividendPerShare : undefined;
 
         // 섹터 — proxy-finance 응답의 sectorEn/industryEn → 한글 변환 (name/ticker 키워드 폴백 포함)
         const sectorEnVal   = typeof json.sectorEn   === "string" ? json.sectorEn   : null;
@@ -406,12 +410,19 @@ export const runAnalysis = async (
         const resolvedSector = resolveSectorKo(sectorEnVal, industryEnVal, a.theme, a.name, a.ticker) || undefined;
 
         // 현재가가 이미 있으면 배당 + 섹터 데이터만 보완하고 리턴
+        // ※ trailingAnnualDividendRate(주당 배당금)는 Yahoo Finance가 종목 상장통화(USD 등) 기준으로 반환한다.
+        //   current_price는 이미 원화로 정규화돼 있으므로, 배당금도 동일하게 원화 환산해야
+        //   세금 계산(calcFinancialIncomeSummary)에서 통화가 섞이지 않는다.
         if (a.current_price != null && a.current_price > 0) {
+          const isUsd = (meta?.currency ?? "USD") === "USD";
+          const tadrKrw = tadr != null && isUsd ? tadr * currentExchangeRate : tadr;
+          const calendarYtdKrw = calendarYtd != null && isUsd ? calendarYtd * currentExchangeRate : calendarYtd;
           return {
             ...a,
             current_value: a.amount * a.current_price,
             ...(dy             != null ? { dividendYield:              dy             } : {}),
-            ...(tadr           != null ? { trailingAnnualDividendRate: tadr           } : {}),
+            ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
+            ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),
             ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
           };
         }
@@ -429,12 +440,16 @@ export const runAnalysis = async (
           const isUsd = (meta?.currency ?? "USD") === "USD";
           const priceKrw = isUsd ? lastPrice * currentExchangeRate : lastPrice;
           const cvKrw = a.amount * priceKrw;
+          // trailingAnnualDividendRate·calendarYtdDividendRate도 종목 상장통화 기준이므로 price와 동일하게 원화 환산
+          const tadrKrw = tadr != null && isUsd ? tadr * currentExchangeRate : tadr;
+          const calendarYtdKrw = calendarYtd != null && isUsd ? calendarYtd * currentExchangeRate : calendarYtd;
           return {
             ...a,
             current_price: priceKrw,
             current_value: cvKrw,
             ...(dy             != null ? { dividendYield:              dy             } : {}),
-            ...(tadr           != null ? { trailingAnnualDividendRate: tadr           } : {}),
+            ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
+            ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),
             ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
           };
         }

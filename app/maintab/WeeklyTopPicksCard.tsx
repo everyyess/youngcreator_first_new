@@ -17,11 +17,15 @@ interface Props {
   onAdd: (pick: { name: string; ticker: string; isGlobal: boolean }) => void;
 }
 
+// pick.name → { value, loading } — Yahoo Finance regularMarketChangePercent(전일 대비 등락률)
+type ChangeState = { value: number | null; loading: boolean };
+
 export function WeeklyTopPicksCard({ isCustomerView, onAdd }: Props) {
   const [picks, setPicks] = useState<WeeklyPick[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [resolvingName, setResolvingName] = useState<string | null>(null);
+  const [changePercents, setChangePercents] = useState<Record<string, ChangeState>>({});
 
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -39,6 +43,40 @@ export function WeeklyTopPicksCard({ isCustomerView, onAdd }: Props) {
       .catch(() => { /* 저장된 리스트가 없으면 빈 상태 유지 */ });
     return () => { alive = false; };
   }, []);
+
+  // picks 목록이 바뀔 때마다 종목별 실시간 등락률(전일 대비) 조회 — 리포트에 찍힌 "추천일 대비"
+  // 정적 수치 대신, 오늘 기준 실제 시세 변동을 보여준다. 종목별로 독립적으로 채워짐(일부 실패해도 나머지는 표시).
+  useEffect(() => {
+    let alive = true;
+    const targets = picks.filter((p) => !(p.name in changePercents));
+    if (targets.length === 0) return;
+
+    setChangePercents((prev) => {
+      const next = { ...prev };
+      for (const p of targets) next[p.name] = { value: null, loading: true };
+      return next;
+    });
+
+    targets.forEach((p) => {
+      fetch(`/api/proxy-finance?assetName=${encodeURIComponent(p.name)}`)
+        .then((r) => r.json())
+        .then((data) => {
+          if (!alive) return;
+          const pct = data?.chart?.result?.[0]?.meta?.regularMarketChangePercent;
+          setChangePercents((prev) => ({
+            ...prev,
+            [p.name]: { value: typeof pct === "number" ? pct : null, loading: false },
+          }));
+        })
+        .catch(() => {
+          if (!alive) return;
+          setChangePercents((prev) => ({ ...prev, [p.name]: { value: null, loading: false } }));
+        });
+    });
+
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picks]);
 
   const uploadFile = useCallback(async (file: File) => {
     setLoading(true);
@@ -117,7 +155,7 @@ export function WeeklyTopPicksCard({ isCustomerView, onAdd }: Props) {
         <div className="flex items-center gap-2">
           <Star size={16} className="text-amber-500" />
           <span className="text-sm font-bold text-navy">자사 추천 종목</span>
-          <span className="text-[10px] text-slate-400">삼성증권 주간 투자 전략 · 수익률은 추천일 대비</span>
+          <span className="text-[10px] text-slate-400">삼성증권 주간 투자 전략 · 등락률은 전일 대비(실시간)</span>
         </div>
         {!isCustomerView && (
           <div className="flex items-center gap-2">
@@ -188,11 +226,18 @@ export function WeeklyTopPicksCard({ isCustomerView, onAdd }: Props) {
                   {pick.recommendedDate && (
                     <span className="text-[10px] text-slate-400">{pick.recommendedDate} 추천</span>
                   )}
-                  {pick.returnPct !== null && (
-                    <span className={`text-[10px] font-semibold ${pick.returnPct >= 0 ? "text-red-500" : "text-sky-500"}`}>
-                      {pick.returnPct >= 0 ? "▲" : "▼"} {Math.abs(pick.returnPct).toFixed(1)}%
-                    </span>
-                  )}
+                  {(() => {
+                    const c = changePercents[pick.name];
+                    if (!c || (c.loading && c.value === null)) {
+                      return c?.loading ? <Loader2 size={10} className="animate-spin text-slate-300" /> : null;
+                    }
+                    if (c.value === null) return null; // 티커 조회 실패 — 조용히 생략(정적 returnPct로 폴백 안 함)
+                    return (
+                      <span className={`text-[10px] font-semibold ${c.value >= 0 ? "text-red-500" : "text-sky-500"}`}>
+                        {c.value >= 0 ? "▲" : "▼"} {Math.abs(c.value).toFixed(1)}%
+                      </span>
+                    );
+                  })()}
                 </div>
                 {pick.thesis && (
                   <p className="mt-0.5 truncate text-xs text-slate-500">{pick.thesis}</p>
