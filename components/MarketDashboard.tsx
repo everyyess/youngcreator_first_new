@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileText, Mail, RefreshCw, ChevronDown} from "lucide-react";
 import type { MarketIndexItem } from "@/lib/marketData";
-import type { AppState, CustomerProfile } from "@/app/maintab/CustomerContext";
+import type { AppState, CustomerProfile, PortfolioAsset, RebalancingHistoryRecord } from "@/app/maintab/CustomerContext";
+import { loadAnalysisResult, loadPortfolioAssets, loadRebalancingState, loadSharedMaintabUiState } from "@/app/maintab/CustomerContext";
+import { HealthRadarChart } from "@/app/maintab/PortfolioResultComponents";
+import { getCustomerSessions } from "@/app/consultationStore";
 import { buildCustomerReportSections } from "@/services/customerService";
 import { MacroChartViewer } from "@/components/MacroChartViewer";
 import SectorScanner from "@/components/SectorScanner";
@@ -740,19 +743,44 @@ function NarrativePreview({ narrative, fallbackBullets }: { narrative?: MarketRe
   );
 }
 
-function ReportPreviewCard({ title, summary, bullets, meta, narrative }: { title: string; summary: string; bullets: string[]; meta?: string; narrative?: MarketReportNarrative }) {
+function ReportPreviewCard({
+  title,
+  summary,
+  bullets,
+  meta,
+  narrative,
+  headerExtra,
+  children,
+  className = "",
+}: {
+  title: string;
+  summary: string;
+  bullets: string[];
+  meta?: string;
+  narrative?: MarketReportNarrative;
+  headerExtra?: React.ReactNode;
+  children?: React.ReactNode;
+  className?: string;
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
     <article
-      className={`rounded-xl border border-slate-300 bg-slate-50 transition ${
+      className={`${className} rounded-xl border border-slate-300 bg-slate-50 transition ${
         isExpanded ? "" : "h-[118px]"
       }`}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsExpanded((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-4 p-4 text-left"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setIsExpanded((prev) => !prev);
+          }
+        }}
+        className="flex w-full cursor-pointer items-center justify-between gap-4 p-4 text-left"
         aria-expanded={isExpanded}
       >
         <p className="min-w-0 text-sm font-black text-navy">{title}</p>
@@ -773,23 +801,31 @@ function ReportPreviewCard({ title, summary, bullets, meta, narrative }: { title
             aria-hidden="true"
           />
         </div>
-      </button>
+      </div>
 
       {isExpanded ? (
         <div className="border-t border-slate-200 px-4 pb-4 pt-3">
-          {!narrative ? (
-            <p className="text-xs font-bold leading-5 text-slate-600">
-              {summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다."}
-            </p>
-          ) : null}
+          {children ? (
+            children
+          ) : (
+            <>
+              {!narrative ? (
+                <p className="text-xs font-bold leading-5 text-slate-600">
+                  {summary}
+                </p>
+              ) : null}
 
-          <NarrativePreview narrative={narrative} fallbackBullets={bullets} />
+              <NarrativePreview
+                narrative={narrative}
+                fallbackBullets={bullets}
+              />
+            </>
+          )}
         </div>
       ) : null}
     </article>
   );
 }
-
 function MarketStatusRow({ label, market, report, refreshing, onRefresh }: { label: string; market: "us" | "kr"; report?: MarketReport; refreshing: boolean; onRefresh: (market: "us" | "kr") => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2">
@@ -853,11 +889,399 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const [holdingIssuesExpanded, setHoldingIssuesExpanded] = useState(false);
   const [loadingHoldingIssues, setLoadingHoldingIssues] = useState(false);
   const [holdingIssuesError, setHoldingIssuesError] = useState("");
+  const [portfolioHealthItems, setPortfolioHealthItems] = useState<Array<{
+    key: string;
+    label: string;
+    score: number;
+    detail?: string;
+  }>>([]);
+  const [portfolioAssets, setPortfolioAssets] = useState<PortfolioAsset[]>([]);
+  const [performanceProductAssets, setPerformanceProductAssets] = useState<PortfolioAsset[]>([]);
+  const [performanceRebalancingHistory, setPerformanceRebalancingHistory] = useState<RebalancingHistoryRecord[]>([]);
+
+  const portfolioPerformanceRows = portfolioAssets
+  .filter((asset) => Boolean(asset.name?.trim()))
+    .map((asset) => {
+      const buyPrice = Number(asset.buy_price);
+      const amount = Number(asset.amount);
+      const rawCurrentPrice = Number(asset.current_price);
+      const rawCurrentValue = Number(asset.current_value);
+
+      const currentPrice =
+        Number.isFinite(rawCurrentPrice) && rawCurrentPrice > 0
+          ? rawCurrentPrice
+          : null;
+
+      const quantity =
+        asset.amount_type === "quantity" &&
+        Number.isFinite(amount) &&
+        amount > 0
+          ? amount
+          : null;
+
+      const costBasis =
+        quantity != null &&
+        Number.isFinite(buyPrice) &&
+        buyPrice > 0
+          ? quantity * buyPrice
+          : null;
+
+      const currentValue =
+        quantity != null && currentPrice != null
+          ? quantity * currentPrice
+          : Number.isFinite(rawCurrentValue) && rawCurrentValue >= 0
+            ? rawCurrentValue
+            : null;
+
+      const profitLoss =
+        costBasis != null && currentValue != null
+          ? currentValue - costBasis
+          : null;
+
+      const returnRate =
+        costBasis != null && costBasis > 0 && profitLoss != null
+          ? (profitLoss / costBasis) * 100
+          : null;
+
+      return {
+        name: asset.name,
+        ticker: asset.ticker?.trim() || "",
+        buyPrice:
+          Number.isFinite(buyPrice) && buyPrice > 0
+            ? buyPrice
+            : null,
+        quantity,
+        currentPrice,
+        currentValue,
+        costBasis,
+        profitLoss,
+        returnRate,
+        priceAsOf: asset.price_as_of ?? null,
+      };
+    });
+
+  const validPortfolioRows = portfolioPerformanceRows.filter(
+    (row) =>
+      row.currentValue != null &&
+      row.currentValue >= 0 &&
+      row.costBasis != null &&
+      row.costBasis > 0,
+  );
+
+  const totalPortfolioCost = validPortfolioRows.reduce(
+    (sum, row) => sum + (row.costBasis ?? 0),
+    0,
+  );
+
+  const totalPortfolioValue = validPortfolioRows.reduce(
+    (sum, row) => sum + (row.currentValue ?? 0),
+    0,
+  );
+
+  const totalPortfolioProfitLoss =
+    totalPortfolioCost > 0
+      ? totalPortfolioValue - totalPortfolioCost
+      : null;
+
+  const totalPortfolioReturn =
+    totalPortfolioCost > 0 && totalPortfolioProfitLoss != null
+      ? (totalPortfolioProfitLoss / totalPortfolioCost) * 100
+      : null;
+
+  const portfolioPriceAsOf = portfolioPerformanceRows
+    .map((row) => row.priceAsOf)
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+
+  const portfolioPriceAsOfLabel = portfolioPriceAsOf
+    ? portfolioPriceAsOf.toLocaleString("ko-KR", {
+        timeZone: "Asia/Seoul",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      })
+    : null;
   const customerSections = buildCustomerReportSections(selectedCustomer, selectedState);
   const pdfCustomer =
     customers.find((customer) => customer.id === pdfCustomerId) ??
     selectedCustomer ??
     null;
+  const performanceCustomer = pdfCustomer;
+
+  const performanceCustomerState = performanceCustomer
+    ? (performanceCustomer.id === selectedCustomer?.id ? selectedState : undefined) ??
+      customerData[performanceCustomer.id] ??
+      performanceCustomer.data
+    : undefined;
+
+  const currentMonthConsultations = (() => {
+    if (!performanceCustomer?.id) return [];
+
+    const nowKst = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+    );
+
+    return getCustomerSessions(performanceCustomerState)
+      .filter((session) => session.customerId === performanceCustomer.id)
+      .filter((session) => session.status === "completed")
+      .filter((session) => {
+        const source =
+          session.date ||
+          session.updatedAt ||
+          session.createdAt;
+
+        if (!source) return false;
+
+        const date = new Date(source);
+        if (Number.isNaN(date.getTime())) return false;
+
+        const kstDate = new Date(
+          date.toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+        );
+
+        return (
+          kstDate.getFullYear() === nowKst.getFullYear() &&
+          kstDate.getMonth() === nowKst.getMonth()
+        );
+      })
+      .sort((a, b) => {
+        const aTime = new Date(a.date || a.updatedAt || a.createdAt).getTime();
+        const bTime = new Date(b.date || b.updatedAt || b.createdAt).getTime();
+        return bTime - aTime;
+      });
+  })();
+
+  const currentConsultationMonthLabel = `${
+    new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+    ).getMonth() + 1
+  }월 상담`;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPortfolioPerformanceAssets() {
+      if (!performanceCustomer?.id) {
+        setPortfolioAssets([]);
+        setPerformanceProductAssets([]);
+        setPerformanceRebalancingHistory([]);
+        return;
+      }
+
+      const [assets, rebalancing, sharedUi] = await Promise.all([
+        loadPortfolioAssets(performanceCustomer.id),
+        loadRebalancingState(performanceCustomer.id),
+        loadSharedMaintabUiState(performanceCustomer.id),
+      ]);
+
+      if (cancelled) return;
+
+      setPerformanceRebalancingHistory(
+        sharedUi.tab3?.rebalancingHistory ?? [],
+      );
+
+      const rebalancingHistory =
+        sharedUi.tab3?.rebalancingHistory ?? [];
+
+      const latestRebalancing =
+        [...rebalancingHistory]
+          .sort((a, b) => {
+            const aTime = new Date(
+              a.consultationAt || a.confirmedAt || 0,
+            ).getTime();
+
+            const bTime = new Date(
+              b.consultationAt || b.confirmedAt || 0,
+            ).getTime();
+
+            return bTime - aTime;
+          })[0] ?? null;
+
+      const finalProducts = latestRebalancing
+        ? (latestRebalancing.afterPortfolio ?? [])
+            .filter((asset) => {
+              const category = `${
+                asset.asset_class ??
+                asset.productType ??
+                ""
+              }`.toLowerCase();
+
+              return (
+                !category.includes("주식") &&
+                !category.includes("stock") &&
+                !category.includes("etf")
+              );
+            })
+            .map((asset) => ({
+              ...asset,
+              owner_customer_id: performanceCustomer.id,
+            }))
+        : [];
+
+      setPerformanceProductAssets(finalProducts);
+
+      const pricedAssets = await Promise.all(
+        assets.map(async (asset) => {
+          const ticker = asset.ticker?.trim();
+
+          if (!ticker) {
+            return asset;
+          }
+
+          try {
+            const response = await fetch(
+              `/api/price?ticker=${encodeURIComponent(ticker)}`,
+              { cache: "no-store" },
+            );
+
+            if (!response.ok) {
+              return asset;
+            }
+
+            const priceData = await response.json();
+
+            const snapshotPrice = Number(priceData?.snapshotPrice);
+            const regularMarketPrice = Number(priceData?.regularMarketPrice);
+
+            const nextPrice =
+              Number.isFinite(snapshotPrice) && snapshotPrice > 0
+                ? snapshotPrice
+                : Number.isFinite(regularMarketPrice) && regularMarketPrice > 0
+                  ? regularMarketPrice
+                  : null;
+
+            const rawPriceTime =
+              priceData?.snapshotTime ??
+              priceData?.regularMarketTime ??
+              null;
+
+            const numericPriceTime = Number(rawPriceTime);
+
+            const priceAsOf =
+              Number.isFinite(numericPriceTime) && numericPriceTime > 0
+                ? new Date(
+                    numericPriceTime < 1000000000000
+                      ? numericPriceTime * 1000
+                      : numericPriceTime,
+                  ).toISOString()
+                : asset.price_as_of;
+
+            if (nextPrice == null) {
+              return {
+                ...asset,
+                price_as_of: priceAsOf,
+              };
+            }
+
+            return {
+              ...asset,
+              current_price: nextPrice,
+              price_as_of: priceAsOf,
+            };
+          } catch {
+            return asset;
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setPortfolioAssets(pricedAssets);
+      }
+    }
+
+    void loadPortfolioPerformanceAssets();
+
+    const now = new Date();
+
+    const elapsedMsInFiveMinuteBlock =
+      ((now.getMinutes() % 5) * 60 + now.getSeconds()) * 1000 +
+      now.getMilliseconds();
+
+    const delayToNextFiveMinuteBoundary =
+      5 * 60 * 1000 - elapsedMsInFiveMinuteBlock;
+
+    let portfolioRefreshInterval: ReturnType<typeof setInterval> | null = null;
+
+    const portfolioRefreshTimeout = setTimeout(() => {
+      void loadPortfolioPerformanceAssets();
+
+      portfolioRefreshInterval = setInterval(() => {
+        void loadPortfolioPerformanceAssets();
+      }, 5 * 60 * 1000);
+    }, delayToNextFiveMinuteBoundary);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(portfolioRefreshTimeout);
+
+      if (portfolioRefreshInterval !== null) {
+        clearInterval(portfolioRefreshInterval);
+      }
+    };
+  }, [performanceCustomer?.id]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPortfolioHealth() {
+      if (!performanceCustomer?.id) {
+        setPortfolioHealthItems([]);
+        return;
+      }
+
+      const result = await loadAnalysisResult(performanceCustomer.id);
+      if (cancelled) return;
+
+      const raw =
+        result && typeof result === "object"
+          ? result
+          : null;
+
+      const healthResult =
+        raw && "healthResult" in raw
+          ? (raw as any).healthResult
+          : null;
+
+      const items =
+        healthResult &&
+        typeof healthResult === "object" &&
+        Array.isArray((healthResult as any).items)
+          ? (healthResult as any).items
+          : [];
+
+      const normalized = items
+        .map((item: any) => {
+          if (!item || typeof item !== "object") return null;
+
+          const key = typeof item.key === "string" ? item.key : "";
+          const label = typeof item.label === "string" ? item.label : "";
+          const score = Number(item.score);
+
+          if (!key || !label || !Number.isFinite(score)) return null;
+
+          return {
+            key,
+            label,
+            score,
+            detail:
+              typeof item.detail === "string"
+                ? item.detail
+                : undefined,
+          };
+        })
+        .filter(Boolean);
+
+      setPortfolioHealthItems(normalized);
+    }
+
+    void loadPortfolioHealth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [performanceCustomer?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1528,12 +1952,13 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
           {actionMessage ? <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">{actionMessage}</p> : null}
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="grid content-start gap-3">
+        <div className="grid gap-3">
+          <div className="grid gap-3 lg:grid-cols-2">
             {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={marketCardSummary(usReport, "us")} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={marketCardMeta(usReport, "us").replace(/^.*?·\s*/, "")} /> : null}
             {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={marketCardSummary(krReport, "kr")} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={marketCardMeta(krReport, "kr").replace(/^.*?·\s*/, "")} /> : null}
           </div>
-          <div className="grid content-start gap-3">
+          <>
+            <div className="lg:col-span-2">
             {activeIncluded.holdingIssues ? (() => {
   const groupedIssues = Array.from(
     holdingIssues.reduce((map, issue) => {
@@ -1575,7 +2000,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   );
 
   return (
-    <div className={`rounded-xl border border-slate-300 bg-slate-50 transition ${holdingIssuesExpanded ? "" : "h-[118px]"}`}>
+    <div className={`lg:col-span-2 rounded-xl border border-slate-300 bg-slate-50 transition ${holdingIssuesExpanded ? "" : "h-[118px]"}`}>
       <div>
   <button
     type="button"
@@ -1744,8 +2169,382 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
         ) : null}
     </div>
   );
-})() : null}{activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
+})() : null}
+            </div>
+
+<div className="lg:col-span-2">
+{activeIncluded.portfolioPerformance ? (
+  <ReportPreviewCard
+    className="lg:col-span-2"
+    title="월별 포트폴리오 성과"
+    summary=""
+    bullets={[]}
+    headerExtra={
+      <div
+        onClick={(event) => event.stopPropagation()}
+        className="flex h-7 items-center overflow-hidden rounded-lg border border-slate-200 bg-white"
+      >
+        <button
+          type="button"
+          onClick={() => movePdfCustomer(-1)}
+          disabled={customers.length <= 1}
+          className="flex h-full w-7 items-center justify-center text-sm font-black text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+          aria-label="이전 고객"
+        >
+          ‹
+        </button>
+
+        <span className="min-w-[110px] border-x border-slate-200 px-2 text-center text-[11px] font-bold text-slate-700">
+          {pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"}
+          {pdfCustomerBirthDate ? ` (${pdfCustomerBirthDate})` : ""}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => movePdfCustomer(1)}
+          disabled={customers.length <= 1}
+          className="flex h-full w-7 items-center justify-center text-sm font-black text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+          aria-label="다음 고객"
+        >
+          ›
+        </button>
+      </div>
+    }
+  >
+    <div className="mt-3 space-y-4">
+      <section>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black text-slate-800">
+              주식·ETF 포트폴리오 성과
+            </p>
+            <p className="mt-1 text-[10px] font-semibold text-slate-400">
+              수익률은 주식·ETF 보유분에 한해 제공됩니다.
+            </p>
           </div>
+
+          {totalPortfolioReturn != null ? (
+            <div className="text-right">
+              <p className="text-[10px] font-semibold text-slate-400">
+                전체 수익률
+              </p>
+              <p className="text-sm font-black text-slate-800">
+                {totalPortfolioReturn >= 0 ? "+" : ""}
+                {totalPortfolioReturn.toFixed(2)}%
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        {portfolioPerformanceRows.length > 0 ? (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full min-w-[760px] table-fixed">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  <th className="w-[25%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    종목명
+                  </th>
+                  <th className="w-[15%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    매입단가
+                  </th>
+                  <th className="w-[10%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    수량
+                  </th>
+                  <th className="w-[15%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    현재가
+                  </th>
+                  <th className="w-[20%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    평가손익
+                  </th>
+                  <th className="w-[15%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    수익률
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {portfolioPerformanceRows.map((row, index) => (
+                  <tr
+                    key={`${row.ticker || row.name}-${index}`}
+                    className="border-b border-slate-100 last:border-b-0"
+                  >
+                    <td className="px-3 py-2.5">
+                      <p className="truncate text-xs font-bold text-slate-700">
+                        {row.name}
+                      </p>
+                      {row.ticker ? (
+                        <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                          {row.ticker}
+                        </p>
+                      ) : null}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                      {row.buyPrice != null
+                        ? row.buyPrice.toLocaleString("ko-KR")
+                        : "-"}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                      {row.quantity != null
+                        ? row.quantity.toLocaleString("ko-KR")
+                        : "-"}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                      {row.currentPrice != null
+                        ? row.currentPrice.toLocaleString("ko-KR")
+                        : "-"}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-bold text-slate-700">
+                      {row.profitLoss != null
+                        ? `${row.profitLoss >= 0 ? "+" : ""}${Math.round(
+                            row.profitLoss,
+                          ).toLocaleString("ko-KR")}원`
+                        : "-"}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-black text-slate-700">
+                      {row.returnRate != null
+                        ? `${row.returnRate >= 0 ? "+" : ""}${row.returnRate.toFixed(2)}%`
+                        : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <p className="border-t border-slate-100 px-3 py-1.5 text-right text-[10px] font-semibold text-slate-400">
+              {portfolioPriceAsOfLabel
+                ? `현재가 기준 ${portfolioPriceAsOfLabel}`
+                : "현재가 기준시각을 확인할 수 없습니다."}
+            </p>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            주식·ETF 보유 내역을 확인할 수 없습니다.
+          </p>
+        )}
+      </section>
+
+      <section className="border-t border-slate-200 pt-4">
+        <p className="mb-3 text-xs font-black text-slate-800">
+          포트폴리오 위험·분산 진단
+        </p>
+
+        {portfolioHealthItems.length === 7 ? (
+          <HealthRadarChart items={portfolioHealthItems} />
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            포트폴리오 진단 결과를 확인할 수 없습니다.
+          </p>
+        )}
+      </section>
+
+      <section className="border-t border-slate-200 pt-4">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <p className="text-xs font-black text-slate-800">
+            상품 현황
+          </p>
+          <p className="text-[10px] font-semibold text-slate-400">
+            채권·펀드·랩 등
+          </p>
+        </div>
+
+        {performanceProductAssets.length > 0 ? (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full table-fixed">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  <th className="w-[34%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    상품명
+                  </th>
+                  <th className="w-[22%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    상품유형
+                  </th>
+                  <th className="w-[18%] px-3 py-2 text-center text-[10px] font-black text-slate-500">
+                    가입일
+                  </th>
+                  <th className="w-[26%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    매입금액
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {performanceProductAssets.map((asset, index) => {
+                  const productType =
+                    asset.productType?.trim() ||
+                    asset.asset_class?.trim() ||
+                    "-";
+
+                  const purchaseAmount =
+                    Number.isFinite(Number(asset.amount)) &&
+                    Number(asset.amount) > 0
+                      ? Number(asset.amount)
+                      : null;
+
+                  const normalizeProductKey = (value?: string | null) =>
+                    (value ?? "").trim().toLowerCase();
+
+                  const assetKeys = [
+                    normalizeProductKey(asset.id),
+                    normalizeProductKey(asset.name),
+                    normalizeProductKey(asset.ticker),
+                  ].filter(Boolean);
+
+                  const joinedRecord = [...performanceRebalancingHistory]
+                    .sort(
+                      (a, b) =>
+                        new Date(a.consultationAt || a.confirmedAt).getTime() -
+                        new Date(b.consultationAt || b.confirmedAt).getTime(),
+                    )
+                    .find((record) => {
+                      const beforeKeys = (record.beforePortfolio ?? []).flatMap(
+                        (item) => [
+                          normalizeProductKey(item.id),
+                          normalizeProductKey(item.name),
+                          normalizeProductKey(item.ticker),
+                        ],
+                      );
+
+                      const afterKeys = (record.afterPortfolio ?? []).flatMap(
+                        (item) => [
+                          normalizeProductKey(item.id),
+                          normalizeProductKey(item.name),
+                          normalizeProductKey(item.ticker),
+                        ],
+                      );
+
+                      const existedBefore = assetKeys.some((key) =>
+                        beforeKeys.includes(key),
+                      );
+
+                      const existsAfter = assetKeys.some((key) =>
+                        afterKeys.includes(key),
+                      );
+
+                      return !existedBefore && existsAfter;
+                    });
+
+                  const joinedSource =
+                    joinedRecord?.consultationAt ||
+                    joinedRecord?.confirmedAt ||
+                    "";
+
+                  const joinedDate = joinedSource
+                    ? new Date(joinedSource).toLocaleDateString("ko-KR", {
+                        timeZone: "Asia/Seoul",
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                      })
+                    : "-";
+
+                  return (
+                    <tr
+                      key={`${asset.id || asset.name}-${index}`}
+                      className="border-b border-slate-100 last:border-b-0"
+                    >
+                      <td className="px-3 py-2.5 text-xs font-bold text-slate-700">
+                        {asset.name || "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs font-semibold text-slate-600">
+                        {productType}
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">
+                        {joinedDate}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                        {purchaseAmount != null
+                          ? `${Math.round(purchaseAmount).toLocaleString("ko-KR")}원`
+                          : "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            보유 중인 채권·펀드·랩 등 상품이 없습니다.
+          </p>
+        )}
+      </section>
+
+      <section className="border-t border-slate-200 pt-4">
+        <p className="mb-3 text-xs font-black text-slate-800">
+          {currentConsultationMonthLabel}
+        </p>
+
+        {currentMonthConsultations.length > 0 ? (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full table-fixed">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  <th className="w-[25%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    일시
+                  </th>
+                  <th className="w-[50%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    상담 내용
+                  </th>
+                  <th className="w-[25%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    상담시간
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {currentMonthConsultations.map((session) => {
+                  const dateSource =
+                    session.date ||
+                    session.updatedAt ||
+                    session.createdAt;
+
+                  const consultationDate = dateSource
+                    ? new Date(dateSource).toLocaleString("ko-KR", {
+                        timeZone: "Asia/Seoul",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false,
+                      })
+                    : "-";
+
+                  return (
+                    <tr
+                      key={session.id}
+                      className="border-b border-slate-100 last:border-b-0"
+                    >
+                      <td className="px-3 py-2.5 text-xs font-semibold text-slate-600">
+                        {consultationDate}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs font-bold text-slate-700">
+                        {session.title || "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                        {session.duration || "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            이번 달 완료된 상담 내역이 없습니다.
+          </p>
+        )}
+      </section>
+    </div>
+  </ReportPreviewCard>
+) : null}
+</div>
+          </>
         </div>
       </div>
 
