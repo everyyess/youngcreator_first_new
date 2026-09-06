@@ -101,38 +101,17 @@ function AnalysisTabs({
   activeTopTab,
   urlSelectedStock,
   onCustomerChange,
-  isPortfolioLoading,
   isInsightSessionReady,
 }: {
   contextValue: CustomerContextValue;
   activeTopTab: AnalysisTopTab;
   urlSelectedStock: { ticker: string; name: string } | null;
   onCustomerChange: (customerId: CustomerId) => void;
-  isPortfolioLoading: boolean;
   isInsightSessionReady: boolean;
 }) {
   const router = useRouter();
   const [activeStockTab, setActiveStockTab] = useState<StockAnalysisTab>("technical");
   const [mountedStockTabs, setMountedStockTabs] = useState<Set<StockAnalysisTab>>(new Set(["technical"]));
-
-  // 분석 고객의 보유 주식(분석 결과 + 포트폴리오 자산)을 티커 기준으로 중복 제거
-  const stockHoldings = useMemo(() => {
-    const merged = [
-      ...(contextValue.analysisResult?.enrichedAssets ?? []),
-      ...contextValue.portfolioAssets,
-    ];
-    const seen = new Set<string>();
-    return merged.filter((asset) => {
-      const ticker = asset.ticker?.trim();
-      const assetType = `${asset.productType ?? ""} ${asset.asset_class ?? ""}`;
-      if (!ticker || !assetType.includes("주식")) return false;
-      const key = ticker.toUpperCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [contextValue.analysisResult, contextValue.portfolioAssets]);
-  const holdingTickerSignature = stockHoldings.map((asset) => asset.ticker).join("|");
 
   // 종목분석·외부자료분석·공시분석 세 탭이 공유하는 "현재 선택된 종목".
   // useState 초기값 계산 함수 안에서 sessionStorage를 즉시 읽어, 렌더링 첫 순간부터
@@ -151,16 +130,15 @@ function AnalysisTabs({
     if (urlSelectedStock) setSharedStock(urlSelectedStock);
   }, [urlSelectedStock]);
 
-  // 고객 또는 보유 종목이 바뀌어 현재 선택 종목이 보유 목록에 없으면 첫 보유 종목으로 맞춤
+  // 분석 고객이 실제로 바뀌면 공유 종목을 비워, 각 분석 탭이 새 고객의 보유 종목에서 다시 고르게 함.
+  // 최초 고객 로딩(빈 값 -> 고객 id)이나 스크리너/URL로 들어온 선택은 건드리지 않음.
+  const previousCustomerRef = useRef(contextValue.selectedCustomer);
   useEffect(() => {
-    if (!stockHoldings.length) return;
-    setSharedStock((current) => {
-      if (current && stockHoldings.some((asset) => asset.ticker === current.ticker)) return current;
-      if (current && urlSelectedStock && current.ticker === urlSelectedStock.ticker) return current;
-      const first = stockHoldings[0];
-      return { ticker: first.ticker ?? "", name: first.name ?? "" };
-    });
-  }, [contextValue.selectedCustomer, holdingTickerSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+    const previous = previousCustomerRef.current;
+    previousCustomerRef.current = contextValue.selectedCustomer;
+    if (!previous || previous === contextValue.selectedCustomer) return;
+    setSharedStock(null);
+  }, [contextValue.selectedCustomer]);
 
   const selectStockTab = (tab: StockAnalysisTab) => {
     setActiveStockTab(tab);
@@ -191,7 +169,7 @@ function AnalysisTabs({
         ) : activeTopTab === "stock" ? (
           <div className="flex flex-col gap-4">
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft lg:p-5">
-              <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,2fr)]">
+              <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.7fr)]">
                 <label className="space-y-2">
                   <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">분석 고객</span>
                   <select
@@ -207,41 +185,6 @@ function AnalysisTabs({
                     ))}
                   </select>
                 </label>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-bold uppercase tracking-wide text-slate-500">보유 종목</span>
-                    <span className="text-xs font-semibold text-slate-400">
-                      {isPortfolioLoading ? "불러오는 중..." : `${stockHoldings.length}개`}
-                    </span>
-                  </div>
-                  <div className="flex min-h-11 flex-wrap items-center gap-2">
-                    {stockHoldings.map((asset) => {
-                      const active = asset.ticker === sharedStock?.ticker;
-                      return (
-                        <button
-                          key={asset.ticker}
-                          type="button"
-                          onClick={() => setSharedStock({ ticker: asset.ticker ?? "", name: asset.name ?? "" })}
-                          className={[
-                            "rounded-lg border px-3.5 py-2 text-left text-sm font-bold transition",
-                            active
-                              ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
-                              : "border-slate-200 bg-slate-50 text-slate-700 hover:border-[#2f2f9d]/40 hover:bg-indigo-50",
-                          ].join(" ")}
-                        >
-                          {asset.name}
-                          <span className={`ml-1.5 text-[10px] font-medium ${active ? "text-indigo-200" : "text-slate-400"}`}>
-                            {asset.ticker}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {!isPortfolioLoading && stockHoldings.length === 0 ? (
-                      <p className="text-sm font-semibold text-slate-400">분석 가능한 보유 주식이 없습니다.</p>
-                    ) : null}
-                  </div>
-                </div>
               </div>
             </section>
 
@@ -263,17 +206,17 @@ function AnalysisTabs({
 
             {mountedStockTabs.has("technical") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "technical" ? undefined : "none" }}>
-                <TechnicalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+                <TechnicalAnalysisTab key={contextValue.selectedCustomer} selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
             {mountedStockTabs.has("fundamental") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "fundamental" ? undefined : "none" }}>
-                <FundamentalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+                <FundamentalAnalysisTab key={contextValue.selectedCustomer} selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
             {mountedStockTabs.has("dart") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "dart" ? undefined : "none" }}>
-                <DartAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+                <DartAnalysisTab key={contextValue.selectedCustomer} selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
           </div>
@@ -492,7 +435,6 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
           activeTopTab={initialTopTab}
           urlSelectedStock={urlTicker && urlName ? { ticker: urlTicker, name: urlName } : null}
           onCustomerChange={selectCustomer}
-          isPortfolioLoading={isPortfolioLoading}
           isInsightSessionReady={isInsightSessionReady}
         />
       </div>
