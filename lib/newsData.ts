@@ -1,3 +1,4 @@
+import { isEconomicNews, rssNewsText } from "@/lib/economicNewsFilter";
 export type NewsCategory = "economy" | "industry";
 
 export type NewsArticle = {
@@ -24,40 +25,6 @@ const CATEGORY_SOURCES: Record<NewsCategory, { page: string; feeds: string[] }> 
     ],
   },
 };
-
-// 경제·산업과 무관한 카테고리의 URL 세그먼트
-const BLOCKED_URL_SEGMENTS = [
-  "/life/", "/beauty/", "/fashion/", "/health/", "/food/",
-  "/realestate/", "/politics/", "/society/", "/culture/",
-  "/sports/", "/entertainment/", "/travel/", "/opinion/", "/column/",
-];
-
-// RSS <category> 태그에 포함된 경우 제외할 키워드
-const BLOCKED_CATEGORY_SUBSTRINGS = [
-  "뷰티", "패션", "라이프", "부동산", "정치", "사회", "문화",
-  "스포츠", "연예", "건강", "여행", "오피니언", "칼럼",
-  "소비재", "유통", "식음료", "맛집", "생활", "트렌드", "웰빙", "푸드",
-];
-
-// 제목에 포함되면 경제/산업 기사로 보기 어려운 소비·라이프스타일 키워드
-const BLOCKED_TITLE_KEYWORDS = [
-  "망고", "디저트", "맛집", "레시피", "다이어트", "맛있", "음식점",
-  "뷰티", "패션", "여행", "결혼식", "육아", "반려",
-];
-
-function isArticleBlocked(link: string, categories: string[], title = ""): boolean {
-  const lowerLink = link.toLowerCase();
-  if (BLOCKED_URL_SEGMENTS.some((seg) => lowerLink.includes(seg))) return true;
-
-  if (categories.length > 0) {
-    const catText = categories.join(" ");
-    if (BLOCKED_CATEGORY_SUBSTRINGS.some((sub) => catText.includes(sub))) return true;
-  }
-
-  if (title && BLOCKED_TITLE_KEYWORDS.some((kw) => title.includes(kw))) return true;
-
-  return false;
-}
 
 function formatKoreanDateTime(dateInput: string | Date): string {
   const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
@@ -89,16 +56,6 @@ function tagValue(item: string, tag: string): string {
   return match ? decodeXml(match[1]).replace(/<[^>]+>/g, "").trim() : "";
 }
 
-// RSS 아이템에서 <category> 태그를 모두 추출
-function tagValues(item: string, tag: string): string[] {
-  const results: string[] = [];
-  for (const match of item.matchAll(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi"))) {
-    const value = decodeXml(match[1]).replace(/<[^>]+>/g, "").trim();
-    if (value) results.push(value);
-  }
-  return results;
-}
-
 function parseRss(xml: string): NewsArticle[] {
   const results: NewsArticle[] = [];
 
@@ -107,13 +64,13 @@ function parseRss(xml: string): NewsArticle[] {
 
     const item = match[0];
     const link = tagValue(item, "link");
-    const categories = tagValues(item, "category");
 
     const title = tagValue(item, "title");
     if (!title || !link) continue;
 
-    // 경제·산업 외 카테고리·제목 필터링
-    if (isArticleBlocked(link, categories, title)) continue;
+    // 통과한 기사만 개수 제한에 포함한다. 빈 목록을 비경제 기사로 채우지 않는다.
+    const description = rssNewsText(item, "description") || rssNewsText(item, "content:encoded");
+    if (!isEconomicNews({ title, description })) continue;
 
     const pubDate = tagValue(item, "pubDate");
     results.push({
@@ -168,7 +125,7 @@ function parseHankyungHtml(html: string): NewsArticle[] {
 
     const title = innerHtml.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
     if (title.length < 5) continue;
-    if (isArticleBlocked(link, [], title)) continue;
+    if (!isEconomicNews({ title })) continue;
 
     seen.add(link);
 
@@ -197,6 +154,7 @@ type Rss2JsonItem = {
   link: string;
   pubDate: string;
   categories: string[];
+  description?: string;
 };
 
 type Rss2JsonResponse = {
@@ -226,7 +184,7 @@ async function fetchViaRss2Json(rssUrl: string): Promise<NewsArticle[]> {
   for (const item of data.items) {
     if (results.length >= 8) break;
     if (!item.title || !item.link) continue;
-    if (isArticleBlocked(item.link, item.categories ?? [], item.title)) continue;
+    if (!isEconomicNews({ title: item.title, description: item.description })) continue;
     results.push({
       title: item.title,
       summary: "",
