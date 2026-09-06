@@ -1,9 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
-import { calcFinancialIncomeSummary, NEW_PORTFOLIO_INCOME_STORAGE_KEY, type AssetForIncomeCalc } from "../tab1/FinancialIncomeGauge";
 import {
   Sparkles, ShieldCheck, TrendingUp, Landmark, PiggyBank,
   FileText, BarChart3, AlertCircle,
@@ -275,40 +273,75 @@ interface Bond {
   isInstantRedeem?: boolean;    // 유동성 버킷의 liquidityScore 계산에 필요
   taxType?: TaxType;            // 절세 버킷의 taxScore 계산에 필요 — "채권형"을 표면이율로 세분화하기 전까지는 잠정값
   isSubordinated?: boolean;     // 신종자본증권/영구채 여부 — 위험등급이 신용등급만으로 안 잡히는 구조적 리스크가 있어 카드에 "별도 확인 필요"로 표시
+  // ── 이자소득세 계산용 필드 (세무 로직 전용 — 위 필드들은 화면 표시·버킷 매칭용) ──
+  issuerCountry?: "한국" | "미국" | "브라질";  // 발행국 — market(국내/해외)과 다른 개념. 브라질 국채는 market:"해외"지만
+                                              // 세율은 미국채와 다름(조세조약상 이자 비과세)이라 반드시 구분해야 함.
+  couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주(대부분의 이표부 채권 기본값)
+  isPerpetual?: boolean;        // 신종자본증권(영구채) — 이자소득세 계산 범위 제외(콜옵션 미행사 시 만기가 불확정이라
+                                // 일반 이표채 공식으로 세전/세후를 단정할 수 없음). isSubordinated와 별개로 명시.
+  maturityDate?: string;        // ISO(YYYY-MM-DD) — BONDS_WITH_MATURITY에서 name/maturity 문자열로부터 파생, 직접 입력 안 함
 }
 
-const BONDS: Bond[] = [
+const CATALOG_ASOF_DATE = "2026-07-24"; // 해외채권·국내 크레딧/단기채 라인업 공통 기준일(각 섹션 주석 참고)
+                                         // — quoteDate가 없는 항목의 잔존만기(년/개월) 파싱 기준일로 사용
+
+// 채권의 만기일(ISO)을 최대한 실제 데이터에서 파생시킨다(임의 추정 금지):
+// 1순위 maturity 문자열에 박힌 절대날짜(YYYY-MM-DD, 예: "4년 11개월(2031-08-31)")
+// 2순위 종목명에 박힌 MM/DD/YY(예: "T 1.125 10/31/26", "BNTNF 10 01/01/27")
+// 3순위 "N년 M개월" 형태의 잔존기간을 기준일(quoteDate 우선, 없으면 CATALOG_ASOF_DATE)에 더해 근사
+function deriveMaturityDate(b: Bond): string | undefined {
+  const absInMaturity = b.maturity.match(/(\d{4}-\d{2}-\d{2})/)?.[1];
+  if (absInMaturity) return absInMaturity;
+  const nameDate = b.name.match(/(\d{2})\/(\d{2})\/(\d{2})(?:\D|$)/);
+  if (nameDate) {
+    const [, mm, dd, yy] = nameDate;
+    return `${2000 + parseInt(yy, 10)}-${mm}-${dd}`;
+  }
+  const yearMatch = b.maturity.match(/(\d+(?:\.\d+)?)\s*년/);
+  const monthMatch = b.maturity.match(/(\d+)\s*개월/);
+  const years = yearMatch ? parseFloat(yearMatch[1]) : 0;
+  const months = monthMatch ? parseInt(monthMatch[1], 10) : 0;
+  if (!years && !months) return undefined;
+  const base = new Date(b.quoteDate ?? CATALOG_ASOF_DATE);
+  base.setMonth(base.getMonth() + Math.round(years * 12 + months));
+  return base.toISOString().slice(0, 10);
+}
+
+const BONDS_RAW: Bond[] = [
   // 해외채권 라인업 ('26.7.24 기준)
-  { id:"b1", name:"미국국채 T 1.125 10/31/26", market:"해외", creditRating:"AA+", maturity:"3개월", riskGrade:3, bucket:"유동성", couponRate:1.125, yieldPretax:3.55, yieldMaxTax:5.15, yieldCorporate:3.15, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b2", name:"미국국채 T 0.5 04/30/27", market:"해외", creditRating:"AA+", maturity:"9개월", riskGrade:3, bucket:"유동성", couponRate:0.5, yieldPretax:4.35, yieldMaxTax:6.95, yieldCorporate:3.75, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b3", name:"미국국채 T 0.375 09/30/27", market:"해외", creditRating:"AA+", maturity:"1.2년", riskGrade:3, bucket:"유동성", couponRate:0.375, yieldPretax:4.50, yieldMaxTax:7.30, yieldCorporate:3.90, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b4", name:"미국국채 T 1.125 08/15/40", market:"해외", creditRating:"AA+", maturity:"14.1년", riskGrade:3, bucket:"절세", couponRate:1.125, yieldPretax:6.85, yieldMaxTax:10.30, yieldCorporate:6.05, note:"잔존만기가 14.1년으로 길어, 국민주택채권 등 원화 저쿠폰물보다 금리(듀레이션) 리스크가 절세 효과에 비해 크게 작용할 수 있습니다 — 금리가 오르면 가격 손실이 절세로 아낀 금액을 넘어설 수 있습니다. 달러(USD) 표시라 환위험도 함께 있습니다." },
-  { id:"b5", name:"알파벳 GOOGL 0.8 08/15/27", market:"해외", creditRating:"AA+(안정적)", maturity:"1.0년", riskGrade:3, bucket:"유동성", couponRate:0.8, yieldPretax:4.10, yieldMaxTax:6.35, yieldCorporate:3.60, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b6", name:"우리은행 WOORIB 6.375 PERP", market:"해외", creditRating:"BBB-(안정적)", maturity:"3.0년콜(영구채)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, couponRate:6.375, yieldPretax:4.25, yieldMaxTax:3.00, yieldCorporate:4.55, note:"신종자본증권(영구채) — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b8", name:"브라질국채 BLTN 0 01/01/32(할인채)", market:"해외", creditRating:"BB", maturity:"5.4년", riskGrade:1, bucket:"절세", couponRate:0, yieldPretax:22.75, yieldMaxTax:38.15, yieldCorporate:19.25, note:"실질은 헤알화(BRL) 환베팅에 가깝습니다 — 환율 변동폭이 세제 혜택보다 손익에 훨씬 크게 작용합니다. 표면금리 0%(제로쿠폰)라 수익 전부가 만기 상환차익(비과세)에서 나온다는 절세 논리는 있지만, BB등급·중개 제한 종목이라 절세 칸 안에서도 원화 저쿠폰물(국민주택채권 등) 다음의 바깥쪽 선택지로 두세요." },
-  { id:"b9", name:"브라질국채 BNTNF 10 01/01/27(이표채)", market:"해외", creditRating:"BB", maturity:"5개월", riskGrade:1, bucket:"인컴창출", couponRate:10, yieldPretax:14.30, yieldMaxTax:23.95, yieldCorporate:12.10, note:"표면금리 10%대 이표채로 이자가 꾸준히 들어오며, 한·브라질 조세협약상 이자소득이 비과세입니다(절세 성격도 겸함). 잔존만기만 보면 5개월로 유동성 조건에 가깝지만, 헤알화(BRL) 환위험과 브라질 국가위험 때문에 '원금 그대로 꺼내 쓸 수 있는가'를 충족하지 못해 유동성에서 제외했습니다. BB등급·중개 제한 종목이라, 인컴 칸 안에서도 국채→우량회사채→신종자본증권 다음의 가장 바깥쪽 선택지로 두세요." },
+  { id:"b1", name:"미국국채 T 1.125 10/31/26", market:"해외", creditRating:"AA+", maturity:"3개월", riskGrade:3, bucket:"유동성", couponRate:1.125, issuerCountry:"미국", yieldPretax:3.55, yieldMaxTax:5.15, yieldCorporate:3.15, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b2", name:"미국국채 T 0.5 04/30/27", market:"해외", creditRating:"AA+", maturity:"9개월", riskGrade:3, bucket:"유동성", couponRate:0.5, issuerCountry:"미국", yieldPretax:4.35, yieldMaxTax:6.95, yieldCorporate:3.75, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b3", name:"미국국채 T 0.375 09/30/27", market:"해외", creditRating:"AA+", maturity:"1.2년", riskGrade:3, bucket:"유동성", couponRate:0.375, issuerCountry:"미국", yieldPretax:4.50, yieldMaxTax:7.30, yieldCorporate:3.90, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b4", name:"미국국채 T 1.125 08/15/40", market:"해외", creditRating:"AA+", maturity:"14.1년", riskGrade:3, bucket:"절세", couponRate:1.125, issuerCountry:"미국", yieldPretax:6.85, yieldMaxTax:10.30, yieldCorporate:6.05, note:"잔존만기가 14.1년으로 길어, 국민주택채권 등 원화 저쿠폰물보다 금리(듀레이션) 리스크가 절세 효과에 비해 크게 작용할 수 있습니다 — 금리가 오르면 가격 손실이 절세로 아낀 금액을 넘어설 수 있습니다. 달러(USD) 표시라 환위험도 함께 있습니다." },
+  { id:"b5", name:"알파벳 GOOGL 0.8 08/15/27", market:"해외", creditRating:"AA+(안정적)", maturity:"1.0년", riskGrade:3, bucket:"유동성", couponRate:0.8, issuerCountry:"미국", yieldPretax:4.10, yieldMaxTax:6.35, yieldCorporate:3.60, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b6", name:"우리은행 WOORIB 6.375 PERP", market:"해외", creditRating:"BBB-(안정적)", maturity:"3.0년콜(영구채)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, couponRate:6.375, issuerCountry:"미국", yieldPretax:4.25, yieldMaxTax:3.00, yieldCorporate:4.55, note:"신종자본증권(영구채) — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  { id:"b8", name:"브라질국채 BLTN 0 01/01/32(할인채)", market:"해외", creditRating:"BB", maturity:"5.4년", riskGrade:1, bucket:"절세", couponRate:0, couponType:"할인채", issuerCountry:"브라질", yieldPretax:22.75, yieldMaxTax:38.15, yieldCorporate:19.25, note:"실질은 헤알화(BRL) 환베팅에 가깝습니다 — 환율 변동폭이 세제 혜택보다 손익에 훨씬 크게 작용합니다. 표면금리 0%(제로쿠폰)라 수익 전부가 만기 상환차익(비과세)에서 나온다는 절세 논리는 있지만, BB등급·중개 제한 종목이라 절세 칸 안에서도 원화 저쿠폰물(국민주택채권 등) 다음의 바깥쪽 선택지로 두세요." },
+  { id:"b9", name:"브라질국채 BNTNF 10 01/01/27(이표채)", market:"해외", creditRating:"BB", maturity:"5개월", riskGrade:1, bucket:"인컴창출", couponRate:10, couponType:"이표채", issuerCountry:"브라질", yieldPretax:14.30, yieldMaxTax:23.95, yieldCorporate:12.10, note:"표면금리 10%대 이표채로 이자가 꾸준히 들어오며, 한·브라질 조세협약상 이자소득이 비과세입니다(절세 성격도 겸함). 잔존만기만 보면 5개월로 유동성 조건에 가깝지만, 헤알화(BRL) 환위험과 브라질 국가위험 때문에 '원금 그대로 꺼내 쓸 수 있는가'를 충족하지 못해 유동성에서 제외했습니다. BB등급·중개 제한 종목이라, 인컴 칸 안에서도 국채→우량회사채→신종자본증권 다음의 가장 바깥쪽 선택지로 두세요." },
   // 국내채권 라인업(크레딧/단기채, '26.7.24 기준)
-  { id:"b11", name:"한국투자캐피탈", market:"국내", creditRating:"A(안정적)", maturity:"0.9년", riskGrade:4, bucket:"유동성", yieldPretax:4.87, yieldMaxTax:5.49, yieldCorporate:4.74 },
-  { id:"b12", name:"메리츠캐피탈", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", yieldPretax:4.73, yieldMaxTax:4.61, yieldCorporate:4.76 },
-  { id:"b13", name:"종근당홀딩스", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", yieldPretax:4.43, yieldMaxTax:4.35, yieldCorporate:4.45 },
-  { id:"b14", name:"한국전력", market:"국내", creditRating:"AAA(안정적)", maturity:"3.3년", riskGrade:5, bucket:"절세", yieldPretax:4.82, yieldMaxTax:6.73, yieldCorporate:4.39 },
-  { id:"b15", name:"KB금융지주", market:"국내", creditRating:"AAA(안정적)", maturity:"3.9년", riskGrade:5, bucket:"절세", yieldPretax:4.96, yieldMaxTax:7.11, yieldCorporate:4.48 },
-  { id:"b16", name:"기업은행 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"1.6년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, yieldPretax:3.64, yieldMaxTax:3.08, yieldCorporate:3.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b17", name:"신한은행 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"3.5년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, yieldPretax:4.32, yieldMaxTax:5.10, yieldCorporate:4.14, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b18", name:"iM금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.1년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, yieldPretax:4.55, yieldMaxTax:5.24, yieldCorporate:4.39, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b19", name:"하나금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, yieldPretax:4.31, yieldMaxTax:4.05, yieldCorporate:4.36, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b20", name:"DB손해보험 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, yieldPretax:4.70, yieldMaxTax:4.37, yieldCorporate:4.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  // 국민주택채권 4종 (전산 조회 기준, 조회일 2026-09-01)
-  { id:"b22", name:"국민주택1종26-08", market:"국내", creditRating:"국공채", maturity:"4년 11개월(2031-08-31)", riskGrade:6, bucket:"절세", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.501, tradeYield:4.145, bankConvertedYield:5.104, couponRate:1.000, quoteDate:"2026-09-01" },
-  { id:"b23", name:"국민주택1종26-07", market:"국내", creditRating:"국공채", maturity:"4년 10개월(2031-07-31)", riskGrade:6, bucket:"절세", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.460, tradeYield:4.116, bankConvertedYield:5.057, couponRate:1.000, quoteDate:"2026-09-01" },
-  { id:"b24", name:"국민주택1종26-04", market:"국내", creditRating:"국공채", maturity:"4년 7개월(2031-04-30)", riskGrade:6, bucket:"절세", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.351, tradeYield:4.038, bankConvertedYield:4.931, couponRate:1.000, quoteDate:"2026-09-01" },
-  { id:"b25", name:"국민주택1종26-03", market:"국내", creditRating:"국공채", maturity:"4년 6개월(2031-03-31)", riskGrade:6, bucket:"절세", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.313, tradeYield:4.012, bankConvertedYield:4.886, couponRate:1.000, quoteDate:"2026-09-01" },
+  { id:"b11", name:"한국투자캐피탈", market:"국내", creditRating:"A(안정적)", maturity:"0.9년", riskGrade:4, bucket:"유동성", issuerCountry:"한국", yieldPretax:4.87, yieldMaxTax:5.49, yieldCorporate:4.74 },
+  { id:"b12", name:"메리츠캐피탈", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.73, yieldMaxTax:4.61, yieldCorporate:4.76 },
+  { id:"b13", name:"종근당홀딩스", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.43, yieldMaxTax:4.35, yieldCorporate:4.45 },
+  { id:"b14", name:"한국전력", market:"국내", creditRating:"AAA(안정적)", maturity:"3.3년", riskGrade:5, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.82, yieldMaxTax:6.73, yieldCorporate:4.39, note:"절세 → 인컴창출 재분류. 기존 절세 배정 근거는 \"세전수익률(4.82%)보다 최고세율적용(과세형 등가) 수익률(6.73%)이 높다\"는 것 하나였는데, 이 비교는 표면금리가 낮은지와 무관하게 이자소득에 세금이 붙는 채권이면 구조적으로 항상 성립합니다 — 세후로 환산했을 때 같은 실수령액을 내려면 일반과세 채권은 더 높은 표면금리가 필요하기 때문입니다. 즉 \"저쿠폰이라 상환차익(비과세) 비중이 크다\"는 절세 버킷의 핵심 조건을 증명하는 지표가 아닙니다. 이 채권 자체의 정확한 표면이율(couponRate)은 데이터에 없어 직접 확인은 못 했지만, 비슷한 시기(2026년) 같은 AAA등급 국내 발행사인 KB금융지주가 실제로 발행한 회사채(3년물 4.092%, 5년물 4.264%, 한국신용평가·한국기업평가·NICE신용평가 3사 공동 AAA — 디지털데일리 2026.05.22 보도)를 참고하면, 이 신용등급·시장 구간의 회사채 표면금리는 4%대가 일반적입니다. 저쿠폰(국민주택채권 1.000%, 국고채 1.5~2.375%처럼 표면금리 자체가 낮은 채권)과는 성격이 다를 가능성이 커, 표면금리 수준의 정기 이자소득이 주된 수익원이라고 보고 인컴창출로 재분류했습니다." },
+  { id:"b15", name:"KB금융지주", market:"국내", creditRating:"AAA(안정적)", maturity:"3.9년", riskGrade:5, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.96, yieldMaxTax:7.11, yieldCorporate:4.48, note:"절세 → 인컴창출 재분류. 기존 절세 배정 근거는 \"세전수익률(4.96%)보다 최고세율적용(과세형 등가) 수익률(7.11%)이 높다\"는 것 하나였는데, 이 비교는 표면금리가 낮은지와 무관하게 이자소득에 세금이 붙는 채권이면 구조적으로 항상 성립합니다 — 세후로 환산했을 때 같은 실수령액을 내려면 일반과세 채권은 더 높은 표면금리가 필요하기 때문입니다. 즉 \"저쿠폰이라 상환차익(비과세) 비중이 크다\"는 절세 버킷의 핵심 조건을 증명하는 지표가 아닙니다. 이 채권 자체의 정확한 표면이율(couponRate)은 데이터에 없어 직접 확인은 못 했지만, 잔존만기(3.9년)와 가장 가까운 시기(2026년 5월)에 발행사 본인이 직접 발행한 실제 회사채가 3년물 표면금리 4.092%, 5년물 4.264%(한국신용평가·한국기업평가·NICE신용평가 3사 공동 AAA — 디지털데일리 2026.05.22 보도)로 확인됩니다. 이 채권은 발행 회차가 정확히 일치하진 않지만(3.9년 잔존은 두 회차 사이) 같은 발행사·같은 시기 기준이라 가장 근접한 참고치이며, 저쿠폰(국민주택채권 1.000%, 국고채 1.5~2.375%)과는 확연히 다른 4%대 표면금리 구간으로 보입니다. 표면금리 수준의 정기 이자소득이 주된 수익원이라고 보고 인컴창출로 재분류했습니다." },
+  { id:"b16", name:"기업은행 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"1.6년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:3.64, yieldMaxTax:3.08, yieldCorporate:3.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  { id:"b17", name:"신한은행 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"3.5년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.32, yieldMaxTax:5.10, yieldCorporate:4.14, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  { id:"b18", name:"iM금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.1년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.55, yieldMaxTax:5.24, yieldCorporate:4.39, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  { id:"b19", name:"하나금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.31, yieldMaxTax:4.05, yieldCorporate:4.36, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  { id:"b20", name:"DB손해보험 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.70, yieldMaxTax:4.37, yieldCorporate:4.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  // 국민주택채권 4종 (전산 조회 기준, 조회일 2026-09-01) — 국민주택채권 1종은 만기 일시상환형 복리채
+  { id:"b22", name:"국민주택1종26-08", market:"국내", creditRating:"국공채", maturity:"4년 11개월(2031-08-31)", riskGrade:6, bucket:"절세", issuerCountry:"한국", couponType:"복리채", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.501, tradeYield:4.145, bankConvertedYield:5.104, couponRate:1.000, quoteDate:"2026-09-01" },
+  { id:"b23", name:"국민주택1종26-07", market:"국내", creditRating:"국공채", maturity:"4년 10개월(2031-07-31)", riskGrade:6, bucket:"절세", issuerCountry:"한국", couponType:"복리채", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.460, tradeYield:4.116, bankConvertedYield:5.057, couponRate:1.000, quoteDate:"2026-09-01" },
+  { id:"b24", name:"국민주택1종26-04", market:"국내", creditRating:"국공채", maturity:"4년 7개월(2031-04-30)", riskGrade:6, bucket:"절세", issuerCountry:"한국", couponType:"복리채", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.351, tradeYield:4.038, bankConvertedYield:4.931, couponRate:1.000, quoteDate:"2026-09-01" },
+  { id:"b25", name:"국민주택1종26-03", market:"국내", creditRating:"국공채", maturity:"4년 6개월(2031-03-31)", riskGrade:6, bucket:"절세", issuerCountry:"한국", couponType:"복리채", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.313, tradeYield:4.012, bankConvertedYield:4.886, couponRate:1.000, quoteDate:"2026-09-01" },
   // 국고채 4종 (전산 조회 기준, 조회일 2026-09-01)
-  { id:"b26", name:"국고01500-5003(20-2)", market:"국내", creditRating:"국공채", maturity:"23년 6개월(2050-03-10)", riskGrade:5, bucket:"절세", yieldPretax:null, yieldMaxTax:null, yieldCorporate:5.725, tradeYield:4.452, bankConvertedYield:6.296, couponRate:1.500, quoteDate:"2026-09-01", note:"금리 하락(또는 최소 횡보) 전망을 전제로 한 픽입니다 — 잔존만기가 23년 6개월로 매우 길어 금리(듀레이션) 리스크가 절세 효과보다 손익에 훨씬 크게 작용합니다. 금리가 1%p만 올라도 가격 손실이 절세로 아낀 금액을 넘어설 수 있습니다. 다른 국고채·국민주택채권(6등급)과 달리 위험등급이 한 단계 높은 5등급으로 찍혀 있는 것도 이 때문입니다." },
-  { id:"b28", name:"국고02250-2709(25-6)", market:"국내", creditRating:"국공채", maturity:"1년(2027-09-10)", riskGrade:6, bucket:"유동성", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.435, tradeYield:3.456, bankConvertedYield:3.650, couponRate:2.250, quoteDate:"2026-09-01" },
-  { id:"b29", name:"국고02375-2712(17-7)", market:"국내", creditRating:"국공채", maturity:"1년 3개월(2027-12-10)", riskGrade:6, bucket:"유동성", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.460, tradeYield:3.458, bankConvertedYield:3.654, couponRate:2.375, quoteDate:"2026-09-01" },
-  { id:"b30", name:"주택금융공사MBS2016-23(1-6)", market:"국내", creditRating:"AAA", maturity:"2개월(2026-11-04)", riskGrade:5, bucket:"유동성", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.061, tradeYield:3.062, bankConvertedYield:3.243, couponRate:2.080, quoteDate:"2026-09-03" },
+  { id:"b26", name:"국고01500-5003(20-2)", market:"국내", creditRating:"국공채", maturity:"23년 6개월(2050-03-10)", riskGrade:5, bucket:"절세", issuerCountry:"한국", yieldPretax:null, yieldMaxTax:null, yieldCorporate:5.725, tradeYield:4.452, bankConvertedYield:6.296, couponRate:1.500, quoteDate:"2026-09-01", note:"금리 하락(또는 최소 횡보) 전망을 전제로 한 픽입니다 — 잔존만기가 23년 6개월로 매우 길어 금리(듀레이션) 리스크가 절세 효과보다 손익에 훨씬 크게 작용합니다. 금리가 1%p만 올라도 가격 손실이 절세로 아낀 금액을 넘어설 수 있습니다. 다른 국고채·국민주택채권(6등급)과 달리 위험등급이 한 단계 높은 5등급으로 찍혀 있는 것도 이 때문입니다." },
+  { id:"b28", name:"국고02250-2709(25-6)", market:"국내", creditRating:"국공채", maturity:"1년(2027-09-10)", riskGrade:6, bucket:"유동성", issuerCountry:"한국", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.435, tradeYield:3.456, bankConvertedYield:3.650, couponRate:2.250, quoteDate:"2026-09-01" },
+  { id:"b29", name:"국고02375-2712(17-7)", market:"국내", creditRating:"국공채", maturity:"1년 3개월(2027-12-10)", riskGrade:6, bucket:"유동성", issuerCountry:"한국", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.460, tradeYield:3.458, bankConvertedYield:3.654, couponRate:2.375, quoteDate:"2026-09-01" },
+  { id:"b30", name:"주택금융공사MBS2016-23(1-6)", market:"국내", creditRating:"AAA", maturity:"2개월(2026-11-04)", riskGrade:5, bucket:"유동성", issuerCountry:"한국", yieldPretax:null, yieldMaxTax:null, yieldCorporate:3.061, tradeYield:3.062, bankConvertedYield:3.243, couponRate:2.080, quoteDate:"2026-09-03" },
 ];
+
+// 최종 export — 이자소득세 계산에 필요한 maturityDate를 위 데이터로부터 파생시켜 붙인다.
+const BONDS: Bond[] = BONDS_RAW.map((b) => ({ ...b, maturityDate: deriveMaturityDate(b) }));
 
 // 채권 수익률 원자료 요약 문구 — 카드/모달에서 공용으로 사용
 function bondYieldSummary(b: Bond): string {
@@ -1076,10 +1109,9 @@ function ProductModal({ product, onClose }: { product: Product; onClose: () => v
 }
 
 export default function Tab5Page() {
-  const { appMode, formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, newPortfolioAnalysisResult, rebalancingSellAssets, rebalancingBuyAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState, saveTaxSummary, sellHistory } = useCustomerContext();
+  const { formData, riskResult, warnings, financialCompletion, rrttlluCompletion, selectedCustomerProfile, internalJsonPayload, productSelectedIds: selectedIds, setProductSelectedIds: setSelectedIdsRaw, portfolioAssets, analysisResult, rebalancingSellAssets, rebalancingBuyAssets, setRebalancingSellAssets, selectedCustomer, sharedUiState, updateSharedUiState } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const portfolioData = usePortfolioResult();
-  const router = useRouter();
   const rrttlluReady = hasRrttllu(formData);
   const [modalProduct, setModalProduct] = useState<Product|null>(null);
   const [salesSolutionOpen, setSalesSolutionOpen] = useState(false);
@@ -1204,58 +1236,8 @@ const additionalInvestmentAmount = (() => {
     return 0.38;
   }, [formData.financial.totalAssets]);
 
-  // 탭3-2 "리밸런싱 확정" 시점의 신규 포트폴리오(주식+상품+채권 전체) 세금 요약 계산·저장.
-  // rebalancingSellAssets는 탭3-1(주식)에서 이미 반영된 보유분 + 탭3-2에서 담은 상품·채권을 모두 포함하므로
-  // (baseAssets useMemo 주석 참고), 여기서 계산해야 TAB4 B패널(신규 포트폴리오 세금 점검)이 최종 구성을 반영한다.
-  // ※ 펀드/랩어카운트는 Product 데이터에 배당·분배율 필드가 없어 현재는 이자·배당소득에 반영되지 않음
-  //   (실제 값 없이 추정치를 넣지 않기 위함 — 채권은 couponRate가 있어 이자소득 계산에 반영됨).
-  const saveNewPortfolioTaxSummary = () => {
-    if (typeof window === "undefined") return;
-    // 기존 보유(analysisResult)와 탭3-1에서 신규 매수한 종목(newPortfolioAnalysisResult) 둘 다 배당 데이터 소스로 병합.
-    // rebalancingSellAssets엔 신규 매수 종목도 섞여 있는데, 그 배당수익률/배당금은 newPortfolioAnalysisResult에만
-    // 들어있어서 analysisResult(기존 보유분)만 보면 신규 매수 종목은 매칭이 안 돼 배당소득이 0으로 계산됨.
-    const enrichedMap = new Map(
-      [...(analysisResult?.enrichedAssets ?? []), ...(newPortfolioAnalysisResult?.enrichedAssets ?? [])]
-        .map((e) => [makeAssetKey(e), e as unknown as Record<string, unknown>])
-    );
-    const assetsForCalc: AssetForIncomeCalc[] = rebalancingSellAssets
-      .filter((a) => a.amount > 0)
-      .map((a) => {
-        const isBond = a.productType === "국내채권" || a.productType === "해외채권";
-        const resolvedName = a.name || (isBond ? (a.productType ?? "채권") : "");
-        if (!resolvedName) return null;
-        const enriched = enrichedMap.get(makeAssetKey(a));
-        const interestRate = a.bond_yield != null && a.bond_yield > 0 ? a.bond_yield / 100 : undefined;
-        return {
-          name: resolvedName,
-          ticker: a.ticker ?? "",
-          asset_class: a.asset_class,
-          productType: a.productType,
-          country: a.country,
-          current_price: a.current_price,
-          current_value: a.current_value,
-          amount: a.amount,
-          amount_type: a.amount_type,
-          buy_price: isBond ? a.buy_price : undefined,
-          dividendYield: enriched?.dividendYield as number | undefined,
-          trailingAnnualDividendRate: enriched?.trailingAnnualDividendRate as number | undefined,
-          calendarYtdDividendRate: enriched?.calendarYtdDividendRate as number | undefined,
-          interestRate,
-        } as AssetForIncomeCalc;
-      })
-      .filter((x): x is AssetForIncomeCalc => x !== null);
-
-    // 탭3-1에서 이미 매도해 실현된 손익(해외주식 양도소득세 대상) — 현재 보유 목록에는 안 잡히므로 별도 전달
-    const realizedSales = sellHistory.map((r) => ({ name: r.name, productType: r.productType, realizedGain: r.realizedGain }));
-    const newTaxSummary = calcFinancialIncomeSummary(assetsForCalc, tMarginal, realizedSales);
-    try {
-      localStorage.setItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY, JSON.stringify(newTaxSummary));
-      window.dispatchEvent(new CustomEvent("new-financial-income-updated"));
-    } catch {
-      // localStorage 실패 무시
-    }
-    saveTaxSummary("new", newTaxSummary);
-  };
+  // 신규 포트폴리오(주식+상품+채권 전체) 세금 요약 계산·저장은 이제 Tab3Page에서 rebalancingSellAssets
+  // 변경을 실시간 감지해 자동 처리한다("리밸런싱 확정" 버튼 제거 — 탭3-1/tab3/page.tsx 주석 참고).
 
   const bucketAllProducts = useMemo(() => {
     if (!weights) return null;
@@ -1347,9 +1329,9 @@ const additionalInvestmentAmount = (() => {
           asset_class: isForeign ? "해외채권" : "국내채권",
           productType: isForeign ? "해외채권" : "국내채권",
           theme: "기타",
-          country: isForeign ? "미국" : "한국",
-          // amount_type "value"일 때 세금 계산 로직(calcFinancialIncomeSummary)은
-          // buy_price를 원금(액면)으로 읽는다 — 표면이율(couponRate) 기반 이자소득 계산에 필요.
+          country: p.bondRef.issuerCountry ?? (isForeign ? "미국" : "한국"),
+          // amount_type "value"일 때 세금 계산 로직(calcFinancialIncomeSummary)은 buy_price를 액면금액(faceValue)
+          // 근사값으로 읽는다 — 이 앱은 채권을 액면가 근처 배분금액으로 다루므로 매수단가≈액면가로 취급.
           buy_price: perProductAmt,
           bond_yield: p.bondRef.couponRate ?? null,
           amount: perProductAmt,
@@ -1357,6 +1339,11 @@ const additionalInvestmentAmount = (() => {
           is_hedged: false,
           needs_review: false,
           current_value: perProductAmt,
+          // 채권 이자소득세 계산 전용 필드(액면×표면금리 기반 STEP0~5 로직 — 배당 계산과는 별개 경로)
+          issuerCountry: p.bondRef.issuerCountry,
+          couponType: p.bondRef.couponType,
+          isPerpetual: p.bondRef.isPerpetual,
+          maturityDate: p.bondRef.maturityDate,
         };
       }
       const isForeign = p.taxType === "해외주식형";
@@ -1540,6 +1527,78 @@ const additionalInvestmentAmount = (() => {
 
   const selectedProducts = ALL_ITEMS.filter(p=>selectedIds.includes(p.id));
   const customerName = selectedCustomerProfile.name||selectedCustomerProfile.fallbackName||"고객";
+
+  // "리밸런싱 확정" 버튼 제거 — 상품/채권 편입은 이미 선택 즉시(pendingAdd 확정 시점) rebalancingSellAssets에
+  // 반영되고, 세금 계산은 Tab3Page의 실시간 재분석이 자동 처리한다. 이 화면에 남은 건 "떠날 때 리밸런싱
+  // 히스토리를 체크포인트로 기록"하는 것뿐 — 언마운트(다른 내부 탭 이동) 시점에 기록한다.
+  const selectedProductsRef = useRef(selectedProducts);
+  selectedProductsRef.current = selectedProducts;
+  const clientRef = useRef(client);
+  clientRef.current = client;
+  const rebalancingBuyAssetsRef = useRef(rebalancingBuyAssets);
+  rebalancingBuyAssetsRef.current = rebalancingBuyAssets;
+  const portfolioAssetsRef = useRef(portfolioAssets);
+  portfolioAssetsRef.current = portfolioAssets;
+  const selectedCustomerRef = useRef(selectedCustomer);
+  selectedCustomerRef.current = selectedCustomer;
+  const sharedUiStateRef = useRef(sharedUiState);
+  sharedUiStateRef.current = sharedUiState;
+  const updateSharedUiStateRef = useRef(updateSharedUiState);
+  updateSharedUiStateRef.current = updateSharedUiState;
+
+  useEffect(() => {
+    return () => {
+      const products = selectedProductsRef.current;
+      if (products.length === 0) return;
+      const c = clientRef.current;
+
+      const productsForHistory = products.map((product) => {
+        const sameBucketCount = products.filter((item) => item.bucket === product.bucket).length || 1;
+        const amountKrw = (c.investableAssets * getBucketWeight(product.bucket)) / sameBucketCount;
+
+        const historyCategory = (() => {
+          if (product.type === "채권") {
+            if (product.bondRef?.market === "국내") return "국내채권";
+            if (product.bondRef?.market === "해외") return "해외채권";
+            return "채권";
+          }
+          if (product.type === "펀드" || product.type === "랩어카운트") {
+            const prefix = product.taxType === "국내주식형" ? "국내" : product.taxType === "해외주식형" ? "해외" : "";
+            if (!prefix) return product.type;
+            return product.type === "랩어카운트" ? `${prefix}랩` : `${prefix}펀드`;
+          }
+          if (product.type === "ETF") {
+            if (product.taxType === "국내주식형") return "국내ETF";
+            if (product.taxType === "해외주식형") return "해외ETF";
+          }
+          return product.type;
+        })();
+
+        return { id: product.id, category: historyCategory, name: product.name, ticker: "", amountKrw };
+      });
+
+      const normalizedProductsForHistory = productsForHistory.map((item, index) => ({
+        ...item,
+        category: historyProductCategory(products[index], item.category),
+      }));
+
+      const historyRecord = createProductRebalancingRecord({
+        customerId: selectedCustomerRef.current,
+        baseAssets: rebalancingBuyAssetsRef.current.length > 0 ? rebalancingBuyAssetsRef.current : portfolioAssetsRef.current,
+        products: normalizedProductsForHistory,
+      });
+
+      updateSharedUiStateRef.current({
+        tab3: {
+          rebalancingHistory: upsertRebalancingHistory(
+            sharedUiStateRef.current.tab3?.rebalancingHistory ?? [],
+            historyRecord,
+          ),
+        },
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>
@@ -2167,107 +2226,12 @@ const additionalInvestmentAmount = (() => {
           })()}
         </section>
       )}
-      <div className="flex items-center justify-end rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-soft">
-        <button
-          type="button"
-          onClick={() => {
-            saveNewPortfolioTaxSummary();
-
-            if (selectedProducts.length > 0) {
-              const productsForHistory = selectedProducts.map((product) => {
-                const sameBucketCount =
-                  selectedProducts.filter(
-                    (item) => item.bucket === product.bucket,
-                  ).length || 1;
-
-                const amountKrw =
-                  (client.investableAssets *
-                    getBucketWeight(product.bucket)) /
-                  sameBucketCount;
-
-                const historyCategory = (() => {
-                  // 채권은 Bond.market이 가장 정확함
-                  if (product.type === "채권") {
-                    if (product.bondRef?.market === "국내") return "국내채권";
-                    if (product.bondRef?.market === "해외") return "해외채권";
-                    return "채권";
-                  }
-
-                  // 펀드 / 랩은 상품의 투자대상 구분 사용
-                  if (product.type === "펀드" || product.type === "랩어카운트") {
-                    const prefix =
-                      product.taxType === "국내주식형"
-                        ? "국내"
-                        : product.taxType === "해외주식형"
-                          ? "해외"
-                          : "";
-
-                    if (!prefix) return product.type;
-
-                    return product.type === "랩어카운트"
-                      ? `${prefix}랩`
-                      : `${prefix}펀드`;
-                  }
-
-                  // ETF도 taxType으로 국내/해외 구분 가능한 경우 적용
-                  if (product.type === "ETF") {
-                    if (product.taxType === "국내주식형") return "국내ETF";
-                    if (product.taxType === "해외주식형") return "해외ETF";
-                  }
-
-                  return product.type;
-                })();
-
-                return {
-                  id: product.id,
-                  category: historyCategory,
-                  name: product.name,
-                  ticker: "",
-                  amountKrw,
-                };
-              });
-
-              const normalizedProductsForHistory = productsForHistory.map(
-                (item, index) => ({
-                  ...item,
-                  category: historyProductCategory(
-                    selectedProducts[index],
-                    item.category,
-                  ),
-                }),
-              );
-
-              const historyRecord = createProductRebalancingRecord({
-                customerId: selectedCustomer,
-                baseAssets:
-                  rebalancingBuyAssets.length > 0
-                    ? rebalancingBuyAssets
-                    : portfolioAssets,
-                products: normalizedProductsForHistory,
-              });
-
-              updateSharedUiState({
-                tab3: {
-                  rebalancingHistory: upsertRebalancingHistory(
-                    sharedUiState.tab3?.rebalancingHistory ?? [],
-                    historyRecord,
-                  ),
-                },
-              });
-            }
-
-            const tab4Path =
-              appMode === "customer"
-                ? "/customer-maintab/tab4"
-                : "/consultation/tab4";
-            router.push(tab4Path);
-          }}
-          disabled={isCustomerView}
-          className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          리밸런싱 확정 → TAB4
-        </button>
-      </div>
+      {!isCustomerView && (
+        <div className="flex items-center justify-end gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-emerald-600 shadow-soft">
+          <BadgeCheck size={14} />
+          담는 즉시 실시간 반영 — TAB4에 자동 동기화됩니다
+        </div>
+      )}
     </>
   );
 }

@@ -9,7 +9,6 @@ export const FINANCIAL_INCOME_STORAGE_KEY = "financial-income-summary-v1";
 export const NEW_PORTFOLIO_INCOME_STORAGE_KEY = "new-portfolio-income-summary-v1";
 export const FINANCIAL_INCOME_RESET_KEY = "financial-income-reset-v1";
 
-const INTEREST_WITHHOLDING  = 0.154; // 이자소득 원천징수 14% + 지방세 1.4% (표시용 — 실제 세액은 calcWithholdingKRW로 국세·지방세 분리 절사 계산)
 const DOMESTIC_DIV_WITHHOLDING = 0.154; // 국내배당 원천징수 14% + 지방세 1.4% (표시용, 계산은 calcWithholdingKRW)
 const FOREIGN_DIV_WITHHOLDING  = 0.15;  // 미국 조세조약 기준 (표시용 기본값 — 실제 계산은 국가별 calcForeignDividendWithholding)
 
@@ -36,6 +35,36 @@ export const TAX_RATES = {
 function getForeignDividendWithholdingRate(country?: string): number {
   if (!country) return TAX_RATES.incomeWithholdingRate;
   return TAX_RATES.foreignDividendWithholdingByCountry[country] ?? TAX_RATES.incomeWithholdingRate;
+}
+
+// 채권 이자소득 발행국별 현지 원천징수세율. 배당과 정반대인 항목이 있어(미국) 배당 테이블을 절대 재사용하지 않는다.
+// - 미국: 외국인 채권이자에 현지 원천징수 없음(Portfolio Interest Exemption) — 배당(15%)과 반대
+// - 브라질: 한·브라질 조세조약상 정부 발행 채권 이자는 국내 과세도 면제(원천징수 대상 자체가 아님, 아래 별도 처리)
+// - 그 외 국가는 채권이자 전용 조세조약 세율표가 없어 배당 세율표로 임시 대체(확인 필요 — TAX_RATES 주석 참고 패턴과 동일)
+const BOND_TAX_EXEMPT_COUNTRIES = new Set(["브라질"]);
+function getBondWithholdingRate(issuerCountry?: string): number {
+  if (issuerCountry === "미국") return 0;
+  if (!issuerCountry || issuerCountry === "한국" || issuerCountry === "국내") return TAX_RATES.incomeWithholdingRate;
+  return getForeignDividendWithholdingRate(issuerCountry); // 기타 국가: 확인 필요(위 주석 참고)
+}
+
+// 채권 이자소득 원천징수 계산 — 브라질 국채처럼 조세조약상 완전 비과세인 경우 isExempt로 별도 표시(종합과세 합산 제외)
+function calcBondInterestWithholding(
+  grossIncomeKRW: number,
+  issuerCountry?: string
+): { totalTax: number; net: number; effectiveRate: number; isExempt: boolean } {
+  if (issuerCountry && BOND_TAX_EXEMPT_COUNTRIES.has(issuerCountry)) {
+    return { totalTax: 0, net: grossIncomeKRW, effectiveRate: 0, isExempt: true };
+  }
+  const localRate = getBondWithholdingRate(issuerCountry);
+  const localWithholding = Math.floor(grossIncomeKRW * localRate);
+  if (localRate >= TAX_RATES.incomeWithholdingRate) {
+    return { totalTax: localWithholding, net: grossIncomeKRW - localWithholding, effectiveRate: grossIncomeKRW > 0 ? localWithholding / grossIncomeKRW : localRate, isExempt: false };
+  }
+  const domesticTopUpNational = Math.floor(grossIncomeKRW * (TAX_RATES.incomeWithholdingRate - localRate));
+  const domesticTopUpLocal = Math.floor(domesticTopUpNational * TAX_RATES.localSurtaxRate);
+  const totalTax = localWithholding + domesticTopUpNational + domesticTopUpLocal;
+  return { totalTax, net: grossIncomeKRW - totalTax, effectiveRate: grossIncomeKRW > 0 ? totalTax / grossIncomeKRW : localRate, isExempt: false };
 }
 
 // 국세(소득세)·지방소득세를 원 단위 절사(floor)로 순차 계산 — 원천징수세액 원 미만은 절사하는 실무 방식.
@@ -108,8 +137,20 @@ export interface IncomeBreakdownItem {
   netIncome: number;       // 실수령 (원천징수 차감, 원)
   yieldRate: number;       // 수익률 (소수)
   value: number;           // 보유 평가액 (원)
-  principal?: number;      // 채권 원금 (buy_price × 수량)
+  principal?: number;      // 채권 액면금액(faceValue) 근사값
   withholdingRate: number; // 원천징수율 (소수)
+  // 채권 전용 표시 배지 — 계산에서 제외되었거나(미확인/범위외) 특수 처리된(비과세/만기인식) 사유
+  bondNote?: "표면금리 미확인" | "신종자본증권(범위외)" | "조세조약 비과세" | "만기 일시인식";
+}
+
+// 복리채 등 만기 일시상환형 채권의 "아직 도래하지 않은"(1년 이후) 미래 일시 인식 예정 이자.
+// 향후 1년 예상(interestIncome)엔 포함 안 됨 — 별도로 "그 해 급증"을 경고하기 위한 정보용 리스트.
+export interface BondMaturityLumpSum {
+  name: string;
+  ticker: string;
+  maturityYear: number;
+  lumpSumGross: number;
+  lumpSumNet: number;
 }
 
 export interface CapitalGainsBreakdownItem {
@@ -164,6 +205,10 @@ export interface FinancialIncomeSummary {
   capitalGainsBreakdown: CapitalGainsBreakdownItem[];
   majorShareholderWarning: boolean;
   majorShareholderItems: { name: string; ticker: string; value: number; estimatedTax: number }[];
+  // 조세조약상 비과세인 채권이자(예: 브라질 국채) — 위 interestIncome/종합과세 합산엔 포함 안 됨. 정보 표시 전용.
+  bondTaxExemptInterestIncome: number;
+  // 복리채 등 만기가 1년 이후인 일시상환형 채권의 미래 일시 인식 예정 이자 목록(정보 표시 전용)
+  bondMaturityLumpSums: BondMaturityLumpSum[];
   updatedAt: number;
 }
 
@@ -208,6 +253,11 @@ function IncomeRow({ item }: { item: IncomeBreakdownItem }) {
     item.incomeType === "배당(해외직접)" ? "해외직접" :
     item.incomeType === "배당(집합투자)" ? "집합투자" : "배당";
 
+  const bondNoteStyle =
+    item.bondNote === "조세조약 비과세" ? "bg-emerald-50 text-emerald-600" :
+    item.bondNote === "만기 일시인식" ? "bg-blue-50 text-blue-600" :
+    "bg-slate-100 text-slate-400"; // 표면금리 미확인 / 신종자본증권(범위외)
+
   return (
     <div className="flex items-center justify-between gap-2 py-1.5 border-b border-slate-50 last:border-0">
       <div className="flex items-center gap-1.5 min-w-0 flex-1 text-xs">
@@ -217,9 +267,14 @@ function IncomeRow({ item }: { item: IncomeBreakdownItem }) {
         )}
         {isInterest ? (
           <>
-            <span className="text-[10px] text-slate-500 shrink-0">이자율 {fmtPct(item.yieldRate)}</span>
+            <span className="text-[10px] text-slate-500 shrink-0">표면금리 {fmtPct(item.yieldRate)}</span>
             {item.principal != null && item.principal > 0 && (
-              <span className="text-[10px] text-slate-400 shrink-0">원금 {fmtWon(item.principal)}</span>
+              <span className="text-[10px] text-slate-400 shrink-0">액면 {fmtWon(item.principal)}</span>
+            )}
+            {item.bondNote && (
+              <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold shrink-0 ${bondNoteStyle}`}>
+                {item.bondNote}
+              </span>
             )}
           </>
         ) : (
@@ -369,7 +424,7 @@ export function FinancialIncomeGauge({
 
       {/* 금액 + 게이지 */}
       <div className="px-4 pt-4 pb-3">
-        <p className="text-[10px] font-bold text-slate-400 mb-1">향후 1년 예상 (최근 12개월 실지급 기준 투영)</p>
+        <p className="text-[10px] font-bold text-slate-400 mb-1">향후 1년 예상 — 최근 12개월 실지급액을 그대로 다음 1년에 투영(이미 받은 배당·이자 포함)</p>
         <div className="flex items-end gap-1.5 mb-1">
           <span className="text-3xl font-black tracking-tight text-slate-800">
             {fmtWon(totalIncome)}
@@ -415,21 +470,28 @@ export function FinancialIncomeGauge({
               <p className="text-xs font-semibold text-red-700 leading-snug">
                 2,000만원을 <strong>{fmtWon(totalIncome - THRESHOLD)}</strong> 초과.
                 금융소득 종합과세 신고 대상입니다.
+                {summary && (
+                  <> 원천징수 <strong>{fmtWon(summary.withholdingTax)}</strong> 기납부 후, 추가납부세액 예상 <strong>{fmtWon(summary.additionalTax)}</strong>.</>
+                )}
               </p>
             </div>
           ) : (
             <div className="rounded-lg bg-emerald-50 px-3 py-2">
               <span className="text-xs font-semibold text-emerald-700">
-                여유 <strong>{fmtWon(remaining)}</strong> · 원천징수 15.4%로 분리과세 적용
+                여유 <strong>{fmtWon(remaining)}</strong>
               </span>
             </div>
           )}
+          <p className="mt-1.5 text-[10px] text-slate-400">
+            주식 배당소득·채권 이자소득만 계산합니다. 펀드·랩어카운트 등 다른 상품의 분배금·이자는 포함되지 않습니다.
+          </p>
         </div>
 
-        {/* 달력연도 누적 종합과세 점검 — "향후 1년 예상"(위 큰 숫자)과는 별도 기준.
-            금융소득종합과세는 법적으로 달력연도(1/1~12/31) 기준으로만 판정되므로, 연말에 배당이
-            몰린 고객은 두 기준의 임계값 통과 여부가 달라질 수 있어 반드시 따로 확인해야 함. */}
-        {/* summary?.calendarYtd — 이 필드 추가 이전(구버전)에 저장된 캐시 데이터엔 없을 수 있어 옵셔널 체이닝 필수 */}
+        {/* 달력연도 누적(calendarYtd) 종합과세 점검 — 2026-09-06 제거(사용자 요청).
+            이유: 채권 이자소득은 지급 이벤트(날짜) 데이터가 없어 이 지표에서 구조적으로 영구히 제외할 수밖에
+            없었음 — 그 결과 "달력연도 기준 실제 누적"이라면서 실제로는 이자소득이 통째로 빠진 반쪽 숫자가 되어,
+            오히려 "이 기준이 더 정확할 것"이라는 오해로 종합과세 위험을 과소평가하게 만들 위험이 더 컸음.
+            계산 로직(calcFinancialIncomeSummary의 calendarYtd 필드)은 그대로 남겨뒀지만 화면에는 안 띄움.
         {summary?.calendarYtd && (
           <div className={`mt-3 rounded-lg border px-3 py-2.5 ${summary.calendarYtd.isOverThreshold ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center justify-between mb-1">
@@ -449,10 +511,12 @@ export function FinancialIncomeGauge({
               <span className="ml-1 text-[11px] font-bold text-slate-400">/ 2,000만원</span>
             </div>
             <p className="text-[10px] text-slate-400 mt-0.5">
-              올해 실제 지급된 배당·이자만 합산 — 위 "향후 1년 예상"과는 다른 기준입니다
+              올해 실제 지급된 주식 배당만 합산 — 위 "향후 1년 예상"과는 다른 기준입니다
+              (채권 이자는 지급일 데이터가 없어 이 합계에서 제외)
             </p>
           </div>
         )}
+        */}
 
         {/* 대주주 요건 알림 */}
         {summary?.majorShareholderWarning && (
@@ -610,7 +674,29 @@ export function FinancialIncomeGauge({
                       <span>이자소득 합계 (세전)</span>
                       <span>{fmtWon(summary?.interestIncome ?? 0)}</span>
                     </div>
+                    {(summary?.bondTaxExemptInterestIncome ?? 0) > 0 && (
+                      <div className="flex justify-between text-[11px] text-emerald-600 mt-1">
+                        <span>비과세 이자소득 (조세조약, 위 합계·종합과세 합산 제외)</span>
+                        <span>{fmtWon(summary!.bondTaxExemptInterestIncome)}</span>
+                      </div>
+                    )}
                   </div>
+                  {(summary?.bondMaturityLumpSums.length ?? 0) > 0 && (
+                    <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+                      <p className="text-[10px] font-extrabold text-blue-700 mb-1">
+                        만기 일시인식 예정 이자 (복리채 등 — 아직 향후 1년 합계엔 미포함)
+                      </p>
+                      {summary!.bondMaturityLumpSums.map((m, i) => (
+                        <div key={i} className="flex justify-between text-[11px] text-blue-600">
+                          <span>{m.name} · {m.maturityYear}년 만기</span>
+                          <span>{fmtWon(m.lumpSumGross)}</span>
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-blue-400 mt-1">
+                        해당 연도에 금융소득이 일시에 늘어나 종합과세 기준을 넘을 수 있으니 만기 도래 연도를 미리 점검하세요.
+                      </p>
+                    </div>
+                  )}
                 </>
               ) : (
                 <p className="text-xs text-slate-400 text-center py-4">
@@ -892,7 +978,14 @@ export interface AssetForIncomeCalc {
   trailingAnnualDividendRate?: number; // 주당 연간 배당금 (최근 365일 트레일링 — "향후 1년 예상" 투영용)
   annualDividendRate?: number;         // 주당 연간 배당금 (대체 필드)
   calendarYtdDividendRate?: number;    // 달력연도 1/1~오늘 실지급 주당 배당금 합 — 종합과세 판정 전용
-  interestRate?: number;               // 채권 이자율 (소수 — bond_yield/100)
+  interestRate?: number;               // 채권 표면금리 (소수 — bond_yield/100). YTM 아님 — 반드시 표면금리만 사용.
+  faceValue?: number;                  // 채권 액면금액 — 없으면 buy_price×수량으로 근사(이 앱은 채권을 액면가 근처
+                                        // 배분금액으로 다루므로 매수단가≈액면가 근사가 실무상 오차가 작음)
+  issuerCountry?: string;              // 채권 발행국(한국/미국/브라질 등) — country(배당용, 광의 국내/해외)와 다른 개념
+  couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
+  isPerpetual?: boolean;                // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  maturityDate?: string;                // ISO(YYYY-MM-DD) — 만기 임박 안분·복리채 만기 일시인식에 사용
+  purchaseDate?: string;                // ISO — 복리채 보유연수 계산 기준(없으면 오늘, 신규 매수 시뮬레이션 기준)
 }
 
 // 매도로 실현된 손익(예: CustomerContext의 SellRecord) — 보유 중인 자산의 미실현 평가손익과 별개로
@@ -929,6 +1022,9 @@ export function calcFinancialIncomeSummary(
   let calendarYtdGrossUpTargetDividend = 0;
   let calendarYtdWithholdingCollected = 0;
 
+  let bondTaxExemptInterestIncome = 0; // 조세조약상 완전 비과세인 채권이자(예: 브라질 국채) — 종합과세 합산 제외
+  const bondMaturityLumpSums: BondMaturityLumpSum[] = []; // 복리채 등 만기 1년 이후인 일시상환 예정 이자(정보용)
+
   for (const a of assets) {
     const assetClass = (a.asset_class ?? "").trim();
     const productType = (a.productType ?? "").trim();
@@ -961,33 +1057,103 @@ export function calcFinancialIncomeSummary(
     }
 
     // ── 채권: 이자소득 ──────────────────────────────────────────────────────────
+    // 대전제(채권_이자소득세_계산로직 스펙): 이자는 액면금액×표면금리로만 계산한다. 매수단가·현재가·YTM은
+    // 절대 쓰지 않는다. 매매차익·상환차익은 개인 비과세이므로 아래에서 채권은 양도소득 계산을 생략한다.
     if (isBond) {
-      // 액면금액(원금) = 매수단가 × 수량
-      const principal =
-        a.amount_type === "quantity"
-          ? (a.buy_price ?? 0) * a.amount
-          : (a.buy_price ?? 0); // value 기준 입력 시
-      const rate = a.interestRate ?? 0; // 이미 소수 (bond_yield / 100)
+      // 액면금액 — faceValue 우선, 없으면 buy_price×수량으로 근사(이 앱은 채권을 액면가 근처 배분금액으로
+      // 다루므로 매수단가≈액면가 근사가 실무상 오차가 작음. 프리미엄/디스카운트 매매가 도입되면 faceValue를
+      // 별도로 받아야 함 — 확인 필요)
+      const faceValue =
+        a.faceValue ??
+        (a.amount_type === "quantity" ? (a.buy_price ?? 0) * a.amount : (a.buy_price ?? 0));
+      const rate = a.interestRate ?? 0; // 이미 소수(bond_yield/100) — 반드시 표면금리, YTM 아님
+      const couponType = a.couponType ?? "이표채"; // 데이터 없으면 이표채로 간주(카탈로그 대부분이 이표채)
+      // issuerCountry 명시값이 없으면(수동 입력 채권 등) 배당에도 쓰는 일반 country 필드로 대체 폴백
+      const issuerCountry = a.issuerCountry ?? a.country ?? (isDomesticListed ? "한국" : undefined);
 
-      // 이자 지급 일수 = 365 (연간 기준)
-      const annualGross = principal * rate * (365 / 365);
-      if (annualGross > 0 && principal > 0) {
-        const w = calcWithholdingKRW(annualGross);
-        interestIncome += annualGross;
-        totalWithholdingCollected += w.totalTax;
+      // 신종자본증권(영구채) — 콜옵션 미행사 시 만기가 불확정이라 일반 이표채 공식을 적용할 수 없음.
+      // 이번 계산 범위에서 제외하고, 세액 0으로 별도 표시만 한다(임의로 세금을 매기지 않음).
+      if (a.isPerpetual) {
+        if (faceValue > 0) {
+          breakdown.push({
+            name, ticker, incomeType: "이자", annualIncome: 0, netIncome: 0, yieldRate: rate,
+            value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
+            withholdingRate: 0, bondNote: "신종자본증권(범위외)",
+          });
+        }
+        continue;
+      }
+
+      // 표면금리 없음(할인채 포함) → 이자소득 0. 표면금리가 아예 미확인인 경우만 배지로 구분 표시(임의 추정 금지).
+      if (!(rate > 0) || !(faceValue > 0)) {
+        if (faceValue > 0) {
+          breakdown.push({
+            name, ticker, incomeType: "이자", annualIncome: 0, netIncome: 0, yieldRate: 0,
+            value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
+            withholdingRate: 0, bondNote: a.interestRate == null ? "표면금리 미확인" : undefined,
+          });
+        }
+        continue;
+      }
+
+      const today = new Date();
+      const maturity = a.maturityDate ? new Date(a.maturityDate) : null;
+      const daysToMaturity = maturity ? Math.round((maturity.getTime() - today.getTime()) / 86_400_000) : null;
+
+      if (couponType === "복리채") {
+        // 만기 일시상환형(예: 국민주택채권 1종) — 보유기간 중 현금흐름 0. 이자는 만기 시점에 일시 인식된다.
+        const purchase = a.purchaseDate ? new Date(a.purchaseDate) : today;
+        const holdingYears = maturity ? Math.max(0, (maturity.getTime() - purchase.getTime()) / (365 * 86_400_000)) : 0;
+        const lumpSumGross = faceValue * (Math.pow(1 + rate, holdingYears) - 1);
+        if (lumpSumGross > 0 && maturity) {
+          if (daysToMaturity !== null && daysToMaturity <= 365) {
+            // 만기가 향후 1년 이내 — 실제로 이 기간에 현금으로 들어오므로 "향후 1년 예상"에 포함
+            const w = calcBondInterestWithholding(lumpSumGross, issuerCountry);
+            if (!w.isExempt) {
+              interestIncome += lumpSumGross;
+              totalWithholdingCollected += w.totalTax;
+            } else {
+              bondTaxExemptInterestIncome += lumpSumGross;
+            }
+            breakdown.push({
+              name, ticker, incomeType: "이자", annualIncome: Math.round(lumpSumGross), netIncome: Math.round(w.net),
+              yieldRate: rate, value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
+              withholdingRate: w.effectiveRate, bondNote: w.isExempt ? "조세조약 비과세" : "만기 일시인식",
+            });
+          } else {
+            // 만기가 1년 이후 — 이번 "향후 1년" 합계엔 넣지 않고 미래 일시인식 예정으로만 별도 기록
+            const w = calcBondInterestWithholding(lumpSumGross, issuerCountry);
+            bondMaturityLumpSums.push({
+              name, ticker, maturityYear: maturity.getFullYear(),
+              lumpSumGross: Math.round(lumpSumGross), lumpSumNet: Math.round(w.net),
+            });
+          }
+        }
+        continue;
+      }
+
+      // 이표채(기본) — 연간 표면이자 = 액면금액 × 표면금리. 지급주기(paymentFrequency)는 등간격 지급이면
+      // 어느 주기든 "향후 1년" 합계엔 영향이 없어(회차만 다를 뿐 연 합계는 동일) 계산에 쓰지 않는다.
+      let annualGross = faceValue * rate;
+      if (daysToMaturity !== null && daysToMaturity < 365) {
+        // 만기가 1년 이내면 만기 이후엔 이자가 없으므로 잔존일수만큼만 반영
+        annualGross = annualGross * Math.max(0, daysToMaturity) / 365;
+      }
+      if (annualGross > 0) {
+        const w = calcBondInterestWithholding(annualGross, issuerCountry);
+        if (!w.isExempt) {
+          interestIncome += annualGross;
+          totalWithholdingCollected += w.totalTax;
+        } else {
+          bondTaxExemptInterestIncome += annualGross;
+        }
         breakdown.push({
-          name,  // a.name || productType || "채권"
-          ticker,
-          incomeType: "이자",
-          annualIncome: Math.round(annualGross),
-          netIncome: w.net,
-          yieldRate: rate,
-          value: value > 0 ? Math.round(value) : Math.round(principal),
-          principal: Math.round(principal),
-          withholdingRate: INTEREST_WITHHOLDING,
+          name, ticker, incomeType: "이자", annualIncome: Math.round(annualGross), netIncome: Math.round(w.net),
+          yieldRate: rate, value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
+          withholdingRate: w.effectiveRate, bondNote: w.isExempt ? "조세조약 비과세" : undefined,
         });
       }
-      continue; // 채권은 양도소득 계산 생략
+      continue; // 채권은 양도소득 계산 생략(매매차익 비과세)
     }
 
     // ── 리츠 / 주식 / ETF: 배당소득 ────────────────────────────────────────────
@@ -1154,8 +1320,12 @@ export function calcFinancialIncomeSummary(
   // ── 금융소득 종합과세 계산 (gross 기준) ─────────────────────────────────────
   // rolling(트레일링 365일, "향후 1년 예상" 헤드라인용) — 종전과 동일한 기준·필드
   const rolling = computeComprehensiveTax(dividendIncome, grossUpTargetDividend, interestIncome, totalWithholdingCollected, tMarginal);
-  // calendarYtd(달력연도 1/1~오늘 누적, 종합과세 판정 전용) — 이자소득은 이벤트 기반 데이터가 없어 rolling과 동일한 값 재사용
-  const calendarYtd = computeComprehensiveTax(calendarYtdDividendIncome, calendarYtdGrossUpTargetDividend, interestIncome, calendarYtdWithholdingCollected, tMarginal);
+  // calendarYtd(달력연도 1/1~오늘 누적, 종합과세 판정 전용)의 이자소득은 0으로 둔다.
+  // 채권 이자는 원금×표면이율로 "연간 전체"를 한 번에 계산하는 구조라, 실제 지급 이벤트(날짜)가 없다 —
+  // 그래서 오늘 막 편입한 채권도 rolling의 연간 이자 전액이 그대로 여기 들어가버리는 버그가 있었음
+  // (실제로는 매수일 이후 경과 기간만큼만 지급됐어야 함). 매입일·지급주기 데이터가 없어 정확한 비례 계산이
+  // 불가능하므로, 잘못된 값을 보여주는 것보다 "이 달력연도 누적 지표는 배당소득만 반영"으로 확실히 하는 편을 택함.
+  const calendarYtd = computeComprehensiveTax(calendarYtdDividendIncome, calendarYtdGrossUpTargetDividend, 0, calendarYtdWithholdingCollected, tMarginal);
 
   return {
     interestIncome: Math.round(interestIncome),
@@ -1199,6 +1369,8 @@ export function calcFinancialIncomeSummary(
     capitalGainsBreakdown,
     majorShareholderWarning: majorShareholderItems.length > 0,
     majorShareholderItems,
+    bondTaxExemptInterestIncome: Math.round(bondTaxExemptInterestIncome),
+    bondMaturityLumpSums,
     updatedAt: Date.now(),
   };
 }

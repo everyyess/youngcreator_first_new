@@ -256,6 +256,12 @@ export default function RebalancingPortfolioInput({
       const trailingAnnualDividendRate = rawTadr != null && isForeignTicker && usdKrwRateForDividend
         ? rawTadr * usdKrwRateForDividend
         : rawTadr;
+      // 달력연도 누적 배당(종합과세 판정 전용) — trailingAnnualDividendRate와 동일하게 원화 환산 필요
+      const rawCalendarYtd = typeof data.calendarYtdDividendPerShare === "number"
+        ? data.calendarYtdDividendPerShare : null;
+      const calendarYtdDividendRate = rawCalendarYtd != null && isForeignTicker && usdKrwRateForDividend
+        ? rawCalendarYtd * usdKrwRateForDividend
+        : rawCalendarYtd;
 
       updateRow(idx, {
         ticker,
@@ -270,6 +276,7 @@ export default function RebalancingPortfolioInput({
         ...(currentPriceKRW !== null ? { current_price: currentPriceKRW } : {}),
         ...(dividendYield !== null ? { dividendYield } : {}),
         ...(trailingAnnualDividendRate !== null ? { trailingAnnualDividendRate } : {}),
+        ...(calendarYtdDividendRate !== null ? { calendarYtdDividendRate } : {}),
         is_hedged: false,
       });
 
