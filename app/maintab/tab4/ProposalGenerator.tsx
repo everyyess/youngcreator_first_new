@@ -80,7 +80,31 @@ function summarizeAssets(assets: PortfolioAsset[]): string {
     })
     .join(", ");
 }
+function simpleHash(input: string): string {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(36);
+}
 
+function getCachedDraft(customerId: string, inputHash: string): ProposalDraftResponse | null {
+  try {
+    const raw = localStorage.getItem(`proposal-cache-${customerId}-${inputHash}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedDraft(customerId: string, inputHash: string, draft: ProposalDraftResponse) {
+  try {
+    localStorage.setItem(`proposal-cache-${customerId}-${inputHash}`, JSON.stringify(draft));
+  } catch {
+    // localStorage 저장 실패 시 조용히 무시 (캐시는 선택적 기능)
+  }
+}
 function summarizeRrttllu(rrttllu: {
     returnObjective: string; riskAttitude: string; lossResponse: string; timeHorizon: string;
     legalConstraints: string[]; legalConstraintOther: string;
@@ -116,11 +140,12 @@ export default function ProposalGenerator({
   leftMetrics,
   rightMetrics,
 }: ProposalGeneratorProps) {
-  const { formData } = useCustomerContext();
+  const { formData, selectedCustomer } = useCustomerContext();
   const [stage, setStage] = useState<Stage>("idle");
   const [draft, setDraft] = useState<ProposalDraftResponse | null>(null);
   const [issues, setIssues] = useState<Partial<Record<SectionKey, string>>>({});
   const [errorMessage, setErrorMessage] = useState("");
+  const [currentInputHash, setCurrentInputHash] = useState("");
 
   const buildRequestPayload = () => ({
     customerName,
@@ -146,9 +171,18 @@ export default function ProposalGenerator({
 
   const runFlow = async () => {
     setErrorMessage("");
-    setStage("draft");
     try {
       const payload = buildRequestPayload();
+      const inputHash = simpleHash(JSON.stringify(payload));
+      setCurrentInputHash(inputHash);
+      const cached = getCachedDraft(selectedCustomer ?? customerName, inputHash);
+      if (cached) {
+        setDraft(cached);
+        setIssues({});
+        setStage("modal");
+        return;
+      }
+      setStage("draft");
       const draftRes = await fetch("/api/generate-proposal-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -177,6 +211,7 @@ export default function ProposalGenerator({
         setStage("review-issues");
       } else {
         setIssues({});
+        setCachedDraft(selectedCustomer ?? customerName, inputHash, generatedDraft);
         setStage("modal");
       }
     } catch (err) {
@@ -213,6 +248,7 @@ export default function ProposalGenerator({
       }
       setDraft(finalizeJson.draft);
       setIssues({});
+      setCachedDraft(selectedCustomer ?? customerName, currentInputHash, finalizeJson.draft);
       setStage("modal");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));

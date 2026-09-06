@@ -98,9 +98,9 @@ function getAssetColor(cls: string, idx: number) {
 function makeStyles(easy: boolean) {
   const fs = (n: number) => n * 1.35;
   return StyleSheet.create({
-    page: { fontFamily: "Pretendard", fontSize: fs(9), color: BLACK, paddingTop: 0, paddingBottom: easy ? 48 : 42, paddingHorizontal: easy ? 34 : 30, lineHeight: easy ? 1.65 : 1.45 },
-    topBar: { height: 8, backgroundColor: NAVY, marginBottom: 20 },
-    logoRow: { marginBottom: 18, paddingTop: easy ? 26 : 22 },
+    page: { fontFamily: "Pretendard", fontSize: fs(9), color: BLACK, paddingTop: easy ? 30 : 26, paddingBottom: easy ? 48 : 42, paddingHorizontal: easy ? 34 : 30, lineHeight: easy ? 1.65 : 1.45 },
+    topBar: { height: 8, backgroundColor: NAVY, marginTop: easy ? -30 : -26, marginHorizontal: easy ? -34 : -30, marginBottom: 20 },
+    logoRow: { marginBottom: 18, paddingTop: 4 },
     wordmarkMain: { fontSize: fs(15), fontWeight: "bold", color: NAVY, letterSpacing: 0.5 },
     wordmarkSub: { fontSize: fs(8), fontWeight: "bold", color: NAVY, letterSpacing: 3, marginTop: 1 },
     bannerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 },
@@ -306,7 +306,7 @@ function OverviewDeltaPanel({ left, right, styles, withMarker }: {
   const insight = buildOverviewInsight(rd, md);
   return (
     <View>
-      <Text style={styles.deltaIntro}>기존 포트폴리오 대비 신규 제안 포트폴리오의 핵심 변화입니다.</Text>
+      <Text style={styles.deltaIntro}>기존 포트폴리오 대비 신규 제안 포트폴리오의 핵심 변화입니다. (분석 시점 기준 시뮬레이션 수치이며 향후 실제 수익을 보장하지 않습니다)</Text>
       {insight && <View style={styles.insightBox}><Text style={styles.insightText}>{insight}</Text></View>}
       <View style={styles.deltaRow}>
         <DeltaCard label={withMarker("세후 수익률")} leftDisplay={fmtPct(lR)} rightDisplay={fmtPct(rR)} deltaText={rd != null ? fmtPctSigned(rd) : "-"} isGood={rd != null ? rd >= 0 : null} leftRaw={lR ?? null} rightRaw={rR ?? null} cap={0.3} styles={styles} />
@@ -518,7 +518,7 @@ function StressSection({ stressResult, styles }: { stressResult: AnyResult; styl
           <View key={key} style={{ marginBottom: 8 }} wrap={false}>
             <Text style={{ fontSize: (styles.small as AnyResult).fontSize, fontWeight: "bold", color: BLACK }}>{period}</Text>
             <Text style={{ fontSize: (styles.colLabel as AnyResult).fontSize, fontWeight: "bold", color: sc.lossRate < 0 ? RED : GREENC }}>
-              {sc.lossRate < 0 ? "" : "+"}{fmtPct(sc.lossRate)} ({fmtWon(sc.lossAmount)})
+              시뮬레이션 기준 {sc.lossRate < 0 ? "하락폭" : "상승폭"} 약 {fmtPct(Math.abs(sc.lossRate))} 수준 ({fmtWon(sc.lossAmount)})
             </Text>
             {top.length > 0 && (
               <View style={{ marginTop: 2 }}>
@@ -689,6 +689,9 @@ export function PortfolioReportPdf({
             </View>
           )}
         </View>
+        <Text style={{ fontSize: (styles.small as AnyResult).fontSize, color: GRAY, marginTop: 4, marginBottom: 6 }}>
+          * 세후 수익률은 배당·이자소득 세후 기준, 매입가 대비 현재가로 산출됩니다.
+        </Text>
         {aiComment && (
           <View style={styles.aiCommentBox} wrap={false}>
             <Text style={styles.aiCommentLabel}>▪ PB 코멘트</Text>
@@ -763,6 +766,12 @@ export function PortfolioReportPdf({
         {sections.stress && (left?.stressResult || right?.stressResult) && (
           <>
             <SectionHeader num={nextNum()} title="스트레스 테스트 — 3대 위기 시나리오" styles={styles} />
+            <Text style={{ fontSize: (styles.small as AnyResult).fontSize, color: GRAY, marginBottom: 8 }}>
+              ※ 아래 수치는 과거 유사 위기 상황을 가정한 시뮬레이션 결과이며, 실제 투자 손익 및 향후 수익을 보장하지 않습니다.
+            </Text>
+            <Text style={{ fontSize: (styles.small as AnyResult).fontSize, color: GRAY, marginBottom: 8 }}>
+              ※ 시나리오별 하락폭은 해당 시기 실제 시장 데이터를 현재 포트폴리오 구성 비중에 적용하여 산출한 값입니다.
+            </Text>
             <View style={styles.twoCol}>
               {left?.stressResult && <View style={styles.col}><Text style={styles.colLabel}>{left.label}</Text><StressSection stressResult={left.stressResult} styles={styles} /></View>}
               {right?.stressResult && <View style={styles.colNew}><Text style={styles.colLabelNew}>{right.label}</Text><StressSection stressResult={right.stressResult} styles={styles} /></View>}
