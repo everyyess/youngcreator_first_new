@@ -146,7 +146,7 @@ function makeStyles(easy: boolean) {
     barLabelRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 2 },
     barTrack: { height: easy ? 7 : 5, backgroundColor: LIGHT, borderRadius: 2.5 },
     barFill: { height: easy ? 7 : 5, backgroundColor: BLUE, borderRadius: 2.5 },
-    recRow: { flexDirection: "row", marginBottom: 8, alignItems: "flex-start" },
+    recRow: { flexDirection: "row", marginBottom: 9, paddingBottom: 7, borderBottomWidth: 0.5, borderBottomColor: BORDER, alignItems: "flex-start" },
     recLabel: { fontSize: fs(7.8), fontWeight: "bold" },
     recDetail: { fontSize: fs(7.3), color: GRAY, lineHeight: 1.5, marginTop: 1 },
     recComment: { fontSize: fs(7), color: GREENC, lineHeight: 1.5, marginTop: 2 },
@@ -246,7 +246,7 @@ function PdfHealthRadar({
 function SectionHeader({ num, title, styles }: { num: string; title: string; styles: ReturnType<typeof makeStyles> }) {
   const sz = (styles.sectionNum as AnyResult).width ?? 15;
   return (
-    <View wrap={false} minPresenceAhead={40}>
+    <View wrap={false} minPresenceAhead={70}>
       <View style={styles.sectionHeaderRow}>
         <View style={{ width: sz, height: sz, borderRadius: sz / 2, backgroundColor: NAVY, marginRight: 7, alignItems: "center", justifyContent: "center", paddingTop: 1.5 }}>
           <Text style={{ fontSize: (styles.sectionNum as AnyResult).fontSize * 0.85, fontWeight: "bold", color: "#FFFFFF" }}>{num}</Text>
@@ -338,7 +338,7 @@ function MetricBars({ quantResult, afterTaxReturn, withMarker, styles }: {
           <View key={it.label} style={{ marginBottom: 7 }} wrap={false}>
             <View style={styles.barLabelRow}>
               <Text style={{ fontSize: (styles.small as AnyResult).fontSize, color: GRAY }}>{withMarker(it.label)}</Text>
-              <Text style={{ fontSize: (styles.colLabel as AnyResult).fontSize, fontWeight: "bold", color: NAVY, letterSpacing: -0.2 }}>{it.pct ? fmtPct(val) : fmtNum(val)}</Text>
+              <Text style={{ fontSize: (styles.colLabel as AnyResult).fontSize, fontWeight: "bold", color: NAVY, letterSpacing: -0.2, minWidth: 46, textAlign: "right" }}>{it.pct ? fmtPct(val) : fmtNum(val)}</Text>
             </View>
             <View style={styles.barTrack}><View style={[styles.barFill, { width: `${w}%` }]} /></View>
           </View>
@@ -447,7 +447,7 @@ function PBRecommendationPair({ left, right, styles }: {
           return (
             <View key={it.key ?? i} style={styles.recRow} wrap={false}>
               <View style={{
-                width: 28, height: 14,
+                width: 32, height: 15,
                 backgroundColor: badge.color,
                 borderRadius: 3,
                 marginRight: 6,
@@ -456,7 +456,7 @@ function PBRecommendationPair({ left, right, styles }: {
                 alignItems: "center",
                 justifyContent: "center",
               }}>
-                <Text style={{ fontSize: 6, fontWeight: "bold", color: "#FFFFFF", lineHeight: 1 }}>{badge.label}</Text>
+               <Text style={{ fontSize: 6.5, fontWeight: "bold", color: "#FFFFFF", lineHeight: 1 }}>{badge.label}</Text>
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.recLabel, { color: badge.color }]}>{it.label}</Text>
