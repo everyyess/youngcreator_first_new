@@ -33,7 +33,7 @@ const UNIFIED_PRODUCT_TYPES = [
   "국내ETF", "해외ETF",
 ] as const;
 
-const COUNTRIES = ["국내", "미국", "일본", "중국", "유럽", "기타"];
+const COUNTRIES = ["국내", "미국", "일본", "중국", "유럽", "브라질", "기타"];
 
 const PORTFOLIO_INPUT_KEY = "portfolio-input-assets-v1";
 
@@ -296,6 +296,9 @@ export default function ExistingPortfolioTab() {
             trailingAnnualDividendRate: ae.trailingAnnualDividendRate,
             calendarYtdDividendRate: ae.calendarYtdDividendRate,
             interestRate,
+            // 채권 이자소득세 계산용 — 이 화면엔 국가 선택(COUNTRIES)만 있고 표면금리 종류·만기일 입력은 없어
+            // couponType(이표채 기본 간주)·maturityDate는 비워둔다(향후 1년 예상엔 영향 없음, 만기 임박 안분만 생략).
+            issuerCountry: isBondOrig ? (enriched.country || orig?.country) : undefined,
           };
         });
         const summary = calcFinancialIncomeSummary(assetsForCalc, tMarginal);
@@ -633,12 +636,13 @@ export default function ExistingPortfolioTab() {
         const isBondAsset = BOND_TYPES.has(unifiedType ?? "");
 
         let currentPriceKRW: number | null = null;
+        let usdKrwRateForDividend: number | null = null;
+        const isForeignTicker = !ticker.endsWith(".KS") && !ticker.endsWith(".KQ");
         if (typeof rawPrice === "number" && rawPrice > 0 && !isBondAsset) {
-          const isForeign = !ticker.endsWith(".KS") && !ticker.endsWith(".KQ");
-          if (isForeign) {
+          if (isForeignTicker) {
             try {
               const rate = await getUSDKRWRate();
-              if (rate) currentPriceKRW = Math.round(rawPrice * rate);
+              if (rate) { currentPriceKRW = Math.round(rawPrice * rate); usdKrwRateForDividend = rate; }
             } catch {
               // 환율 조회 실패 시 현재가 생략, 나머지는 정상 반영
             }
@@ -650,9 +654,20 @@ export default function ExistingPortfolioTab() {
         const dividendYield =
           typeof data.dividendYield === "number" && data.dividendYield > 0
             ? data.dividendYield : undefined;
-        const trailingAnnualDividendRate =
+        // trailingAnnualDividendRate(주당 배당금)는 Yahoo Finance가 종목 상장통화(USD 등) 기준으로 반환한다.
+        // current_price와 동일하게 원화 환산해야 세금 계산(calcFinancialIncomeSummary)에서 통화가 섞이지 않는다.
+        const rawTadr =
           typeof data.trailingAnnualDividendRate === "number" && data.trailingAnnualDividendRate > 0
             ? data.trailingAnnualDividendRate : undefined;
+        const trailingAnnualDividendRate = rawTadr != null && isForeignTicker && usdKrwRateForDividend
+          ? rawTadr * usdKrwRateForDividend
+          : rawTadr;
+        // 달력연도 누적 배당(종합과세 판정 전용) — trailingAnnualDividendRate와 동일하게 원화 환산 필요
+        const rawCalendarYtd =
+          typeof data.calendarYtdDividendPerShare === "number" ? data.calendarYtdDividendPerShare : undefined;
+        const calendarYtdDividendRate = rawCalendarYtd != null && isForeignTicker && usdKrwRateForDividend
+          ? rawCalendarYtd * usdKrwRateForDividend
+          : rawCalendarYtd;
 
         const resolvedName = koreanName ?? officialName;
         updateRow(idx, {
@@ -669,6 +684,7 @@ export default function ExistingPortfolioTab() {
           is_hedged: false,
           ...(dividendYield != null ? { dividendYield } : {}),
           ...(trailingAnnualDividendRate != null ? { trailingAnnualDividendRate } : {}),
+          ...(calendarYtdDividendRate != null ? { calendarYtdDividendRate } : {}),
         } as Partial<PortfolioAsset>);
 
         const displayName = koreanName ?? officialName ?? name;
@@ -937,7 +953,7 @@ export default function ExistingPortfolioTab() {
                     "매수단가(원화)",
                     "현재가",
                     "비중(%)",
-                    "채권수익률(%)",
+                    "표면금리(%)",
                     "만기(년)",
                     "",
                   ].map((h) => (
@@ -1185,11 +1201,14 @@ function AssetRow({
         </div>
       </td>
 
-      {/* 채권 수익률(%) — 채권 유형일 때만 활성화, 소수점 타이핑 맥락 보존 */}
+      {/* 표면금리(%) — 채권 유형일 때만 활성화, 소수점 타이핑 맥락 보존.
+          반드시 표면금리(쿠폰)를 입력할 것 — 만기수익률(YTM)을 넣으면 이자소득세가 잘못 계산됨(비과세인
+          매매·상환차익까지 과세 대상으로 잡히게 됨). */}
       <td className="px-3 py-2">
         <input
           type="text"
           inputMode="decimal"
+          title="표면금리(쿠폰)를 입력하세요. 만기수익률(YTM)이 아닙니다 — YTM엔 비과세인 매매·상환차익이 섞여 있어 세금이 잘못 계산됩니다."
           className={[
             "h-9 w-20 rounded border px-2 text-xs",
             isBond
