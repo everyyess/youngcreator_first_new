@@ -55,6 +55,8 @@ const ElbElsSimulator = dynamic(() => import("@/components/ElbElsSimulator"), {
 const PeerAnalysisTab = dynamic(() => import("./PeerAnalysisTab"), { ssr: false });
 const IntegratedInsight = dynamic(() => import("./integratedInsight/IntegratedInsight"), { ssr: false });
 
+const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
+
 export type AnalysisTopTab = "stock" | "screener" | "competitors" | "insight" | "elbEls";
 type StockAnalysisTab = "technical" | "fundamental" | "dart";
 
@@ -342,6 +344,23 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     });
     return () => { cancelled = true; };
   }, [selectedCustomer]);
+
+  // 고객 전환 또는 분석 결과 변경 시 localStorage 동기화.
+  // usePortfolioResult()가 `analysisResult ?? localStorage` 순으로 읽으므로,
+  // 선택 고객의 결과가 없을 때 이전 고객 결과가 남아 노출되는 것을 막는다.
+  // (MainTabShell이 상담 화면에서 하는 동기화와 동일한 처리)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const result = analysisResultMap[selectedCustomer] ?? null;
+    try {
+      if (result) {
+        localStorage.setItem(PORTFOLIO_RESULT_STORAGE_KEY, JSON.stringify(result));
+      } else {
+        localStorage.removeItem(PORTFOLIO_RESULT_STORAGE_KEY);
+      }
+      window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
+    } catch {}
+  }, [selectedCustomer, analysisResultMap]);
 
   useEffect(() => {
     if (!selectedCustomer) return;
