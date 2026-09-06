@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const PDFDownloadLinkLazy = dynamic(
+  () => import("@react-pdf/renderer").then((mod) => mod.PDFDownloadLink as any),
+  { ssr: false },
+);
 import { Activity, AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import { useCustomerView } from "../CustomerViewContext";
@@ -117,14 +124,14 @@ export default function Tab4Page() {
   const printRef = useRef<HTMLDivElement>(null);
   const [showReportOptions, setShowReportOptions] = useState(false);
   const [showProposalGenerator, setShowProposalGenerator] = useState(false);
-  const [reportMode, setReportMode] = useState<ReportMode>("normal");
+  const [reportMode, setReportMode] = useState<ReportMode>("easy");
   const [consultationProposal, setConsultationProposal] = useState<import("./PortfolioReportPdf").ConsultationProposalSections | undefined>(undefined);
   const [reportSections, setReportSections] = useState<ReportSectionToggles>({
     stress: true, health: true, taxIncome: true, holdings: true,
   });
 
   useEffect(() => { 
-    if (!selectedCustomer) return;
+    if (!selectedCustomer) return;  
     // Clear stale state from previous customer immediately
     setSummary(null);
     setNewSummary(null);
@@ -506,19 +513,7 @@ function ReportOptionsModal({
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <div className="px-6 py-5">
-          <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wide">보고서 형식</p>
-          <div className="mb-4 flex gap-3">
-            {([
-              { value: "normal", label: "포트폴리오 제안서", desc: "기본 형식 · 일반 크기" },
-              { value: "easy", label: "포트폴리오 제안서 (쉬운 설명 버전)", desc: "쉬운 설명 + 용어 각주 · 큰 글자" },
-            ] as const).map((opt) => (
-              <label key={opt.value} className={`flex-1 cursor-pointer rounded-lg border-2 px-3 py-2.5 transition ${mode === opt.value ? "border-samsung bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
-                <input type="radio" name="reportMode" value={opt.value} checked={mode === opt.value} onChange={() => setMode(opt.value)} className="sr-only" />
-                <p className={`text-xs font-bold ${mode === opt.value ? "text-samsung" : "text-slate-600"}`}>{opt.label}</p>
-                <p className="mt-0.5 text-[10px] text-slate-400">{opt.desc}</p>
-              </label>
-            ))}
-          </div>
+          
           <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wide">포함할 항목 선택</p>
           <div className="space-y-2.5">
             {OPTIONAL_SECTIONS.map((opt) => (
@@ -554,17 +549,11 @@ function PDFDownloadLinkClient(props: {
   leftMetrics: MetricSnapshot; rightMetrics: MetricSnapshot;
   consultationProposal?: import("./PortfolioReportPdf").ConsultationProposalSections;
 }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [PDFDownloadLink, setPDFDownloadLink] = useState<any>(null);
   const aiComment = (props.left && props.right)
-    ? generatePdfComment(props.leftMetrics, props.rightMetrics)
-    : "";
-
-  useEffect(() => {
-    import("@react-pdf/renderer").then((mod) => setPDFDownloadLink(() => mod.PDFDownloadLink));
-  }, []);
-
-  if (!PDFDownloadLink) {
+  ? generatePdfComment(props.leftMetrics, props.rightMetrics)
+  : "";
+const PDFDownloadLink = PDFDownloadLinkLazy;
+if (!PDFDownloadLink) {
     return (
       <button type="button" disabled className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">
         준비 중...
@@ -572,9 +561,8 @@ function PDFDownloadLinkClient(props: {
     );
   }
 
-  return (
-    <PDFDownloadLink
-    document={
+  const pdfDocument = useMemo(
+    () => (
       <PortfolioReportPdf
         customerName={props.customerName} reportDate={props.reportDate}
         sections={props.sections} left={props.left} right={props.right}
@@ -583,7 +571,17 @@ function PDFDownloadLinkClient(props: {
         aiComment={aiComment}
         consultationProposal={props.consultationProposal}
       />
-    }
+    ),
+    [
+      props.customerName, props.reportDate, props.sections, props.left, props.right,
+      props.leftTaxSummary, props.rightTaxSummary, props.marginalTaxRate, props.mode,
+      aiComment, props.consultationProposal,
+    ],
+  );
+
+  return (
+    <PDFDownloadLink
+      document={pdfDocument}
       fileName={`${props.customerName}_포트폴리오_제안서_${props.reportDate.replace(/[^0-9]/g, "")}.pdf`}
       className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90"
     >

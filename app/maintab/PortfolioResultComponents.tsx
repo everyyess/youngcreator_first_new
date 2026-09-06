@@ -1563,13 +1563,7 @@ export function PortfolioIssueBanner({ healthResult, stressResult }: { healthRes
           </div>
         )}
 
-        {(aiCommentary || stressDiagnosis) && (
-          <div className="mt-auto space-y-1.5 rounded-lg bg-slate-50 px-4 py-3">
-            <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">AI 리밸런싱 제언</p>
-            {aiCommentary && <p className="text-xs font-semibold leading-relaxed text-slate-700">{aiCommentary}</p>}
-            {stressDiagnosis && <p className="border-t border-slate-200 pt-1.5 text-xs leading-relaxed text-slate-500">{stressDiagnosis}</p>}
-          </div>
-        )}
+        
       </div>
     </div>
   );
@@ -1666,13 +1660,7 @@ export function PortfolioDiagnosisSection({ data }: { data: PortfolioAnalysisRes
                       </div>
                     </div>
                   )}
-                  {(aiCommentary || stressDiagnosis) && (
-                    <div className="border-t border-slate-200 pt-3 space-y-1">
-                      <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">AI 리밸런싱 제언</p>
-                      {aiCommentary && <p className="text-xs font-semibold leading-relaxed text-slate-700">{aiCommentary}</p>}
-                      {stressDiagnosis && <p className="text-xs leading-relaxed text-slate-500">{stressDiagnosis}</p>}
-                    </div>
-                  )}
+                 
                 </div>
               </div>
             )}

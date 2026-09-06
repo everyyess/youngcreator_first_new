@@ -100,7 +100,7 @@ function makeMarkerTracker(terms: { term: string; desc: string; marker: string }
 
 const NAVY = "#1428A0"; const BLUE = "#3457B2"; const GOLD = "#B8975A";
 const GRAY = "#64748B"; const LIGHT = "#F1F5F9"; const BLACK = "#1E293B";
-const RED = "#DC2626"; const AMBER = "#D97706"; const GREENC = "#0F766E";
+const RED = "#DC2626"; const AMBER = "#D97706"; const GREENC = "#0F766E"; const BLUE_DOWN = "#2563EB";
 const BORDER = "#E2E8F0";
 
 const ASSET_CLASS_COLOR_MAP: Record<string, string> = {
@@ -113,7 +113,7 @@ function getAssetColor(cls: string, idx: number) {
 }
 
 function makeStyles(easy: boolean) {
-  const fs = (n: number) => easy ? n * 1.25 : n;
+const fs = (n: number) => n * 1.35;
   return StyleSheet.create({
     page: { fontFamily: "Pretendard", fontSize: fs(9), color: BLACK, padding: easy ? 34 : 30, paddingBottom: easy ? 48 : 42, lineHeight: easy ? 1.65 : 1.45, borderWidth: 1.4, borderColor: NAVY },
     logoRow: { marginBottom: 18 },
@@ -296,7 +296,7 @@ function DeltaCard({ label, leftDisplay, rightDisplay, deltaText, isGood, leftRa
       <View style={styles.miniBarTrack}><View style={[styles.miniBarFillOld, { width: `${lW}%` }]} /></View>
       <View style={styles.miniBarTrack}><View style={[styles.miniBarFillNew, { width: `${rW}%` }]} /></View>
       {isGood !== null && (
-        <Text style={[styles.deltaChange, { color: isGood ? GREENC : RED }]}>
+               <Text style={[styles.deltaChange, { color: isGood ? RED : BLUE_DOWN }]}>
           {invertArrow ? (isGood ? "▼" : "▲") : (isGood ? "▲" : "▼")} {deltaText}
         </Text>
       )}
@@ -731,7 +731,7 @@ export function PortfolioReportPdf({
   const terms = buildOrderedTerms(sections, mode);
   const { withMarker, getUsedTerms } = makeMarkerTracker(terms);
   const displayPbName = "김일조";
-  const reportTitle = easy ? "포트폴리오 제안서 (쉬운 설명 버전)" : "포트폴리오 제안서";
+  const reportTitle = "포트폴리오 제안서";
 
   let secCount = 0;
   const nextNum = () => String(++secCount).padStart(2, "0");
