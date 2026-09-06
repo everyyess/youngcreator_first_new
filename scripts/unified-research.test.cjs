@@ -574,3 +574,36 @@ test("토론 응답이 MAX_TOKENS로 잘리면 실패로 처리해 보고서에 
     /길이 상한/,
   );
 });
+
+// ── 저장소 전역: 호출 불가 모델이 어디에도 남지 않도록 ────────────────
+// geminiModels.ts 밖에서 자체 모델 목록을 갖는 라우트가 여럿이라, 한 곳만
+// 고치면 나머지가 조용히 404를 맞는다(폴백 없는 라우트는 기능 자체가 죽는다).
+// 2026-09-07 등록 API 키 6개 전수 확인에서 generateContent가 404였던 모델들.
+test("소스 전체에 호출 불가로 확인된 Gemini/Gemma 모델명이 없다", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const dead = [
+    "gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash",
+    "gemini-2.5-flash-lite", "gemini-2.5-pro", "gemini-3-flash",
+    "gemma-4-26b", "gemma-4-31b",
+  ];
+  const skipDirs = new Set(["node_modules", ".next", ".git", "outputs", "tmp", "public", "data"]);
+  const offenders = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".") && entry.name !== ".claude") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (!skipDirs.has(entry.name)) walk(full); continue; }
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      const text = fs.readFileSync(full, "utf8");
+      for (const model of dead) {
+        // 주석 속 이력 설명은 허용하고 실제 모델 지정(따옴표로 감싼 값)만 잡는다
+        if (text.includes(`"${model}"`) || text.includes(`'${model}'`) || text.includes(`models/${model}:`)) {
+          offenders.push(`${path.relative(process.cwd(), full)} → ${model}`);
+        }
+      }
+    }
+  };
+  walk(process.cwd());
+  assert.deepEqual(offenders, [], "호출 불가 모델 잔존:\n  " + offenders.join("\n  "));
+});
