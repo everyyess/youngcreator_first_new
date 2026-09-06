@@ -585,7 +585,7 @@ if (!PDFDownloadLink) {
       fileName={`${props.customerName}_포트폴리오_제안서_${props.reportDate.replace(/[^0-9]/g, "")}.pdf`}
       className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90"
     >
-      {({ loading }: { loading: boolean }) => (loading ? "생성 중..." : "PDF 다운로드")}
+           {() => "PDF 다운로드"}
     </PDFDownloadLink>
   );
 }
