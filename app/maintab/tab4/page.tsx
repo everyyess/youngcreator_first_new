@@ -5,9 +5,9 @@ import dynamic from "next/dynamic";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const PDFDownloadLinkLazy = dynamic(
-  () => import("@react-pdf/renderer").then((mod) => mod.PDFDownloadLink as any),
+  () => import("@react-pdf/renderer").then((mod) => mod.PDFDownloadLink),
   { ssr: false },
-);
+) as any;
 import { Activity, AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import { useCustomerView } from "../CustomerViewContext";
