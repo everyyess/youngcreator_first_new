@@ -440,3 +440,87 @@ ${"자료를 연결하여 국면과 조건부 파급 경로를 상세히 설명�
   assert.equal(generated.mode, "ai");
   assert.match(generated.markdown, /\[인용\]\[#1\]\[#2\]/);
 });
+
+// ── 출력 상한 절단(MAX_TOKENS) 회귀 방지 ────────────────────────────────
+// Gemini는 maxOutputTokens에 걸려 본문이 잘려도 HTTP 200으로 응답한다.
+// finishReason을 보지 않으면 잘린 본문이 정상 AI 보고서로 저장된다(실제 발생한 결함).
+function truncatableSections() {
+  return `**세 줄 요약**
+· 금리 경로가 재평가되고 있습니다. [인용][#1]
+· 고용과 채권시장의 반응을 함께 봐야 합니다. [인용][#2]
+· 환율 파급을 점검해야 합니다. [인용][#3]
+
+**1. 지표 현황과 배경**
+정책 기대와 시장금리의 차이를 분석합니다. [판단(1)]
+
+**2. 전개 시계열**
+최근 자료는 시장 기대가 바뀌는 과정을 보여줍니다. [인용][#1][#2]
+
+**3. 자산군·섹터별 파급 경로**
+채권, 성장주, 환율의 반응 경로를 구분합니다. [판단(2)]
+
+**4. 우호적·비우호적 시나리오**
+물가 안정과 경기 둔화를 각각 조건부로 점검합니다. [판단(3)]
+
+**5. PB 체크포인트**
+1. 정책 발언과 시장 가격의 괴리를 확인합니다. [판단(4)]
+
+**판단 근거**
+[판단(1)]: 정책 기대와 시장 가격은 시차를 두고 반영될 수 있습니다.
+[판단(2)]: 자산별 듀레이션과 환 노출이 다릅니다.
+[판단(3)]: 같은 금리 하락이라도 원인에 따라 자산 반응이 다릅니다.
+[판단(4)]: 기대의 괴리는 변동성의 원인이 됩니다.
+
+${"근거를 연결한 상세 분석 문장입니다. [인용][#1] ".repeat(45)}`;
+}
+
+function mockReportModule(makeResponse) {
+  let calls = 0;
+  const module = loadTs("Engine/Research-Engine/researchReport.ts", {
+    "@/lib/geminiModels": { DEEP_MODELS: ["test-model"] },
+    "@/lib/geminiRunner": { fetchGeminiWithFallback: async () => {
+      calls += 1;
+      return { model: "test-model", res: { ok: true, async json() { return makeResponse(calls); } } };
+    } },
+    "./types": {},
+  });
+  return { module, callCount: () => calls };
+}
+
+test("MAX_TOKENS로 잘린 본문은 검증을 통과하더라도 AI 보고서로 채택하지 않는다", async () => {
+  // 본문 자체는 validReport를 통과하는 완전한 형태지만 finishReason만 MAX_TOKENS인 경우.
+  // finishReason을 무시하던 기존 코드에서는 mode:"ai"로 저장되어 잘린 보고서가 노출됐다.
+  const { module, callCount } = mockReportModule(() => ({
+    candidates: [{ content: { parts: [{ text: truncatableSections() }] }, finishReason: "MAX_TOKENS" }],
+  }));
+  const generated = await module.generateResearchReport(reportFixture());
+  assert.equal(generated.mode, "fallback");
+  assert.match(generated.warning, /길이 상한/);
+  assert.equal(callCount(), 2, "절단이면 압축 지시로 1회 재시도해야 한다");
+  // 대체 보고서는 잘린 본문이 아니라 완결된 근거 기반 보고서여야 한다
+  for (const heading of ["지표 현황과 배경", "PB 체크포인트", "판단 근거", "출처"]) {
+    assert.ok(generated.markdown.includes(heading), heading);
+  }
+});
+
+test("첫 응답이 잘려도 재시도가 완결되면 AI 보고서를 채택한다", async () => {
+  const { module, callCount } = mockReportModule((call) => ({
+    candidates: [{
+      content: { parts: [{ text: truncatableSections() }] },
+      finishReason: call === 1 ? "MAX_TOKENS" : "STOP",
+    }],
+  }));
+  const generated = await module.generateResearchReport(reportFixture());
+  assert.equal(generated.mode, "ai");
+  assert.equal(callCount(), 2);
+  assert.match(generated.markdown, /\[인용\]\[#1\]/);
+});
+
+test("finishReason이 STOP이면 기존대로 1회 호출로 채택한다", async () => {
+  const { module, callCount } = mockReportModule(() => ({
+    candidates: [{ content: { parts: [{ text: truncatableSections() }] }, finishReason: "STOP" }],
+  }));
+  const generated = await module.generateResearchReport(reportFixture());
+  assert.equal(generated.mode, "ai");
+  assert.equal(callCount(), 1, "정상 응답에 불필요한 재호출을 넣지 않는다");
+});
