@@ -524,3 +524,53 @@ test("finishReason이 STOP이면 기존대로 1회 호출로 채택한다", asyn
   assert.equal(generated.mode, "ai");
   assert.equal(callCount(), 1, "정상 응답에 불필요한 재호출을 넣지 않는다");
 });
+
+// ── 모델 목록: 호출 불가 모델이 폴백에 남아 있지 않은지 ────────────────
+// 2026-09-07 기준 6개 키 전수 확인에서 generateContent가 404(2.5 계열) 또는
+// 429(pro 계열)인 모델들. 폴백 목록에 남으면 모델당 키 수만큼 헛돌다 실패한다.
+test("폴백 모델 목록에 호출 불가로 확인된 모델이 없다", () => {
+  const models = loadTs("lib/geminiModels.ts", {});
+  const unusable = [
+    "gemini-2.5-flash",       // 404 no longer available to new users
+    "gemini-2.5-pro",         // 404
+    "gemini-2.5-flash-lite",  // 404
+    "gemini-3.1-pro-preview", // 429 (무료 할당량 없음)
+    "gemini-pro-latest",      // 429
+  ];
+  for (const list of ["DEEP_MODELS", "SIMPLE_MODELS", "ADVANCED_MODELS"]) {
+    assert.ok(Array.isArray(models[list]) && models[list].length > 0, list);
+    for (const dead of unusable) {
+      assert.ok(!models[list].includes(dead), `${list}에 호출 불가 모델 ${dead}가 남아 있다`);
+    }
+  }
+});
+
+test("폴백 목록은 중복 없이 복수 모델을 유지한다", () => {
+  const models = loadTs("lib/geminiModels.ts", {});
+  for (const list of ["DEEP_MODELS", "SIMPLE_MODELS", "ADVANCED_MODELS"]) {
+    const arr = models[list];
+    assert.ok(arr.length >= 2, `${list}은 폴백을 위해 2개 이상이어야 한다`);
+    assert.equal(new Set(arr).size, arr.length, `${list}에 중복 모델이 있다`);
+  }
+});
+
+// ── 토론: 절단된 응답을 성공으로 취급하지 않는지 ───────────────────────
+test("토론 응답이 MAX_TOKENS로 잘리면 실패로 처리해 보고서에 싣지 않는다", async () => {
+  const debateModule = loadTs("Engine/Research-Engine/humanDebate.ts", {
+    "@/lib/geminiModels": { DEEP_MODELS: ["test-model"], SIMPLE_MODELS: ["test-model"] },
+    "@/lib/geminiRunner": { fetchGeminiWithFallback: async () => ({
+      model: "test-model",
+      res: { ok: true, async json() {
+        return { candidates: [{ content: { parts: [{ text: "잘린 입론 문장이 여기서" }] }, finishReason: "MAX_TOKENS" }] };
+      } },
+    }) },
+    "@/lib/extractJsonObject": { extractJsonObject: () => ({}) },
+    "./types": {},
+  });
+  await assert.rejects(
+    () => debateModule.runHumanDebate("미국 금리", "macro",
+      { summary: "s", tagAnalysis: "t", timeSeries: "ts", trend: "tr", conflicts: [], gaps: [], old: [], needsSupplement: false },
+      [{ databaseId: "news", databaseLabel: "뉴스", phase: "stored", conclusion: "c", evidence: "- [#1] 근거", citedSources: ["#1"], asOfDate: "2026-09-05", confidence: "중간", itemCount: 1 }]),
+    /길이 상한/,
+  );
+});

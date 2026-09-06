@@ -6,7 +6,13 @@ import {
 import { getInsightSupabase, insightDbUnavailable } from "@/lib/supabaseInsightDb";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 이 라우트의 POST는 STEP 단위 작업을 동기로 끝낸다. 한 요청이 Gemini를 여러 번 호출한다.
+//   STEP4 토론 = 입론2(병렬) → 반박2(병렬) → 종합판정 = 순차 3파
+//   STEP5 보고서 = 생성 1회 + 필요 시 재시도 1회 = 순차 2회
+// geminiRunner의 호출당 내부 타임아웃은 120초다. 기존 maxDuration 60초는 이보다도 짧아,
+// 느린 호출에서 코드의 타임아웃·키/모델 폴백이 동작하기 전에 플랫폼이 함수를 먼저 끊었다
+// (로컬 dev에는 이 상한이 없어 드러나지 않음). 폴백이 실제로 작동할 여유를 준다.
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   if (!getInsightSupabase(req)) return NextResponse.json(insightDbUnavailable(), { status: 401 });
