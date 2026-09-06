@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { buildHeaderAssetSummary, HeaderSummary } from "../maintab/MainTabShell";
 import TechnicalAnalysisTab from "../maintab/tab2/TechnicalAnalysisTab";
 import FundamentalAnalysisTab from "../maintab/tab2/FundamentalAnalysisTab";
 import DartAnalysisTab from "../maintab/tab2/DartAnalysisTab";
+import StockScreenerTab from "../maintab/tab2/StockScreenerTab";
 import {
   CustomerContext,
   customerRowsToStoredState,
@@ -40,6 +41,7 @@ import {
   writeActiveConsultation,
   type ActiveConsultation,
 } from "../consultationStore";
+import { BackgroundEngineProvider } from "./integratedInsight/BackgroundEngineContext";
 
 const ElbElsSimulator = dynamic(() => import("@/components/ElbElsSimulator"), {
   ssr: false,
@@ -52,9 +54,9 @@ const ElbElsSimulator = dynamic(() => import("@/components/ElbElsSimulator"), {
 
 const PeerAnalysisTab = dynamic(() => import("./PeerAnalysisTab"), { ssr: false });
 const IntegratedInsight = dynamic(() => import("./integratedInsight/IntegratedInsight"), { ssr: false });
-import { BackgroundEngineProvider } from "./integratedInsight/BackgroundEngineContext";
 
 export type AnalysisTopTab = "stock" | "screener" | "competitors" | "insight" | "elbEls";
+type StockAnalysisTab = "technical" | "fundamental" | "dart";
 
 export const analysisTabSegments = ["tab1", "tab2", "tab3", "tab4", "tab5"] as const;
 
@@ -62,7 +64,7 @@ export type AnalysisTabSegment = (typeof analysisTabSegments)[number];
 
 const analysisTopTabs: { id: AnalysisTopTab; label: string; path: `/analysis/${AnalysisTabSegment}` }[] = [
   { id: "stock", label: "종목 분석", path: "/analysis/tab1" },
-  { id: "screener", label: "종목 보조지표 스크리너", path: "/analysis/tab2" },
+  { id: "screener", label: "종목 지표 스크리너", path: "/analysis/tab2" },
   { id: "competitors", label: "경쟁사 분석", path: "/analysis/tab3" },
   { id: "insight", label: "통합 인사이트", path: "/analysis/tab4" },
   { id: "elbEls", label: "ELB·ELS 시뮬레이터", path: "/analysis/tab5" },
@@ -80,6 +82,12 @@ export function isAnalysisTabSegment(segment: string): segment is AnalysisTabSeg
   return analysisTabSegments.includes(segment as AnalysisTabSegment);
 }
 
+const stockAnalysisTabs: { id: StockAnalysisTab; label: string }[] = [
+  { id: "technical", label: "기술적 분석" },
+  { id: "fundamental", label: "외부자료 분석" },
+  { id: "dart", label: "공시 분석" },
+];
+
 function PlaceholderContent({ label }: { label: string }) {
   return (
     <section className="min-h-[320px] rounded-lg border border-dashed border-slate-200 bg-white/70 p-6 text-sm font-bold text-slate-400 shadow-soft">
@@ -88,42 +96,26 @@ function PlaceholderContent({ label }: { label: string }) {
   );
 }
 
-function StockAnalysisSection({
-  id,
-  title,
-  description,
-  children,
-}: {
-  id: string;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section id={id} className="scroll-mt-6 space-y-4 rounded-xl border border-slate-200 bg-[#F9FAFC] p-4 shadow-soft lg:p-5">
-      <div>
-        <h2 className="text-lg font-extrabold text-slate-900">{title}</h2>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
-      </div>
-      {children}
-    </section>
-  );
-}
-
 function AnalysisTabs({
   contextValue,
   activeTopTab,
+  urlSelectedStock,
   onCustomerChange,
   isPortfolioLoading,
   isInsightSessionReady,
 }: {
   contextValue: CustomerContextValue;
   activeTopTab: AnalysisTopTab;
+  urlSelectedStock: { ticker: string; name: string } | null;
   onCustomerChange: (customerId: CustomerId) => void;
   isPortfolioLoading: boolean;
   isInsightSessionReady: boolean;
 }) {
   const router = useRouter();
+  const [activeStockTab, setActiveStockTab] = useState<StockAnalysisTab>("technical");
+  const [mountedStockTabs, setMountedStockTabs] = useState<Set<StockAnalysisTab>>(new Set(["technical"]));
+
+  // 분석 고객의 보유 주식(분석 결과 + 포트폴리오 자산)을 티커 기준으로 중복 제거
   const stockHoldings = useMemo(() => {
     const merged = [
       ...(contextValue.analysisResult?.enrichedAssets ?? []),
@@ -141,16 +133,39 @@ function AnalysisTabs({
     });
   }, [contextValue.analysisResult, contextValue.portfolioAssets]);
   const holdingTickerSignature = stockHoldings.map((asset) => asset.ticker).join("|");
-  const [selectedTicker, setSelectedTicker] = useState("");
+
+  // 종목분석·외부자료분석·공시분석 세 탭이 공유하는 "현재 선택된 종목".
+  // useState 초기값 계산 함수 안에서 sessionStorage를 즉시 읽어, 렌더링 첫 순간부터
+  // 값이 채워진 채로 시작함(이후 useEffect 실행 순서 경쟁으로 인한 초기화 방지).
+  const [sharedStock, setSharedStock] = useState<{ ticker: string; name: string } | null>(() => {
+    if (urlSelectedStock) return urlSelectedStock;
+    if (typeof window !== "undefined") {
+      const savedTicker = sessionStorage.getItem("screenerSelectedTicker");
+      const savedName = sessionStorage.getItem("screenerSelectedName");
+      if (savedTicker && savedName) return { ticker: savedTicker, name: savedName };
+    }
+    return null;
+  });
 
   useEffect(() => {
-    setSelectedTicker((current) => {
-      if (stockHoldings.some((asset) => asset.ticker === current)) return current;
-      return stockHoldings[0]?.ticker ?? "";
+    if (urlSelectedStock) setSharedStock(urlSelectedStock);
+  }, [urlSelectedStock]);
+
+  // 고객 또는 보유 종목이 바뀌어 현재 선택 종목이 보유 목록에 없으면 첫 보유 종목으로 맞춤
+  useEffect(() => {
+    if (!stockHoldings.length) return;
+    setSharedStock((current) => {
+      if (current && stockHoldings.some((asset) => asset.ticker === current.ticker)) return current;
+      if (current && urlSelectedStock && current.ticker === urlSelectedStock.ticker) return current;
+      const first = stockHoldings[0];
+      return { ticker: first.ticker ?? "", name: first.name ?? "" };
     });
   }, [contextValue.selectedCustomer, holdingTickerSignature]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const selectedAsset = stockHoldings.find((asset) => asset.ticker === selectedTicker) ?? null;
+  const selectStockTab = (tab: StockAnalysisTab) => {
+    setActiveStockTab(tab);
+    setMountedStockTabs((prev) => new Set([...prev, tab]));
+  };
 
   return (
     <CustomerContext.Provider value={contextValue}>
@@ -171,7 +186,9 @@ function AnalysisTabs({
           ))}
         </div>
 
-        {activeTopTab === "stock" ? (
+        {activeTopTab === "screener" ? (
+          <StockScreenerTab />
+        ) : activeTopTab === "stock" ? (
           <div className="flex flex-col gap-4">
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft lg:p-5">
               <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.7fr)_minmax(0,2fr)]">
@@ -200,12 +217,12 @@ function AnalysisTabs({
                   </div>
                   <div className="flex min-h-11 flex-wrap items-center gap-2">
                     {stockHoldings.map((asset) => {
-                      const active = asset.ticker === selectedTicker;
+                      const active = asset.ticker === sharedStock?.ticker;
                       return (
                         <button
                           key={asset.ticker}
                           type="button"
-                          onClick={() => setSelectedTicker(asset.ticker ?? "")}
+                          onClick={() => setSharedStock({ ticker: asset.ticker ?? "", name: asset.name ?? "" })}
                           className={[
                             "rounded-lg border px-3.5 py-2 text-left text-sm font-bold transition",
                             active
@@ -228,36 +245,36 @@ function AnalysisTabs({
               </div>
             </section>
 
-            {selectedAsset ? (
-              <>
-                <nav className="flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft">
-                  <a href="#technical-analysis" className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-indigo-50 hover:text-[#2f2f9d]">기술적 분석</a>
-                  <a href="#external-analysis" className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-indigo-50 hover:text-[#2f2f9d]">외부자료 분석</a>
-                  <a href="#disclosure-analysis" className="rounded-md bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-indigo-50 hover:text-[#2f2f9d]">공시 분석</a>
-                </nav>
+            <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
+              {stockAnalysisTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => selectStockTab(tab.id)}
+                  className={[
+                    "flex min-h-10 shrink-0 flex-1 items-center justify-center rounded-md px-4 py-2 text-sm font-bold transition",
+                    activeStockTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
+                  ].join(" ")}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
 
-                <StockAnalysisSection id="technical-analysis" title="기술적 분석" description="가격·추세·모멘텀·변동성·거래량 지표를 종합합니다.">
-                  <TechnicalAnalysisTab
-                    key={`${contextValue.selectedCustomer}:${selectedAsset.ticker}:technical`}
-                    selectedAsset={selectedAsset}
-                    hideStockSelector
-                  />
-                </StockAnalysisSection>
-                <StockAnalysisSection id="external-analysis" title="외부자료 분석" description="증권사 리포트와 텔레그램 외부자료를 한 종목 기준으로 확인합니다.">
-                  <FundamentalAnalysisTab
-                    key={`${contextValue.selectedCustomer}:${selectedAsset.ticker}:external`}
-                    selectedAsset={selectedAsset}
-                    hideStockSelector
-                  />
-                </StockAnalysisSection>
-                <StockAnalysisSection id="disclosure-analysis" title="공시 분석" description="국내 DART 또는 해외 SEC 공시를 종목에 맞춰 자동으로 분석합니다.">
-                  <DartAnalysisTab
-                    key={`${contextValue.selectedCustomer}:${selectedAsset.ticker}:disclosure`}
-                    selectedAsset={selectedAsset}
-                    hideStockSelector
-                  />
-                </StockAnalysisSection>
-              </>
+            {mountedStockTabs.has("technical") ? (
+              <div className="space-y-5" style={{ display: activeStockTab === "technical" ? undefined : "none" }}>
+                <TechnicalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+              </div>
+            ) : null}
+            {mountedStockTabs.has("fundamental") ? (
+              <div className="space-y-5" style={{ display: activeStockTab === "fundamental" ? undefined : "none" }}>
+                <FundamentalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+              </div>
+            ) : null}
+            {mountedStockTabs.has("dart") ? (
+              <div className="space-y-5" style={{ display: activeStockTab === "dart" ? undefined : "none" }}>
+                <DartAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+              </div>
             ) : null}
           </div>
         ) : activeTopTab === "competitors" ? (
@@ -288,6 +305,10 @@ function AnalysisTabs({
 
 export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: AnalysisTopTab }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlTicker = searchParams.get("ticker");
+  const urlName = searchParams.get("name");
+
   const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>([]);
   const [customerData, setCustomerData] = useState<Record<CustomerId, AppState>>({});
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>("");
@@ -469,6 +490,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
         <AnalysisTabs
           contextValue={analysisContextValue}
           activeTopTab={initialTopTab}
+          urlSelectedStock={urlTicker && urlName ? { ticker: urlTicker, name: urlName } : null}
           onCustomerChange={selectCustomer}
           isPortfolioLoading={isPortfolioLoading}
           isInsightSessionReady={isInsightSessionReady}

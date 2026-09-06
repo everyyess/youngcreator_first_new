@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Document, Page, Text, View, StyleSheet, Font, Svg, Circle, Image,
+  Document, Page, Text, View, StyleSheet, Font, Svg, Circle, Image, Polygon, Line,
 } from "@react-pdf/renderer";
 
 Font.register({
@@ -41,12 +41,27 @@ interface PortfolioSide {
   portfolioIssueSummary?: string;
 }
 
+export interface ConsultationProposalSection {
+  title: string;
+  content: string;
+  pbComment?: string;
+}
+
+export interface ConsultationProposalSections {
+  approvedAt?: string;
+  consultationBackground: ConsultationProposalSection;
+  aiRationale: ConsultationProposalSection;
+  existingPortfolioDiagnosis: ConsultationProposalSection;
+  newPortfolioRationale: ConsultationProposalSection;
+}
+
 export interface PortfolioReportProps {
   customerName: string; pbName?: string; reportDate: string;
   sections: ReportSectionToggles;
   left: PortfolioSide | null; right: PortfolioSide | null;
   leftTaxSummary?: AnyResult | null; rightTaxSummary?: AnyResult | null;
   marginalTaxRate?: number; aiComment?: string; mode?: ReportMode;
+  consultationProposal?: ConsultationProposalSections;
 }
 
 const GLOSSARY: Record<string, string> = {
@@ -125,6 +140,12 @@ function makeStyles(easy: boolean) {
     aiCommentBox: { borderRadius: 4, padding: 10, marginTop: 10, marginBottom: 4, borderWidth: 1, borderColor: GOLD, backgroundColor: "#FFFDF5" },
     aiCommentLabel: { fontSize: fs(7), fontWeight: "bold", color: GOLD, marginBottom: 4, letterSpacing: 0.5, textTransform: "uppercase" },
     aiCommentText: { fontSize: fs(8), color: BLACK, lineHeight: 1.7 },
+    consultationBox: { borderRadius: 4, padding: 10, marginTop: 6, marginBottom: 10, borderWidth: 1, borderColor: BORDER, backgroundColor: LIGHT },
+    consultationTitle: { fontSize: fs(8.5), fontWeight: "bold", color: NAVY, marginBottom: 4, paddingBottom: 3, borderBottomWidth: 0.5, borderBottomColor: BORDER },
+    consultationText: { fontSize: fs(7.8), color: BLACK, lineHeight: 1.7 },
+    consultationSpacer: { marginBottom: 8 },
+    consultationPbComment: { fontSize: fs(7.5), color: GOLD, marginTop: 5 },
+    consultationApprovedAt: { fontSize: fs(7), color: GRAY, marginTop: 4, marginBottom: 8, textAlign: "right" },
     deltaIntro: { fontSize: fs(7.5), color: GRAY, marginBottom: 8 },
     deltaRow: { flexDirection: "row", gap: 8 },
     deltaCard: { flex: 1, borderWidth: 1, borderColor: BORDER, borderRadius: 4, padding: 9 },
@@ -190,7 +211,59 @@ const STRESS_LABELS = [
   { key: "scenario3", period: "팬데믹 블랙스완 쇼크 (2020)" },
   { key: "scenario2", period: "러-우 원자재 공급망 위기 (2022)" },
 ];
+function PdfHealthRadar({
+  items,
+  badge,
+}: {
+  items: { key: string; label: string; score: number }[];
+  badge?: string;
+}) {
+  const gradeColor = badge === "Sell" ? "#DC2626" : badge === "Hold" ? "#0F766E" : "#D97706";
+  const cx = 100;
+  const cy = 95;
+  const maxR = 70;
+  const n = items.length;
+  const angleFor = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
 
+  const pointFor = (i: number, ratio: number) => {
+    const a = angleFor(i);
+    return { x: cx + Math.cos(a) * maxR * ratio, y: cy + Math.sin(a) * maxR * ratio };
+  };
+
+  const dataPoints = items.map((it, i) => pointFor(i, Math.max(it.score, 0.05) / 2));
+  const dataPolygon = dataPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
+  const gridRings = [0.33, 0.66, 1].map((ratio) =>
+    items.map((_, i) => pointFor(i, ratio)).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
+  );
+
+  return (
+    <Svg width="200" height="210" viewBox="0 0 200 210">
+      {gridRings.map((poly, i) => (
+        <Polygon key={i} points={poly} stroke="#CBD5E1" strokeWidth={0.6} fill="none" />
+      ))}
+      {items.map((_, i) => {
+        const p = pointFor(i, 1);
+        return <Line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#CBD5E1" strokeWidth={0.6} />;
+      })}
+            <Polygon points={dataPolygon} stroke={gradeColor} strokeWidth={1.4} fill={gradeColor} fillOpacity={0.22} />
+      {items.map((it, i) => {
+        const labelPos = pointFor(i, 1.28);
+        return (
+          <Text
+            key={it.key}
+            x={labelPos.x}
+            y={labelPos.y}
+            style={{ fontSize: 6.5, fontFamily: "Pretendard", fill: "#475569", fontWeight: "bold" }}
+            textAnchor="middle"
+          >
+            {it.label}
+          </Text>
+        );
+      })}
+    </Svg>
+  );
+}
 function SectionHeader({ num, title, styles }: { num: string; title: string; styles: ReturnType<typeof makeStyles> }) {
   const sz = (styles.sectionNum as AnyResult).width ?? 15;
   return (
@@ -651,6 +724,7 @@ function PageFooter({ customerName, styles }: { customerName: string; styles: Re
 export function PortfolioReportPdf({
   customerName, pbName, reportDate, sections, left, right,
   leftTaxSummary, rightTaxSummary, marginalTaxRate, aiComment, mode = "normal",
+  consultationProposal,
 }: PortfolioReportProps) {
   const easy = mode === "easy";
   const styles = makeStyles(easy);
@@ -712,6 +786,51 @@ export function PortfolioReportPdf({
             <Text style={styles.aiCommentLabel}>▪ PB 코멘트</Text>
             <Text style={styles.aiCommentText}>{aiComment}</Text>
           </View>
+        )}
+        {(left?.healthResult?.items || right?.healthResult?.items) && (
+          <View wrap={false}>
+            <SectionHeader num={nextNum()} title="포트폴리오 건강 진단 비교" styles={styles} />
+            <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 10 }}>
+              {left?.healthResult?.items && (
+                <View style={{ alignItems: "center" }}>
+                  <Text style={{ fontSize: 8, fontWeight: "bold", color: NAVY, marginBottom: 4 }}>기존 포트폴리오</Text>
+                  <PdfHealthRadar items={left.healthResult.items} badge={left.healthResult.badge} />
+                </View>
+              )}
+              {right?.healthResult?.items && (
+                <View style={{ alignItems: "center" }}>
+                 <Text style={{ fontSize: 8, fontWeight: "bold", color: NAVY, marginBottom: 4 }}>신규 포트폴리오</Text>
+                 <PdfHealthRadar items={right.healthResult.items} badge={right.healthResult.badge} />
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+{consultationProposal && (
+          <>
+            <View wrap={false}>
+              <SectionHeader num={nextNum()} title="AI 종합 상담 제안" styles={styles} />
+              <View style={styles.consultationBox}>
+                <Text style={styles.consultationTitle}>{consultationProposal.consultationBackground.title}</Text>
+                <Text style={styles.consultationText}>{consultationProposal.consultationBackground.content}</Text>
+                {consultationProposal.consultationBackground.pbComment && (
+                  <Text style={styles.consultationPbComment}>PB 코멘트: {consultationProposal.consultationBackground.pbComment}</Text>
+                )}
+              </View>
+            </View>
+            {(["aiRationale", "existingPortfolioDiagnosis", "newPortfolioRationale"] as const).map((key) => (
+              <View key={key} style={styles.consultationBox} wrap={false}>
+                <Text style={styles.consultationTitle}>{consultationProposal[key].title}</Text>
+                <Text style={styles.consultationText}>{consultationProposal[key].content}</Text>
+                {consultationProposal[key].pbComment && (
+                  <Text style={styles.consultationPbComment}>PB 코멘트: {consultationProposal[key].pbComment}</Text>
+                )}
+              </View>
+            ))}
+            {consultationProposal.approvedAt && (
+              <Text style={styles.consultationApprovedAt}>PB 검토 및 승인 완료: {consultationProposal.approvedAt}</Text>
+            )}
+          </>
         )}
 
         <SectionHeader num={nextNum()} title="자산군별 비중 분포" styles={styles} />

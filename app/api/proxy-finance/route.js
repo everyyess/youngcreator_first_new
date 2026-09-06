@@ -681,6 +681,7 @@ export async function GET(request) {
     ...finalMeta,
     dividendYield:              0,
     trailingAnnualDividendRate: 0,
+    calendarYtdDividendPerShare: 0,
     closes: [],
     chart: { result: [] },
   };
@@ -754,9 +755,9 @@ export async function GET(request) {
     const nowTs      = Math.floor(Date.now() / 1000);
     const oneYearAgo = nowTs - 365 * 24 * 3600;
 
-    // 지난 12개월 실제 지급 합산 (trailing 12-month)
-    // date = ex-dividend date (Yahoo 기준). 미래 예정 배당 제외(e.date <= nowTs).
-    // 분기/연간 여부와 무관하게 실제 지급된 배당금만 더함 — 추정·연간화 없음
+    // 지난 12개월 실제 지급 합산 (trailing 12-month, "향후 1년 예상" 투영용)
+    // date = ex-dividend date (Yahoo 기준 — 실제 입금일이 아님, 통상 실제 지급일보다 1~2개월 빠름).
+    // 미래 예정 배당 제외(e.date <= nowTs). 분기/연간 여부와 무관하게 실제 지급된 배당금만 더함 — 추정·연간화 없음
     const recentEvents = Object.values(rawDividends)
       .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= oneYearAgo && e.date <= nowTs);
     const annualDividendPerShare = recentEvents.reduce((s, e) => s + e.amount, 0);
@@ -766,6 +767,15 @@ export async function GET(request) {
         ? annualDividendPerShare / regularMarketPrice
         : 0;
     const eventsTrailingRate = annualDividendPerShare;
+
+    // 달력연도 누적(1/1 00:00 KST ~ 오늘) 합산 — 금융소득종합과세는 달력연도 기준으로만 판정되므로
+    // "향후 1년 예상"(위 트레일링 365일)과는 별도로 계산해 종합과세 점검 전용으로 사용한다.
+    const kstNowMs = nowTs * 1000 + 9 * 3600 * 1000;
+    const currentYearKst = new Date(kstNowMs).getUTCFullYear();
+    const yearStartTs = Math.floor((Date.UTC(currentYearKst, 0, 1, 0, 0, 0) - 9 * 3600 * 1000) / 1000);
+    const calendarYtdEvents = Object.values(rawDividends)
+      .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= yearStartTs && e.date <= nowTs);
+    const calendarYtdDividendPerShare = calendarYtdEvents.reduce((s, e) => s + e.amount, 0);
 
     // ── quoteSummary API로 배당 + 섹터 데이터 통합 조회 ────────────────
     const quoteSummaryUrls = [
@@ -835,7 +845,7 @@ export async function GET(request) {
       }
     }
 
-    return Response.json({ ticker, officialName, ...effectiveMeta, dividendYield, trailingAnnualDividendRate, sectorEn, industryEn, ...yahooJson });
+    return Response.json({ ticker, officialName, ...effectiveMeta, dividendYield, trailingAnnualDividendRate, calendarYtdDividendPerShare, sectorEn, industryEn, ...yahooJson });
 
   } catch (blockErr) {
     // 예상치 못한 TypeError 등 블록 내 모든 예외를 포획 — 500 크래시 원천 차단

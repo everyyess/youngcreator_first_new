@@ -232,12 +232,13 @@ export default function RebalancingPortfolioInput({
       const isBondAsset = BOND_TYPES.has(resolvedType ?? "");
 
       let currentPriceKRW: number | null = null;
+      let usdKrwRateForDividend: number | null = null;
+      const isForeignTicker = !ticker.endsWith(".KS") && !ticker.endsWith(".KQ");
       if (typeof rawPrice === "number" && rawPrice > 0 && !isBondAsset) {
-        const isForeign = !ticker.endsWith(".KS") && !ticker.endsWith(".KQ");
-        if (isForeign) {
+        if (isForeignTicker) {
           try {
             const rate = await getUSDKRWRate();
-            if (rate) currentPriceKRW = Math.round(rawPrice * rate);
+            if (rate) { currentPriceKRW = Math.round(rawPrice * rate); usdKrwRateForDividend = rate; }
           } catch {
             // 환율 조회 실패 시 현재가 생략, 나머지는 정상 반영
           }
@@ -248,8 +249,13 @@ export default function RebalancingPortfolioInput({
 
       const dividendYield = typeof data.dividendYield === "number" && data.dividendYield > 0
         ? data.dividendYield : null;
-      const trailingAnnualDividendRate = typeof data.trailingAnnualDividendRate === "number" && data.trailingAnnualDividendRate > 0
+      // trailingAnnualDividendRate(주당 배당금)는 Yahoo Finance가 종목 상장통화(USD 등) 기준으로 반환한다.
+      // current_price와 동일하게 원화 환산해야 세금 계산(calcFinancialIncomeSummary)에서 통화가 섞이지 않는다.
+      const rawTadr = typeof data.trailingAnnualDividendRate === "number" && data.trailingAnnualDividendRate > 0
         ? data.trailingAnnualDividendRate : null;
+      const trailingAnnualDividendRate = rawTadr != null && isForeignTicker && usdKrwRateForDividend
+        ? rawTadr * usdKrwRateForDividend
+        : rawTadr;
 
       updateRow(idx, {
         ticker,

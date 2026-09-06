@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileText, Mail, RefreshCw } from "lucide-react";
+import { createPortal } from "react-dom";
+import { FileText, Mail, RefreshCw, ChevronDown} from "lucide-react";
 import type { MarketIndexItem } from "@/lib/marketData";
 import type { AppState, CustomerProfile } from "@/app/maintab/CustomerContext";
 import { buildCustomerReportSections } from "@/services/customerService";
@@ -120,7 +121,7 @@ function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]
             type="button"
             onClick={() => setStartIndex((value) => Math.max(0, value - 1))}
             disabled={safeStartIndex <= 0}
-            className="w-9 shrink-0 border-r border-slate-100 bg-white text-sm font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white"
+            className="w-9 shrink-0 border-r border-slate-100 bg-white text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white"
             aria-label="이전 지표 보기"
           >
             &lt;
@@ -149,7 +150,7 @@ function IndexStrip({ state, refreshedAt }: { state: LoadState<MarketIndexItem[]
             type="button"
             onClick={() => setStartIndex((value) => Math.min(maxStartIndex, value + 1))}
             disabled={safeStartIndex >= maxStartIndex}
-            className="w-9 shrink-0 bg-white text-sm font-black text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white"
+            className="w-9 shrink-0 bg-white text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white"
             aria-label="다음 지표 보기"
           >
             &gt;
@@ -171,8 +172,54 @@ type MarketReportNarrative = {
   stocks?: { positive?: ReportNarrativePoint; negative?: ReportNarrativePoint; message?: string };
   sources?: ReportSource[];
 };
-type AudienceTab = "managed" | "unmanaged";
 type MailingItemId = "usMarket" | "krMarket" | "holdingIssues" | "portfolioPerformance";
+type PdfLineSection = "pbComment" | MailingItemId;
+
+type PdfSelectableLine = {
+  id: string;
+  section: PdfLineSection;
+  group: string;
+  label: string;
+  text: string;
+  meta?: string;
+  url?: string;
+  badge?: string;
+};
+
+type PdfSelectableSection = {
+  id: PdfLineSection;
+  title: string;
+  lines: PdfSelectableLine[];
+};
+
+type HoldingIssueItem = {
+  ticker: string;
+  name: string;
+  market: "kr" | "us";
+  issueType: "price" | "disclosure" | "news";
+  summary: string;
+  url?: string;
+  source?: string;
+  publishedAt?: string;
+  holders: {
+    customerId: string;
+    customerName: string;
+    birthDate?: string;
+  }[];
+  changePercent?: number;
+  previousClose?: number;
+  latestClose?: number;
+  previousDate?: string;
+  latestDate?: string;
+};
+
+type HoldingIssuesResponse = {
+  holdingCount: number;
+  issueCount: number;
+  thresholdPercent?: number;
+  items: HoldingIssueItem[];
+  error?: string;
+};
 type MarketReport = {
   market: "us" | "kr";
   reportDate: string;
@@ -190,30 +237,25 @@ type MarketReport = {
 type MarketDashboardProps = {
   selectedCustomer?: CustomerProfile | null;
   selectedState?: AppState;
+  customers?: CustomerProfile[];
+  customerData?: Record<string, AppState>;
   pbName?: string;
+  pbId?: string;
+  pbEmployeeId?: string;
 };
 
-const audienceTabs: { id: AudienceTab; label: string }[] = [
-  { id: "managed", label: "관리 고객" },
-  { id: "unmanaged", label: "미관리 고객" },
+const mailingItems: { id: MailingItemId; label: string }[] = [
+  { id: "usMarket", label: "전일 미국 시황" },
+  { id: "krMarket", label: "당일 국내 시황" },
+  { id: "holdingIssues", label: "보유 종목 주요 이슈" },
+  { id: "portfolioPerformance", label: "월별 포트폴리오 성과" },
 ];
 
-const mailingItems: Record<AudienceTab, { id: MailingItemId; label: string }[]> = {
-  managed: [
-    { id: "usMarket", label: "전일 미국 시황" },
-    { id: "krMarket", label: "당일 국내 시황" },
-    { id: "holdingIssues", label: "고객별 보유 종목 주요 이슈" },
-    { id: "portfolioPerformance", label: "고객별 포트폴리오 성과" },
-  ],
-  unmanaged: [
-    { id: "usMarket", label: "전일 미국 시황" },
-    { id: "krMarket", label: "당일 국내 시황" },
-  ],
-};
-
-const initialIncluded: Record<AudienceTab, Record<MailingItemId, boolean>> = {
-  managed: { usMarket: true, krMarket: true, holdingIssues: true, portfolioPerformance: true },
-  unmanaged: { usMarket: true, krMarket: true, holdingIssues: false, portfolioPerformance: false },
+const initialIncluded: Record<MailingItemId, boolean> = {
+  usMarket: true,
+  krMarket: true,
+  holdingIssues: true,
+  portfolioPerformance: true,
 };
 
 function reportScheduleLabel(market: "us" | "kr") {
@@ -253,12 +295,364 @@ function marketCardMeta(report: MarketReport | undefined, market: "us" | "kr") {
   const scheduled = market === "us" ? "08:30 자동 생성 예정" : "16:00 자동 생성 예정";
   if (!report || report.generationStatus === "pending") return scheduled;
   if (report.generationStatus === "failed") return "자동 생성 실패";
-  const basis = report.dataAsOf ? `기준 ${formatKoreanDateTime(report.dataAsOf)} ${market === "us" ? "미국장" : "국내장"}` : `기준 ${report.reportDate}`;
-  const generated = report.generatedAt ? `생성 ${formatKoreanDateTime(report.generatedAt)}` : "";
-  return [basis, generated].filter(Boolean).join(" · ");
+
+  const formatDateOnly = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    return new Intl.DateTimeFormat("ko-KR", {
+      timeZone: "Asia/Seoul",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+  };
+
+  const basisDate = report.dataAsOf
+    ? formatDateOnly(report.dataAsOf)
+    : report.reportDate;
+
+  const generatedDate = report.generatedAt
+    ? formatDateOnly(report.generatedAt)
+    : report.reportDate;
+
+  const basis = `기준 ${basisDate} ${market === "us" ? "미국장 마감" : "국내장 마감"}`;
+  const generated = `생성 ${generatedDate} ${market === "us" ? "08:30" : "16:00"}`;
+
+  return `${basis} · ${generated}`;
 }
 function marketReportTitle(id: "usMarket" | "krMarket") {
   return id === "usMarket" ? "전일 미국 시황" : "당일 국내 시황";
+}
+
+function formatPdfMonthDay(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    const match = value.match(/(\d{4})-(\d{2})-(\d{2})/);
+    return match ? `${match[2]}.${match[3]}` : "";
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(date)
+    .replace(/\.\s?/g, ".")
+    .replace(/\.$/, "");
+}
+
+function formatPdfGeneratedAt(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${get("month")}.${get("day")} ${get("hour")}:${get("minute")}`;
+}
+
+function getPdfMarketMeta(report?: MarketReport) {
+  if (!report) return "";
+
+  const basis = formatPdfMonthDay(report.reportDate);
+  const generated = formatPdfGeneratedAt(report.generatedAt);
+
+  if (report.market === "us") {
+    return `기준 ${basis} 미국장 마감${generated ? ` · 생성 ${generated}` : ""}`;
+  }
+
+  return `기준 ${basis} 국내장 마감${generated ? ` · 생성 ${generated}` : ""}`;
+}
+
+function getPdfTodayTitle() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  return `${get("year")}-${get("month")}-${get("day")} 오늘의 시황 보고서`;
+}
+
+function getPortfolioAvailabilityText() {
+  const now = new Date();
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const lastDay = new Date(year, month, 0).getDate();
+  const dDay = lastDay - day;
+
+  if (dDay <= 0) {
+    return `포트폴리오 성과는 매월 마지막 날에 제공됩니다. (${month}/${lastDay} 오늘 제공)`;
+  }
+
+  return `포트폴리오 성과는 매월 마지막 날에 제공됩니다. (${month}/${lastDay} D-${dDay})`;
+}
+
+function PdfRichText({ text }: { text: string }) {
+  const parts = text.split(/([+-]\d+(?:\.\d+)?%|\d+(?:\.\d+)?%|S&P500|Nasdaq|Dow|KOSPI|KOSDAQ|NVIDIA|Microsoft)/g);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (/^\+\d+(?:\.\d+)?%$/.test(part)) {
+          return <strong key={index} className="font-black text-red-600">{part}</strong>;
+        }
+
+        if (/^-\d+(?:\.\d+)?%$/.test(part)) {
+          return <strong key={index} className="font-black text-blue-600">{part}</strong>;
+        }
+
+        if (/^(\d+(?:\.\d+)?%|S&P500|Nasdaq|Dow|KOSPI|KOSDAQ|NVIDIA|Microsoft)$/.test(part)) {
+          return <strong key={index} className="font-black text-slate-900">{part}</strong>;
+        }
+
+        return <span key={index}>{part}</span>;
+      })}
+    </>
+  );
+}
+function buildMarketPdfLines(
+  section: "usMarket" | "krMarket",
+  report?: MarketReport,
+): PdfSelectableLine[] {
+  const narrative = reportNarrative(report);
+  const lines: PdfSelectableLine[] = [];
+
+  if (!narrative) {
+    for (const [index, bullet] of reportBullets(report).entries()) {
+      if (!bullet?.trim()) continue;
+      lines.push({
+        id: `${section}:bullet:${index}`,
+        section,
+        group: "본문",
+        label: bullet,
+        text: bullet,
+      });
+    }
+    return lines;
+  }
+
+  if (narrative.indexOverview?.text?.trim()) {
+    lines.push({
+      id: `${section}:index`,
+      section,
+      group: "주요 지수 등락",
+      label: narrative.indexOverview.text,
+      text: narrative.indexOverview.text,
+    });
+  }
+
+  const newsItems = narrative.news?.items?.filter((item) => item.summary?.trim()) ?? [];
+  newsItems.slice(0, 5).forEach((item, index) => {
+    const text = item.summary?.trim();
+    if (!text) return;
+    lines.push({
+      id: `${section}:news:${index}`,
+      section,
+      group: "주요 시장 뉴스",
+      label: text,
+      text,
+      url: item.url,
+      meta: [item.publisher, formatPdfMonthDay(item.publishedAt)].filter(Boolean).join(" · "),
+    });
+  });
+
+  const sectorPoints = [
+    ["positive", narrative.sectors?.positive?.text],
+    ["negative", narrative.sectors?.negative?.text],
+  ] as const;
+
+  sectorPoints.forEach(([kind, text]) => {
+    if (!text?.trim()) return;
+    lines.push({
+      id: `${section}:sector:${kind}`,
+      section,
+      group: "강세/약세 업종",
+      label: text,
+      text,
+    });
+  });
+
+  if (narrative.sectors?.message?.trim()) {
+    lines.push({
+      id: `${section}:sector:message`,
+      section,
+      group: "강세/약세 업종",
+      label: narrative.sectors.message,
+      text: narrative.sectors.message,
+    });
+  }
+
+  const stockPoints = [
+    ["positive", narrative.stocks?.positive?.text],
+    ["negative", narrative.stocks?.negative?.text],
+  ] as const;
+
+  stockPoints.forEach(([kind, text]) => {
+    if (!text?.trim()) return;
+    lines.push({
+      id: `${section}:stock:${kind}`,
+      section,
+      group: "주요 강세/약세 종목",
+      label: text,
+      text,
+    });
+  });
+
+  if (narrative.stocks?.message?.trim()) {
+    lines.push({
+      id: `${section}:stock:message`,
+      section,
+      group: "주요 강세/약세 종목",
+      label: narrative.stocks.message,
+      text: narrative.stocks.message,
+    });
+  }
+
+  return lines;
+}
+
+function buildPdfSelectableSections({
+  pbComment,
+  usReport,
+  krReport,
+  holdingIssues,
+  selectedCustomer,
+  portfolioTitle,
+  portfolioSummary,
+  portfolioBullets,
+}: {
+  pbComment: string;
+  usReport?: MarketReport;
+  krReport?: MarketReport;
+  holdingIssues: HoldingIssueItem[];
+  selectedCustomer: CustomerProfile;
+  portfolioTitle: string;
+  portfolioSummary: string;
+  portfolioBullets: string[];
+}): PdfSelectableSection[] {
+  const customerHoldingIssues = holdingIssues.filter((issue) =>
+    issue.holders.some((holder) => holder.customerId === selectedCustomer.id),
+  );
+
+  const holdingLines: PdfSelectableLine[] = customerHoldingIssues.length
+    ? customerHoldingIssues.map((issue, index): PdfSelectableLine => ({
+        id: `holdingIssues:${issue.market}:${issue.ticker}:${issue.issueType}:${index}`,
+        section: "holdingIssues",
+        group: issue.name,
+        label: issue.summary,
+        text: issue.summary,
+        badge: issue.name,
+        url: issue.url,
+        meta: [issue.source, formatPdfMonthDay(issue.publishedAt)].filter(Boolean).join(" · "),
+      }))
+    : [
+        {
+          id: "holdingIssues:none",
+          section: "holdingIssues",
+          group: "보유종목 주요 이슈",
+          label: "고객님의 보유종목과 관련한 이슈가 발생하지 않았습니다.",
+          text: "고객님의 보유종목과 관련한 이슈가 발생하지 않았습니다.",
+        },
+      ];
+
+  const portfolioLines: PdfSelectableLine[] = [
+    {
+      id: "portfolioPerformance:availability",
+      section: "portfolioPerformance",
+      group: "안내",
+      label: getPortfolioAvailabilityText(),
+      text: getPortfolioAvailabilityText(),
+    },
+  ];
+
+  return [
+    {
+      id: "pbComment",
+      title: "PB의 한 줄 코멘트",
+      lines: pbComment.trim()
+        ? [{
+            id: "pbComment:main",
+            section: "pbComment",
+            group: "코멘트",
+            label: pbComment.trim(),
+            text: pbComment.trim(),
+          }]
+        : [],
+    },
+    {
+      id: "usMarket",
+      title: marketReportTitle("usMarket"),
+      lines: (() => {
+        const lines = buildMarketPdfLines("usMarket", usReport);
+        if (lines.length) return lines;
+
+        return [
+          {
+            id: "usMarket:availability",
+            section: "usMarket" as const,
+            group: "안내",
+            label: "전일 미국 시황은 08:30에 제공됩니다.",
+            text: "전일 미국 시황은 08:30에 제공됩니다.",
+          },
+        ];
+      })(),
+    },
+    {
+      id: "krMarket",
+      title: marketReportTitle("krMarket"),
+      lines: (() => {
+        const lines = buildMarketPdfLines("krMarket", krReport);
+        if (lines.length) return lines;
+
+        return [
+          {
+            id: "krMarket:availability",
+            section: "krMarket" as const,
+            group: "안내",
+            label: "당일 국내 시황은 16:00에 제공됩니다.",
+            text: "당일 국내 시황은 16:00에 제공됩니다.",
+          },
+        ];
+      })(),
+    },
+    {
+      id: "holdingIssues",
+      title: `보유 종목 주요 이슈 (${selectedCustomer?.name || selectedCustomer?.fallbackName || "고객"} 고객님)`,
+      lines: holdingLines,
+    },
+    {
+      id: "portfolioPerformance",
+      title: portfolioTitle,
+      lines: portfolioLines,
+    },
+  ];
 }
 
 function statusText(report: MarketReport | undefined, market: "us" | "kr") {
@@ -347,14 +741,51 @@ function NarrativePreview({ narrative, fallbackBullets }: { narrative?: MarketRe
 }
 
 function ReportPreviewCard({ title, summary, bullets, meta, narrative }: { title: string; summary: string; bullets: string[]; meta?: string; narrative?: MarketReportNarrative }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
   return (
-    <article className="min-h-[150px] rounded-lg border border-slate-100 bg-slate-50 p-3">
-      <div className="mb-2 flex items-start justify-between gap-2">
-        <p className="text-sm font-black text-navy">{title}</p>
-        {meta ? <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-black text-slate-400">{meta}</span> : null}
-      </div>
-      {!narrative ? <p className="text-xs font-bold leading-5 text-slate-600">{summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다."}</p> : null}
-      <NarrativePreview narrative={narrative} fallbackBullets={bullets} />
+    <article
+      className={`rounded-xl border border-slate-300 bg-slate-50 transition ${
+        isExpanded ? "" : "h-[118px]"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setIsExpanded((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-4 p-4 text-left"
+        aria-expanded={isExpanded}
+      >
+        <p className="min-w-0 text-sm font-black text-navy">{title}</p>
+
+        <div className="flex shrink-0 items-center gap-3">
+          {meta ? (
+            <span className="whitespace-nowrap text-xs font-bold text-slate-400">
+              {meta}
+            </span>
+          ) : null}
+
+          <ChevronDown
+            size={18}
+            strokeWidth={2}
+            className={`shrink-0 text-slate-400 transition-transform duration-200 ${
+              isExpanded ? "rotate-180" : ""
+            }`}
+            aria-hidden="true"
+          />
+        </div>
+      </button>
+
+      {isExpanded ? (
+        <div className="border-t border-slate-200 px-4 pb-4 pt-3">
+          {!narrative ? (
+            <p className="text-xs font-bold leading-5 text-slate-600">
+              {summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다."}
+            </p>
+          ) : null}
+
+          <NarrativePreview narrative={narrative} fallbackBullets={bullets} />
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -372,7 +803,7 @@ function MarketStatusRow({ label, market, report, refreshing, onRefresh }: { lab
         type="button"
         onClick={() => onRefresh(market)}
         disabled={refreshing}
-        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
+        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"
       >
         <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} /> 새로고침
       </button>
@@ -380,18 +811,120 @@ function MarketStatusRow({ label, market, report, refreshing, onRefresh }: { lab
   );
 }
 
-function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: MarketDashboardProps) {
-  const [audience, setAudience] = useState<AudienceTab>("managed");
+function MarketReportMailingPanel({ selectedCustomer, selectedState, customers = [], customerData = {}, pbName, pbId, pbEmployeeId }: MarketDashboardProps) {
   const [included, setIncluded] = useState(initialIncluded);
   const [reports, setReports] = useState<Record<"us" | "kr", MarketReport | undefined>>({ us: undefined, kr: undefined });
   const [loadingReports, setLoadingReports] = useState(true);
   const [reportsError, setReportsError] = useState("");
   const [refreshingMarket, setRefreshingMarket] = useState<"us" | "kr" | null>(null);
   const [actionMessage, setActionMessage] = useState("");
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [sendingCustomerMail, setSendingCustomerMail] = useState(false);
+  const [sendingAllCustomerMail, setSendingAllCustomerMail] = useState(false);
+  const [allMailProgress, setAllMailProgress] = useState("");
+  const [marketMailSends, setMarketMailSends] = useState<{
+    us: {
+      report_type: "us";
+      sent_at: string;
+      success_count: number;
+      failed_count: number;
+      skipped_count: number;
+    } | null;
+    kr: {
+      report_type: "kr";
+      sent_at: string;
+      success_count: number;
+      failed_count: number;
+      skipped_count: number;
+    } | null;
+  }>({ us: null, kr: null });
+
+  const [marketMailStatusLoaded, setMarketMailStatusLoaded] = useState(false);
+  const [pdfCustomerId, setPdfCustomerId] = useState<string>("");
+  const [pdfLineIncluded, setPdfLineIncluded] = useState<Record<string, boolean>>({});
+  const [pdfLineEdits, setPdfLineEdits] = useState<Record<string, string>>({});
+  const [editingPdfLineId, setEditingPdfLineId] = useState<string | null>(null);
+  const [pdfSelectionInitialized, setPdfSelectionInitialized] = useState(false);
   const [pbComment, setPbComment] = useState("");
   const [commentTouched, setCommentTouched] = useState(false);
   const [savingComment, setSavingComment] = useState(false);
+  const [holdingIssues, setHoldingIssues] = useState<HoldingIssueItem[]>([]);
+  const [openHoldingTicker, setOpenHoldingTicker] = useState<string | null>(null);
+  const [holdingIssuesExpanded, setHoldingIssuesExpanded] = useState(false);
+  const [loadingHoldingIssues, setLoadingHoldingIssues] = useState(false);
+  const [holdingIssuesError, setHoldingIssuesError] = useState("");
   const customerSections = buildCustomerReportSections(selectedCustomer, selectedState);
+  const pdfCustomer =
+    customers.find((customer) => customer.id === pdfCustomerId) ??
+    selectedCustomer ??
+    null;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMarketMailStatus() {
+      try {
+        const query = pbId
+          ? `?pbId=${encodeURIComponent(pbId)}`
+          : "";
+
+        const response = await fetch(
+          `/api/report-mail-status${query}`,
+          { cache: "no-store" },
+        );
+
+        const result = await response.json();
+
+        if (!cancelled && response.ok) {
+          setMarketMailSends({
+            us: result?.sends?.us ?? null,
+            kr: result?.sends?.kr ?? null,
+          });
+        }
+      } catch (error) {
+        console.error("시황 메일링 상태 조회 실패", error);
+      } finally {
+        if (!cancelled) {
+          setMarketMailStatusLoaded(true);
+        }
+      }
+    }
+
+    loadMarketMailStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pbId]);
+
+  const pdfCustomerState = pdfCustomer
+    ? customerData[pdfCustomer.id] ??
+      (pdfCustomer.id === selectedCustomer?.id ? selectedState : undefined)
+    : undefined;
+
+  const pdfCustomerSections = buildCustomerReportSections(
+    pdfCustomer,
+    pdfCustomerState,
+  );
+
+  const pdfCustomerBirthDate = pdfCustomer
+    ? (pdfCustomer.birth_year ?? pdfCustomer.birthYear ?? "")
+        .replace(/\D/g, "")
+        .slice(-6)
+    : "";
+  const pdfCustomerIndex = pdfCustomer
+    ? customers.findIndex((customer) => customer.id === pdfCustomer.id)
+    : -1;
+
+  function movePdfCustomer(offset: number) {
+    if (!customers.length) return;
+
+    const currentIndex = pdfCustomerIndex >= 0 ? pdfCustomerIndex : 0;
+    const nextIndex =
+      (currentIndex + offset + customers.length) % customers.length;
+
+    setPdfCustomerId(customers[nextIndex].id);
+  }
   const displayPbName = pbName?.trim() || "담당";
 
   useEffect(() => {
@@ -419,6 +952,60 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    console.log("[holding-issues-ui] pbId:", pbId, "pbEmployeeId:", pbEmployeeId);
+
+    async function loadHoldingIssues() {
+      if (!pbId && !pbEmployeeId) {
+        setHoldingIssues([]);
+        setHoldingIssuesError("");
+        return;
+      }
+
+      setLoadingHoldingIssues(true);
+      setHoldingIssuesError("");
+
+      try {
+        const params = new URLSearchParams();
+
+        if (pbId) params.set("pbId", pbId);
+        if (pbEmployeeId) params.set("pbEmployeeId", pbEmployeeId);
+
+        const response = await fetch(`/api/holding-issues?${params.toString()}`);
+        const body = (await response.json()) as HoldingIssuesResponse;
+
+        if (cancelled) return;
+
+        if (!response.ok) {
+          throw new Error(body.error || "보유 종목 이슈를 불러오지 못했습니다.");
+        }
+
+        setHoldingIssues(Array.isArray(body.items) ? body.items : []);
+      } catch (error) {
+        if (cancelled) return;
+
+        setHoldingIssues([]);
+        setHoldingIssuesError(
+          error instanceof Error
+            ? error.message
+            : "보유 종목 이슈를 불러오지 못했습니다.",
+        );
+      } finally {
+        if (!cancelled) {
+          setLoadingHoldingIssues(false);
+        }
+      }
+    }
+
+    void loadHoldingIssues();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pbId, pbEmployeeId]);
+
   async function refreshReports() {
     setRefreshingMarket("us");
     try {
@@ -438,7 +1025,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
   }
 
   function toggleItem(id: MailingItemId) {
-    setIncluded((prev) => ({ ...prev, [audience]: { ...prev[audience], [id]: !prev[audience][id] } }));
+    setIncluded((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   async function savePbComment(nextComment: string) {
@@ -459,73 +1046,482 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
   }
 
   function handlePdfPreview() {
-    setActionMessage("PDF 미리보기는 다음 단계에서 연결됩니다.");
+    const initialSelection = Object.fromEntries(
+      visiblePdfSections.flatMap((section) =>
+        section.lines.map((line) => [line.id, true]),
+      ),
+    );
+
+    setPdfLineIncluded(initialSelection);
+    setPdfSelectionInitialized(true);
+    setPdfCustomerId(selectedCustomer?.id ?? customers[0]?.id ?? "");
+    setPdfPreviewOpen(true);
   }
+  async function handleSendPdfToCustomer() {
+    if (!pdfCustomer?.id) {
+      setActionMessage("전송할 고객을 찾을 수 없습니다.");
+      return;
+    }
 
-  function handleSendMail() {
-    setActionMessage("메일 전송은 다음 단계에서 연결됩니다.");
+    const element = document.getElementById("market-report-pdf");
+
+    if (!element) {
+      setActionMessage("PDF 미리보기 영역을 찾을 수 없습니다.");
+      return;
+    }
+
+    try {
+      setSendingCustomerMail(true);
+      setActionMessage("PDF 생성 중...");
+
+      await document.fonts.ready;
+
+      const customerName =
+        pdfCustomer.name || pdfCustomer.fallbackName || "고객";
+
+      const fileName = `${customerName}_시황보고서.pdf`;
+
+      // 현재 PDF 미리보기 DOM을 그대로 복제
+      const clonedElement = element.cloneNode(true) as HTMLElement;
+
+      // textarea 등 편집 상태가 있으면 현재 값을 실제 HTML에 반영
+      const originalTextareas =
+        element.querySelectorAll<HTMLTextAreaElement>("textarea");
+
+      const clonedTextareas =
+        clonedElement.querySelectorAll<HTMLTextAreaElement>("textarea");
+
+      originalTextareas.forEach((textarea, index) => {
+        const clonedTextarea = clonedTextareas[index];
+
+        if (!clonedTextarea) return;
+
+        const replacement = document.createElement("div");
+        replacement.textContent = textarea.value;
+        replacement.className = textarea.className;
+        replacement.setAttribute(
+          "style",
+          textarea.getAttribute("style") ?? "",
+        );
+
+        clonedTextarea.replaceWith(replacement);
+      });
+
+      // 현재 페이지에 적용된 스타일시트 수집
+      const styles = Array.from(document.styleSheets)
+        .map((sheet) => {
+          try {
+            return Array.from(sheet.cssRules)
+              .map((rule) => rule.cssText)
+              .join("\n");
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      const response = await fetch("/api/send-report-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerId: pdfCustomer.id,
+          subject: `${customerName} 고객님 오늘의 시황 보고서`,
+          fileName,
+          html: clonedElement.outerHTML,
+          styles,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          typeof result?.error === "string"
+            ? result.error
+            : "메일 전송에 실패했습니다.",
+        );
+      }
+
+      setActionMessage(
+        `${customerName} 고객님께 시황 보고서를 전송했습니다.`,
+      );
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : "PDF 생성 또는 메일 전송 중 오류가 발생했습니다.",
+      );
+    } finally {
+      setSendingCustomerMail(false);
+    }
   }
+  async function handleSendPdfToAllCustomers() {
+    if (!customers.length) {
+      setActionMessage("전송할 고객이 없습니다.");
+      return;
+    }
 
-  useEffect(() => {
-    if (!commentTouched) return;
-    const id = window.setTimeout(() => {
-      void savePbComment(pbComment);
-    }, 600);
-    return () => window.clearTimeout(id);
-  }, [commentTouched, pbComment]);
+    const originalCustomerId = pdfCustomerId;
 
-  const activeIncluded = included[audience];
+    const reportTypesBeingSent: Array<"us" | "kr"> = [];
+
+    if (
+      activeIncluded.usMarket &&
+      reports.us?.generationStatus === "success"
+    ) {
+      reportTypesBeingSent.push("us");
+    }
+
+    if (
+      activeIncluded.krMarket &&
+      reports.kr?.generationStatus === "success"
+    ) {
+      reportTypesBeingSent.push("kr");
+    }
+
+    let successCount = 0;
+    const failedCustomers: string[] = [];
+    const skippedCustomers: string[] = [];
+
+    try {
+      setSendingAllCustomerMail(true);
+
+      for (let index = 0; index < customers.length; index += 1) {
+        const customer = customers[index];
+        const customerName =
+          customer.name || customer.fallbackName || "고객";
+
+        setAllMailProgress(`${index + 1}/${customers.length}`);
+        setActionMessage(
+          `${customerName} 고객님 보고서 생성 · 전송 중... (${index + 1}/${customers.length})`,
+        );
+
+        // PDF 대상을 현재 고객으로 변경
+        setPdfCustomerId(customer.id);
+
+        // React 렌더링 및 브라우저 페인트 완료 대기
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => resolve());
+          });
+        });
+
+        // 고객 변경에 따른 계산/렌더링이 확실히 반영될 시간을 조금 더 확보
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        const element = document.getElementById("market-report-pdf");
+
+        if (!element) {
+          failedCustomers.push(customerName);
+          continue;
+        }
+
+        try {
+          await document.fonts.ready;
+
+          const fileName = `${customerName}_시황보고서.pdf`;
+
+          const clonedElement = element.cloneNode(true) as HTMLElement;
+
+          const originalTextareas =
+            element.querySelectorAll<HTMLTextAreaElement>("textarea");
+
+          const clonedTextareas =
+            clonedElement.querySelectorAll<HTMLTextAreaElement>("textarea");
+
+          originalTextareas.forEach((textarea, textareaIndex) => {
+            const clonedTextarea = clonedTextareas[textareaIndex];
+            if (!clonedTextarea) return;
+
+            const replacement = document.createElement("div");
+            replacement.textContent = textarea.value;
+            replacement.className = textarea.className;
+            replacement.setAttribute(
+              "style",
+              textarea.getAttribute("style") ?? "",
+            );
+
+            clonedTextarea.replaceWith(replacement);
+          });
+
+          const styles = Array.from(document.styleSheets)
+            .map((sheet) => {
+              try {
+                return Array.from(sheet.cssRules)
+                  .map((rule) => rule.cssText)
+                  .join("\n");
+              } catch {
+                return "";
+              }
+            })
+            .filter(Boolean)
+            .join("\n");
+
+          const response = await fetch("/api/send-report-email", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              customerId: customer.id,
+              subject: `${customerName} 고객님 오늘의 시황 보고서`,
+              fileName,
+              html: clonedElement.outerHTML,
+              styles,
+            }),
+          });
+
+          const result = await response.json();
+
+          if (response.status === 404) {
+            skippedCustomers.push(customerName);
+            continue;
+          }
+
+          if (!response.ok) {
+            throw new Error(
+              typeof result?.error === "string"
+                ? result.error
+                : "메일 전송에 실패했습니다.",
+            );
+          }
+
+          successCount += 1;
+        } catch (error) {
+          console.error(`${customerName} 고객 메일 전송 실패`, error);
+          failedCustomers.push(customerName);
+        }
+      }
+      const allCustomersSentSuccessfully =
+        successCount > 0 &&
+        failedCustomers.length === 0 &&
+        skippedCustomers.length === 0;
+
+      if (allCustomersSentSuccessfully && reportTypesBeingSent.length > 0) {
+        try {
+          const savedStatuses = await Promise.all(
+            reportTypesBeingSent.map(async (reportType) => {
+              const response = await fetch("/api/report-mail-status", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  pbId: pbId || null,
+                  reportType,
+                  successCount,
+                  failedCount: 0,
+                  skippedCount: 0,
+                }),
+              });
+
+              const result = await response.json();
+
+              if (!response.ok) {
+                throw new Error(
+                  typeof result?.error === "string"
+                    ? result.error
+                    : "메일링 상태 저장에 실패했습니다.",
+                );
+              }
+
+              return result?.send ?? null;
+            }),
+          );
+
+          setMarketMailSends((prev) => {
+            const next = { ...prev };
+
+            for (const saved of savedStatuses) {
+              if (saved?.report_type === "us") {
+                next.us = saved;
+              }
+
+              if (saved?.report_type === "kr") {
+                next.kr = saved;
+              }
+            }
+
+            return next;
+          });
+        } catch (error) {
+          console.error("시황 메일링 전송 이력 저장 실패", error);
+        }
+      }
+
+
+      const resultParts = [`${successCount}명 성공`];
+
+      if (skippedCustomers.length > 0) {
+        resultParts.push(`${skippedCustomers.length}명 이메일 미등록`);
+      }
+
+      if (failedCustomers.length > 0) {
+        resultParts.push(`${failedCustomers.length}명 실패`);
+      }
+
+      setActionMessage(
+        `전체메일 전송 완료 · ${resultParts.join(" / ")}`,
+      );
+    } finally {
+      // 미리보기에서 원래 보고 있던 고객으로 복원
+      setPdfCustomerId(
+        originalCustomerId || selectedCustomer?.id || customers[0]?.id || "",
+      );
+      setSendingAllCustomerMail(false);
+      setAllMailProgress("");
+    }
+  }
+  const activeIncluded = included;
   const usReport = reports.us;
   const krReport = reports.kr;
 
+  function formatMarketStatusDate(value?: string | null) {
+    const source = value || new Date().toLocaleDateString("en-CA", {
+      timeZone: "Asia/Seoul",
+    });
+
+    const parts = source.split("-").map(Number);
+    const date = new Date(parts[0], parts[1] - 1, parts[2]);
+
+    const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+
+    return `${parts[1]}/${parts[2]}(${weekdays[date.getDay()]})`;
+  }
+
+  function getMarketMailingState(market: "us" | "kr") {
+    const report = market === "us" ? usReport : krReport;
+    const send = marketMailSends[market];
+
+    if (
+      !report ||
+      report.generationStatus !== "success" ||
+      !report.generatedAt
+    ) {
+      return {
+        text: "생성 전",
+        className: "text-slate-400",
+      };
+    }
+
+    if (!marketMailStatusLoaded) {
+      return {
+        text: "확인 중",
+        className: "text-slate-400",
+      };
+    }
+
+    const generatedAt = new Date(report.generatedAt).getTime();
+
+    const sentAt = send?.sent_at
+      ? new Date(send.sent_at).getTime()
+      : 0;
+
+    const completed =
+      Boolean(send) &&
+      send!.success_count > 0 &&
+      send!.failed_count === 0 &&
+      send!.skipped_count === 0 &&
+      sentAt >= generatedAt;
+
+    return completed
+      ? {
+          text: "전송 완료",
+          className: "text-emerald-600",
+        }
+      : {
+          text: "미전송",
+          className: "text-red-600",
+        };
+  }
+
+  const usMailingState = getMarketMailingState("us");
+  const krMailingState = getMarketMailingState("kr");
+
+  const pdfSections = pdfCustomer
+    ? buildPdfSelectableSections({
+        pbComment,
+        usReport,
+        krReport,
+        holdingIssues,
+        selectedCustomer: pdfCustomer,
+        portfolioTitle: pdfCustomerSections.portfolioPerformance.title,
+        portfolioSummary: pdfCustomerSections.portfolioPerformance.summary,
+        portfolioBullets: pdfCustomerSections.portfolioPerformance.bullets,
+      })
+    : [];
+
+  const pdfControlSections = pdfSections.filter(
+    (section) => section.id !== "pbComment",
+  );
+
+  const visiblePdfSections = pdfSections.filter((section) => {
+    if (section.id === "pbComment") return section.lines.length > 0;
+    return activeIncluded[section.id];
+  });
+
+  const selectedPdfSections = visiblePdfSections.filter((section) =>
+    section.lines.some(
+      (line) =>
+        !pdfSelectionInitialized ||
+        pdfLineIncluded[line.id] !== false,
+    ),
+  );
+
+  const pdfSectionNumber = new Map(
+    selectedPdfSections.map((section, index) => [section.id, index + 1]),
+  );
   return (
     <section className="flex w-full min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-blue-100 bg-white p-3 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-black text-navy">시황 보고서 메일링</p>
-        <button type="button" onClick={refreshReports} disabled={loadingReports || Boolean(refreshingMarket)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"><RefreshCw size={12} className={loadingReports || refreshingMarket ? "animate-spin" : ""} /> 새로고침</button>
-      </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+          <p className="text-sm font-black text-navy">시황 보고서 메일링</p>
 
-      <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
-        {audienceTabs.map((tab) => (
+          <div className="flex items-center gap-2">
+            <span
+              className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
+                usMailingState.text === "전송 완료"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : usMailingState.text === "미전송"
+                    ? "border-red-200 bg-red-50 text-red-600"
+                    : "border-slate-200 bg-slate-50 text-slate-500"
+              }`}
+            >
+              {formatMarketStatusDate(usReport?.reportDate)} 미국 시황 {usMailingState.text}
+            </span>
+
+            <span
+              className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
+                krMailingState.text === "전송 완료"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : krMailingState.text === "미전송"
+                    ? "border-red-200 bg-red-50 text-red-600"
+                    : "border-slate-200 bg-slate-50 text-slate-500"
+              }`}
+            >
+              {formatMarketStatusDate(krReport?.reportDate)} 국내 시황 {krMailingState.text}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
           <button
-            key={tab.id}
             type="button"
-            onClick={() => setAudience(tab.id)}
-            className={(audience === tab.id ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-600 hover:bg-blue-50") + " h-9 rounded-md text-xs font-black transition"}
+            onClick={handlePdfPreview}
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-600 transition hover:bg-slate-50"
           >
-            {tab.label}
+            <FileText size={13} /> PDF 미리보기
           </button>
-        ))}
+
+          <button type="button" onClick={refreshReports} disabled={loadingReports || Boolean(refreshingMarket)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-blue-100 bg-blue-50 px-2 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60"><RefreshCw size={12} className={loadingReports || refreshingMarket ? "animate-spin" : ""} /> 새로고침</button>
+        </div>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div className="grid gap-3">
-          <div className={(audience === "managed" ? "grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-2 xl:grid-cols-4" : "grid gap-2 rounded-lg border border-slate-100 bg-slate-50 p-3 sm:grid-cols-2")}>
-            {mailingItems[audience].map((item) => (
-              <label key={item.id} className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-black text-slate-700">
-                <input type="checkbox" checked={activeIncluded[item.id]} onChange={() => toggleItem(item.id)} className="h-4 w-4 rounded border-slate-300 accent-blue-600" />
-                {item.label}
-              </label>
-            ))}
-          </div>
-
-          <label className="grid gap-1.5 rounded-lg border border-slate-100 bg-white px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-black text-slate-700">{displayPbName} PB의 한 줄 코멘트</span>
-              <span className="text-[10px] font-bold text-slate-400">{pbComment.length}/100{savingComment ? " 저장 중" : ""}</span>
-            </div>
-            <input
-              type="text"
-              value={pbComment}
-              maxLength={100}
-              onChange={(event) => {
-                setPbComment(event.target.value.slice(0, 100));
-                setCommentTouched(true);
-              }}
-              placeholder="고객에게 전달하고 싶은 한 줄 코멘트를 입력하세요."
-              className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100"
-            />
-          </label>
 
 
           {reportsError ? <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">{reportsError}</p> : null}
@@ -534,41 +1530,689 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, pbName }: M
 
         <div className="grid gap-3 lg:grid-cols-2">
           <div className="grid content-start gap-3">
-            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={marketCardSummary(usReport, "us")} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={marketCardMeta(usReport, "us")} /> : null}
-            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={marketCardSummary(krReport, "kr")} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={marketCardMeta(krReport, "kr")} /> : null}
+            {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={marketCardSummary(usReport, "us")} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={marketCardMeta(usReport, "us").replace(/^.*?·\s*/, "")} /> : null}
+            {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={marketCardSummary(krReport, "kr")} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={marketCardMeta(krReport, "kr").replace(/^.*?·\s*/, "")} /> : null}
           </div>
           <div className="grid content-start gap-3">
-            {audience === "managed" && activeIncluded.holdingIssues ? <ReportPreviewCard title={customerSections.holdingIssues.title} summary={customerSections.holdingIssues.summary} bullets={customerSections.holdingIssues.bullets} /> : null}
-            {audience === "managed" && activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
+            {activeIncluded.holdingIssues ? (() => {
+  const groupedIssues = Array.from(
+    holdingIssues.reduce((map, issue) => {
+      const key = `${issue.market}:${issue.ticker}`;
+      const existing = map.get(key);
+
+      if (existing) {
+        existing.issues.push(issue);
+
+        for (const holder of issue.holders) {
+          if (
+            !existing.holders.some(
+              (existingHolder) =>
+                existingHolder.customerId === holder.customerId,
+            )
+          ) {
+            existing.holders.push(holder);
+          }
+        }
+      } else {
+        map.set(key, {
+          ticker: issue.ticker,
+          name: issue.name,
+          market: issue.market,
+          holders: [...issue.holders],
+          issues: [issue],
+        });
+      }
+
+      return map;
+    }, new Map<string, {
+      ticker: string;
+      name: string;
+      market: "kr" | "us";
+      holders: HoldingIssueItem["holders"];
+      issues: HoldingIssueItem[];
+    }>())
+    .values(),
+  );
+
+  return (
+    <div className={`rounded-xl border border-slate-300 bg-slate-50 transition ${holdingIssuesExpanded ? "" : "h-[118px]"}`}>
+      <div>
+  <button
+    type="button"
+    onClick={() => setHoldingIssuesExpanded((prev) => !prev)}
+    className="flex w-full items-center justify-between gap-4 p-4 text-left"
+    aria-expanded={holdingIssuesExpanded}
+  >
+    <div className="min-w-0">
+      <h3 className="text-sm font-black text-slate-900">
+        보유 종목 주요 이슈
+      </h3>
+    </div>
+
+    <ChevronDown
+      size={18}
+      strokeWidth={2}
+      className={`shrink-0 text-slate-400 transition-transform duration-200 ${
+        holdingIssuesExpanded ? "rotate-180" : ""
+      }`}
+      aria-hidden="true"
+    />
+  </button>
+  {holdingIssuesExpanded ? (
+    <div className="border-t border-slate-200 px-4 pb-4 pt-3">
+      <p className="text-xs font-bold text-slate-500">
+        {loadingHoldingIssues
+          ? "보유 종목 주요 이슈를 확인하고 있습니다."
+          : holdingIssuesError
+            ? holdingIssuesError
+            : groupedIssues.length > 0
+              ? `${groupedIssues.length}개 보유 종목에서 주요 이슈가 감지되었습니다.`
+              : "현재 주요 이슈가 감지된 보유 종목이 없습니다."}
+      </p>
+    </div>
+  ) : null}
+
+  {holdingIssuesExpanded &&
+  !loadingHoldingIssues &&
+  !holdingIssuesError &&
+  groupedIssues.length > 0 ? (
+    <p className="mt-2 px-4 text-[10px] font-medium text-slate-400">
+      ※종목명에 마우스를 올리면 해당 종목 보유고객을 확인할 수 있습니다.
+    </p>
+  ) : null}
+</div>
+
+      {holdingIssuesExpanded &&
+        !loadingHoldingIssues &&
+        !holdingIssuesError &&
+        groupedIssues.length > 0 ? (
+          <div className="grid gap-2 px-4 pb-4">
+            {groupedIssues.map((group) => {
+              const groupKey = `${group.market}:${group.ticker}`;
+              const isOpen = openHoldingTicker === groupKey;
+
+              const uniqueIssues = group.issues.filter(
+                (issue, index, issues) =>
+                  Boolean(issue.summary) &&
+                  issues.findIndex(
+                    (candidate) => candidate.summary === issue.summary,
+                  ) === index,
+              );
+
+              return (
+                <div
+                  key={groupKey}
+                  className="border-b border-slate-200 py-4 last:border-b-0"
+                >
+                  <div className="relative mb-3">
+                    <button
+                      type="button"
+                      onMouseEnter={() => {
+                        setOpenHoldingTicker(groupKey);
+
+                        window.setTimeout(() => {
+                          setOpenHoldingTicker((current) =>
+                            current === groupKey ? null : current,
+                          );
+                        }, 3000);
+                      }}
+                      className="rounded-md border border-blue-400 bg-blue-100 px-2.5 py-1 text-xs font-black text-black transition hover:bg-blue-200"
+                    >
+                      {group.name}
+                    </button>
+
+                    {isOpen ? (
+                      <div className="absolute left-0 top-full z-30 mt-2 min-w-44 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                        <p className="mb-2 whitespace-nowrap text-[11px] font-black text-slate-500">
+                          보유 고객
+                        </p>
+
+                        <div className="grid gap-1.5">
+                          {group.holders.map((holder) => {
+                            const birthDate = (holder.birthDate ?? "")
+                              .replace(/\D/g, "")
+                              .slice(-6);
+
+                            return (
+                              <p
+                                key={holder.customerId}
+                                className="whitespace-nowrap text-xs font-bold text-slate-800"
+                              >
+                                {holder.customerName}
+                                {birthDate ? ` (${birthDate})` : ""}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="min-w-0 flex-1 pt-1">
+                    {uniqueIssues.map((issue) =>
+                      issue.url ? (
+                        <div
+                          key={`${issue.issueType}:${issue.url}:${issue.summary}`}
+                          className="mb-2 last:mb-0"
+                        >
+                          <p className="text-xs font-semibold leading-5 text-slate-700">
+                            <a
+                              href={issue.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline decoration-slate-300 underline-offset-2 transition hover:text-blue-600 hover:decoration-blue-400"
+                            >
+                              {issue.summary}
+                            </a>
+                            {(issue.source || issue.publishedAt) ? (
+                              <span className="ml-1.5 whitespace-nowrap text-[10px] font-semibold text-slate-400 no-underline">
+                                {issue.source || "출처 미상"}
+                                {issue.publishedAt
+                                  ? issue.issueType === "disclosure"
+                                    ? ` · ${issue.publishedAt
+                                        .replace(/\./g, "-")
+                                        .split("-")
+                                        .slice(1)
+                                        .join(".")}.`
+                                    : ` · ${new Intl.DateTimeFormat("ko-KR", {
+                                        timeZone: "Asia/Seoul",
+                                        month: "2-digit",
+                                        day: "2-digit",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        hour12: false,
+                                      }).format(new Date(issue.publishedAt))}`
+                                  : ""}
+                              </span>
+                            ) : null}
+                          </p>
+                        </div>
+                      ) : (
+                        <p
+                          key={`${issue.issueType}:${issue.summary}`}
+                          className="mb-1 text-xs font-semibold leading-5 text-slate-700 last:mb-0"
+                        >
+                          {issue.summary}
+                        </p>
+                      ),
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+    </div>
+  );
+})() : null}{activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
           </div>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
-        <button type="button" onClick={handlePdfPreview} className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50">
-          <FileText size={14} /> PDF 미리보기
-        </button>
-        <button type="button" onClick={handleSendMail} className="inline-flex h-9 items-center gap-1 rounded-lg bg-blue-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-blue-700">
-          <Mail size={14} /> 메일 전송
-        </button>
-      </div>
-    </section>
+      {pdfPreviewOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-[9999] flex h-dvh w-screen items-center justify-center overflow-hidden bg-slate-950/50 p-4">
+              <div className="flex h-[58dvh] w-full max-w-none min-w-0 flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ height: "72vh", maxHeight: "72vh", width: "86vw", maxWidth: "1540px", minWidth: "1050px" }}>
+
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div>
+                <h2 className="text-lg font-black text-navy">PDF 미리보기</h2>
+                <p className="mt-0.5 text-xs font-semibold text-slate-400">
+                  왼쪽에서 포함할 항목을 선택하면 오른쪽 PDF에 즉시 반영됩니다.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+
+                <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => movePdfCustomer(-1)}
+                    disabled={customers.length <= 1}
+                    className="flex h-full w-8 items-center justify-center rounded-l-lg text-sm font-black text-slate-500 transition hover:bg-slate-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30"
+                    aria-label="이전 고객"
+                  >
+                    &lt;
+                  </button>
+
+                  <span className="min-w-[90px] px-2 text-center text-xs font-semibold text-slate-700">
+                    {pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"}
+                    {pdfCustomerBirthDate ? ` (${pdfCustomerBirthDate})` : ""}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => movePdfCustomer(1)}
+                    disabled={customers.length <= 1}
+                    className="flex h-full w-8 items-center justify-center rounded-r-lg text-sm font-black text-slate-500 transition hover:bg-slate-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30"
+                    aria-label="다음 고객"
+                  >
+                    &gt;
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendPdfToCustomer}
+                  disabled={sendingCustomerMail || sendingAllCustomerMail}
+                  className="h-9 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-xs font-black text-slate-700 transition hover:bg-slate-50"
+                >
+                  {sendingCustomerMail ? "PDF 생성 · 메일 전송 중..." : `${pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"} 고객 메일 전송`}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSendPdfToAllCustomers}
+                  disabled={sendingAllCustomerMail || sendingCustomerMail}
+                  className="h-9 rounded-lg border border-blue-200 bg-blue-50 px-4 text-xs font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
+                >
+                  {sendingAllCustomerMail
+                    ? `전체고객 전송 중... ${allMailProgress}`
+                    : "전체고객 메일 전송"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPdfPreviewOpen(false)}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 hover:bg-slate-50"
+                >
+                  닫기
+                </button>
+
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-1 items-stretch overflow-hidden">
+
+              <aside className="h-full min-h-0 w-[460px] shrink-0 overflow-x-hidden overflow-y-auto border-r border-slate-200 bg-slate-50 p-3" style={{ width: "460px", minWidth: "460px" }}>
+                <div className="grid gap-4">
+
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+  <p className="text-sm font-black text-navy">포함 항목 선택</p>
+  <p className="mt-1 text-xs font-semibold leading-5 text-slate-400">
+    상위 항목을 해제하면 해당 섹션 전체가 PDF에서 제외됩니다.
+  </p>
+
+  <div className="mt-3 grid grid-cols-2 gap-2">
+    {mailingItems.map((item) => (
+      <label
+        key={item.id}
+        className="flex cursor-pointer items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs font-black text-slate-700"
+      >
+        <input
+          type="checkbox"
+          checked={activeIncluded[item.id]}
+          onChange={() => toggleItem(item.id)}
+          className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+        />
+        {item.label}
+      </label>
+    ))}
+  </div>
+</div>
+
+<div className="rounded-xl border border-slate-200 bg-white p-3">
+  <div className="flex items-center justify-between gap-2">
+    <p className="text-sm font-black text-navy">
+      {displayPbName} PB의 한 줄 코멘트
+    </p>
+
+    <span className="text-[10px] font-bold text-slate-400">
+      {pbComment.length}/100{savingComment ? " 저장 중" : ""}
+    </span>
+  </div>
+
+  <input
+    type="text"
+    value={pbComment}
+    maxLength={100}
+    onChange={(event) => {
+      setPbComment(event.target.value.slice(0, 100));
+      setCommentTouched(true);
+    }}
+    placeholder="고객에게 전달하고 싶은 한 줄 코멘트를 입력하세요."
+    className="mt-2 h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100"
+  />
+</div>
+
+                  {pdfControlSections.map((section, sectionIndex) => (
+                    <div key={section.id} className={`rounded-xl border border-slate-200 bg-white p-3 ${activeIncluded[section.id as MailingItemId] ? "" : "opacity-50"}`}>
+                      <div className="mb-3 flex items-start justify-between gap-2">
+                        <p className="text-xs font-black leading-5 text-navy">
+                          {section.id === "usMarket"
+  ? `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}전일 미국 시황`
+  : section.id === "krMarket"
+    ? `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}당일 국내 시황`
+    : section.id === "holdingIssues"
+      ? `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}보유종목 주요 이슈`
+      : `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}월별 포트폴리오 성과`}
+                        </p>
+
+                        <span className="shrink-0 text-[10px] font-bold text-slate-400">
+                          {section.lines.filter((line) => pdfLineIncluded[line.id] !== false).length}/{section.lines.length}
+                        </span>
+                      </div>
+
+                      {section.lines.length ? (
+                        <div className="grid gap-3">
+                          {Array.from(new Set(section.lines.map((line) => line.group))).map((group) => {
+                            const groupLines = section.lines.filter((line) => line.group === group);
+
+                            return (
+                              <div key={`${section.id}:${group}`}>
+                                {group !== "안내" ? (
+  <p className="mb-1 text-[10px] font-black text-slate-400">{group}</p>
+) : null}
+
+                                <div className="grid gap-1">
+                                  {groupLines.map((line) => (
+                                    <label
+                                      key={line.id}
+                                      className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={!pdfSelectionInitialized || pdfLineIncluded[line.id] !== false}
+                                        disabled={!activeIncluded[section.id as MailingItemId]}
+                                        onChange={(event) =>
+                                          setPdfLineIncluded((current) => ({
+                                            ...current,
+                                            [line.id]: event.target.checked,
+                                          }))
+                                        }
+                                        className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
+                                      />
+
+                                      <div className="flex min-w-0 flex-1 items-start gap-2">
+                                        {editingPdfLineId === line.id ? (
+                                          <textarea
+                                            autoFocus
+                                            value={pdfLineEdits[line.id] ?? line.text}
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                            }}
+                                            onChange={(event) =>
+                                              setPdfLineEdits((current) => ({
+                                                ...current,
+                                                [line.id]: event.target.value,
+                                              }))
+                                            }
+                                            onBlur={() => setEditingPdfLineId(null)}
+                                            onKeyDown={(event) => {
+                                              if (event.key === "Escape") {
+                                                setEditingPdfLineId(null);
+                                              }
+
+                                              if (event.key === "Enter" && !event.shiftKey) {
+                                                event.preventDefault();
+                                                setEditingPdfLineId(null);
+                                              }
+                                            }}
+                                            rows={2}
+                                            className="min-w-0 flex-1 resize-none rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold leading-4 text-slate-700 outline-none focus:border-blue-400"
+                                          />
+                                        ) : (
+                                          <>
+                                            <span className="min-w-0 flex-1 text-[11px] font-semibold leading-4 text-slate-700">
+                                              {pdfLineEdits[line.id] ?? line.label}
+                                            </span>
+
+                                            <button
+                                              type="button"
+                                              onClick={(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                setEditingPdfLineId(line.id);
+                                              }}
+                                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-[13px] text-slate-400 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                              aria-label="문구 수정"
+                                              title="문구 수정"
+                                            >
+                                              ✎
+                                            </button>
+                                          </>
+                                        )}
+                                      </div>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] font-semibold text-slate-400">
+                          포함할 내용이 없습니다.
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </aside>
+
+              <main className="h-full min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto bg-slate-200 p-3">
+                <div className="flex w-full min-w-[794px] justify-start px-[24px]">
+
+                  <div
+                    id="market-report-pdf"
+                    className="box-border h-[1123px] w-[794px] shrink-0 origin-top overflow-hidden bg-white shadow-xl"
+                    style={{
+                      fontFamily: "Arial, Pretendard, sans-serif",
+                      fontSize: "10pt",
+
+                    }}
+                  >
+                    <div className="h-[9px] bg-blue-700" />
+
+                    <div
+                      className=""
+                      style={{
+                        paddingTop: "96px",
+                        paddingBottom: "96px",
+                        paddingLeft: "96px",
+                        paddingRight: "96px",
+                        boxSizing: "border-box",
+                      }}
+                    >
+
+                      <header className="border-b-2 border-slate-900 pb-4">
+                        <div className="flex items-end justify-between gap-6">
+                          <div>
+                            <h1 className="font-black tracking-tight text-slate-950" style={{ fontSize: "15pt" }}>
+                              {getPdfTodayTitle()}
+                            </h1>
+
+                            <p className="mt-2 font-normal text-slate-500">
+                              {pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"} 고객님
+                            </p>
+                          </div>
+
+                          <div className="text-right">
+                            <p className="text-[11pt] font-black tracking-tight text-blue-700">
+                              SAMSUNG
+                            </p>
+                            <p className="text-[8pt] font-black tracking-[0.18em] text-blue-700">
+                              SECURITIES
+                            </p>
+                          </div>
+                        </div>
+                      </header>
+
+                      <div className="mt-5 grid gap-5">
+                        {selectedPdfSections.map((section) => {
+                          const selectedLines = section.lines.filter(
+                            (line) => pdfLineIncluded[line.id] !== false,
+                          );
+
+                          if (!selectedLines.length) return null;
+                          const sectionNumber = pdfSectionNumber.has(section.id) ? `${pdfSectionNumber.get(section.id)}.` : "";
+
+                          const sectionTitle =
+                            section.id === "pbComment"
+                              ? `${displayPbName} PB의 한 줄 코멘트`
+                              : section.id === "usMarket"
+                                ? "전일 미국 시황"
+                                : section.id === "krMarket"
+                                  ? "당일 국내 시황"
+                                  : section.id === "holdingIssues"
+                                    ? `보유종목 주요 이슈 (${pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"} 고객님)`
+                                    : `월별 포트폴리오 성과 (${pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"} 고객님)`;
+
+                          const marketMeta =
+                            section.id === "usMarket"
+                              ? getPdfMarketMeta(usReport).replace(
+                                  /(생성\s+\d{2}\.\d{2}\s+)\d{2}:\d{2}/,
+                                  "$1" + "08:30",
+                                )
+                              : section.id === "krMarket"
+                                ? getPdfMarketMeta(krReport).replace(
+                                    /(생성\s+\d{2}\.\d{2}\s+)\d{2}:\d{2}/,
+                                    "$1" + "16:00",
+                                  )
+                                : "";
+
+                          return (
+                            <section key={section.id}>
+                              <div className="flex items-baseline justify-between gap-4">
+                                <h2 className="font-semibold tracking-tight text-slate-950" style={{ fontSize: "13pt" }}>
+                                  {sectionNumber} {sectionTitle}
+                                </h2>
+
+                                {marketMeta ? (
+                                  <p className="shrink-0 font-bold text-slate-400" style={{ fontSize: "8pt" }}>
+                                    ({marketMeta})
+                                  </p>
+                                ) : section.id === "holdingIssues" ? (
+          <p
+            className="shrink-0 font-normal text-slate-400"
+            style={{ fontSize: "7.5pt" }}
+          >
+            (기사 제목 클릭 시 외부 페이지로 이동합니다.)
+          </p>
+        ) : null}
+                              </div>
+
+                              <div
+                                data-pdf-section-line="true"
+                                aria-hidden="true"
+                                style={{
+                                  width: "100%",
+                                  height: "1px",
+                                  backgroundColor: "#cbd5e1",
+                                  marginTop: "6px",
+                                  marginBottom: "8px",
+                                }}
+                              />
+
+                              <div className="grid gap-2.5">
+                                {Array.from(new Set(selectedLines.map((line) => line.group))).map((group) => {
+                                  const groupLines = selectedLines.filter((line) => line.group === group);
+
+                                  return (
+                                    <div key={`${section.id}:preview:${group}`} style={{ marginBottom: "22px" }}>
+
+                                      {group !== "안내" &&
+                                      section.id !== "pbComment" &&
+                                      section.id !== "holdingIssues" &&
+                                      section.id !== "portfolioPerformance" ? (
+                                        <div className="mb-1 flex items-baseline gap-2">
+                                          <h3
+                                            className="font-semibold text-slate-700"
+                                            style={{ fontSize: "11pt" }}
+                                          >
+                                            {group}
+                                          </h3>
+
+                                          {group === "주요 시장 뉴스" ? (
+                                            <span
+                                              className="shrink-0 font-normal text-slate-400"
+                                              style={{ fontSize: "7.5pt" }}
+                                            >
+                                              (기사 제목 클릭 시 외부 페이지로 이동합니다.)
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                      ) : null}
+
+                                      <div className="grid gap-1.5">
+                                        {groupLines.map((line, lineIndex) => (
+                                          <div key={line.id} className="leading-[1.9] text-slate-700" style={{ fontSize: "10pt" }}>
+
+                                            {section.id === "holdingIssues" &&
+                                            line.badge &&
+                                            !groupLines
+                                              .slice(0, lineIndex)
+                                              .some((previousLine) => previousLine.badge === line.badge) ? (
+                                              <div className="mb-1 flex items-center gap-2">
+                                                <span className="inline-flex rounded-md border border-blue-300 bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+                                                  {line.badge}
+                                                </span>
+                                              </div>
+                                            ) : null}
+
+                                            <div className="flex items-start gap-1.5">
+                                              {section.id !== "pbComment" ? (
+                                                <span className="shrink-0 font-black text-slate-400">•</span>
+                                              ) : null}
+
+                                              <div className="min-w-0">
+                                                {line.url ? (
+                                                  <a
+                                                    href={line.url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="font-normal text-slate-700 underline decoration-slate-400 underline-offset-2"
+                                                  >
+                                                    <PdfRichText text={pdfLineEdits[line.id] ?? line.text} />
+                                                  </a>
+                                                ) : (
+                                                  <span className="font-normal">
+                                                    <PdfRichText text={pdfLineEdits[line.id] ?? line.text} />
+                                                  </span>
+                                                )}
+
+                                                {line.meta ? (
+                                                  <span className="ml-2 whitespace-nowrap font-bold text-slate-400" style={{ fontSize: "8pt" }}>
+                                                    {line.meta}
+                                                  </span>
+                                                ) : null}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </section>
+                          );
+                        })}
+                      </div>
+
+                    </div>
+                  </div>
+
+                </div>
+              </main>
+
+            </div>
+          </div>
+        </div>,
+            document.body,
+          )
+        : null}
+</section>
   );
 }
 
-export default function MarketDashboard({ selectedCustomer, selectedState, pbName }: MarketDashboardProps) {
+export default function MarketDashboard({ selectedCustomer, selectedState, customers = [], customerData = {}, pbName, pbId, pbEmployeeId }: MarketDashboardProps) {
   return (
     <div className="flex w-full min-w-0 max-w-full flex-1 flex-col gap-4">
       <MacroChartViewer />
-      <MarketReportMailingPanel selectedCustomer={selectedCustomer} selectedState={selectedState} pbName={pbName} />
+      <MarketReportMailingPanel selectedCustomer={selectedCustomer} selectedState={selectedState} customers={customers} customerData={customerData} pbName={pbName} pbId={pbId} pbEmployeeId={pbEmployeeId} />
       <SectorScanner />
     </div>
   );
 }
-
-
-
-
-
-
-

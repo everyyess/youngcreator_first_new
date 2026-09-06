@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
+import { Activity, AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import { useCustomerView } from "../CustomerViewContext";
 import {
   fmt,
   fmtPct,
+  HealthRadarChart,
   InteractiveDonutWithTable,
   MetricCard,
   NewPortfolioPlaceholder,
@@ -28,6 +29,7 @@ import {
 } from "../tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
 import { PortfolioReportPdf, OPTIONAL_SECTIONS, type ReportSectionToggles, type ReportMode } from "./PortfolioReportPdf";
+import ProposalGenerator from "./ProposalGenerator";
 
 const SCENARIO_KEYS = STRESS_SCENARIO_ORDER.map((s) => s.key);
 
@@ -114,19 +116,24 @@ export default function Tab4Page() {
   const [selectedScenario, setSelectedScenario] = useState(0);
   const printRef = useRef<HTMLDivElement>(null);
   const [showReportOptions, setShowReportOptions] = useState(false);
+  const [showProposalGenerator, setShowProposalGenerator] = useState(false);
   const [reportMode, setReportMode] = useState<ReportMode>("normal");
+  const [consultationProposal, setConsultationProposal] = useState<import("./PortfolioReportPdf").ConsultationProposalSections | undefined>(undefined);
   const [reportSections, setReportSections] = useState<ReportSectionToggles>({
     stress: true, health: true, taxIncome: true, holdings: true,
   });
 
-  useEffect(() => {
+  useEffect(() => { 
     if (!selectedCustomer) return;
     // Clear stale state from previous customer immediately
     setSummary(null);
     setNewSummary(null);
     const wasReset = sessionStorage.getItem(FINANCIAL_INCOME_RESET_KEY) === '1';
     if (wasReset) {
-      loadTaxSummaries(selectedCustomer).then(({ newSummary }) => {
+      // 신규 포트폴리오만 리셋된 상태 — 기존(현재) 세금 점검은 그대로 로드해야 함
+      loadTaxSummaries(selectedCustomer).then(({ currentSummary, newSummary }) => {
+        if (currentSummary) setSummary(currentSummary as FinancialIncomeSummary);
+        else { try { const l = localStorage.getItem(FINANCIAL_INCOME_STORAGE_KEY); if (l) setSummary(JSON.parse(l)); } catch {} }
         if (newSummary) setNewSummary(newSummary as FinancialIncomeSummary);
         else { try { const l = localStorage.getItem(NEW_PORTFOLIO_INCOME_STORAGE_KEY); if (l) setNewSummary(JSON.parse(l)); } catch {} }
       });
@@ -194,6 +201,7 @@ export default function Tab4Page() {
   return (
     <div className="space-y-6">
 
+      {/* 절세 제안 전략 — 2026-09-05 임시 비활성화(사용자 요청). 복구하려면 이 주석과 아래 트리거 버튼 주석을 해제할 것.
       {showPensionPanel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowPensionPanel(false)}>
           <div className="relative w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={e => e.stopPropagation()}>
@@ -212,6 +220,24 @@ export default function Tab4Page() {
           </div>
         </div>
       )}
+      */}
+
+<ProposalGenerator
+        open={showProposalGenerator}
+        onClose={() => setShowProposalGenerator(false)}
+        onApproved={(sections) => {
+          setConsultationProposal(sections);
+          setShowProposalGenerator(false);
+          setShowReportOptions(true);
+        }}
+        customerName={selectedCustomerProfile?.name || selectedCustomerProfile?.fallbackName || "고객"}
+        leftData={leftData}
+        rightData={rightData}
+        leftAssets={leftAssets}
+        rightAssets={rightAssets}
+        leftMetrics={leftMetrics}
+        rightMetrics={rightMetrics}
+      />
 
       {showReportOptions && (
         <ReportOptionsModal
@@ -232,6 +258,7 @@ export default function Tab4Page() {
           setMode={setReportMode}
           leftMetrics={leftMetrics}
           rightMetrics={rightMetrics}
+          consultationProposal={consultationProposal}
         />
       )}
 
@@ -247,13 +274,14 @@ export default function Tab4Page() {
         </div>
         <button
           type="button"
-          onClick={() => setShowReportOptions(true)}
+          onClick={() => setShowProposalGenerator(true)}
           disabled={!leftData && !rightData}
           className="inline-flex items-center gap-2 rounded-lg border border-samsung bg-white px-4 py-2.5 text-sm font-bold text-samsung shadow-soft transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Download size={16} />
           포트폴리오 제안서 PDF 생성
         </button>
+       
       </div>
 
       <div ref={printRef} className="space-y-6 bg-white">
@@ -270,14 +298,24 @@ export default function Tab4Page() {
             </span>
           </div>
 
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-4">
             {leftData?.portfolioIssueSummary && leftData.healthResult && (
               <PortfolioIssueBanner healthResult={leftData.healthResult} stressResult={leftStressResult} />
             )}
+            {leftData?.healthResult?.items && (
+              <ResultCard icon={<Activity size={18} />} title="진단 점수 시각화" accent="blue">
+                <HealthRadarChart items={leftData.healthResult.items} badge={leftData.healthResult.badge} />
+              </ResultCard>
+            )}
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-4">
             {rightData?.portfolioIssueSummary && rightData.healthResult && (
               <PortfolioIssueBanner healthResult={rightData.healthResult} stressResult={rightStressResult} />
+            )}
+            {rightData?.healthResult?.items && (
+              <ResultCard icon={<Activity size={18} />} title="진단 점수 시각화" accent="blue">
+                <HealthRadarChart items={rightData.healthResult.items} badge={rightData.healthResult.badge} />
+              </ResultCard>
             )}
           </div>
 
@@ -348,14 +386,16 @@ export default function Tab4Page() {
         <div className="space-y-3">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="flex flex-col gap-2">
-              {summary && (
-                <>
-                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-samsung text-[10px] font-bold text-white">A</span>
-                    <span className="text-xs font-bold text-navy">기존 포트폴리오 세금 점검</span>
-                  </div>
-                  <FinancialIncomeGauge summary={summary} hideCapitalGains={true} />
-                </>
+              <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-soft">
+                <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${summary ? "bg-samsung" : "bg-slate-300"}`}>A</span>
+                <span className={`text-xs font-bold ${summary ? "text-navy" : "text-slate-400"}`}>기존 포트폴리오 세금 점검</span>
+              </div>
+              {summary ? (
+                <FinancialIncomeGauge summary={summary} hideCapitalGains={true} />
+              ) : (
+                <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
+                  <p className="text-xs font-semibold text-slate-400">TAB1에서 기존 포트폴리오 자산 입력 후<br />기존 세금 점검이 표시됩니다.</p>
+                </div>
               )}
             </div>
             <div className="flex flex-col gap-2">
@@ -364,9 +404,11 @@ export default function Tab4Page() {
                   <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${newSummary ? "bg-emerald-500" : "bg-slate-300"}`}>B</span>
                   <span className={`text-xs font-bold ${newSummary ? "text-navy" : "text-slate-400"}`}>신규 포트폴리오 세금 점검</span>
                 </div>
+                {/* 절세 제안 전략 트리거 버튼 — 2026-09-05 임시 비활성화(사용자 요청). 복구하려면 주석 해제.
                 <button type="button" onClick={() => setShowPensionPanel(true)} className="flex items-center gap-1.5 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition shrink-0">
                   <Sparkles size={11} /> 절세 제안 전략
                 </button>
+                */}
               </div>
               {newSummary ? (
                 <FinancialIncomeGauge summary={newSummary} />
@@ -425,7 +467,7 @@ function ReportOptionsModal({
   leftData, rightData, leftAssets, rightAssets,
   leftAfterTaxReturn, rightAfterTaxReturn,
   summary, newSummary, marginalTaxRate, mode, setMode,
-  leftMetrics, rightMetrics,
+  leftMetrics, rightMetrics, consultationProposal,
 }: {
   sections: ReportSectionToggles; setSections: (s: ReportSectionToggles) => void;
   onClose: () => void; customerName: string;
@@ -435,6 +477,7 @@ function ReportOptionsModal({
   summary: FinancialIncomeSummary | null; newSummary: FinancialIncomeSummary | null;
   marginalTaxRate?: number; mode: ReportMode; setMode: (m: ReportMode) => void;
   leftMetrics: MetricSnapshot; rightMetrics: MetricSnapshot;
+  consultationProposal?: import("./PortfolioReportPdf").ConsultationProposalSections;
 }) {
   const toggle = (key: keyof ReportSectionToggles) => setSections({ ...sections, [key]: !sections[key] });
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
@@ -494,6 +537,7 @@ function ReportOptionsModal({
             leftTaxSummary={summary} rightTaxSummary={newSummary}
             marginalTaxRate={marginalTaxRate} mode={mode} onGenerated={onClose}
             leftMetrics={leftMetrics} rightMetrics={rightMetrics}
+            consultationProposal={consultationProposal}
           />
         </div>
       </div>
@@ -508,6 +552,7 @@ function PDFDownloadLinkClient(props: {
   leftTaxSummary: FinancialIncomeSummary | null; rightTaxSummary: FinancialIncomeSummary | null;
   marginalTaxRate?: number; mode?: ReportMode; onGenerated: () => void;
   leftMetrics: MetricSnapshot; rightMetrics: MetricSnapshot;
+  consultationProposal?: import("./PortfolioReportPdf").ConsultationProposalSections;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [PDFDownloadLink, setPDFDownloadLink] = useState<any>(null);
@@ -529,15 +574,16 @@ function PDFDownloadLinkClient(props: {
 
   return (
     <PDFDownloadLink
-      document={
-        <PortfolioReportPdf
-          customerName={props.customerName} reportDate={props.reportDate}
-          sections={props.sections} left={props.left} right={props.right}
-          leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
-          marginalTaxRate={props.marginalTaxRate} mode={props.mode}
-          aiComment={aiComment}
-        />
-      }
+    document={
+      <PortfolioReportPdf
+        customerName={props.customerName} reportDate={props.reportDate}
+        sections={props.sections} left={props.left} right={props.right}
+        leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
+        marginalTaxRate={props.marginalTaxRate} mode={props.mode}
+        aiComment={aiComment}
+        consultationProposal={props.consultationProposal}
+      />
+    }
       fileName={`${props.customerName}_포트폴리오_제안서_${props.reportDate.replace(/[^0-9]/g, "")}.pdf`}
       className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90"
     >
