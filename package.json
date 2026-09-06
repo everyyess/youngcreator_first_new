@@ -1,4 +1,5 @@
 {
+  "name": "youngcreatorfirst",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
