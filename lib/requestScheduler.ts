@@ -40,7 +40,7 @@ const g = globalThis as unknown as {
   _reqSchedGemini?: ReturnType<typeof createLimiter>;
 };
 
-/** 외부 데이터 API(내부 라우트 경유 포함: 뉴스·블로그·리포트·텔레그램·Yahoo·KRX) 공용 풀 */
+/** 외부 데이터 API(내부 라우트 경유 포함: 뉴스·리포트·텔레그램·Yahoo·KRX) 공용 풀 */
 export const externalApiLimit = (g._reqSchedExternal ??= createLimiter(4));
 
 /** Gemini LLM 호출 공용 풀 — 두 엔진이 동시에 돌아도 LLM 동시 요청은 5개로 제한 */

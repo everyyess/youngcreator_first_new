@@ -249,3 +249,159 @@
   .elb-els-simulator .model-table > div { grid-template-columns: .8fr 1fr 1fr; }
   .elb-els-simulator .condition-grid { gap: 17px; }
 }
+
+/* PB workspace theme bridge ------------------------------------------------- */
+.elb-els-simulator {
+  color: #172033;
+  background: transparent;
+}
+
+.elb-els-simulator main {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+.elb-els-simulator .hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 45px rgba(13, 31, 58, 0.08);
+}
+
+.elb-els-simulator .hero-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.elb-els-simulator .hero-icon {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #2f2f9d;
+  color: #fff;
+}
+
+.elb-els-simulator .hero h1 {
+  margin: 0;
+  color: #0b1f3a;
+  font-size: 1.125rem;
+  font-weight: 900;
+  line-height: 1.5;
+  letter-spacing: -0.025em;
+}
+
+.elb-els-simulator .hero-description {
+  max-width: none;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.elb-els-simulator .beta-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #eef0ff;
+  padding: 5px 9px;
+  color: #2f2f9d;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.elb-els-simulator .product-section {
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 45px rgba(13, 31, 58, 0.08);
+}
+
+.elb-els-simulator .section-heading { margin-bottom: 16px; }
+.elb-els-simulator .section-heading h2 { color: #0b1f3a; font-size: 1rem; font-weight: 800; }
+.elb-els-simulator .section-heading--products > span { color: #94a3b8; font-weight: 700; }
+.elb-els-simulator .eyebrow { color: #2f2f9d; }
+
+.elb-els-simulator .product-card,
+.elb-els-simulator .detail-card,
+.elb-els-simulator .simulation-card,
+.elb-els-simulator .results-card,
+.elb-els-simulator .simulator-panel,
+.elb-els-simulator .results-dashboard,
+.elb-els-simulator .results-empty {
+  border-color: #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.elb-els-simulator .product-card { min-height: 310px; }
+.elb-els-simulator .product-card:hover,
+.elb-els-simulator .product-card:focus-visible {
+  border-color: rgba(47, 47, 157, 0.48);
+  box-shadow: 0 12px 28px rgba(47, 47, 157, 0.12);
+}
+
+.elb-els-simulator input,
+.elb-els-simulator select {
+  border-color: #cbd5e1;
+  border-radius: 8px;
+  color: #172033;
+}
+
+.elb-els-simulator input:focus,
+.elb-els-simulator select:focus {
+  border-color: #2f2f9d;
+  outline: 2px solid rgba(47, 47, 157, 0.16);
+}
+
+.elb-els-simulator .run-button {
+  border-radius: 8px;
+  background: #2f2f9d;
+  box-shadow: 0 5px 12px rgba(47, 47, 157, 0.2);
+}
+.elb-els-simulator .run-button:hover { background: #252285; }
+
+.elb-els-simulator .path-controls button.active,
+.elb-els-simulator .strategy-horizon button.active {
+  border-color: #2f2f9d;
+  background: #eef0ff;
+  color: #2f2f9d;
+}
+.elb-els-simulator .stress-buttons button.active {
+  border-color: #2f2f9d;
+  background: #2f2f9d;
+}
+
+.elb-els-simulator .result-summary,
+.elb-els-simulator .analog-summary {
+  border-left-color: #2f2f9d;
+  background: #f7f7ff;
+}
+.elb-els-simulator .method-panel summary,
+.elb-els-simulator .product-documents summary { color: #2f2f9d; }
+.elb-els-simulator .product-documents { border-color: #e2e8f0; background: #f8fafc; }
+.elb-els-simulator .product-documents summary span,
+.elb-els-simulator .product-documents a i { background: #eef0ff; color: #2f2f9d; }
+.elb-els-simulator .product-documents a:hover { border-color: rgba(47, 47, 157, 0.45); background: #f7f7ff; }
+
+@media (max-width: 640px) {
+  .elb-els-simulator .hero,
+  .elb-els-simulator .product-section { padding: 16px; }
+  .elb-els-simulator .hero { align-items: flex-start; }
+  .elb-els-simulator .beta-badge { margin-top: 4px; }
+}

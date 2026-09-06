@@ -1,7 +1,7 @@
 "use client";
 
 // 통합 인사이트 — 태그 트렌드 뷰
-// 5개 DB에서 언급된 키워드의 랭킹(TOP 20)과 일별 언급량 추이를 보여준다.
+// 3개 DB에서 언급된 키워드의 랭킹(TOP 20)과 일별 언급량 추이를 보여준다.
 //  · 기본: 전체 언급량 일별 스택바 (소스별)
 //  · 키워드 선택(최대 5개): 구글 트렌드식 시계열 오버레이 비교 + 관련 자료 피드
 // 색상 팔레트는 dataviz validator 통과 세트 (흰 배경 기준, 인접쌍 CVD ΔE ≥ 16).
@@ -16,12 +16,12 @@ import { allTags, KEYWORD_COLORS, topTags, type TagType } from "./insightAggrega
 import KeywordLiveSearch from "./KeywordLiveSearch";
 
 // ── 색상 (validator 통과) ────────────────────────────────────────────────────
-const SOURCE_ORDER: InsightSource[] = ["youtube", "blog", "telegram", "news", "report"];
+const SOURCE_ORDER: InsightSource[] = ["telegram", "news", "report"];
 const SOURCE_COLORS: Record<InsightSource, string> = {
-  youtube: "#DC2626", blog: "#F59E0B", telegram: "#0EA5E9", news: "#1D4ED8", report: "#A21CAF",
+  telegram: "#0EA5E9", news: "#1D4ED8", report: "#A21CAF",
 };
 const SOURCE_LABELS: Record<InsightSource, string> = {
-  youtube: "유튜브", blog: "블로그", telegram: "텔레그램", news: "뉴스", report: "리포트",
+  telegram: "텔레그램", news: "뉴스", report: "리포트",
 };
 const MAX_COMPARE = 5;
 
@@ -160,7 +160,7 @@ export default function KeywordTrendView({
       for (const t of new Set(allTags(it))) {
         let rec = m.get(t);
         if (!rec) {
-          rec = { youtube: 0, blog: 0, telegram: 0, news: 0, report: 0 };
+          rec = { telegram: 0, news: 0, report: 0 };
           m.set(t, rec);
         }
         rec[it.source]++;
@@ -180,7 +180,7 @@ export default function KeywordTrendView({
 
   const overviewData = useMemo(() => {
     const byDate = new Map<string, Record<InsightSource, number>>();
-    for (const d of dates) byDate.set(d, { youtube: 0, blog: 0, telegram: 0, news: 0, report: 0 });
+    for (const d of dates) byDate.set(d, { telegram: 0, news: 0, report: 0 });
     for (const it of curItems) {
       const rec = byDate.get(it.date);
       if (rec) rec[it.source]++;

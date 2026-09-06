@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { formatSupabaseError, getInsightSupabase, insightDbUnavailable } from "./supabaseInsightDb";
 
-export function createFolderRoute(prefix: "youtube" | "blog" | "telegram") {
+export function createFolderRoute(prefix: "telegram") {
   const foldersTable = `${prefix}_folders`;
   const itemsTable = `${prefix}_folder_items`;
   return {

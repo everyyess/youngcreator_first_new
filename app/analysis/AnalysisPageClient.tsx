@@ -124,11 +124,6 @@ function AnalysisTabs({
   isInsightSessionReady: boolean;
 }) {
   const router = useRouter();
-  const insightTabs = [
-    ["youtube", "유튜브 DB"], ["blog", "블로그 DB"], ["telegram", "텔레그램 DB"],
-    ["news", "뉴스 DB"], ["report", "리포트 DB"], ["insight", "통합 인사이트"],
-  ] as const;
-  const activeInsightTab = contextValue.sharedUiState.tab4?.activeInnerTab ?? "youtube";
   const stockHoldings = useMemo(() => {
     const merged = [
       ...(contextValue.analysisResult?.enrichedAssets ?? []),
@@ -266,28 +261,23 @@ function AnalysisTabs({
             ) : null}
           </div>
         ) : activeTopTab === "competitors" ? (
-          <PeerAnalysisTab />
+          <div className="project-ui-theme">
+            <PeerAnalysisTab />
+          </div>
         ) : activeTopTab === "insight" && !isInsightSessionReady ? (
           <section className="min-h-[320px] rounded-lg border border-slate-200 bg-white p-6 text-sm font-bold text-slate-400 shadow-soft">
             통합 인사이트용 Supabase 세션을 연결하는 중입니다.
           </section>
         ) : activeTopTab === "insight" ? (
           <BackgroundEngineProvider>
-            <div className="flex flex-col gap-4">
-              <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
-                {insightTabs.map(([id, label]) => (
-                  <button key={id} type="button"
-                    onClick={() => contextValue.updateSharedUiState({ tab4: { activeInnerTab: id } })}
-                    className={`min-h-10 shrink-0 flex-1 rounded-md px-3 py-2 text-sm font-bold transition ${activeInsightTab === id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100"}`}>
-                    {label}
-                  </button>
-                ))}
-              </div>
+            <div className="project-ui-theme flex flex-col gap-4">
               <IntegratedInsight />
             </div>
           </BackgroundEngineProvider>
         ) : activeTopTab === "elbEls" ? (
-          <ElbElsSimulator />
+          <div className="project-ui-theme">
+            <ElbElsSimulator />
+          </div>
         ) : (
           <PlaceholderContent label={analysisTopTabs.find((tab) => tab.id === activeTopTab)?.label ?? "선택한 탭"} />
         )}
@@ -307,7 +297,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   const [storageErrorMessage, setStorageErrorMessage] = useState("");
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [sharedUiState, setSharedUiState] = useState<SharedMaintabUiState>({ tab2: { activeInnerTab: "peer" }, tab4: { activeInnerTab: "youtube" } });
+  const [sharedUiState, setSharedUiState] = useState<SharedMaintabUiState>({ tab2: { activeInnerTab: "peer" }, tab4: { activeInnerTab: "insight" } });
   const [isInsightSessionReady, setIsInsightSessionReady] = useState(false);
   const loadedPortfolioRef = useRef(new Set<CustomerId>());
 
@@ -393,7 +383,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     if (!selectedCustomer) return;
     let cancelled = false;
     loadSharedMaintabUiState(selectedCustomer).then((state) => {
-      if (!cancelled) setSharedUiState({ ...state, tab2: { ...state.tab2, activeInnerTab: "peer" }, tab4: state.tab4 ?? { activeInnerTab: "youtube" } });
+      if (!cancelled) setSharedUiState({ ...state, tab2: { ...state.tab2, activeInnerTab: "peer" }, tab4: { ...state.tab4, activeInnerTab: "insight" } });
     });
     return () => { cancelled = true; };
   }, [selectedCustomer]);

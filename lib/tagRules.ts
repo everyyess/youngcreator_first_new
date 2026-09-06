@@ -1150,6 +1150,49 @@ export function normalizeCompanies(tags: string[]): string[] {
   return out;
 }
 
+function containsTagMention(text: string, candidate: string): boolean {
+  const compactText = text.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+  const compactCandidate = candidate.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+  if (!compactCandidate) return false;
+
+  if (/^[가-힣]$/.test(candidate)) {
+    const escaped = candidate.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    return new RegExp(`(^|[^0-9a-z가-힣])${escaped}([^0-9a-z가-힣]|$)`, "i").test(text);
+  }
+  if (/^[a-z0-9]+$/i.test(candidate) && compactCandidate.length <= 3) {
+    const escaped = candidate.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(text);
+  }
+  return compactText.includes(compactCandidate);
+}
+
+function mentionedTags(
+  text: string,
+  canonical: readonly string[],
+  synonyms: Record<string, string>,
+): string[] {
+  return [
+    ...canonical.filter((tag) => containsTagMention(text, tag)),
+    ...Object.keys(synonyms).filter((tag) => containsTagMention(text, tag)),
+  ];
+}
+
+/**
+ * AI 태그가 아직 저장되지 않은 목록/레거시 행을 위한 결정적 폴백 추출.
+ * 기준 태그뿐 아니라 동의어 키도 함께 탐색한 뒤 기존 정규화 규칙을 그대로 적용한다.
+ */
+export function extractMappedTags(text: string): {
+  topics: string[];
+  companies: string[];
+  macro: string[];
+} {
+  return {
+    topics: normalizeTopics(mentionedTags(text, CANONICAL_TOPICS, TOPIC_SYNONYMS)),
+    companies: normalizeCompanies(mentionedTags(text, CANONICAL_COMPANIES, COMPANY_SYNONYMS)),
+    macro: normalizeMacro(mentionedTags(text, CANONICAL_MACRO, MACRO_SYNONYMS)),
+  };
+}
+
 // ─────────────────────────────────────────────
 // 프롬프트용 규칙 블록 (LLM에 지시)
 // ─────────────────────────────────────────────

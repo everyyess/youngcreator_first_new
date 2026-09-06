@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useRef, useState } from "react";
 import { Printer, X } from "lucide-react";
+import type { ReportMetricChart } from "@/Engine/Research-Engine/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BriefingReportViewer — 브리핑형 보고서 공용 뷰어
@@ -572,6 +573,70 @@ function WatchPointBlock({ lines }: { lines: string[] }) {
   );
 }
 
+function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
+  return (
+    <div className="mx-6 mt-6" data-pdf-block="content">
+      <div className="mb-3 flex items-end justify-between border-b border-slate-200 pb-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Economic Indicators</p>
+          <h3 className="text-[15px] font-black text-primary">핵심 지표 그래프</h3>
+        </div>
+        <span className="text-[10px] font-semibold text-slate-400">FRED · ECOS 실제 관측치</span>
+      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {charts.map((chart) => {
+          const width = 520;
+          const height = 170;
+          const padX = 28;
+          const padY = 24;
+          const values = chart.points.map((point) => point.value);
+          const min = Math.min(...values);
+          const max = Math.max(...values);
+          const span = max - min || Math.max(Math.abs(max) * 0.02, 1);
+          const coords = chart.points.map((point, index) => {
+            const x = padX + (index / Math.max(chart.points.length - 1, 1)) * (width - padX * 2);
+            const y = height - padY - ((point.value - min) / span) * (height - padY * 2);
+            return { ...point, x, y };
+          });
+          const latest = chart.points[chart.points.length - 1];
+          return (
+            <div key={chart.source + chart.title} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
+              <div className="mb-1 flex items-start justify-between gap-2">
+                <p className="line-clamp-2 text-[11px] font-black leading-snug text-slate-700">{chart.title}</p>
+                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-black text-primary">{chart.source}</span>
+              </div>
+              <p className="mb-1 text-[10px] font-bold text-slate-400">
+                최근 {latest.value.toLocaleString("ko-KR")} {chart.unit}
+              </p>
+              <svg viewBox={`0 0 ${width} ${height}`} className="h-36 w-full" role="img" aria-label={chart.title + " 시계열 그래프"}>
+                {[0, 0.5, 1].map((ratio) => {
+                  const y = padY + ratio * (height - padY * 2);
+                  return <line key={ratio} x1={padX} y1={y} x2={width - padX} y2={y} stroke="#DDE8E5" strokeWidth="1" />;
+                })}
+                <polyline
+                  fill="none"
+                  stroke="#005B52"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={coords.map((point) => `${point.x},${point.y}`).join(" ")}
+                />
+                {coords.map((point, index) => (
+                  <circle key={point.date} cx={point.x} cy={point.y} r={index === coords.length - 1 ? 4 : 2.5} fill="#005B52">
+                    <title>{point.date}: {point.value} {chart.unit}</title>
+                  </circle>
+                ))}
+                <text x={padX} y={height - 4} fontSize="11" fill="#7A9488">{chart.points[0]?.date}</text>
+                <text x={width - padX} y={height - 4} textAnchor="end" fontSize="11" fill="#7A9488">{latest.date}</text>
+              </svg>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // BriefingReportViewer — 메인 컴포넌트 (export)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -583,6 +648,7 @@ export function BriefingReportViewer({
   pdfFilePrefix = "Daily_Briefing",
   onClose,
   onStockClick,
+  metricCharts = [],
 }: {
   report: string;
   kicker?: string;
@@ -592,6 +658,7 @@ export function BriefingReportViewer({
   onClose?: () => void;
   /** 제공 시 본문의 "종목명(티커)" 표기가 클릭 가능한 링크가 된다 */
   onStockClick?: (name: string, ticker: string) => void;
+  metricCharts?: ReportMetricChart[];
 }) {
   const reportRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
@@ -770,6 +837,8 @@ export function BriefingReportViewer({
           className="report-container rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm"
         >
           <ReportHeader date={dateStr} kicker={kicker} subtitle={subtitle} />
+
+          {metricCharts.length > 0 && <MetricChartGrid charts={metricCharts} />}
 
           <div className="pb-10">
             {blocks.map((block, i) => {

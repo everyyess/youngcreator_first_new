@@ -8,12 +8,27 @@
 import { AsyncLocalStorage } from "async_hooks";
 import type { ResearchStage, UnifiedResearchRequest, UnifiedResearchResult } from "./types";
 
+export type HumanApprovalStep = 1 | 2 | 3 | 4 | 5;
+export type AgentUpdate = {
+  step: HumanApprovalStep;
+  agent: string;
+  status: "completed" | "skipped" | "error";
+  summary: string;
+  completedAt: string;
+};
+export type HumanApprovalState = {
+  completedStep: 0 | HumanApprovalStep;
+  awaitingStep: HumanApprovalStep | null;
+  awaitingApproval: boolean;
+  agentUpdates: AgentUpdate[];
+};
+
 export const jobLocalStorage = new AsyncLocalStorage<{ jobId: string; trackModel: (model: string) => void }>();
 
 export type Job = {
   id: string;
   request: UnifiedResearchRequest;
-  status: "running" | "done" | "error";
+  status: "running" | "awaiting_approval" | "done" | "error";
   stage: ResearchStage;
   /** 거쳐간 stage 누적 — STEP4-1/4-2/4-3이 병렬 실행되면서 stage가 빠르게 덮어써져도
    *  UI가 "어떤 단계가 실행됐는지"를 폴링 타이밍과 무관하게 판별할 수 있게 한다 */
@@ -28,6 +43,8 @@ export type Job = {
   result: UnifiedResearchResult | null;
   error: string | null;
   modelUsage?: Record<string, number>;
+  /** Human-In-The-Loop: 완료 정보 확인 후 PB 승인으로만 다음 STEP을 실행한다. */
+  hitl: HumanApprovalState;
 };
 
 type Store = { jobs: Map<string, Job> };
@@ -68,6 +85,7 @@ export function createJob(request: UnifiedResearchRequest): Job {
     result: null,
     error: null,
     modelUsage: {},
+    hitl: { completedStep: 0, awaitingStep: null, awaitingApproval: false, agentUpdates: [] },
   };
   state().jobs.set(id, job);
   pruneOldJobs();

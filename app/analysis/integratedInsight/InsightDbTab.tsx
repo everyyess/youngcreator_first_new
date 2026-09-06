@@ -10,8 +10,8 @@ import {
   type SimulationLinkDatum, type SimulationNodeDatum,
 } from "d3-force";
 import {
-  BookOpen, Building2, Database, ExternalLink, FileText, Flame, Globe, LayoutDashboard, Lightbulb, Link2, Loader2,
-  MessageSquare, Newspaper, Play, Printer, RefreshCw, Scale, Search, Share2, Sparkles, Tags, TrendingDown, TrendingUp, X,
+  Building2, Database, ExternalLink, FileText, Flame, Globe, LayoutDashboard, Lightbulb, Link2, Loader2,
+  MessageSquare, Newspaper, Printer, RefreshCw, Scale, Search, Share2, Sparkles, Tags, TrendingDown, TrendingUp, X,
 } from "lucide-react";
 import type { InsightItem, InsightSource } from "@/app/api/insight-db/route";
 import type { DebateLogRow, DebateResult } from "@/app/api/insight-debate/route";
@@ -23,7 +23,7 @@ import type { Job as UnifiedJob } from "@/Engine/Research-Engine/jobStore";
 import { BriefingReportViewer } from "@/components/BriefingReportViewer";
 
 /**
- * 통합 인사이트 — TAB4 5개 DB(유튜브·블로그·텔레그램·뉴스·리포트) 저장 데이터를
+ * 통합 인사이트 — TAB4 3개 DB(텔레그램·뉴스·리포트) 저장 데이터를
  * 한 화면에서 포괄 조회·분석한다.
  *
  * NSTK Trend Research Platform(github.com/Gyeongyeon918)에서 이식한 구조:
@@ -38,18 +38,15 @@ import { BriefingReportViewer } from "@/components/BriefingReportViewer";
 
 // ── 소스 메타 ────────────────────────────────────────────────────────────────
 const SOURCE_META: Record<InsightSource, { label: string; icon: React.ReactNode; chip: string }> = {
-  youtube: { label: "유튜브", icon: <Play size={13} />, chip: "bg-red-50 text-red-600 border-red-200" },
-  blog: { label: "블로그", icon: <BookOpen size={13} />, chip: "bg-orange-50 text-orange-600 border-orange-200" },
   telegram: { label: "텔레그램", icon: <MessageSquare size={13} />, chip: "bg-sky-50 text-sky-600 border-sky-200" },
   news: { label: "뉴스", icon: <Newspaper size={13} />, chip: "bg-blue-50 text-blue-700 border-blue-200" },
   report: { label: "리포트", icon: <Database size={13} />, chip: "bg-purple-50 text-purple-700 border-purple-200" },
 };
 const ALL_SOURCES = Object.keys(SOURCE_META) as InsightSource[];
-const DEFAULT_SOURCES: InsightSource[] = ["news", "report"];
+// 별도 DB 탭 없이도 기존에 저장한 모든 출처의 자료를 기본 분석 대상으로 포함한다.
+const DEFAULT_SOURCES: InsightSource[] = [...ALL_SOURCES];
 
 const ALL_UNIFIED_DBS: UnifiedDatabaseId[] = [
-  "youtube",
-  "blog",
   "telegram",
   "news",
   "report",
@@ -72,8 +69,6 @@ const ALL_UNIFIED_DBS: UnifiedDatabaseId[] = [
 const MACRO_SOURCE_DBS: UnifiedDatabaseId[] = ["fred", "ecos", "kosis"];
 
 const UNIFIED_DB_LABEL: Record<UnifiedDatabaseId, string> = {
-  youtube: "유튜브 피드",
-  blog: "네이버 블로그",
   telegram: "텔레그램 채널",
   news: "뉴스 기사",
   report: "리포트/보고서",
@@ -93,8 +88,6 @@ const UNIFIED_DB_LABEL: Record<UnifiedDatabaseId, string> = {
 
 /** 파이프라인 DB 노드용 축약 라벨 — 노드 폭이 좁아 2~4자로 줄인다 */
 const UNIFIED_DB_SHORT: Record<UnifiedDatabaseId, string> = {
-  youtube: "유튜브",
-  blog: "블로그",
   telegram: "텔레그램",
   news: "뉴스",
   report: "리포트",
@@ -123,7 +116,7 @@ type PipelineDetail =
 const UNIFIED_DB_GROUPS = [
   {
     label: "인사이트 피드 데이터베이스",
-    ids: ["youtube", "blog", "telegram", "news", "report"] as UnifiedDatabaseId[],
+    ids: ["telegram", "news", "report"] as UnifiedDatabaseId[],
   },
   {
     label: "종목/재무 정보 분석 툴",
@@ -988,6 +981,10 @@ export default function InsightDbTab() {
   const [showDbModal, setShowDbModal] = useState(false);
   const [selectedDbs, setSelectedDbs] = useState<Set<UnifiedDatabaseId>>(new Set(ALL_UNIFIED_DBS));
   const [dbModalError, setDbModalError] = useState("");
+  const [unifiedStarting, setUnifiedStarting] = useState(false);
+  const unifiedStartingRef = useRef(false);
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [approvalError, setApprovalError] = useState("");
   const [hasDebated, setHasDebated] = useState(false);
   const [hasSupplemented, setHasSupplemented] = useState(false);
   const [analysisMethod, setAnalysisMethod] = useState<"report" | "score">("report");
@@ -1016,7 +1013,7 @@ export default function InsightDbTab() {
   };
 
   const unifiedLoading = unifiedJob?.status === "running";
-  const unifiedResult = unifiedJob?.status === "done" ? unifiedJob.result : null;
+  const unifiedResult = unifiedJob?.result ?? null;
   const unifiedError = unifiedJob?.status === "error" ? unifiedJob.error ?? "통합 리서치 도중 오류가 발생했습니다." : "";
 
   const handleGoToTab2 = (database: string) => {
@@ -1088,8 +1085,6 @@ export default function InsightDbTab() {
     } else {
       const getDbLabel = (db: string) => {
         const labels: Record<string, string> = {
-          youtube: "유튜브",
-          blog: "블로그",
           telegram: "텔레그램",
           news: "뉴스",
           report: "리포트",
@@ -1103,8 +1098,6 @@ export default function InsightDbTab() {
       };
 
       const sourceMap: Record<string, InsightSource> = {
-        youtube: "youtube",
-        blog: "blog",
         telegram: "telegram",
         news: "news",
         report: "report"
@@ -1138,7 +1131,7 @@ export default function InsightDbTab() {
         url: ref.url,
         date: ref.date,
         createdAt: ref.date,
-        meta: (ref.database === "youtube" || ref.database === "blog" || ref.database === "telegram" || ref.database === "news" || ref.database === "report")
+        meta: (ref.database === "telegram" || ref.database === "news" || ref.database === "report")
           ? (ref.phase === "live" ? "실시간 자료" : "")
           : `${ref.phase === "live" ? "실시간 " : ""}${getDbLabel(ref.database)}`,
         companies: [],
@@ -1210,6 +1203,8 @@ export default function InsightDbTab() {
     if (!job) return;
 
     setUnifiedJob(job);
+    if (job.result?.debate) setHasDebated(true);
+    if (job.result?.supplemented) setHasSupplemented(true);
 
     // 서버의 실제 API 호출량을 로컬 스토리지 한도 트래커에 누적 동기화
     if (job.modelUsage) {
@@ -1281,12 +1276,12 @@ export default function InsightDbTab() {
     if (activeTags.length !== 1 || (kwType !== "stock" && kwType !== "theme" && kwType !== "macro")) return;
 
     if (kwType === "theme") {
-      setSelectedDbs(new Set(["youtube", "blog", "telegram", "news", "report", "correlation", "peer"]));
+      setSelectedDbs(new Set(["telegram", "news", "report", "correlation", "peer"]));
     } else if (kwType === "macro") {
-      // 저장 5종 + 매크로 지표 소스 기본 선택 (KOSIS는 목록만 노출, 기본 해제)
-      setSelectedDbs(new Set(["youtube", "blog", "telegram", "news", "report", "fred", "ecos"]));
+      // 저장 3종 + 매크로 지표 소스 기본 선택 (KOSIS는 목록만 노출, 기본 해제)
+      setSelectedDbs(new Set(["telegram", "news", "report", "fred", "ecos"]));
     } else {
-      setSelectedDbs(new Set(["youtube", "blog", "telegram", "news", "report", "technical", "options", "holdings", "dart", "financials"]));
+      setSelectedDbs(new Set(["telegram", "news", "report", "technical", "options", "holdings", "dart", "financials"]));
     }
 
     setDbModalError("");
@@ -1301,7 +1296,8 @@ export default function InsightDbTab() {
     });
   };
 
-  const startUnifiedJob = useCallback(async () => {
+  const startUnifiedJob = async () => {
+    if (unifiedStartingRef.current) return;
     const kwType = activeTags.length === 1 ? classifyMap.get(activeTags[0]) : null;
     if (activeTags.length !== 1 || !showDbModal || (kwType !== "stock" && kwType !== "theme" && kwType !== "macro")) return;
     const keyword = activeTags[0];
@@ -1313,6 +1309,8 @@ export default function InsightDbTab() {
     setDbModalError("");
     setHasDebated(false);
     setHasSupplemented(false);
+    unifiedStartingRef.current = true;
+    setUnifiedStarting(true);
 
     try {
       let ticker: string | undefined;
@@ -1333,26 +1331,53 @@ export default function InsightDbTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           keyword, databases, method: analysisMethod, ticker, corpName: keyword,
-          // macro는 분류 단계를 건너뛰도록 명시 지정 (stock/theme은 기존대로 서버 분류에 위임)
-          ...(kwType === "macro" ? { keywordType: "macro" } : {}),
+          keywordType: kwType,
         }),
       });
-      const json = (await res.json()) as { jobId?: string; error?: string };
-      if (!res.ok || !json.jobId) {
-        setDbModalError(json.error ?? "통합 리서치 작업 생성에 실패했습니다.");
+      const json = await res.json().catch(() => null) as { jobId?: string; job?: UnifiedJob; error?: string } | null;
+      if (!res.ok || !json?.jobId) {
+        setDbModalError(json?.error ?? "통합 리서치 작업 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
         return;
       }
       clearOtherStoredUnifiedJobIds();
       storeUnifiedJobId(keyword, json.jobId);
       setUnifiedJobId(json.jobId);
-      setUnifiedJob(null);
+      setUnifiedJob(json.job ?? null);
       setShowDbModal(false);
       // 사이드바 미니위젯(다른 탭에서도 실행 중 표시)이 이 새 작업을 즉시 알도록 공유 폴링을 깨운다
       void refreshResearchJobs();
     } catch (e) {
       setDbModalError(e instanceof Error ? e.message : "통합 리서치 생성 오류");
+    } finally {
+      unifiedStartingRef.current = false;
+      setUnifiedStarting(false);
     }
-  }, [activeTags, showDbModal, selectedDbs, analysisMethod, refreshResearchJobs]);
+  };
+
+  const approveNextStep = async () => {
+    const expectedStep = unifiedJob?.hitl?.awaitingStep;
+    if (!unifiedJobId || !expectedStep || approvalLoading) return;
+    setApprovalLoading(true);
+    setApprovalError("");
+    try {
+      const res = await fetch("/api/unified-research/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: unifiedJobId, action: "approve", expectedStep }),
+      });
+      const json = await res.json().catch(() => null) as { job?: UnifiedJob; error?: string } | null;
+      if (!res.ok || !json?.job) {
+        setApprovalError(json?.error ?? "STEP 승인 처리에 실패했습니다.");
+        return;
+      }
+      setUnifiedJob(json.job);
+      await refreshResearchJobs();
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : "STEP 승인 처리 중 오류가 발생했습니다.");
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
 
   type NodeState = "waiting" | "active" | "done" | "skipped" | "error";
 
@@ -1373,7 +1398,19 @@ export default function InsightDbTab() {
     let stepSupplementState: NodeState = "waiting"; // 정보 공백(gaps) 또는 신선도 의심(old)→실시간 보강, 화면 표기상 STEP 4-2
     let step5State: NodeState = "waiting";
 
-    if (isRunning || isFinished) {
+    const completedStep = unifiedJob?.hitl?.completedStep ?? (isFinished ? 5 : 0);
+    const runningStep = unifiedJob?.status === "running" ? unifiedJob.hitl?.awaitingStep : null;
+
+    if (unifiedJob?.hitl) {
+      step1State = completedStep >= 1 ? "done" : runningStep === 1 ? "active" : "waiting";
+      step2State = completedStep >= 2 ? "done" : runningStep === 2 ? "active" : "waiting";
+      step3State = completedStep >= 3 ? "done" : runningStep === 3 ? "active" : "waiting";
+      step41State = completedStep >= 4 ? (hasDebated ? "done" : "skipped") : runningStep === 4 ? "active" : "waiting";
+      stepSupplementState = completedStep >= 4 ? (hasSupplemented ? "done" : "skipped") : runningStep === 4 ? "active" : "waiting";
+      step5State = completedStep >= 5 ? "done" : runningStep === 5 ? "active" : "waiting";
+    }
+
+    if (!unifiedJob?.hitl && (isRunning || isFinished)) {
       step1State = currentStage === "collecting" ? "active" : "done";
 
       if (step1State === "done") {
@@ -2066,7 +2103,7 @@ export default function InsightDbTab() {
             <div>
               <h2 className="text-lg font-black text-[#0D2318]">통합 인사이트</h2>
               <p className="text-xs font-semibold text-[#7A9488]">
-                유튜브, 블로그, 텔레그램, 뉴스, 리포트의 모든 데이터를 융합하여 AI 통합 분석 리포트를 도출합니다
+                텔레그램, 뉴스, 리포트의 모든 데이터를 융합하여 AI 통합 분석 리포트를 도출합니다
               </p>
             </div>
           </div>
@@ -2099,10 +2136,10 @@ export default function InsightDbTab() {
 
         {error && <p className="rounded-btn border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600">{error}</p>}
 
-        {/* 로드 실패 소스 경고 — news/report 중 하나라도 실패 시 표시 */}
-        {skippedSources.filter(s => s === "news" || s === "report").length > 0 && (
+        {/* 숨겨진 DB를 포함해 조회에 실패한 모든 출처를 표시한다. */}
+        {skippedSources.length > 0 && (
           <p className="rounded-btn border border-amber-200 bg-amber-50 px-4 py-2.5 text-[12px] font-semibold text-amber-700">
-            ⚠ 일부 데이터 소스 로드 실패: {skippedSources.filter(s => s === "news" || s === "report").map(s => SOURCE_META[s].label).join(", ")} — Supabase 연결을 확인하거나 잠시 후 새로고침하세요.
+            ⚠ 일부 데이터 소스 로드 실패: {skippedSources.map(s => SOURCE_META[s].label).join(", ")} — Supabase 연결을 확인하거나 잠시 후 새로고침하세요.
           </p>
         )}
 
@@ -2365,7 +2402,7 @@ export default function InsightDbTab() {
             const isMacro = kwType === "macro";
             return (
               <>
-              <section className="rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card">
+              <section className="order-last rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card">
                 <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-[#F0F7F4] pb-2.5">
                   <span className="text-[18px] font-black tracking-tight text-[#0D2318]">{isMacro ? "통합 AI 인사이트 (매크로·경제)" : isTheme ? "통합 AI 인사이트 (산업/테마)" : "통합 AI 인사이트 (종목분석)"}</span>
                   {unifiedResult && (
@@ -2378,6 +2415,55 @@ export default function InsightDbTab() {
                 {/* 파이프라인 시각화 영역 */}
                 {renderPipeline()}
 
+                {/* 각 에이전트가 STEP 완료 정보를 전달하고, PB 승인 전에는 다음 STEP을 실행하지 않는다. */}
+                {unifiedJob?.hitl && unifiedJob.hitl.agentUpdates.length > 0 && (
+                  <div className="mt-4 rounded-xl border border-[#B2D8D2] bg-[#F6FAF8] p-4">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      <span className="text-[13px] font-black text-[#0D2318]">Human-In-The-Loop 승인 기록</span>
+                      <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-black text-primary">
+                        STEP {unifiedJob.hitl.completedStep} 완료
+                      </span>
+                      {unifiedJob.hitl.awaitingApproval && (
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-black text-amber-700">
+                          PB 확인 대기
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex max-h-[280px] flex-col gap-2 overflow-y-auto pr-1">
+                      {unifiedJob.hitl.agentUpdates.map((message, index) => (
+                        <div key={message.step + "-" + message.agent + "-" + index}
+                          className="rounded-btn border border-[#DDE8E5] bg-white px-3 py-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] font-black text-primary">STEP {message.step}</span>
+                            <span className="text-[12px] font-black text-[#1C3329]">{message.agent}</span>
+                            <span className={`ml-auto rounded-full px-2 py-0.5 text-[9px] font-black ${
+                              message.status === "completed" ? "bg-emerald-50 text-emerald-700"
+                                : message.status === "error" ? "bg-red-50 text-red-600"
+                                  : "bg-slate-100 text-slate-500"
+                            }`}>
+                              {message.status === "completed" ? "완료" : message.status === "error" ? "오류" : "건너뜀"}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[12px] font-semibold leading-relaxed text-[#5F7A70]">{message.summary}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {unifiedJob.hitl.awaitingApproval && unifiedJob.hitl.awaitingStep && (
+                      <div className="mt-3 border-t border-[#DDE8E5] pt-3">
+                        <p className="mb-2 text-[11px] font-semibold text-[#5F7A70]">
+                          위 완료 정보를 확인한 뒤 STEP {unifiedJob.hitl.awaitingStep} 실행을 승인해주세요.
+                        </p>
+                        <button type="button" onClick={() => void approveNextStep()} disabled={approvalLoading}
+                          className="flex w-full items-center justify-center gap-2 rounded-btn bg-primary px-4 py-2.5 text-[13px] font-black text-white transition hover:bg-primary-light disabled:opacity-50">
+                          {approvalLoading ? <Loader2 size={14} className="animate-spin" /> : <Scale size={14} />}
+                          {approvalLoading ? "승인 처리 중…" : "승인 · STEP " + unifiedJob.hitl.awaitingStep + " 실행"}
+                        </button>
+                        {approvalError && <p className="mt-2 text-[11px] font-bold text-red-600">{approvalError}</p>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* 1. 리서치 시작 전 대기화면 */}
                 {!unifiedJobId && !unifiedLoading && !unifiedResult && (
                   <div className="mt-4 flex flex-col items-center justify-center p-6 text-center border border-dashed border-[#B9CCC4] rounded-xl bg-[#F6FAF8]/50">
@@ -2385,10 +2471,10 @@ export default function InsightDbTab() {
                     <p className="text-[15px] font-bold text-[#33493F]">#{activeTags[0]} 통합 리서치 파이프라인</p>
                     <p className="text-[12px] text-[#5F7A70] mt-1 mb-4">
                       {isMacro
-                        ? "5개 인사이트 피드 DB와 미국연준(FRED)·한국은행(ECOS) 지표 소스를 연계하여 충돌 및 정보 공백을 감지하고 브리핑형 보고서를 작성합니다."
+                        ? "3개 인사이트 피드 DB와 미국연준(FRED)·한국은행(ECOS) 지표 소스를 연계하여 충돌 및 정보 공백을 감지하고 브리핑형 보고서를 작성합니다."
                         : isTheme
-                        ? "5개 인사이트 피드 DB를 연계하여 충돌 및 정보 공백을 감지하고 종합 보고서를 작성합니다."
-                        : "5개 인사이트 피드 DB와 기업 공시, 수급, 기술 지표를 연계하여 충돌 및 정보 공백을 감지하고 종합 보고서를 작성합니다."}
+                        ? "3개 인사이트 피드 DB를 연계하여 충돌 및 정보 공백을 감지하고 종합 보고서를 작성합니다."
+                        : "3개 인사이트 피드 DB와 기업 공시, 수급, 기술 지표를 연계하여 충돌 및 정보 공백을 감지하고 종합 보고서를 작성합니다."}
                     </p>
                     <button type="button" onClick={openDbModal} className="rounded-btn bg-[#005B52] px-5 py-2.5 text-[14px] font-black text-white transition hover:bg-[#004D45] flex items-center gap-1.5 shadow-sm">
                       통합 리서치 시작
@@ -2412,7 +2498,7 @@ export default function InsightDbTab() {
 
               </section>
 
-              <section className="rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card mt-6">
+              <section className="order-last rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card mt-6">
                 <div className="mb-3 flex items-center justify-between border-b border-[#F0F7F4] pb-2.5">
                   <div className="flex items-center gap-2">
                     <span className="text-[18px] font-black tracking-tight text-[#0D2318]">AI 찬반 토론</span>
@@ -2782,7 +2868,7 @@ export default function InsightDbTab() {
           </div>
           <div className="max-h-[540px] overflow-y-auto">
             {loading ? (
-              <p className="py-16 text-center text-sm font-bold text-[#94A8A0]"><Loader2 size={15} className="mr-1.5 inline animate-spin" /> 5개 DB 통합 조회 중…</p>
+              <p className="py-16 text-center text-sm font-bold text-[#94A8A0]"><Loader2 size={15} className="mr-1.5 inline animate-spin" /> 3개 DB 통합 조회 중…</p>
             ) : filtered.length === 0 ? (
               <p className="py-16 text-center text-sm font-bold text-[#94A8A0]">조건에 맞는 저장 자료가 없습니다.</p>
             ) : (
@@ -3221,6 +3307,7 @@ export default function InsightDbTab() {
                 <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
                   <BriefingReportViewer
                     report={unifiedResult.report ?? ""}
+                    metricCharts={unifiedResult.metricCharts ?? []}
                     kicker={brief.kicker}
                     subtitle={brief.subtitle}
                     pdfFilePrefix={brief.pdf}
@@ -3362,7 +3449,7 @@ export default function InsightDbTab() {
                   const groups = [
                     {
                       label: "인사이트 피드 데이터베이스",
-                      ids: ["youtube", "blog", "telegram", "news", "report"] as UnifiedDatabaseId[],
+                      ids: ["telegram", "news", "report"] as UnifiedDatabaseId[],
                     },
                     kwType === "macro" ? {
                       label: "매크로 데이터 소스",
@@ -3405,9 +3492,10 @@ export default function InsightDbTab() {
                   className="rounded-btn border border-[#DDE8E5] px-4 py-2 text-[13px] font-bold text-[#4B6358] transition hover:bg-[#F6FAF8]">
                   취소
                 </button>
-                <button type="button" onClick={() => void startUnifiedJob()}
-                  className="flex items-center gap-1.5 rounded-btn bg-primary px-4 py-2 text-[13px] font-black text-white transition hover:bg-primary-light">
-                  <FileText size={13} /> {selectedDbs.size}개 데이터베이스 분석 시작
+                <button type="button" onClick={() => void startUnifiedJob()} disabled={unifiedStarting}
+                  className="flex items-center gap-1.5 rounded-btn bg-primary px-4 py-2 text-[13px] font-black text-white transition hover:bg-primary-light disabled:opacity-50">
+                  {unifiedStarting ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+                  {unifiedStarting ? "STEP 1 실행 중…" : "승인 · STEP 1 (" + selectedDbs.size + "개 DB) 실행"}
                 </button>
               </div>
             </div>

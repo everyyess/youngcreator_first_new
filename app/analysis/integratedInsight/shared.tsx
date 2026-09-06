@@ -11,7 +11,7 @@ import { ChevronLeft, Cpu, Loader2, Plus, RefreshCw, Search, X } from "lucide-re
  */
 
 // ── 폴더(Folder) 기능 — 서버(Supabase) 영속화 공용 훅 ─────────────────────────
-// 블로그/유튜브/텔레그램 세 탭이 동일한 폴더 CRUD를 쓰므로 훅 하나로 공유한다.
+// 텔레그램 DB의 폴더 CRUD를 관리한다.
 // 예전엔 localStorage에만 저장되어 브라우저/기기가 바뀌면 초기화되던 문제가 있었다.
 
 export type FolderItem = { id: string; name: string; icon: "all" | "folder" };
@@ -637,7 +637,7 @@ export function inDateRange(dateStr: string, from: string, to: string): boolean 
 }
 
 // ── 채널/피드 목록 — 오른쪽 가장자리 호버 시 펼쳐지는 오버레이 사이드 패널 ─────────
-// 텔레그램/블로그/유튜브 DB 공통. 평소엔 접혀 있어 콘텐츠(게시글 목록)가 전체 폭을
+// 텔레그램 DB에서 사용한다. 평소엔 접혀 있어 콘텐츠(게시글 목록)가 전체 폭을
 // 차지하고, 오른쪽 가장자리에 마우스를 가져가면 슬라이드되어 콘텐츠 위를 덮으며
 // 나타난다(레이아웃을 밀지 않음). 마우스가 벗어나면 자동으로 접힌다.
 // 부모 요소는 반드시 position:relative + 고정 높이를 가져야 한다.

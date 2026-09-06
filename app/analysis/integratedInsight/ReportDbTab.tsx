@@ -666,7 +666,7 @@ export default function ReportDbTab() {
             onClick={(e) => e.stopPropagation()}
           >
             {viewMode === "saved" ? (
-              /* ── 저장목록 간소화 뷰: 정리가 있으면 정리만, 없으면 AI 요약 (News/Blog DB와 동일) ── */
+              /* ── 저장목록 간소화 뷰: 정리가 있으면 정리만, 없으면 AI 요약 (News DB와 동일) ── */
               <div className="flex flex-1 flex-col overflow-y-auto">
                 <div className="sticky top-0 z-10 border-b border-[#E8F0ED] bg-white px-5 py-4">
                   <div className="flex items-start justify-between gap-3">

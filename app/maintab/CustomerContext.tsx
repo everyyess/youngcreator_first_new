@@ -324,8 +324,7 @@ export type SharedMaintabUiState = {
     };
   };
   tab4?: {
-    activeInnerTab?: "youtube" | "blog" | "telegram" | "news" | "report" | "insight";
-    youtubeClickedVideoIds?: string[];
+    activeInnerTab?: "telegram" | "news" | "report" | "insight";
   };
   tab3?: {
     buySim?: {

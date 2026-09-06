@@ -1,3 +1,4 @@
+import { isEconomicNews, rssNewsText } from "@/lib/economicNewsFilter";
 import { NextRequest, NextResponse } from "next/server";
 import { getInsightSupabase, insightDbUnavailable } from "@/lib/supabaseInsightDb";
 import { safeRemoteFetch } from "@/lib/safeRemoteFetch";
@@ -68,6 +69,8 @@ export async function GET(req: NextRequest) {
           );
           const date = new Date(published);
           if (!title || !link) continue;
+          const description = rssNewsText(item, "description") || rssNewsText(item, "content:encoded");
+          if (!isEconomicNews({ title, description })) continue;
 
           articles[id].push({
             title,

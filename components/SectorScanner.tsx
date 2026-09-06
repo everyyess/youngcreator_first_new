@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowDownRight, ArrowUpRight, Flame, Plus, RefreshCw, Snowflake, Star, X } from "lucide-react";
 import type { ScannerResponse, ScannerSector, ScannerStock, StockFinancials } from "@/app/api/sector-scanner/route";
 import { sectorsForMarket } from "@/app/api/sector-scanner/sectorMaster";
@@ -68,6 +69,7 @@ export default function SectorScanner() {
   const [financials, setFinancials] = useState<Record<string, Record<string, StockFinancials>>>({});
   const [financialsLoading, setFinancialsLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
 
   // ── 관심 종목 (시총 상위 외 사용자 추가 종목) ──────────────────────────────
   const [customStocks, setCustomStocks] = useState<CustomStock[]>([]);
@@ -225,6 +227,22 @@ export default function SectorScanner() {
   const selectedSector: ScannerSector | null =
     data?.sectors.find((s) => s.id === selectedSectorId) ?? null;
 
+  useEffect(() => {
+    if (!selectedSectorId) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedSectorId(null);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    const focusFrame = window.requestAnimationFrame(() => dialogRef.current?.focus());
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [selectedSectorId]);
+
   const sortedStocks = useMemo(() => {
     if (!selectedSector) return [];
     const fin = financials[finKey] ?? {};
@@ -245,7 +263,7 @@ export default function SectorScanner() {
   const bottomSector = data?.sectors[data.sectors.length - 1];
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="project-ui-theme flex flex-col gap-4">
       {/* ── 헤더 카드 ── */}
       <section className="rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -461,85 +479,116 @@ export default function SectorScanner() {
         </div>
       ) : null}
 
-      {/* 선택 섹터 상세 */}
-      {selectedSector && (
-        <div className="rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-black text-[#0D2318]">
-                {selectedSector.name}
-                <span className={`ml-2 text-sm ${changeColor(selectedSector.changePercent)}`}>{fmtChange(selectedSector.changePercent)}</span>
-              </h3>
-              <p className="text-[11px] font-semibold text-[#94A8A0]">구성 종목 {selectedSector.stocks.length}개 · 기준을 선택해 정렬하세요</p>
+      {/* 선택 섹터 상세 모달 */}
+      {selectedSector && typeof document !== "undefined" && createPortal(
+        <div
+          className="project-ui-theme fixed inset-0 z-[1000] grid min-h-dvh place-items-center overflow-y-auto bg-slate-900/20 p-3 backdrop-blur-[2px] sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setSelectedSectorId(null);
+          }}
+        >
+          <section
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sector-stock-dialog-title"
+            tabIndex={-1}
+            className="flex max-h-[88dvh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[#DDE8E5] bg-white shadow-2xl outline-none"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#DDE8E5] px-5 py-4 sm:px-6">
+              <div>
+                <h3 id="sector-stock-dialog-title" className="text-lg font-black text-[#0D2318]">
+                  {selectedSector.name}
+                  <span className={`ml-2 text-sm ${changeColor(selectedSector.changePercent)}`}>{fmtChange(selectedSector.changePercent)}</span>
+                </h3>
+                <p className="mt-0.5 text-[11px] font-semibold text-[#94A8A0]">
+                  구성 종목 {selectedSector.stocks.length}개 · 기준을 선택해 정렬하세요
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedSectorId(null)}
+                aria-label="관련 종목 팝업 닫기"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-[#F0F5F4] text-[#4B6358] transition hover:bg-[#E4EEEA] hover:text-[#0D2318]"
+              >
+                <X size={18} />
+              </button>
             </div>
-            <div className="flex rounded-btn bg-[#F0F5F4] p-1">
-              {SORT_OPTIONS.map((opt) => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setSortKey(opt.key)}
-                  className={`rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${
-                    sortKey === opt.key ? "bg-primary text-white" : "text-[#4B6358] hover:text-primary"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EDF3F1] px-5 py-3 sm:px-6">
+              <p className="text-xs font-black text-[#4B6358]">관련 종목</p>
+              <div className="flex max-w-full overflow-x-auto rounded-btn bg-[#F0F5F4] p-1">
+                {SORT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setSortKey(opt.key)}
+                    className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${
+                      sortKey === opt.key ? "bg-primary text-white" : "text-[#4B6358] hover:text-primary"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          {financialsLoading && (sortKey === "revenue" || sortKey === "opIncome") && (
-            <p className="mb-3 text-xs font-semibold text-primary-400">재무 데이터 로딩 중…</p>
-          )}
+            <div className="min-h-0 flex-1 overflow-auto px-5 py-3 sm:px-6">
+              {financialsLoading && (sortKey === "revenue" || sortKey === "opIncome") && (
+                <p className="mb-3 text-xs font-semibold text-primary-400">재무 데이터 로딩 중…</p>
+              )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-[#DDE8E5] text-left text-[11px] font-bold text-[#94A8A0]">
-                  <th className="py-2 pr-3">순위</th>
-                  <th className="py-2 pr-3">종목</th>
-                  <th className="py-2 pr-3 text-right">현재가</th>
-                  <th className="py-2 pr-3 text-right">등락률</th>
-                  <th className="py-2 pr-3 text-right">시가총액</th>
-                  <th className="py-2 pr-3 text-right">거래대금</th>
-                  <th className="py-2 pr-3 text-right">매출액 (TTM)</th>
-                  <th className="py-2 text-right">영업이익</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedStocks.map((stock, i) => {
-                  const fin = financials[finKey]?.[stock.symbol];
-                  const finCurrency = fin?.financialCurrency ?? stock.currency;
-                  return (
-                    <tr key={stock.symbol} className="border-b border-[#F0F7F4] font-semibold text-[#1C3329] transition hover:bg-[#F6FAF8]">
-                      <td className="py-2.5 pr-3 text-xs font-black text-[#94A8A0]">{i + 1}</td>
-                      <td className="py-2.5 pr-3">
-                        <span className="font-bold">{stock.name}</span>
-                        <span className="ml-1.5 text-[10px] font-semibold text-[#94A8A0]">{stock.symbol}</span>
-                        {stock.isCustom && (
-                          <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-primary-50 px-1.5 py-0.5 text-[9px] font-black text-primary align-middle">
-                            <Star size={8} /> 관심
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 pr-3 text-right tabular-nums">{fmtPrice(stock.price, stock.currency)}</td>
-                      <td className={`py-2.5 pr-3 text-right font-black tabular-nums ${changeColor(stock.changePercent)}`}>{fmtChange(stock.changePercent)}</td>
-                      <td className="py-2.5 pr-3 text-right tabular-nums">{fmtBig(stock.marketCap, stock.currency)}</td>
-                      <td className="py-2.5 pr-3 text-right tabular-nums">{fmtBig(stock.tradingValue, stock.currency)}</td>
-                      <td className="py-2.5 pr-3 text-right tabular-nums">{fin ? fmtBig(fin.totalRevenue, finCurrency) : "-"}</td>
-                      <td className="py-2.5 text-right tabular-nums">{fin ? fmtBig(fin.operatingIncome, finCurrency) : "-"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {!financials[finKey] && (
-            <p className="mt-3 text-[11px] font-semibold text-[#94A8A0]">
-              매출액·영업이익은 &lsquo;매출액&rsquo; 또는 &lsquo;영업이익&rsquo; 정렬 선택 시 로드됩니다.
-            </p>
-          )}
-        </div>
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="sticky top-0 z-10 bg-white">
+                  <tr className="border-b border-[#DDE8E5] text-left text-[11px] font-bold text-[#94A8A0]">
+                    <th className="py-2 pr-3">순위</th>
+                    <th className="py-2 pr-3">종목</th>
+                    <th className="py-2 pr-3 text-right">현재가</th>
+                    <th className="py-2 pr-3 text-right">등락률</th>
+                    <th className="py-2 pr-3 text-right">시가총액</th>
+                    <th className="py-2 pr-3 text-right">거래대금</th>
+                    <th className="py-2 pr-3 text-right">매출액 (TTM)</th>
+                    <th className="py-2 text-right">영업이익</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedStocks.map((stock, i) => {
+                    const fin = financials[finKey]?.[stock.symbol];
+                    const finCurrency = fin?.financialCurrency ?? stock.currency;
+                    return (
+                      <tr key={stock.symbol} className="border-b border-[#F0F7F4] font-semibold text-[#1C3329] transition hover:bg-[#F6FAF8]">
+                        <td className="py-2.5 pr-3 text-xs font-black text-[#94A8A0]">{i + 1}</td>
+                        <td className="py-2.5 pr-3">
+                          <span className="font-bold">{stock.name}</span>
+                          <span className="ml-1.5 text-[10px] font-semibold text-[#94A8A0]">{stock.symbol}</span>
+                          {stock.isCustom && (
+                            <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-primary-50 px-1.5 py-0.5 text-[9px] font-black text-primary align-middle">
+                              <Star size={8} /> 관심
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 pr-3 text-right tabular-nums">{fmtPrice(stock.price, stock.currency)}</td>
+                        <td className={`py-2.5 pr-3 text-right font-black tabular-nums ${changeColor(stock.changePercent)}`}>{fmtChange(stock.changePercent)}</td>
+                        <td className="py-2.5 pr-3 text-right tabular-nums">{fmtBig(stock.marketCap, stock.currency)}</td>
+                        <td className="py-2.5 pr-3 text-right tabular-nums">{fmtBig(stock.tradingValue, stock.currency)}</td>
+                        <td className="py-2.5 pr-3 text-right tabular-nums">{fin ? fmtBig(fin.totalRevenue, finCurrency) : "-"}</td>
+                        <td className="py-2.5 text-right tabular-nums">{fin ? fmtBig(fin.operatingIncome, finCurrency) : "-"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {!financials[finKey] && (
+              <p className="border-t border-[#EDF3F1] px-5 py-3 text-[11px] font-semibold text-[#94A8A0] sm:px-6">
+                매출액·영업이익은 &lsquo;매출액&rsquo; 또는 &lsquo;영업이익&rsquo; 정렬 선택 시 로드됩니다.
+              </p>
+            )}
+          </section>
+        </div>,
+        document.body,
       )}
       </div>
     </div>

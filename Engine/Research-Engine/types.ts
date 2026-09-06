@@ -26,18 +26,26 @@
 export type DatabaseGroup = "tab4" | "tab2" | "tab6";
 
 /**
- * 지정 가능한 데이터베이스 — TAB4 5개 DB(youtube/blog/telegram/news/report) +
+ * 지정 가능한 데이터베이스 — TAB4 3개 DB(telegram/news/report) +
  * TAB2 종목분석 탭의 4개 분석 툴(technical=기술적/options=옵션/holdings=수급/dart=공시) +
  * OpenDART 재무제표 기반 financials(재무 분석). ("외부자료" 툴은 TAB4의 report·telegram 2단계
  * 실시간 보강(naver-reports·telegram-search)과 완전히 겹쳐 제거하고 financials로 대체했다.)
  * 추후 registry(databases.ts)에 정의만 추가하면 확장된다.
  */
 export type DatabaseId =
-  | "youtube" | "blog" | "telegram" | "news" | "report"
+  | "telegram" | "news" | "report"
   | "technical" | "options" | "holdings" | "dart" | "financials"
   | "correlation" | "peer"
   // TAB6 외부 데이터 소스 (Daily Briefing)
   | "alphavantage" | "finnhub" | "fred" | "ecos" | "kosis";
+
+/** 런타임에서도 지원하지 않는 과거 데이터 소스 요청을 차단한다. */
+export function isDatabaseId(value: unknown): value is DatabaseId {
+  return typeof value === "string" && ([
+    "telegram", "news", "report", "technical", "options", "holdings", "dart",
+    "financials", "correlation", "peer", "alphavantage", "finnhub", "fred", "ecos", "kosis",
+  ] satisfies DatabaseId[]).some((id) => id === value);
+}
 
 export type AnalysisMethod = "report" | "score";
 export type Confidence = "높음" | "중간" | "낮음";
@@ -193,6 +201,16 @@ export type DbStateCallback = (db: DatabaseId, state: "done" | "skipped" | "erro
 
 export type ReportChartSource = "FRED" | "ECOS";
 
+export type ReportMetricPoint = { date: string; value: number };
+
+/** 통합 인사이트 최종 보고서에 직접 삽입하는 실제 거시지표 시계열 */
+export type ReportMetricChart = {
+  title: string;
+  source: ReportChartSource;
+  unit: string;
+  points: ReportMetricPoint[];
+};
+
 export type ReportChartItem = {
   title: string;
   dataId: string;
@@ -230,6 +248,7 @@ export type UnifiedResearchResult = {
   supplemented: boolean;        // STEP4-2 실시간 보강 실행 여부
   debate: DebateSection | null; // STEP4-1 — conflicts 감지 시에만
   report: string | null;        // method=report — 마크다운 (각주·출처 포함)
+  metricCharts?: ReportMetricChart[]; // FRED·ECOS 실제 관측치 기반 이해 보조 그래프
   score: ScoreResult | null;    // method=score
   timings: Record<string, number>; // 단계별 소요 ms
   generatedAt: string;          // ISO
