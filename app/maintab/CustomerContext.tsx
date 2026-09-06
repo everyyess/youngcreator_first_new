@@ -233,6 +233,11 @@ export type PortfolioAsset = {
   bond_yield?: number | null;    // 채권 수익률(%) — 채권 유형일 때만 사용
   bond_maturity?: number | null; // 채권 만기(년) — 채권 유형일 때만 사용
   sector?: string;           // 한글 변환 섹터명 (Yahoo Finance assetProfile.sector → SECTOR_EN_TO_KO 매핑)
+  // ── 채권 이자소득세 계산 전용 필드 (FinancialIncomeGauge의 AssetForIncomeCalc와 대응) ──
+  issuerCountry?: string;        // 발행국(한국/미국/브라질 등) — 국가별 원천징수 판정용, country(광의 국내/해외)와 다른 개념
+  couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
+  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  maturityDate?: string;         // ISO(YYYY-MM-DD) — 만기 임박 안분·복리채 일시인식 계산에 사용
   // 데이터 소유권 낙인 — 로드 시 해당 고객 ID로 강제 찍힘, null이면 미확정 상태
   owner_customer_id?: string | null;
 };

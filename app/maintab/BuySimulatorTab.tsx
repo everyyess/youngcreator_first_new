@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Building2,
@@ -41,11 +40,6 @@ import {
   upsertRebalancingHistory,
 } from "./rebalancingHistoryUtils";
 import { parseKoreanNumber } from "@/lib/portfolioLogic";
-import {
-  calcFinancialIncomeSummary,
-  NEW_PORTFOLIO_INCOME_STORAGE_KEY,
-  type AssetForIncomeCalc,
-} from "./tab1/FinancialIncomeGauge";
 import {
   CLASS_COLORS,
   formatKrwAmount,
@@ -662,13 +656,10 @@ export default function BuySimulatorTab() {
     sellHistory,
     addSellRecord,
     addBuyCost,
-    appMode,
-    updateTab3AnalysisState,
     sharedUiState,
     updateSharedUiState,
   } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
-  const router = useRouter();
 
   // ── 보유 자산 카드 그리드 데이터 ────────────────────────────────────────────────
   // 이 탭(리밸런싱-주식)에는 "기존 포트폴리오 보유 자산 + 이 탭에서 담은 신규 매수 주식"만 표시한다.
@@ -715,8 +706,6 @@ export default function BuySimulatorTab() {
     ].filter((r) => r.assets.length > 0);
   }, [baseAssets]);
 
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [confirmDone, setConfirmDone] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // 보유 자산 카드 인라인 매도
@@ -1113,6 +1102,8 @@ export default function BuySimulatorTab() {
   const pbOrderRowsRef = useRef<PbOrderRow[]>(pbOrderRows);
   const usdKrwRateRef = useRef<number>(usdKrwRate);
   const sellHistoryRef = useRef(sellHistory);
+  const sharedUiStateRef = useRef(sharedUiState);
+  const updateSharedUiStateRef = useRef(updateSharedUiState);
   sellAssetsRef.current = rebalancingSellAssets;
   portfolioRef.current = portfolioAssets;
   tMarginalRef.current = tMarginal;
@@ -1121,6 +1112,8 @@ export default function BuySimulatorTab() {
   pbOrderRowsRef.current = pbOrderRows;
   usdKrwRateRef.current = usdKrwRate;
   sellHistoryRef.current = sellHistory;
+  sharedUiStateRef.current = sharedUiState;
+  updateSharedUiStateRef.current = updateSharedUiState;
 
   // PB 행별 검색 상태 (로딩/오류) — 컴포넌트 로컬, Context 비동기 업데이트와 분리
   const [pbSearchState, setPbSearchState] = useState<Record<string, { loading: boolean; error: string | null }>>({});
@@ -1168,185 +1161,32 @@ export default function BuySimulatorTab() {
     setPbOrderRows([]);
   }, [setRebalancingSellAssets, setPbOrderRows, addBuyCost]);
 
-  const handleConfirm = useCallback(async () => {
-    const validPbRows = pbOrderRowsRef.current.filter((r) => {
-      if (isBondProductType(r.productType)) {
-        return computeKrwAmount(r, usdKrwRateRef.current) > 0;
-      }
-      const qty = parseFloat(r.quantity);
-      return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
-    });
-    // PB 행이 없어도 드래그앤드롭·PB버튼으로 확정된 자산이 있으면 분석 진행
-    // 비동기 실행 중 고객 전환 race condition 방지 — await 전에 스냅샷
-    const customerAtStart = selectedCustomerRef.current;
-    setIsConfirming(true);
-    try {
-      const { runAnalysis } = await import("@/lib/portfolioLogic");
-      const tm = tMarginalRef.current;
-      const fd = formDataRef.current;
-
-      const mergeBase =
-        sellAssetsRef.current.length > 0
-          ? sellAssetsRef.current
-          : portfolioRef.current;
-      const remainingAssets = mergeBase.filter((a) => a.amount > 0);
-
-      // 잔여 PB 행 병합 (handlePbConfirm으로 이미 처리된 경우 validPbRows = [])
-      const mergedAssets = validPbRows.length > 0
-        ? mergeBuyIntoBase(remainingAssets, validPbRows, [], usdKrwRateRef.current)
-        : remainingAssets;
-
-      setRebalancingBuyAssets(mergedAssets);
-
-      const result = await runAnalysis(mergedAssets, {
-        tMarginal: tm,
-        expectedInterestIncome: fd.rrttllu.expectedInterestIncome,
-        expectedDividendIncome: fd.rrttllu.expectedDividendIncome,
+  // "리밸런싱 확정" 버튼 제거 — 시세 재분석·세금 계산은 이제 상위(Tab3Page)에서 rebalancingSellAssets
+  // 변경을 실시간으로 감지해 자동 처리한다(handlePbConfirm·드래그앤드롭·인라인 매도가 이미 그 배열을
+  // 즉시 갱신하므로 트리거는 충분함). 이 화면에 남은 건 "이 화면을 떠날 때 리밸런싱 히스토리를
+  // 체크포인트로 기록"하는 것뿐 — 언마운트(다른 내부 탭·다른 TAB으로 이동) 시점에 기록한다.
+  // upsertRebalancingHistory가 consultationId 기준으로 병합하므로 반복 기록해도 중복 생성되지 않는다.
+  useEffect(() => {
+    return () => {
+      const afterAssets = sellAssetsRef.current;
+      if (afterAssets.length === 0) return;
+      const historyRecord = createStockRebalancingRecord({
+        customerId: selectedCustomerRef.current,
+        beforeAssets: portfolioRef.current,
+        afterAssets,
+        usdKrwRate: usdKrwRateRef.current,
       });
-
-      // 분석 완료 전 고객 전환이 발생했으면 결과를 버림 — 잘못된 고객에게 덮어쓰기 방지
-      if (selectedCustomerRef.current !== customerAtStart) return;
-
-      if (result) {
-        confirmRebalancingBuy();
-
-
-        const historyRecord = createStockRebalancingRecord({
-
-          customerId: selectedCustomer,
-
-          beforeAssets: portfolioRef.current,
-
-          afterAssets: mergedAssets,
-
-          usdKrwRate: usdKrwRateRef.current,
-
-        });
-
-
-        updateSharedUiState({
-
-          tab3: {
-
-            rebalancingHistory: upsertRebalancingHistory(
-
-              sharedUiState.tab3?.rebalancingHistory ?? [],
-
-              historyRecord,
-
-            ),
-
-          },
-
-        });
-
-
-        setNewPortfolioAnalysisResult(result);
-
-        // enrichedAssets의 dividendYield를 mergedAssets에 반영 → PensionTaxPanel 연동
-        const enrichedArr = result.enrichedAssets ?? [];
-        const mergedWithDividends = mergedAssets.map((a, i) => {
-          const ea = enrichedArr[i] as unknown as Record<string, unknown>;
-          if (!ea) return a;
-          const aExt = a as unknown as Record<string, unknown>;
-          const patch: Record<string, unknown> = {};
-          if (ea.dividendYield != null && aExt.dividendYield == null) patch.dividendYield = ea.dividendYield;
-          if (ea.trailingAnnualDividendRate != null && aExt.trailingAnnualDividendRate == null) patch.trailingAnnualDividendRate = ea.trailingAnnualDividendRate;
-          return Object.keys(patch).length ? { ...a, ...patch } : a;
-        });
-        try {
-          localStorage.setItem("new-portfolio-assets-v1", JSON.stringify(mergedWithDividends));
-          window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
-        } catch {}
-        if (mergedWithDividends.some((a, i) => a !== mergedAssets[i])) {
-          setRebalancingBuyAssets(mergedWithDividends as typeof mergedAssets);
-        }
-
-        // 보유 자산 카드 그리드를 병합 결과로 즉시 동기화
-        // (재분석 시 clearSellHistory가 portfolioAssets로 롤백하여 원본 보존)
-        setRebalancingSellAssets(mergedAssets);
-
-        const assetsForCalc: AssetForIncomeCalc[] = (
-          result.enrichedAssets ?? []
-        )
-          .map((a) => {
-            const isBond =
-              a.productType === "국내채권" || a.productType === "해외채권";
-            const resolvedName =
-              a.name || (isBond ? (a.productType ?? "채권") : "");
-            if (!resolvedName) return null;
-            const interestRate =
-              a.bond_yield != null && a.bond_yield > 0
-                ? a.bond_yield / 100
-                : undefined;
-            const enriched = a as unknown as Record<string, unknown>;
-            return {
-              name: resolvedName,
-              ticker: a.ticker ?? "",
-              asset_class: a.asset_class,
-              productType: a.productType,
-              country: a.country,
-              current_price: a.current_price,
-              current_value: a.current_value,
-              amount: a.amount,
-              amount_type: a.amount_type,
-              buy_price: isBond ? a.buy_price : undefined,
-              dividendYield: enriched.dividendYield as number | undefined,
-              interestRate,
-            } as AssetForIncomeCalc;
-          })
-          .filter((x): x is AssetForIncomeCalc => x !== null);
-
-        if (assetsForCalc.length > 0 || sellHistoryRef.current.length > 0) {
-          // 매도로 실현된 손익(해외주식 양도소득세 대상)은 현재 보유 목록엔 안 남으므로 sellHistory에서 따로 가져온다.
-          // (예전엔 매도된 종목을 "오늘 시세로 아직 보유 중인 것처럼" 재구성해서 미실현 손익처럼 계산했는데,
-          //  이미 실제로 체결된 매도가 이후 시세 변동에 따라 세액이 계속 바뀌는 건 맞지 않음 — 체결 시점 실현손익 고정값을 씀)
-          const realizedSales = sellHistoryRef.current.map((r) => ({
-            name: r.name,
-            productType: r.productType,
-            realizedGain: r.realizedGain,
-          }));
-          const newTaxSummary = calcFinancialIncomeSummary(
-            assetsForCalc,
-            tm,
-            realizedSales,
-          );
-          try {
-            localStorage.setItem(
-              NEW_PORTFOLIO_INCOME_STORAGE_KEY,
-              JSON.stringify(newTaxSummary),
-            );
-            window.dispatchEvent(
-              new CustomEvent("new-financial-income-updated"),
-            );
-          } catch {
-            // localStorage 실패 무시
-          }
-          saveTaxSummary("new", newTaxSummary);
-        }
-        setConfirmDone(true);
-        if (appMode === "customer") {
-          // 고객 화면에는 탭3-2(상품 리밸런싱)가 없어 TAB4로 바로 이동
-          router.push("/customer-maintab/tab4");
-        } else {
-          // PB 화면: 주식 리밸런싱 확정 후 탭3-2(상품 리밸런싱)로 이동
-          updateTab3AnalysisState({ activeInnerTab: "product-rebalancing" }, { allowReadOnlyViewState: true });
-        }
-      }
-    } catch (err) {
-      console.error("[BuySimulatorTab] 매수 확정 오류:", err);
-    } finally {
-      setIsConfirming(false);
-    }
-  }, [
-    appMode,
-    router,
-    setRebalancingBuyAssets,
-    setRebalancingSellAssets,
-    confirmRebalancingBuy,
-    setNewPortfolioAnalysisResult,
-    saveTaxSummary,
-  ]);
+      updateSharedUiStateRef.current({
+        tab3: {
+          rebalancingHistory: upsertRebalancingHistory(
+            sharedUiStateRef.current.tab3?.rebalancingHistory ?? [],
+            historyRecord,
+          ),
+        },
+      });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const hasPbItems = pbOrderRows.some((r) => {
     if (isBondProductType(r.productType)) {
@@ -1355,11 +1195,6 @@ export default function BuySimulatorTab() {
     const qty = parseFloat(r.quantity);
     return Number.isFinite(qty) && qty > 0 && (r.currentPrice ?? 0) > 0;
   });
-  // 신규 매수 종목이 하나도 없어도(주식 리밸런싱 없이 상품 리밸런싱으로 바로 넘어가는 경우), 드래그앤드롭 등으로
-  // 포트폴리오 변경만 있어도 확정 가능하도록 hasPbItems/confirmedPbAmount 존재 여부 조건을 제거 — 예산 초과 상태만 막는다.
-  // (origin/main에 있던 hasPortfolioChanges 감지 로직은 이 완화로 더 이상 필요 없어져 제거함 — 이 조건 없이도 항상 확정 가능)
-  const canConfirm = !isOverBudget;
-
   // ── 렌더 ─────────────────────────────────────────────────────────────────
 
   return (
@@ -2099,7 +1934,10 @@ export default function BuySimulatorTab() {
         )}
       </div>
 
-      {/* ── 매수 확정 ──────────────────────────────────────────────────────── */}
+      {/* ── 매수 반영 현황 ──────────────────────────────────────────────────────── */}
+      {/* "리밸런싱 확정" 버튼 제거 — 종목을 담는 순간(PB 주문 확정·드래그앤드롭·인라인 매도)
+          바로 rebalancingSellAssets에 반영되고, 상위(Tab3Page)의 실시간 재분석 로직이
+          시세·세금 계산까지 자동으로 처리한다. 버튼으로 별도 확정할 필요가 없다. */}
       <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-soft">
         <div className="text-xs text-slate-400">
           합계&nbsp;
@@ -2113,27 +1951,10 @@ export default function BuySimulatorTab() {
             {fmtKrwMan(totalAllocated)}
           </span>
         </div>
-
-<button
-          type="button"
-          onClick={handleConfirm}
-          disabled={isConfirming || !canConfirm || (appMode === "customer" && isCustomerView)}
-          className="flex items-center gap-2 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white shadow transition hover:bg-[#1e1e8a] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {isConfirming ? (
-            <>
-              <Loader2 size={14} className="animate-spin" />
-              분석 중…
-            </>
-          ) : confirmDone ? (
-            <>
-              <CheckCircle2 size={14} />
-              {appMode === "customer" ? "완료 — TAB4에서 확인" : "완료 — TAB3-2로 이동"}
-            </>
-          ) : (
-            appMode === "customer" ? "리밸런싱 확정 → TAB4 반영" : "리밸런싱 확정 → TAB3-2"
-          )}
-        </button>
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
+          <CheckCircle2 size={14} />
+          담는 즉시 실시간 반영 — 다음 탭·TAB4에 자동 동기화됩니다
+        </div>
       </div>
 
     </div>

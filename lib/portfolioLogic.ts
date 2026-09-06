@@ -308,6 +308,11 @@ export interface PortfolioAssetInput {
   trailingAnnualDividendRate?: number; // Yahoo Finance 주당 연간 배당금 (최근 365일 트레일링 — "향후 1년 예상" 투영용)
   calendarYtdDividendRate?: number;    // 달력연도 1/1~오늘 실지급 주당 배당금 합 — 종합과세 판정 전용(트레일링과 다른 개념)
   sector?: string;           // 한글 변환 섹터명 (Yahoo Finance assetProfile.sector/industry → 매핑)
+  // ── 채권 이자소득세 계산 전용 필드 (FinancialIncomeGauge의 AssetForIncomeCalc와 대응) ──
+  issuerCountry?: string;        // 발행국(한국/미국/브라질 등) — 국가별 원천징수 판정용
+  couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
+  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  maturityDate?: string;         // ISO(YYYY-MM-DD)
 }
 
 export interface RunAnalysisResult {
@@ -378,8 +383,14 @@ export const runAnalysis = async (
       // 채권은 Yahoo Finance 조회 불가 — enrichedWithBonds 단계에서 buy_price × amount로 처리
       if (a.productType === '국내채권' || a.productType === '해외채권')
         return withKeywordSector({ ...a, sector: a.sector || '채권' });
-      // 현재가와 배당수익률이 모두 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
-      if (a.current_price != null && a.current_price > 0 && a.dividendYield != null) return withKeywordSector(a);
+      // 현재가·배당수익률·달력연도누적배당이 전부 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
+      // calendarYtdDividendRate는 나중에 추가된 필드라, 이전에 캐싱된 자산엔 이 필드만 빠져있을 수 있음 —
+      // 그 경우 조건에서 빠뜨리면 영원히 재조회가 안 일어나 달력연도 종합과세 점검이 0으로 고정되는 문제가 있었음.
+      if (
+        a.current_price != null && a.current_price > 0 &&
+        a.dividendYield != null &&
+        a.calendarYtdDividendRate !== undefined
+      ) return withKeywordSector(a);
 
       try {
         const TICKER_RE = /^[\w.\-=^]+$/;
