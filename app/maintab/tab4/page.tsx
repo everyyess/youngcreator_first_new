@@ -1,12 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
+import dynamic from "next/dynamic";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const PDFDownloadLinkLazy = dynamic(
+  () => import("@react-pdf/renderer").then((mod) => mod.PDFDownloadLink),
+  { ssr: false },
+) as any;
+import { Activity, AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import { useCustomerView } from "../CustomerViewContext";
 import {
   fmt,
   fmtPct,
+  HealthRadarChart,
   InteractiveDonutWithTable,
   MetricCard,
   NewPortfolioPlaceholder,
@@ -28,6 +36,7 @@ import {
 } from "../tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary } from "../tab1/FinancialIncomeGauge";
 import { PortfolioReportPdf, OPTIONAL_SECTIONS, type ReportSectionToggles, type ReportMode } from "./PortfolioReportPdf";
+import ProposalGenerator from "./ProposalGenerator";
 
 const SCENARIO_KEYS = STRESS_SCENARIO_ORDER.map((s) => s.key);
 
@@ -114,13 +123,15 @@ export default function Tab4Page() {
   const [selectedScenario, setSelectedScenario] = useState(0);
   const printRef = useRef<HTMLDivElement>(null);
   const [showReportOptions, setShowReportOptions] = useState(false);
-  const [reportMode, setReportMode] = useState<ReportMode>("normal");
+  const [showProposalGenerator, setShowProposalGenerator] = useState(false);
+  const [reportMode, setReportMode] = useState<ReportMode>("easy");
+  const [consultationProposal, setConsultationProposal] = useState<import("./PortfolioReportPdf").ConsultationProposalSections | undefined>(undefined);
   const [reportSections, setReportSections] = useState<ReportSectionToggles>({
     stress: true, health: true, taxIncome: true, holdings: true,
   });
 
-  useEffect(() => {
-    if (!selectedCustomer) return;
+  useEffect(() => { 
+    if (!selectedCustomer) return;  
     // Clear stale state from previous customer immediately
     setSummary(null);
     setNewSummary(null);
@@ -218,6 +229,23 @@ export default function Tab4Page() {
       )}
       */}
 
+<ProposalGenerator
+        open={showProposalGenerator}
+        onClose={() => setShowProposalGenerator(false)}
+        onApproved={(sections) => {
+          setConsultationProposal(sections);
+          setShowProposalGenerator(false);
+          setShowReportOptions(true);
+        }}
+        customerName={selectedCustomerProfile?.name || selectedCustomerProfile?.fallbackName || "고객"}
+        leftData={leftData}
+        rightData={rightData}
+        leftAssets={leftAssets}
+        rightAssets={rightAssets}
+        leftMetrics={leftMetrics}
+        rightMetrics={rightMetrics}
+      />
+
       {showReportOptions && (
         <ReportOptionsModal
           sections={reportSections}
@@ -237,6 +265,7 @@ export default function Tab4Page() {
           setMode={setReportMode}
           leftMetrics={leftMetrics}
           rightMetrics={rightMetrics}
+          consultationProposal={consultationProposal}
         />
       )}
 
@@ -252,13 +281,14 @@ export default function Tab4Page() {
         </div>
         <button
           type="button"
-          onClick={() => setShowReportOptions(true)}
+          onClick={() => setShowProposalGenerator(true)}
           disabled={!leftData && !rightData}
           className="inline-flex items-center gap-2 rounded-lg border border-samsung bg-white px-4 py-2.5 text-sm font-bold text-samsung shadow-soft transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Download size={16} />
           포트폴리오 제안서 PDF 생성
         </button>
+       
       </div>
 
       <div ref={printRef} className="space-y-6 bg-white">
@@ -275,14 +305,24 @@ export default function Tab4Page() {
             </span>
           </div>
 
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-4">
             {leftData?.portfolioIssueSummary && leftData.healthResult && (
               <PortfolioIssueBanner healthResult={leftData.healthResult} stressResult={leftStressResult} />
             )}
+            {leftData?.healthResult?.items && (
+              <ResultCard icon={<Activity size={18} />} title="진단 점수 시각화" accent="blue">
+                <HealthRadarChart items={leftData.healthResult.items} badge={leftData.healthResult.badge} />
+              </ResultCard>
+            )}
           </div>
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-4">
             {rightData?.portfolioIssueSummary && rightData.healthResult && (
               <PortfolioIssueBanner healthResult={rightData.healthResult} stressResult={rightStressResult} />
+            )}
+            {rightData?.healthResult?.items && (
+              <ResultCard icon={<Activity size={18} />} title="진단 점수 시각화" accent="blue">
+                <HealthRadarChart items={rightData.healthResult.items} badge={rightData.healthResult.badge} />
+              </ResultCard>
             )}
           </div>
 
@@ -434,7 +474,7 @@ function ReportOptionsModal({
   leftData, rightData, leftAssets, rightAssets,
   leftAfterTaxReturn, rightAfterTaxReturn,
   summary, newSummary, marginalTaxRate, mode, setMode,
-  leftMetrics, rightMetrics,
+  leftMetrics, rightMetrics, consultationProposal,
 }: {
   sections: ReportSectionToggles; setSections: (s: ReportSectionToggles) => void;
   onClose: () => void; customerName: string;
@@ -444,6 +484,7 @@ function ReportOptionsModal({
   summary: FinancialIncomeSummary | null; newSummary: FinancialIncomeSummary | null;
   marginalTaxRate?: number; mode: ReportMode; setMode: (m: ReportMode) => void;
   leftMetrics: MetricSnapshot; rightMetrics: MetricSnapshot;
+  consultationProposal?: import("./PortfolioReportPdf").ConsultationProposalSections;
 }) {
   const toggle = (key: keyof ReportSectionToggles) => setSections({ ...sections, [key]: !sections[key] });
   const today = new Date().toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" });
@@ -472,19 +513,7 @@ function ReportOptionsModal({
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <div className="px-6 py-5">
-          <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wide">보고서 형식</p>
-          <div className="mb-4 flex gap-3">
-            {([
-              { value: "normal", label: "포트폴리오 제안서", desc: "기본 형식 · 일반 크기" },
-              { value: "easy", label: "포트폴리오 제안서 (쉬운 설명 버전)", desc: "쉬운 설명 + 용어 각주 · 큰 글자" },
-            ] as const).map((opt) => (
-              <label key={opt.value} className={`flex-1 cursor-pointer rounded-lg border-2 px-3 py-2.5 transition ${mode === opt.value ? "border-samsung bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}>
-                <input type="radio" name="reportMode" value={opt.value} checked={mode === opt.value} onChange={() => setMode(opt.value)} className="sr-only" />
-                <p className={`text-xs font-bold ${mode === opt.value ? "text-samsung" : "text-slate-600"}`}>{opt.label}</p>
-                <p className="mt-0.5 text-[10px] text-slate-400">{opt.desc}</p>
-              </label>
-            ))}
-          </div>
+          
           <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wide">포함할 항목 선택</p>
           <div className="space-y-2.5">
             {OPTIONAL_SECTIONS.map((opt) => (
@@ -503,6 +532,7 @@ function ReportOptionsModal({
             leftTaxSummary={summary} rightTaxSummary={newSummary}
             marginalTaxRate={marginalTaxRate} mode={mode} onGenerated={onClose}
             leftMetrics={leftMetrics} rightMetrics={rightMetrics}
+            consultationProposal={consultationProposal}
           />
         </div>
       </div>
@@ -517,18 +547,13 @@ function PDFDownloadLinkClient(props: {
   leftTaxSummary: FinancialIncomeSummary | null; rightTaxSummary: FinancialIncomeSummary | null;
   marginalTaxRate?: number; mode?: ReportMode; onGenerated: () => void;
   leftMetrics: MetricSnapshot; rightMetrics: MetricSnapshot;
+  consultationProposal?: import("./PortfolioReportPdf").ConsultationProposalSections;
 }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [PDFDownloadLink, setPDFDownloadLink] = useState<any>(null);
   const aiComment = (props.left && props.right)
-    ? generatePdfComment(props.leftMetrics, props.rightMetrics)
-    : "";
-
-  useEffect(() => {
-    import("@react-pdf/renderer").then((mod) => setPDFDownloadLink(() => mod.PDFDownloadLink));
-  }, []);
-
-  if (!PDFDownloadLink) {
+  ? generatePdfComment(props.leftMetrics, props.rightMetrics)
+  : "";
+const PDFDownloadLink = PDFDownloadLinkLazy;
+if (!PDFDownloadLink) {
     return (
       <button type="button" disabled className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">
         준비 중...
@@ -536,21 +561,31 @@ function PDFDownloadLinkClient(props: {
     );
   }
 
+  const pdfDocument = useMemo(
+    () => (
+      <PortfolioReportPdf
+        customerName={props.customerName} reportDate={props.reportDate}
+        sections={props.sections} left={props.left} right={props.right}
+        leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
+        marginalTaxRate={props.marginalTaxRate} mode={props.mode}
+        aiComment={aiComment}
+        consultationProposal={props.consultationProposal}
+      />
+    ),
+    [
+      props.customerName, props.reportDate, props.sections, props.left, props.right,
+      props.leftTaxSummary, props.rightTaxSummary, props.marginalTaxRate, props.mode,
+      aiComment, props.consultationProposal,
+    ],
+  );
+
   return (
     <PDFDownloadLink
-      document={
-        <PortfolioReportPdf
-          customerName={props.customerName} reportDate={props.reportDate}
-          sections={props.sections} left={props.left} right={props.right}
-          leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
-          marginalTaxRate={props.marginalTaxRate} mode={props.mode}
-          aiComment={aiComment}
-        />
-      }
+      document={pdfDocument}
       fileName={`${props.customerName}_포트폴리오_제안서_${props.reportDate.replace(/[^0-9]/g, "")}.pdf`}
       className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90"
     >
-      {({ loading }: { loading: boolean }) => (loading ? "생성 중..." : "PDF 다운로드")}
+           {() => "PDF 다운로드"}
     </PDFDownloadLink>
   );
 }

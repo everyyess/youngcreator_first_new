@@ -61,6 +61,7 @@ export interface TelegramMessage {
   text: string;
   summary: string;
   link: string;
+  ts?: number | null;
 }
 export interface TelegramSearchResponse {
   keyword: string;

@@ -87,3 +87,104 @@ textarea:focus-visible {
   border-color: var(--question-card-border, #b9dcff);
 }
 
+/* Imported market/analysis tools: align their visual language with the PB app. */
+.project-ui-theme {
+  --project-brand: #2f2f9d;
+  --project-brand-dark: #252285;
+  --project-brand-soft: #eef0ff;
+  --project-navy: #0b1f3a;
+  --project-ink: #172033;
+  --project-muted: #64748b;
+  --project-subtle: #94a3b8;
+  --project-border: #e2e8f0;
+  --project-surface: #f8fafc;
+}
+
+.project-ui-theme [class~="rounded-card"] { border-radius: 0.75rem !important; }
+.project-ui-theme [class~="rounded-btn"] { border-radius: 0.5rem !important; }
+.project-ui-theme [class~="rounded-input"] { border-radius: 0.5rem !important; }
+.project-ui-theme [class~="shadow-card"] { box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important; }
+.project-ui-theme [class~="shadow-popup"] { box-shadow: 0 18px 45px rgba(13, 31, 58, 0.16) !important; }
+
+.project-ui-theme [class~="bg-primary"] { background-color: var(--project-brand) !important; }
+.project-ui-theme [class~="bg-primary-50"],
+.project-ui-theme [class~="bg-primary-100"],
+.project-ui-theme [class~="bg-primary/10"] { background-color: var(--project-brand-soft) !important; }
+.project-ui-theme [class~="bg-primary/70"] { background-color: rgba(47, 47, 157, 0.72) !important; }
+.project-ui-theme [class~="text-primary"],
+.project-ui-theme [class~="text-primary-400"],
+.project-ui-theme [class~="text-primary/70"] { color: var(--project-brand) !important; }
+.project-ui-theme [class~="border-primary"] { border-color: var(--project-brand) !important; }
+.project-ui-theme [class~="border-primary/30"],
+.project-ui-theme [class~="border-primary/40"],
+.project-ui-theme [class~="border-primary/50"] { border-color: rgba(47, 47, 157, 0.42) !important; }
+.project-ui-theme [class~="ring-primary/10"] { --tw-ring-color: rgba(47, 47, 157, 0.12) !important; }
+.project-ui-theme [class~="focus:ring-primary/15"]:focus { --tw-ring-color: rgba(47, 47, 157, 0.16) !important; }
+.project-ui-theme [class~="hover:bg-primary-light"]:hover,
+.project-ui-theme [class~="hover:bg-primary"]:hover { background-color: var(--project-brand-dark) !important; }
+.project-ui-theme [class~="hover:bg-primary-50"]:hover { background-color: var(--project-brand-soft) !important; }
+.project-ui-theme [class~="hover:text-primary"]:hover { color: var(--project-brand) !important; }
+.project-ui-theme [class~="hover:border-primary"]:hover,
+.project-ui-theme [class~="hover:border-primary/40"]:hover,
+.project-ui-theme [class~="hover:border-primary/50"]:hover { border-color: rgba(47, 47, 157, 0.55) !important; }
+.project-ui-theme [class~="focus:border-primary"]:focus { border-color: var(--project-brand) !important; }
+
+.project-ui-theme [class~="bg-[#005B52]"],
+.project-ui-theme [class~="bg-[#004D45]"] { background-color: var(--project-brand) !important; }
+.project-ui-theme [class~="text-[#005B52]"],
+.project-ui-theme [class~="text-[#004D45]"] { color: var(--project-brand) !important; }
+.project-ui-theme [class~="border-[#005B52]"],
+.project-ui-theme [class~="border-[#004D45]"] { border-color: var(--project-brand) !important; }
+.project-ui-theme [class~="hover:bg-[#15583d]"]:hover,
+.project-ui-theme [class~="hover:bg-[#155a3e]"]:hover,
+.project-ui-theme [class~="hover:bg-[#004D45]"]:hover { background-color: var(--project-brand-dark) !important; }
+.project-ui-theme [class~="hover:border-[#005B52]"]:hover { border-color: rgba(47, 47, 157, 0.55) !important; }
+.project-ui-theme [class~="focus:border-[#005B52]"]:focus { border-color: var(--project-brand) !important; }
+.project-ui-theme [class~="focus:ring-[#005B52]"]:focus { --tw-ring-color: rgba(47, 47, 157, 0.18) !important; }
+.project-ui-theme .group:hover [class~="group-hover:bg-[#005B52]"] { background-color: var(--project-brand) !important; }
+.project-ui-theme .group:hover [class~="group-hover:text-[#005B52]"] { color: var(--project-brand) !important; }
+
+.project-ui-theme [class~="text-[#0D2318]"],
+.project-ui-theme [class~="text-[#0d2318]"] { color: var(--project-navy) !important; }
+.project-ui-theme [class~="text-[#1C3329]"],
+.project-ui-theme [class~="text-[#1c3329]"] { color: var(--project-ink) !important; }
+.project-ui-theme [class~="text-[#33493F]"],
+.project-ui-theme [class~="text-[#33493f]"],
+.project-ui-theme [class~="text-[#3c564b]"],
+.project-ui-theme [class~="text-[#4B6358]"],
+.project-ui-theme [class~="text-[#4b6358]"] { color: #475569 !important; }
+.project-ui-theme [class~="text-[#5F7A70]"],
+.project-ui-theme [class~="text-[#5f7a70]"],
+.project-ui-theme [class~="text-[#7A9488]"] { color: var(--project-muted) !important; }
+.project-ui-theme [class~="text-[#94A8A0]"],
+.project-ui-theme [class~="text-[#B9CCC4]"] { color: var(--project-subtle) !important; }
+
+.project-ui-theme [class~="border-[#DDE8E5]"],
+.project-ui-theme [class~="border-[#DFE9E5]"],
+.project-ui-theme [class~="border-[#CBE3DE]"],
+.project-ui-theme [class~="border-[#C5D6D0]"],
+.project-ui-theme [class~="border-[#E4EEEB]"] { border-color: var(--project-border) !important; }
+.project-ui-theme [class~="border-[#DDE8E5]/60"] { border-color: rgba(226, 232, 240, 0.72) !important; }
+.project-ui-theme [class~="border-[#F0F7F4]"],
+.project-ui-theme [class~="border-[#EDF3F1]"],
+.project-ui-theme [class~="border-[#F6FAF8]"] { border-color: #f1f5f9 !important; }
+
+.project-ui-theme [class~="bg-[#EBF5F3]"],
+.project-ui-theme [class~="bg-[#EEF4F1]"],
+.project-ui-theme [class~="bg-[#EEF4F2]"],
+.project-ui-theme [class~="bg-[#F0F5F4]"] { background-color: #f1f5f9 !important; }
+.project-ui-theme [class~="bg-[#F0F7F4]"],
+.project-ui-theme [class~="bg-[#F0FAF9]"],
+.project-ui-theme [class~="bg-[#F6FAF8]"],
+.project-ui-theme [class~="bg-[#F7FAF9]"],
+.project-ui-theme [class~="bg-[#F9FCFB]"],
+.project-ui-theme [class~="bg-[#FAFCFB]"],
+.project-ui-theme [class~="bg-[#FCFDFD]"] { background-color: var(--project-surface) !important; }
+.project-ui-theme [class~="bg-[#F6FAF8]/40"],
+.project-ui-theme [class~="bg-[#F6FAF8]/50"],
+.project-ui-theme [class~="bg-[#F6FAF8]/60"] { background-color: rgba(248, 250, 252, 0.72) !important; }
+.project-ui-theme [class~="hover:bg-[#F6FAF8]"]:hover,
+.project-ui-theme [class~="hover:bg-[#FAFCFB]"]:hover { background-color: #f8fafc !important; }
+
+.project-ui-theme input[type="checkbox"] { accent-color: var(--project-brand); }
+

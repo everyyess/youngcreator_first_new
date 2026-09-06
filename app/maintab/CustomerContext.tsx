@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { type SupabaseClient } from "@supabase/supabase-js";
+import { browserSupabase } from "@/lib/supabaseBrowser";
 import { formatLiquiditySummary } from "./liquidityFields";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -352,12 +353,18 @@ export type Tab3AnalysisState = {
 export type SharedMaintabUiState = {
   tab2?: {
     activeInnerTab?: string;
+    selectedTheme?: string | null;
+    incomingSelectedStock?: { ticker?: string; code?: string; name?: string; market?: string } | null;
+    activeStockAnalysisTab?: string;
     sellSimulator?: {
       selectedKey?: string | null;
       sellQtyStr?: string;
       mode?: "sell" | "buy";
       buyQtyStr?: string;
     };
+  };
+  tab4?: {
+    activeInnerTab?: "telegram" | "news" | "report" | "insight";
   };
   tab3?: {
     buySim?: {
@@ -593,14 +600,7 @@ export function normalizeCustomerProfiles(value: unknown): CustomerProfile[] {
 }
 
 // ── Supabase Storage ───────────────────────────────────────────────────────
-function getSupabaseClient(): SupabaseClient | null {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
-
-export const supabase = getSupabaseClient();
+export const supabase: SupabaseClient | null = browserSupabase;
 export let latestStorageErrorMessage = "";
 const embeddedAppStateKey = "__app_state";
 type CustomerScopedTableName = "rebalancing_state" | "new_analysis_results" | "tax_summaries" | "product_selections";

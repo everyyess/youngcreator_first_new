@@ -1,9 +1,8 @@
 "use client";
 
-import { Home } from "lucide-react";
-
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import { buildHeaderAssetSummary, HeaderSummary } from "../maintab/MainTabShell";
 import TechnicalAnalysisTab from "../maintab/tab2/TechnicalAnalysisTab";
 import FundamentalAnalysisTab from "../maintab/tab2/FundamentalAnalysisTab";
@@ -18,14 +17,19 @@ import {
   createNewCustomerProfile,
   deriveCalculatedAppState,
   getStoredSelectedCustomerId,
+  loadAnalysisResult,
   loadPortfolioAssets,
+  loadSharedMaintabUiState,
   saveCustomerDataJsonOnly,
+  saveSharedMaintabUiState,
   storeSelectedCustomerId,
   type AppState,
   type CustomerContextValue,
   type CustomerId,
   type CustomerProfile,
   type PortfolioAsset,
+  type PortfolioAnalysisResult,
+  type SharedMaintabUiState,
 } from "../maintab/CustomerContext";
 import { pbAuthStore } from "../authStore";
 import {
@@ -37,6 +41,21 @@ import {
   writeActiveConsultation,
   type ActiveConsultation,
 } from "../consultationStore";
+import { BackgroundEngineProvider } from "./integratedInsight/BackgroundEngineContext";
+
+const ElbElsSimulator = dynamic(() => import("@/components/ElbElsSimulator"), {
+  ssr: false,
+  loading: () => (
+    <section className="min-h-[320px] rounded-lg border border-slate-200 bg-white p-6 text-sm font-bold text-slate-400 shadow-soft">
+      ELB·ELS 시뮬레이터를 불러오는 중입니다.
+    </section>
+  ),
+});
+
+const PeerAnalysisTab = dynamic(() => import("./PeerAnalysisTab"), { ssr: false });
+const IntegratedInsight = dynamic(() => import("./integratedInsight/IntegratedInsight"), { ssr: false });
+
+const PORTFOLIO_RESULT_STORAGE_KEY = "portfolio-result-v1";
 
 export type AnalysisTopTab = "stock" | "screener" | "competitors" | "insight" | "elbEls";
 type StockAnalysisTab = "technical" | "fundamental" | "dart";
@@ -83,10 +102,14 @@ function AnalysisTabs({
   contextValue,
   activeTopTab,
   urlSelectedStock,
+  onCustomerChange,
+  isInsightSessionReady,
 }: {
   contextValue: CustomerContextValue;
   activeTopTab: AnalysisTopTab;
   urlSelectedStock: { ticker: string; name: string } | null;
+  onCustomerChange: (customerId: CustomerId) => void;
+  isInsightSessionReady: boolean;
 }) {
   const router = useRouter();
   const [activeStockTab, setActiveStockTab] = useState<StockAnalysisTab>("technical");
@@ -108,6 +131,16 @@ function AnalysisTabs({
   useEffect(() => {
     if (urlSelectedStock) setSharedStock(urlSelectedStock);
   }, [urlSelectedStock]);
+
+  // 분석 고객이 실제로 바뀌면 공유 종목을 비워, 각 분석 탭이 새 고객의 보유 종목에서 다시 고르게 함.
+  // 최초 고객 로딩(빈 값 -> 고객 id)이나 스크리너/URL로 들어온 선택은 건드리지 않음.
+  const previousCustomerRef = useRef(contextValue.selectedCustomer);
+  useEffect(() => {
+    const previous = previousCustomerRef.current;
+    previousCustomerRef.current = contextValue.selectedCustomer;
+    if (!previous || previous === contextValue.selectedCustomer) return;
+    setSharedStock(null);
+  }, [contextValue.selectedCustomer]);
 
   const selectStockTab = (tab: StockAnalysisTab) => {
     setActiveStockTab(tab);
@@ -137,6 +170,26 @@ function AnalysisTabs({
           <StockScreenerTab />
         ) : activeTopTab === "stock" ? (
           <div className="flex flex-col gap-4">
+            <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft lg:p-5">
+              <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.7fr)]">
+                <label className="space-y-2">
+                  <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">분석 고객</span>
+                  <select
+                    value={contextValue.selectedCustomer}
+                    onChange={(event) => onCustomerChange(event.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition focus:border-[#2f2f9d] focus:ring-2 focus:ring-[#2f2f9d]/15"
+                  >
+                    {contextValue.customerProfiles.length === 0 ? <option value="">등록된 고객 없음</option> : null}
+                    {contextValue.customerProfiles.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name || "이름 미입력"}{customer.birthYear ? ` · ${customer.birthYear}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </section>
+
             <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
               {stockAnalysisTabs.map((tab) => (
                 <button
@@ -155,19 +208,37 @@ function AnalysisTabs({
 
             {mountedStockTabs.has("technical") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "technical" ? undefined : "none" }}>
-                <TechnicalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+                <TechnicalAnalysisTab key={contextValue.selectedCustomer} selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
             {mountedStockTabs.has("fundamental") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "fundamental" ? undefined : "none" }}>
-                <FundamentalAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+                <FundamentalAnalysisTab key={contextValue.selectedCustomer} selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
             {mountedStockTabs.has("dart") ? (
               <div className="space-y-5" style={{ display: activeStockTab === "dart" ? undefined : "none" }}>
-                <DartAnalysisTab selectedStock={sharedStock} onStockChange={setSharedStock} />
+                <DartAnalysisTab key={contextValue.selectedCustomer} selectedStock={sharedStock} onStockChange={setSharedStock} />
               </div>
             ) : null}
+          </div>
+        ) : activeTopTab === "competitors" ? (
+          <div className="project-ui-theme">
+            <PeerAnalysisTab />
+          </div>
+        ) : activeTopTab === "insight" && !isInsightSessionReady ? (
+          <section className="min-h-[320px] rounded-lg border border-slate-200 bg-white p-6 text-sm font-bold text-slate-400 shadow-soft">
+            통합 인사이트용 Supabase 세션을 연결하는 중입니다.
+          </section>
+        ) : activeTopTab === "insight" ? (
+          <BackgroundEngineProvider>
+            <div className="project-ui-theme flex flex-col gap-4">
+              <IntegratedInsight />
+            </div>
+          </BackgroundEngineProvider>
+        ) : activeTopTab === "elbEls" ? (
+          <div className="project-ui-theme">
+            <ElbElsSimulator />
           </div>
         ) : (
           <PlaceholderContent label={analysisTopTabs.find((tab) => tab.id === activeTopTab)?.label ?? "선택한 탭"} />
@@ -188,10 +259,23 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerId>("");
   const [customerUpdatedAt, setCustomerUpdatedAt] = useState<Record<CustomerId, number>>({});
   const [portfolioAssetsMap, setPortfolioAssetsMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
+  const [analysisResultMap, setAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
   const [storageErrorMessage, setStorageErrorMessage] = useState("");
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [sharedUiState, setSharedUiState] = useState<SharedMaintabUiState>({ tab2: { activeInnerTab: "peer" }, tab4: { activeInnerTab: "insight" } });
+  const [isInsightSessionReady, setIsInsightSessionReady] = useState(false);
   const loadedPortfolioRef = useRef(new Set<CustomerId>());
+
+  useEffect(() => {
+    let cancelled = false;
+    pbAuthStore.ensureInsightSession()
+      .catch(() => false)
+      .finally(() => {
+        if (!cancelled) setIsInsightSessionReady(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,12 +329,59 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     if (!selectedCustomer || loadedPortfolioRef.current.has(selectedCustomer)) return;
     loadedPortfolioRef.current.add(selectedCustomer);
     let cancelled = false;
-    loadPortfolioAssets(selectedCustomer).then((assets) => {
-      if (!cancelled) setPortfolioAssetsMap((prev) => ({ ...prev, [selectedCustomer]: assets }));
+    Promise.all([
+      loadPortfolioAssets(selectedCustomer),
+      loadAnalysisResult(selectedCustomer),
+    ]).then(([assets, result]) => {
+      if (cancelled) return;
+      setPortfolioAssetsMap((prev) => ({ ...prev, [selectedCustomer]: assets }));
+      setAnalysisResultMap((prev) => ({
+        ...prev,
+        [selectedCustomer]: result as PortfolioAnalysisResult | null,
+      }));
     }).catch(() => {
       loadedPortfolioRef.current.delete(selectedCustomer);
     });
     return () => { cancelled = true; };
+  }, [selectedCustomer]);
+
+  // 고객 전환 또는 분석 결과 변경 시 localStorage 동기화.
+  // usePortfolioResult()가 `analysisResult ?? localStorage` 순으로 읽으므로,
+  // 선택 고객의 결과가 없을 때 이전 고객 결과가 남아 노출되는 것을 막는다.
+  // (MainTabShell이 상담 화면에서 하는 동기화와 동일한 처리)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const result = analysisResultMap[selectedCustomer] ?? null;
+    try {
+      if (result) {
+        localStorage.setItem(PORTFOLIO_RESULT_STORAGE_KEY, JSON.stringify(result));
+      } else {
+        localStorage.removeItem(PORTFOLIO_RESULT_STORAGE_KEY);
+      }
+      window.dispatchEvent(new CustomEvent("portfolio-result-updated"));
+    } catch {}
+  }, [selectedCustomer, analysisResultMap]);
+
+  useEffect(() => {
+    if (!selectedCustomer) return;
+    let cancelled = false;
+    loadSharedMaintabUiState(selectedCustomer).then((state) => {
+      if (!cancelled) setSharedUiState({ ...state, tab2: { ...state.tab2, activeInnerTab: "peer" }, tab4: { ...state.tab4, activeInnerTab: "insight" } });
+    });
+    return () => { cancelled = true; };
+  }, [selectedCustomer]);
+
+  const updateSharedUiState = useCallback((patch: SharedMaintabUiState) => {
+    setSharedUiState((previous) => {
+      const next = {
+        ...previous,
+        ...patch,
+        tab2: patch.tab2 ? { ...previous.tab2, ...patch.tab2 } : previous.tab2,
+        tab4: patch.tab4 ? { ...previous.tab4, ...patch.tab4 } : previous.tab4,
+      };
+      if (selectedCustomer) void saveSharedMaintabUiState(selectedCustomer, next);
+      return next;
+    });
   }, [selectedCustomer]);
 
   const fallbackCustomerProfile = useMemo(() => createNewCustomerProfile(), []);
@@ -258,6 +389,8 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   const currentCustomerProfile = selectedCustomerProfile ?? fallbackCustomerProfile;
   const formData = deriveCalculatedAppState(customerData[selectedCustomer] ?? customerData[selectedCustomerProfile?.id ?? ""] ?? createInitialState());
   const portfolioAssets = portfolioAssetsMap[selectedCustomer] ?? [];
+  const analysisResult = analysisResultMap[selectedCustomer] ?? null;
+  const isPortfolioLoading = Boolean(selectedCustomer) && !Object.prototype.hasOwnProperty.call(portfolioAssetsMap, selectedCustomer);
   const assetSummary = useMemo(
     () => buildHeaderAssetSummary(formData.financial, formData.headerAssetSummary, portfolioAssets, null),
     [formData.financial, formData.headerAssetSummary, portfolioAssets],
@@ -269,7 +402,16 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     customerProfiles,
     selectedCustomer,
     portfolioAssets,
-  }) as CustomerContextValue, [currentCustomerProfile, customerProfiles, formData, portfolioAssets, selectedCustomer]);
+    isPortfolioLoaded: !isPortfolioLoading,
+    analysisResult,
+    sharedUiState,
+    updateSharedUiState,
+  }) as CustomerContextValue, [analysisResult, currentCustomerProfile, customerProfiles, formData, isPortfolioLoading, portfolioAssets, selectedCustomer, sharedUiState, updateSharedUiState]);
+
+  const selectCustomer = (customerId: CustomerId) => {
+    setSelectedCustomer(customerId);
+    if (customerId) storeSelectedCustomerId(customerId);
+  };
 
   const finishActiveConsultation = () => {
     const active = activeConsultation ?? readActiveConsultation();
@@ -294,7 +436,7 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   return (
     <main className="min-h-screen bg-[#F7F8FC] px-5 py-6 text-ink lg:px-8" style={{ backgroundColor: "#F7F8FC" }}>
       <div className="mx-auto flex max-w-[1680px] flex-col gap-5">
-<HeaderSummary
+        <HeaderSummary
           currentCustomer={selectedCustomerProfile}
           recentUpdatedAt={customerUpdatedAt[selectedCustomer] ?? 0}
           assetSummary={assetSummary}
@@ -311,6 +453,8 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
           contextValue={analysisContextValue}
           activeTopTab={initialTopTab}
           urlSelectedStock={urlTicker && urlName ? { ticker: urlTicker, name: urlName } : null}
+          onCustomerChange={selectCustomer}
+          isInsightSessionReady={isInsightSessionReady}
         />
       </div>
     </main>
