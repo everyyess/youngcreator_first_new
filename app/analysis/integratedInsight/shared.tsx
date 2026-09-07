@@ -219,14 +219,12 @@ export function TagEditSection({
 export type AiModelId =
   | "auto"
   | "gemini-3.1-flash-lite"
-  | "gemini-3.5-flash"
-  | "gemini-2.5-flash";
+  | "gemini-3.5-flash";
 
 export const AI_MODELS: { id: AiModelId; label: string; limit: string; dailyLimit: number | null }[] = [
   { id: "auto", label: "자동 (폴백)", limit: "한도 초과 시 다음 모델로 자동 전환", dailyLimit: null },
   { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash Lite", limit: "무료 500회/일 · 가장 넉넉", dailyLimit: 500 },
   { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", limit: "무료 20회/일 · 품질 우선", dailyLimit: 20 },
-  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", limit: "무료 20회/일", dailyLimit: 20 },
 ];
 
 const MODEL_STORAGE_KEY = "tab4_ai_model";

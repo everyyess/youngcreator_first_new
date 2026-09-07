@@ -9,12 +9,13 @@ import { DEMO_NAVER_PDF_URL, DEMO_NAVER_SUMMARY } from '../route';
 export const maxDuration = 60;
 
 // 한도 초과(429) 또는 미지원(404) 시 순서대로 폴백
-// PDF inline_data 지원 모델만 포함 (Google AI Studio 무료 한도 기준 — 2026-06)
+// PDF inline_data 지원 모델만 포함
+// (2026-09-07 실제 PDF로 4개 모델 모두 처리 확인)
 const GEMINI_MODELS = [
-  'gemini-3.1-flash-lite',   // 1순위: RPD 500 ★ 한도 가장 넉넉
-  'gemini-1.5-flash',        // 2순위: 구세대, 별도 한도 풀
-  'gemini-2.5-flash-lite',   // 3순위: RPD 20
-  'gemini-2.5-flash',        // 4순위: RPD 20
+  'gemini-3.1-flash-lite',   // 1순위: 한도 가장 넉넉
+  'gemini-3.5-flash-lite',   // 2순위
+  'gemini-3.6-flash',        // 3순위
+  'gemini-3.5-flash',        // 4순위
 ] as const;
 
 const PDF_HEADERS = {

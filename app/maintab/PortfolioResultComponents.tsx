@@ -328,10 +328,15 @@ function assetKey(a: PortfolioAsset): string {
   return (a.ticker ? a.ticker : a.name) ?? "";
 }
 
+// 수량(quantity) 기준 자산은 current_value·buy_price가 전혀 없으면 평가금액을 알 수 없는 상태다.
+// 이때 a.amount(보유 "수량")를 그대로 반환하면 몇 주짜리 주식이 몇백만원짜리 채권/상품과 같은 스케일로
+// 섞여 도넛차트 비중이 완전히 깨진다(예: 10주 vs 500만원 → 10/5,000,010로 사실상 0%가 되어버림).
+// amount가 실제 "금액"인 value 기준 자산(채권·상품)만 마지막 폴백으로 amount를 그대로 쓴다.
 function getAssetValueGeneric(a: PortfolioAsset): number {
   if (a.current_value != null && a.current_value > 0) return a.current_value;
   if (a.amount_type === "quantity" && a.buy_price != null && a.buy_price > 0 && a.amount > 0) return a.buy_price * a.amount;
-  return a.amount ?? 0;
+  if (a.amount_type === "value") return a.amount ?? 0;
+  return 0;
 }
 
 export function computeRebalancingStatuses(
@@ -682,11 +687,7 @@ export function DonutChart({
   const [hoveredCls, setHoveredCls] = useState<string | null>(null);
   const { containerRef, progress } = useDonutAnimation();
   const clampedProgress = Math.max(0, Math.min(progress, 1));
-  const getAssetValue = (a: PortfolioAsset): number => {
-    if (a.current_value != null && a.current_value > 0) return a.current_value;
-    if (a.amount_type === "quantity" && a.buy_price != null && a.buy_price > 0 && a.amount > 0) return a.buy_price * a.amount;
-    return a.amount ?? 0;
-  };
+  const getAssetValue = getAssetValueGeneric;
   const totalValue = assets.reduce((s, a) => s + getAssetValue(a), 0);
   const byClass: Record<string, number> = {};
   for (const a of assets) {
@@ -780,11 +781,7 @@ export function SectorDonutChart({
   const { containerRef, progress } = useDonutAnimation();
   const clampedProgress = Math.max(0, Math.min(progress, 1));
 
-  const getAssetValue = (a: PortfolioAsset): number => {
-    if (a.current_value != null && a.current_value > 0) return a.current_value;
-    if (a.amount_type === "quantity" && a.buy_price != null && a.buy_price > 0 && a.amount > 0) return a.buy_price * a.amount;
-    return a.amount ?? 0;
-  };
+  const getAssetValue = getAssetValueGeneric;
 
   const totalValue = assets.reduce((s, a) => s + getAssetValue(a), 0);
 

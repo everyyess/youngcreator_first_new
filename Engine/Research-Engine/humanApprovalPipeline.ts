@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createJob, getJob, updateJob, type AgentUpdate, type HumanApprovalStep, type Job } from "./jobStore";
+import { createJob, getJob, updateJob, type AgentUpdate, type HitlReviewItem, type HumanApprovalStep, type Job } from "./jobStore";
+import { applyReviewItems, buildReviewItems, pbCommentDirective } from "./hitlReview";
 import { isDatabaseId, type DatabaseId, type EvidenceCard, type IntegratedContext, type ReportMetricChart, type UnifiedResearchRequest, type UnifiedResearchResult } from "./types";
 import { normalizeResearchResult } from "./result";
 import { extractMappedTags } from "@/lib/tagRules";
@@ -47,7 +48,18 @@ export function serializeResearchJob(job: Job): Job {
   return {
     ...job,
     result: job.result ? normalizeResearchResult(job.result) : null,
-    hitl: job.hitl ?? { completedStep: job.status === "done" ? 5 : 0, awaitingStep: null, awaitingApproval: false, agentUpdates: [] },
+    hitl: {
+      // 구버전 작업(서버 상주 중 배포되어 hitl이 없거나 필드가 빠진 경우) 호환
+      ...(job.hitl ?? {
+        completedStep: job.status === "done" ? 5 : 0,
+        awaitingStep: null,
+        awaitingApproval: false,
+        agentUpdates: [],
+      }),
+      reviewItems: job.hitl?.reviewItems ?? [],
+      editedCount: job.hitl?.editedCount ?? 0,
+      pbNotes: job.hitl?.pbNotes ?? [],
+    },
   };
 }
 function matches(row: Record<string, unknown>, keyword: string) {
@@ -96,6 +108,11 @@ function setCheckpoint(job: Job, step: HumanApprovalStep, updates: AgentUpdate[]
     hitl: {
       completedStep: step, awaitingStep: next, awaitingApproval: Boolean(next),
       agentUpdates: [...job.hitl.agentUpdates, ...updates],
+      // 방금 끝난 STEP의 산출물을 PB 검토 항목으로 열어준다.
+      // 이전 STEP의 항목은 이미 승인되어 result에 반영됐으므로 교체한다.
+      reviewItems: job.result ? buildReviewItems(step, job.result) : [],
+      editedCount: job.hitl.editedCount ?? 0,
+      pbNotes: job.hitl.pbNotes ?? [],
     },
     result: job.result,
   });
@@ -512,6 +529,57 @@ export async function startHumanResearch(db: SupabaseClient, input: unknown): Pr
   setCheckpoint(job, 1, updates);
   return { job: serializeResearchJob(getJob(job.id) ?? job), status: 201 };
 }
+/** 누적된 PB 코멘트를 보고서 프롬프트용 지시문으로 정리한다. */
+function pbNotesDirective(job: Job): string {
+  const notes = (job.hitl.pbNotes ?? []).filter((note) => note.comment.trim());
+  if (!notes.length) return "";
+  return "\n\n[PB 검토 코멘트 — 보고서 작성 시 반드시 반영]\n"
+    + notes.map((note) => "- (STEP " + note.step + ") " + note.title + ": " + note.comment.trim()).join("\n");
+}
+
+/**
+ * PB가 검토 화면에서 고친 내용·체크·코멘트를 저장한다.
+ * 수정본은 즉시 job.result에 반영되어 다음 STEP이 그것을 근거로 실행한다.
+ */
+export function reviewHumanResearch(
+  jobId: string,
+  step: number,
+  edits: { id: string; content?: string; checked?: boolean; pbComment?: string }[],
+): { job?: Job; error?: string; status: number } {
+  const job = getJob(jobId);
+  if (!job) return { error: "작업을 찾을 수 없습니다.", status: 404 };
+  if (!job.result) return { error: "검토할 중간 결과가 없습니다.", status: 409 };
+  if (job.hitl.completedStep !== step) {
+    return { error: "현재 검토 구간이 아닙니다.", status: 409 };
+  }
+  const byId = new Map(edits.map((edit) => [edit.id, edit]));
+  let edited = 0;
+  const nextItems: HitlReviewItem[] = job.hitl.reviewItems.map((entry) => {
+    const patch = byId.get(entry.id);
+    if (!patch) return entry;
+    const content = typeof patch.content === "string" ? patch.content : entry.content;
+    const isEdited = content.trim() !== entry.original.trim();
+    if (isEdited) edited += 1;
+    return {
+      ...entry,
+      content,
+      edited: isEdited,
+      checked: typeof patch.checked === "boolean" ? patch.checked : entry.checked,
+      pbComment: typeof patch.pbComment === "string" ? patch.pbComment : entry.pbComment,
+    };
+  });
+  applyReviewItems(job.result, nextItems);
+  const notes = nextItems
+    .filter((entry) => entry.pbComment.trim())
+    .map((entry) => ({ step: entry.step, title: entry.title, comment: entry.pbComment.trim() }));
+  const keptNotes = (job.hitl.pbNotes ?? []).filter((note) => note.step !== step);
+  updateJob(job.id, {
+    result: job.result,
+    hitl: { ...job.hitl, reviewItems: nextItems, editedCount: edited, pbNotes: [...keptNotes, ...notes] },
+  });
+  return { job: serializeResearchJob(getJob(job.id) ?? job), status: 200 };
+}
+
 export async function approveHumanResearch(jobId: string, expectedStep: number): Promise<{ job?: Job; error?: string; status: number }> {
   const job = getJob(jobId);
   if (!job) return { error: "작업을 찾을 수 없습니다.", status: 404 };
@@ -520,6 +588,11 @@ export async function approveHumanResearch(jobId: string, expectedStep: number):
   }
   const step = job.hitl.awaitingStep;
   if (!step || !job.result) return { error: "승인할 중간 결과가 없습니다.", status: 409 };
+  // 상담실 제안서 검토와 동일 — 모든 항목을 PB가 확인해야 다음 STEP을 실행한다.
+  const unchecked = job.hitl.reviewItems.filter((entry) => !entry.checked).length;
+  if (unchecked > 0) {
+    return { error: "검토하지 않은 항목이 " + unchecked + "개 남았습니다.", status: 409 };
+  }
   updateJob(job.id, { status: "running", stage: STAGE[step], stageLabel: "STEP " + step + " 실행 중" });
   const started = Date.now();
   let updates: AgentUpdate[] = [];
@@ -540,7 +613,8 @@ export async function approveHumanResearch(jobId: string, expectedStep: number):
     job.modelUsage = { ...(job.modelUsage ?? {}), ...(job.result.modelUsage ?? {}) };
   } else if (step === 5) {
     job.result.metricCharts = buildMetricCharts(job.result);
-    const generated = await generateResearchReport(job.result);
+    // PB가 전 STEP에서 남긴 코멘트를 보고서 작성 지시문으로 함께 넘긴다.
+    const generated = await generateResearchReport(job.result, pbNotesDirective(job));
     job.result.report = generated.markdown;
     job.result.generatedAt = now();
     if (generated.model) {

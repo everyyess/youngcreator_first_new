@@ -166,26 +166,56 @@ export default function Tab4Page() {
   const rightData = newPortfolioAnalysisResult;
   const leftAssets: PortfolioAsset[] = Array.isArray(leftData?.enrichedAssets) ? (leftData!.enrichedAssets as PortfolioAsset[]) : [];
 
-  const enrichedRemainingAssets = useMemo(() => {
-    const map = new Map(leftAssets.map(a => [`${a.name ?? ""}::${a.ticker ?? ""}`, a]));
-    return rebalancingSellAssets.map(a => {
-      const enriched = map.get(`${a.name ?? ""}::${a.ticker ?? ""}`);
-      return { ...a, current_price: enriched?.current_price ?? a.current_price, current_value: enriched?.current_value ?? a.current_value };
-    });
-  }, [rebalancingSellAssets, leftAssets]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // B패널(신규 포트폴리오) 자산 목록 — 항상 "지금 리밸런싱 중인 실제 선택 상태"(rebalancingSellAssets)를
+  // 기준으로 계산한다. 예전엔 rightData(직전에 완료된 runAnalysis 결과)가 있으면 그걸 통째로 우선 썼는데,
+  // TAB3-2에서 상품을 담아도 새 runAnalysis()가 끝나기 전(디바운스+시세조회로 수십 초~1분 소요)까지는
+  // 화면이 "담기 전" 상태로 멈춰 있는 것처럼 보이는 원인이었다. 이제는 매번 최신 선택 목록을 그대로 쓰고,
+  // 가격만 가장 최근에 성공한 분석 결과(rightData, 없으면 leftData)에서 종목명 기준으로 보완한다.
+  // 티커가 아닌 "이름"으로 매칭하는 이유: 리밸런싱에 막 담긴 원본 자산은 분석 실행 전이라 티커가 아직
+  // 비어있을 수 있는데(자동완성은 분석 시점에 일어남), 티커까지 일치해야 매칭되게 하면 기존 보유 주식이
+  // 가격 정보를 못 찾아 current_value=0으로 빠지고, 그 결과 도넛차트가 그 종목을 "가치 없음"으로 취급해
+  // 상품(채권 등) 하나가 100%인 것처럼 보이는 왜곡이 생겼다.
   const rightAssets: PortfolioAsset[] = useMemo(() => {
-    if (Array.isArray(rightData?.enrichedAssets) && rightData!.enrichedAssets.length > 0) return rightData!.enrichedAssets as PortfolioAsset[];
-    return enrichedRemainingAssets.filter(a => a.amount > 0);
-  }, [rightData, enrichedRemainingAssets]);
+    const priceByName = new Map<string, PortfolioAsset>();
+    for (const a of leftAssets) if (a.name) priceByName.set(a.name, a);
+    if (Array.isArray(rightData?.enrichedAssets)) {
+      for (const a of rightData!.enrichedAssets as PortfolioAsset[]) if (a.name) priceByName.set(a.name, a);
+    }
+    return rebalancingSellAssets
+      .filter((a) => a.amount > 0)
+      .map((a) => {
+        const priced = a.name ? priceByName.get(a.name) : undefined;
+        const isBond = a.asset_class === "국내채권" || a.asset_class === "해외채권" || a.productType === "국내채권" || a.productType === "해외채권";
+        return {
+          ...a,
+          current_price: a.current_price ?? priced?.current_price,
+          current_value: a.current_value ?? priced?.current_value,
+          // sector도 가격과 같은 이유로 보완 필요 — 안 하면 방금 담은 자산은 전부 "기타"로 잡혀
+          // "보유 종목 섹터 비중" 도넛이 통째로 빈 화면("분석 실행 후 표시됩니다")이 된다.
+          // 채권은 runAnalysis()가 항상 sector="채권"으로 통일해서 붙이므로, 아직 분석 전이라도
+          // 여기서 미리 같은 값을 붙여주면 담자마자 바로 반영된다(주식·펀드는 실제 섹터 데이터를
+          // 확보하는 분석 완료를 기다려야 하므로 그대로 둔다).
+          sector: a.sector ?? priced?.sector ?? (isBond ? "채권" : undefined),
+        };
+      });
+  }, [rebalancingSellAssets, rightData, leftAssets]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const leftStressResult = (leftData as any)?.stressResult;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rightStressResult = (rightData as any)?.stressResult;
 
-  const leftAfterTaxReturn = useMemo(() => summary ? calcAfterTaxReturn(summary, leftAssets, false) : null, [summary, leftAssets]); // eslint-disable-line react-hooks/exhaustive-deps
-  const rightAfterTaxReturn = useMemo(() => newSummary ? calcAfterTaxReturn(newSummary, rightAssets) : null, [newSummary, rightAssets]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "세후 수익률"은 세금 점검(calcFinancialIncomeSummary)과 같은 이유로 펀드·랩어카운트를 뺀다 —
+  // 이 상품들은 카탈로그에 실제 배당·이자 수익률 데이터가 없어(표시용 return1Y는 총수익률이지 배당률이
+  // 아님) 세금 계산에서 사실상 반영되지 않는데, 세후 수익률에는 그대로 원금·평가금액이 섞여 들어가면
+  // "세금은 안 잡히는데 수익률엔 잡히는" 앞뒤가 안 맞는 숫자가 나온다. 세금 점검에 실제로 찍히는
+  // 상품(주식·채권·개별 상품)과 그 금액만 반영한다.
+  const isFundOrWrap = (a: PortfolioAsset) => a.productType === "펀드" || a.productType === "랩어카운트";
+  const leftAssetsForReturn = useMemo(() => leftAssets.filter((a) => !isFundOrWrap(a)), [leftAssets]);
+  const rightAssetsForReturn = useMemo(() => rightAssets.filter((a) => !isFundOrWrap(a)), [rightAssets]);
+
+  const leftAfterTaxReturn = useMemo(() => summary ? calcAfterTaxReturn(summary, leftAssetsForReturn, false) : null, [summary, leftAssetsForReturn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rightAfterTaxReturn = useMemo(() => newSummary ? calcAfterTaxReturn(newSummary, rightAssetsForReturn) : null, [newSummary, rightAssetsForReturn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const leftMetrics = useMemo<MetricSnapshot>(() => ({
     afterTaxReturn: leftAfterTaxReturn ?? leftData?.quantResult?.performance?.afterTaxExpectedReturn ?? null,
@@ -348,7 +378,11 @@ export default function Tab4Page() {
             {leftData?.quantResult && (
               <ResultCard icon={<TrendingUp size={18} />} title="핵심 지표 요약" accent="green">
                 <div className="grid grid-cols-2 gap-3">
-                  <MetricCard label="세후 수익률" value={fmtPct(leftAfterTaxReturn ?? leftData.quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
+                  <MetricCard
+                    label="세후 수익률"
+                    value={fmtPct(leftAfterTaxReturn ?? leftData.quantResult.performance.afterTaxExpectedReturn)}
+                    sub={leftAssets.some(isFundOrWrap) ? "세후 연환산 기대수익 · 펀드·랩어카운트는 제외(주식·채권만 반영)" : "세후 연환산 기대수익"}
+                  />
                   <MetricCard label="샤프 비율" value={fmt(leftData.quantResult.performance.sharpeRatio)} sub="위험 대비 초과수익" />
                   <MetricCard label="소르티노 비율" value={fmt(leftData.quantResult.performance.sortinoRatio)} sub="하방 리스크 방어력" />
                   <MetricCard label="최대 낙폭(MDD)" value={fmtPct(Math.abs(leftData.quantResult.risk.mdd))} sub="최고점 대비 최악 하락" />
@@ -362,7 +396,11 @@ export default function Tab4Page() {
             {rightData?.quantResult && (
               <ResultCard icon={<TrendingUp size={18} />} title="핵심 지표 요약" accent="green">
                 <div className="grid grid-cols-2 gap-3">
-                  <MetricCard label="세후 수익률" value={fmtPct(rightAfterTaxReturn ?? rightData.quantResult.performance.afterTaxExpectedReturn)} sub="세후 연환산 기대수익" />
+                  <MetricCard
+                    label="세후 수익률"
+                    value={fmtPct(rightAfterTaxReturn ?? rightData.quantResult.performance.afterTaxExpectedReturn)}
+                    sub={rightAssets.some(isFundOrWrap) ? "세후 연환산 기대수익 · 펀드·랩어카운트는 제외(주식·채권만 반영)" : "세후 연환산 기대수익"}
+                  />
                   <MetricCard label="샤프 비율" value={fmt(rightData.quantResult.performance.sharpeRatio)} sub="위험 대비 초과수익" />
                   <MetricCard label="소르티노 비율" value={fmt(rightData.quantResult.performance.sortinoRatio)} sub="하방 리스크 방어력" />
                   <MetricCard label="최대 낙폭(MDD)" value={fmtPct(Math.abs(rightData.quantResult.risk.mdd))} sub="최고점 대비 최악 하락" />
