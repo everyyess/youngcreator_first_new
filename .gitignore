@@ -9,3 +9,6 @@ work/
 
 .vercel
 .env.vercel
+
+# 로컬 dev 서버 실행 설정 (개인별 — .claude/settings.json은 계속 추적한다)
+.claude/launch.json
