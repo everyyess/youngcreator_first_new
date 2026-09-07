@@ -21,6 +21,7 @@ import { TagEditSection, recordAiUsage, type AiModelId } from "./shared";
 import type { DatabaseId as UnifiedDatabaseId, SourceRef, ResearchStage, UnifiedResearchResult, EvidenceCard } from "@/Engine/Research-Engine/types";
 import type { Job as UnifiedJob } from "@/Engine/Research-Engine/jobStore";
 import { BriefingReportViewer } from "@/components/BriefingReportViewer";
+import HitlReviewPanel, { type HitlReviewPatch } from "@/components/HitlReviewPanel";
 
 /**
  * 통합 인사이트 — TAB4 3개 DB(텔레그램·뉴스·리포트) 저장 데이터를
@@ -985,6 +986,14 @@ export default function InsightDbTab() {
   const unifiedStartingRef = useRef(false);
   const [approvalLoading, setApprovalLoading] = useState(false);
   const [approvalError, setApprovalError] = useState("");
+  // ── HITL 항목 검토 상태 ────────────────────────────────────────────
+  // 서버 reviewItems를 그대로 그리면 폴링이 돌 때마다 입력 중인 값이 덮어써진다.
+  // completedStep이 바뀔 때(= 새 검토 구간 진입)만 서버 값으로 초기화하고,
+  // 그 사이 편집은 로컬 draft에 두었다가 디바운스로 저장한다.
+  const [reviewDraft, setReviewDraft] = useState<Record<string, { content: string; checked: boolean; pbComment: string }>>({});
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const reviewSeedRef = useRef<string>("");
+  const reviewSaveTimerRef = useRef<number | null>(null);
   const [hasDebated, setHasDebated] = useState(false);
   const [hasSupplemented, setHasSupplemented] = useState(false);
   const [analysisMethod, setAnalysisMethod] = useState<"report" | "score">("report");
@@ -1354,12 +1363,75 @@ export default function InsightDbTab() {
     }
   };
 
+  // 새 검토 구간(직전 완료 STEP)이 열리면 서버 항목으로 draft를 초기화한다.
+  // 같은 구간에서는 폴링이 돌아도 초기화하지 않아 입력 중인 값이 보존된다.
+  useEffect(() => {
+    const hitl = unifiedJob?.hitl;
+    const seed = `${unifiedJobId ?? ""}:${hitl?.completedStep ?? ""}:${hitl?.reviewItems?.length ?? 0}`;
+    if (!hitl || seed === reviewSeedRef.current) return;
+    reviewSeedRef.current = seed;
+    const next: Record<string, { content: string; checked: boolean; pbComment: string }> = {};
+    for (const entry of hitl.reviewItems ?? []) {
+      next[entry.id] = { content: entry.content, checked: entry.checked, pbComment: entry.pbComment };
+    }
+    setReviewDraft(next);
+  }, [unifiedJob, unifiedJobId]);
+
+  /** draft를 서버에 저장한다. 승인 직전에도 호출해 마지막 편집이 누락되지 않게 한다. */
+  const saveReview = useCallback(async (draft: typeof reviewDraft) => {
+    const step = unifiedJob?.hitl?.completedStep;
+    if (!unifiedJobId || !step) return null;
+    const edits = Object.entries(draft).map(([id, value]) => ({ id, ...value }));
+    if (!edits.length) return null;
+    setReviewSaving(true);
+    try {
+      const res = await fetch("/api/unified-research/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: unifiedJobId, action: "review", expectedStep: step, edits }),
+      });
+      const json = await res.json().catch(() => null) as { job?: UnifiedJob; error?: string } | null;
+      if (!res.ok || !json?.job) {
+        setApprovalError(json?.error ?? "검토 내용 저장에 실패했습니다.");
+        return null;
+      }
+      setApprovalError("");
+      return json.job;
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : "검토 내용 저장 중 오류가 발생했습니다.");
+      return null;
+    } finally {
+      setReviewSaving(false);
+    }
+  }, [unifiedJobId, unifiedJob?.hitl?.completedStep]);
+
+  /** 항목 편집 — 로컬 즉시 반영 후 0.8초 디바운스로 서버 저장 */
+  const handleReviewChange = useCallback((id: string, patch: HitlReviewPatch) => {
+    setReviewDraft((prev) => {
+      const current = prev[id] ?? { content: "", checked: false, pbComment: "" };
+      const next = { ...prev, [id]: { ...current, ...patch } };
+      if (reviewSaveTimerRef.current) window.clearTimeout(reviewSaveTimerRef.current);
+      reviewSaveTimerRef.current = window.setTimeout(() => { void saveReview(next); }, 800);
+      return next;
+    });
+  }, [saveReview]);
+
+  useEffect(() => () => {
+    if (reviewSaveTimerRef.current) window.clearTimeout(reviewSaveTimerRef.current);
+  }, []);
+
   const approveNextStep = async () => {
     const expectedStep = unifiedJob?.hitl?.awaitingStep;
     if (!unifiedJobId || !expectedStep || approvalLoading) return;
     setApprovalLoading(true);
     setApprovalError("");
     try {
+      // 디바운스 대기 중인 마지막 편집을 먼저 확정한다 (승인 후에는 되돌릴 수 없다)
+      if (reviewSaveTimerRef.current) {
+        window.clearTimeout(reviewSaveTimerRef.current);
+        reviewSaveTimerRef.current = null;
+      }
+      await saveReview(reviewDraft);
       const res = await fetch("/api/unified-research/jobs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -2450,18 +2522,43 @@ export default function InsightDbTab() {
                     </div>
                     {unifiedJob.hitl.awaitingApproval && unifiedJob.hitl.awaitingStep && (
                       <div className="mt-3 border-t border-[#DDE8E5] pt-3">
-                        <p className="mb-2 text-[11px] font-semibold text-[#5F7A70]">
-                          위 완료 정보를 확인한 뒤 STEP {unifiedJob.hitl.awaitingStep} 실행을 승인해주세요.
+                        <p className="text-[11px] font-semibold text-[#5F7A70]">
+                          아래에서 STEP {unifiedJob.hitl.completedStep} 산출물을 항목별로 검토·수정한 뒤
+                          STEP {unifiedJob.hitl.awaitingStep} 실행을 승인해주세요.
                         </p>
-                        <button type="button" onClick={() => void approveNextStep()} disabled={approvalLoading}
-                          className="flex w-full items-center justify-center gap-2 rounded-btn bg-primary px-4 py-2.5 text-[13px] font-black text-white transition hover:bg-primary-light disabled:opacity-50">
-                          {approvalLoading ? <Loader2 size={14} className="animate-spin" /> : <Scale size={14} />}
-                          {approvalLoading ? "승인 처리 중…" : "승인 · STEP " + unifiedJob.hitl.awaitingStep + " 실행"}
-                        </button>
-                        {approvalError && <p className="mt-2 text-[11px] font-bold text-red-600">{approvalError}</p>}
                       </div>
                     )}
                   </div>
+                )}
+
+                {/* 상담실 제안서 검토와 같은 방식으로 STEP 산출물을 하나씩 확인·수정한다.
+                    수정 내용은 즉시 서버 result에 반영되어 다음 STEP의 근거가 된다. */}
+                {unifiedJob?.hitl?.awaitingApproval && unifiedJob.hitl.awaitingStep && (
+                  <HitlReviewPanel
+                    heading={"STEP " + unifiedJob.hitl.completedStep + " 결과 검토"}
+                    description="AI가 작성한 중간 결과입니다. 각 항목을 확인하고 필요 시 수정한 뒤 다음 단계를 승인해주세요."
+                    items={(unifiedJob.hitl.reviewItems ?? []).map((entry) => {
+                      const draft = reviewDraft[entry.id];
+                      const content = draft?.content ?? entry.content;
+                      return {
+                        id: entry.id,
+                        title: entry.title,
+                        hint: entry.hint,
+                        content,
+                        original: entry.original,
+                        edited: content.trim() !== entry.original.trim(),
+                        checked: draft?.checked ?? entry.checked,
+                        pbComment: draft?.pbComment ?? entry.pbComment,
+                      };
+                    })}
+                    onChange={handleReviewChange}
+                    onApprove={() => void approveNextStep()}
+                    approveLabel={"승인 · STEP " + unifiedJob.hitl.awaitingStep + " 실행"}
+                    approving={approvalLoading}
+                    saving={reviewSaving}
+                    errorMessage={approvalError}
+                    emptyLabel="이 단계에서 수정할 산출물이 없습니다. 바로 승인할 수 있습니다."
+                  />
                 )}
 
                 {/* 1. 리서치 시작 전 대기화면 */}

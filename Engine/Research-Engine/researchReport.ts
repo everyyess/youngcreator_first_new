@@ -324,7 +324,11 @@ ${result.debate ? `**AI 찬반토론 검증**
 ${bibliography(result.sources)}`;
 }
 
-export async function generateResearchReport(result: UnifiedResearchResult): Promise<GeneratedResearchReport> {
+export async function generateResearchReport(
+  result: UnifiedResearchResult,
+  /** PB가 HITL 검토에서 남긴 지시문 — 프롬프트 끝에 붙어 보고서에 반영된다 */
+  pbDirective = "",
+): Promise<GeneratedResearchReport> {
   if (!result.sources.length) {
     return { markdown: buildEvidenceFallbackReport(result), mode: "fallback", warning: "분석 가능한 출처가 없습니다." };
   }
@@ -357,7 +361,8 @@ export async function generateResearchReport(result: UnifiedResearchResult): Pro
       return { text, model, truncated };
     };
 
-    let generated = await call(reportPrompt(result));
+    const basePrompt = reportPrompt(result) + (pbDirective ?? "");
+    let generated = await call(basePrompt);
     let markdown = normalizeAiReport(generated.text, result.sources);
 
     if (generated.truncated || !validReport(markdown, result.keywordType, result.sources.length)) {
@@ -365,7 +370,7 @@ export async function generateResearchReport(result: UnifiedResearchResult): Pro
       const retryHint = generated.truncated
         ? "\n\n방금 출력은 길이 상한에 걸려 문장 중간에서 끊겼습니다. 모든 목차를 유지하되 각 항목을 더 압축해 끝까지 완결된 보고서로 다시 작성하세요."
         : "\n\n방금 출력은 분량 또는 목차·각주가 부족했습니다. 모든 목차를 빠짐없이 1,500자 이상으로 다시 작성하세요.";
-      generated = await call(reportPrompt(result) + retryHint);
+      generated = await call(basePrompt + retryHint);
       markdown = normalizeAiReport(generated.text, result.sources);
     }
 

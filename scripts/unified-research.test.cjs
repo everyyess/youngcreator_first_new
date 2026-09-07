@@ -31,7 +31,7 @@ function fixture({ rows = [], dbError = null, liveNews = [], liveReports = [], r
         stageHistory: ["collecting"], dbStates: Object.fromEntries(request.databases.map(id => [id, "running"])),
         percent: 1, stageLabel: "작업 준비 중", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         finishedAt: null, result: null, error: null, modelUsage: {},
-        hitl: { completedStep: 0, awaitingStep: null, awaitingApproval: false, agentUpdates: [] },
+        hitl: { completedStep: 0, awaitingStep: null, awaitingApproval: false, agentUpdates: [], reviewItems: [], editedCount: 0, pbNotes: [] },
       };
       jobs.set(job.id, job); return job;
     },
@@ -40,11 +40,14 @@ function fixture({ rows = [], dbError = null, liveNews = [], liveReports = [], r
   };
   const types = loadTs("Engine/Research-Engine/types.ts");
   const normalizer = loadTs("Engine/Research-Engine/result.ts");
+  // 실제 검토 모듈을 그대로 태워, 항목 생성·되반영 로직까지 함께 검증한다
+  const hitlReview = loadTs("Engine/Research-Engine/hitlReview.ts");
   const service = loadTs("Engine/Research-Engine/humanApprovalPipeline.ts", {
     "@supabase/supabase-js": {},
     "./jobStore": jobStore,
     "./types": types,
     "./result": normalizer,
+    "./hitlReview": hitlReview,
     "@/lib/tagRules": { extractMappedTags: text => ({
       topics: text.includes("반도체") ? ["반도체"] : [],
       companies: [], macro: [],
@@ -85,6 +88,20 @@ function fixture({ rows = [], dbError = null, liveNews = [], liveReports = [], r
 }
 const request = { keyword: "반도체", databases: ["news"], method: "report", keywordType: "theme" };
 
+/**
+ * PB가 검토 항목을 모두 확인한 뒤 승인하는 정상 경로.
+ * 서버가 미검토 항목이 남으면 승인을 거부하므로 테스트도 같은 순서를 따른다.
+ */
+function checkAllReviewItems(service, jobs, step) {
+  const items = jobs.get("test-job").hitl.reviewItems ?? [];
+  if (!items.length) return;
+  service.reviewHumanResearch("test-job", step, items.map(entry => ({ id: entry.id, checked: true })));
+}
+async function approveStep(service, jobs, step) {
+  checkAllReviewItems(service, jobs, step - 1);
+  return service.approveHumanResearch("test-job", step);
+}
+
 test("STEP 1만 실행한 뒤 STEP 2 PB 승인을 기다린다", async () => {
   const { service, db, jobs, getLiveCalls } = fixture({ rows: [
     { title: "반도체 실적 개선", notes: "영업이익 증가", url: "https://example.com/1", published_date: "2026-09-04" },
@@ -105,14 +122,14 @@ test("PB 승인마다 정확히 다음 STEP 하나만 실행한다", async () =>
   const { service, db, jobs } = fixture({ rows: [{ title: "반도체 실적 개선", url: "https://example.com/1" }] });
   await service.startHumanResearch(db, request);
   for (const step of [2, 3, 4]) {
-    const outcome = await service.approveHumanResearch("test-job", step);
+    const outcome = await approveStep(service, jobs, step);
     assert.equal(outcome.status, 200);
     assert.equal(jobs.get("test-job").hitl.completedStep, step);
     assert.equal(jobs.get("test-job").hitl.awaitingStep, step + 1);
     assert.equal(jobs.get("test-job").status, "awaiting_approval");
   }
   assert.equal(jobs.get("test-job").result.report, null);
-  await service.approveHumanResearch("test-job", 5);
+  await approveStep(service, jobs, 5);
   const job = jobs.get("test-job");
   assert.equal(job.status, "done");
   assert.equal(job.hitl.completedStep, 5);
@@ -122,8 +139,10 @@ test("PB 승인마다 정확히 다음 STEP 하나만 실행한다", async () =>
 });
 
 test("중복·순서가 다른 승인은 거부한다", async () => {
-  const { service, db } = fixture({ rows: [{ title: "반도체 실적 개선" }] });
+  const { service, db, jobs } = fixture({ rows: [{ title: "반도체 실적 개선" }] });
   await service.startHumanResearch(db, request);
+  // 검토를 마친 상태에서도 STEP 순서가 틀리면 거부되어야 한다
+  checkAllReviewItems(service, jobs, 1);
   assert.equal((await service.approveHumanResearch("test-job", 3)).status, 409);
   assert.equal((await service.approveHumanResearch("test-job", 2)).status, 200);
   assert.equal((await service.approveHumanResearch("test-job", 2)).status, 409);
@@ -135,7 +154,7 @@ test("STEP 4 승인 시 공개 출처로 Gemini 찬반토론을 실행하고 PB�
     customer_private_note: "외부 전송 금지", url: "https://example.com/public", published_date: "2026-09-05",
   }] });
   await service.startHumanResearch(db, request);
-  for (const step of [2, 3, 4]) await service.approveHumanResearch("test-job", step);
+  for (const step of [2, 3, 4]) await approveStep(service, jobs, step);
   const job = jobs.get("test-job");
   assert.equal(getDebateCalls().length, 1);
   assert.equal(job.result.debate.verdict, "팽팽함");
@@ -155,10 +174,10 @@ test("실시간 보강 에이전트는 저장 뉴스가 있으면 STEP 4 승인 
     { title: "반도체 투자 확대", summary: "AI 서버 투자로 메모리 수요가 늘었다.", url: "https://example.com/live", publishedDate: "2026-09-05" },
   ] });
   await service.startHumanResearch(db, request);
-  await service.approveHumanResearch("test-job", 2);
-  await service.approveHumanResearch("test-job", 3);
+  await approveStep(service, jobs, 2);
+  await approveStep(service, jobs, 3);
   assert.equal(getLiveCalls(), 0);
-  await service.approveHumanResearch("test-job", 4);
+  await approveStep(service, jobs, 4);
   assert.equal(getLiveCalls(), 1);
   assert.equal(jobs.get("test-job").result.liveCards.length, 1);
   assert.equal(jobs.get("test-job").result.supplemented, true);
@@ -169,8 +188,8 @@ test("실시간 보강 에이전트는 저장 뉴스가 있으면 STEP 4 승인 
 test("저장 근거가 없어도 PB가 정보 공백을 확인하고 보강 단계를 승인할 수 있다", async () => {
   const { service, db, jobs } = fixture();
   await service.startHumanResearch(db, request);
-  await service.approveHumanResearch("test-job", 2);
-  await service.approveHumanResearch("test-job", 3);
+  await approveStep(service, jobs, 2);
+  await approveStep(service, jobs, 3);
   assert.equal(jobs.get("test-job").result.integrated.gaps.length, 1);
   assert.equal(jobs.get("test-job").hitl.awaitingStep, 4);
 });
@@ -277,11 +296,11 @@ test("FRED·ECOS 에이전트가 실제 지표 시리즈를 STEP 1과 후속 분
   assert.match(job.result.storedCards.map(card => card.evidence).join("\n"), /4\.25%/);
   assert.match(job.result.storedCards.map(card => card.evidence).join("\n"), /2\.50%/);
 
-  await service.approveHumanResearch("test-job", 2);
+  await approveStep(service, jobs, 2);
   const step2 = job.hitl.agentUpdates.filter(message => message.step === 2);
   assert.ok(step2.every(message => /근거 2건/.test(message.summary)));
 
-  for (const step of [3, 4, 5]) await service.approveHumanResearch("test-job", step);
+  for (const step of [3, 4, 5]) await approveStep(service, jobs, step);
   assert.equal(job.result.metricCharts.length, 2);
   assert.deepEqual(Array.from(job.result.metricCharts[0].points, point => point.date), ["2026-07-01", "2026-08-01"]);
   assert.equal(job.result.metricCharts[0].source, "FRED");
@@ -606,4 +625,83 @@ test("소스 전체에 호출 불가로 확인된 Gemini/Gemma 모델명이 없�
   };
   walk(process.cwd());
   assert.deepEqual(offenders, [], "호출 불가 모델 잔존:\n  " + offenders.join("\n  "));
+});
+
+// ── HITL 항목 검토·수정 (상담실 제안서 검토와 동일 방식) ────────────────
+test("STEP 완료 시 PB가 검토할 항목이 만들어진다", async () => {
+  const { service, db, jobs } = fixture({ rows: [
+    { title: "반도체 실적 개선", notes: "영업이익 증가", url: "https://example.com/1", published_date: "2026-09-04" },
+  ] });
+  await service.startHumanResearch(db, request);
+  const step1Items = jobs.get("test-job").hitl.reviewItems;
+  assert.ok(step1Items.length > 0, "STEP1 결론이 검토 항목으로 열려야 한다");
+  assert.ok(step1Items.every(entry => entry.step === 1 && entry.checked === false && entry.edited === false));
+  assert.equal(step1Items[0].content, step1Items[0].original);
+
+  await approveStep(service, jobs, 2);
+  const step2Items = jobs.get("test-job").hitl.reviewItems;
+  // vm 샌드박스 배열은 realm이 달라 deepEqual이 통과하지 않는다 — 값만 비교한다
+  assert.equal(
+    Array.from(step2Items, entry => entry.id).sort().join(","),
+    ["integrated.summary", "integrated.tagAnalysis", "integrated.timeSeries", "integrated.trend"].sort().join(","),
+  );
+});
+
+test("검토하지 않은 항목이 남으면 다음 STEP 승인을 거부한다", async () => {
+  const { service, db, jobs } = fixture({ rows: [{ title: "반도체 실적 개선", url: "https://example.com/1" }] });
+  await service.startHumanResearch(db, request);
+  assert.ok(jobs.get("test-job").hitl.reviewItems.length > 0);
+
+  const blocked = await service.approveHumanResearch("test-job", 2);
+  assert.equal(blocked.status, 409);
+  assert.match(blocked.error, /검토하지 않은 항목/);
+  assert.equal(jobs.get("test-job").hitl.completedStep, 1, "거부됐으므로 STEP은 진행되지 않아야 한다");
+
+  checkAllReviewItems(service, jobs, 1);
+  assert.equal((await service.approveHumanResearch("test-job", 2)).status, 200);
+});
+
+test("PB가 고친 내용이 result에 반영되어 다음 STEP의 근거가 된다", async () => {
+  const { service, db, jobs } = fixture({ rows: [{ title: "반도체 실적 개선", url: "https://example.com/1" }] });
+  await service.startHumanResearch(db, request);
+  const target = jobs.get("test-job").hitl.reviewItems[0];
+
+  service.reviewHumanResearch("test-job", 1, [
+    { id: target.id, content: "PB가 직접 고쳐 쓴 결론", checked: true, pbComment: "표현을 완화할 것" },
+  ]);
+
+  const job = jobs.get("test-job");
+  assert.equal(job.result.storedCards[0].conclusion, "PB가 직접 고쳐 쓴 결론");
+  const saved = job.hitl.reviewItems.find(entry => entry.id === target.id);
+  assert.equal(saved.edited, true, "원본과 달라졌으므로 수정됨으로 표시되어야 한다");
+  assert.equal(saved.original, target.original, "원본은 되돌리기용으로 보존되어야 한다");
+  assert.equal(job.hitl.editedCount, 1);
+  assert.equal(Array.from(job.hitl.pbNotes, note => note.comment).join(","), "표현을 완화할 것");
+});
+
+test("PB 코멘트가 최종 보고서 생성 지시문으로 전달된다", async () => {
+  const directives = [];
+  const { service, db, jobs } = fixture({ rows: [{ title: "반도체 실적 개선", url: "https://example.com/1" }] });
+  // 보고서 모듈 목을 지시문 캡처용으로 교체할 수 없으므로, pbNotes가 STEP5까지 살아있는지로 검증한다
+  await service.startHumanResearch(db, request);
+  const first = jobs.get("test-job").hitl.reviewItems[0];
+  service.reviewHumanResearch("test-job", 1, [{ id: first.id, checked: true, pbComment: "리스크를 더 강조" }]);
+  for (const step of [2, 3, 4, 5]) await approveStep(service, jobs, step);
+  const job = jobs.get("test-job");
+  assert.equal(job.status, "done");
+  assert.ok(job.hitl.pbNotes.some(note => note.comment === "리스크를 더 강조"),
+    "STEP1에서 남긴 코멘트가 보고서 단계까지 유지되어야 한다");
+  void directives;
+});
+
+test("잘못된 검토 구간이나 알 수 없는 항목 id는 안전하게 무시한다", async () => {
+  const { service, db, jobs } = fixture({ rows: [{ title: "반도체 실적 개선", url: "https://example.com/1" }] });
+  await service.startHumanResearch(db, request);
+
+  const wrongStep = service.reviewHumanResearch("test-job", 4, [{ id: "integrated.summary", content: "x" }]);
+  assert.equal(wrongStep.status, 409);
+
+  const before = JSON.stringify(jobs.get("test-job").result);
+  service.reviewHumanResearch("test-job", 1, [{ id: "존재하지.않는.경로", content: "무시되어야 함" }]);
+  assert.equal(JSON.stringify(jobs.get("test-job").result), before, "알 수 없는 id는 result를 건드리지 않아야 한다");
 });

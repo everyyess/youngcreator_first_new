@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJob, listJobs } from "@/Engine/Research-Engine/jobStore";
 import {
-  approveHumanResearch, serializeResearchJob, startHumanResearch,
+  approveHumanResearch, reviewHumanResearch, serializeResearchJob, startHumanResearch,
 } from "@/Engine/Research-Engine/humanApprovalPipeline";
 import { getInsightSupabase, insightDbUnavailable } from "@/lib/supabaseInsightDb";
 
@@ -43,11 +43,36 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   if (!getInsightSupabase(req)) return NextResponse.json(insightDbUnavailable(), { status: 401 });
-  let body: { jobId?: string; action?: string; expectedStep?: number };
+  let body: {
+    jobId?: string; action?: string; expectedStep?: number;
+    edits?: { id?: unknown; content?: unknown; checked?: unknown; pbComment?: unknown }[];
+  };
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "올바른 JSON 요청이 필요합니다." }, { status: 400 }); }
-  if (body.action !== "approve" || !body.jobId || !Number.isInteger(body.expectedStep)) {
-    return NextResponse.json({ error: "승인할 작업과 STEP 정보가 필요합니다." }, { status: 400 });
+  if (!body.jobId || !Number.isInteger(body.expectedStep)) {
+    return NextResponse.json({ error: "대상 작업과 STEP 정보가 필요합니다." }, { status: 400 });
+  }
+
+  // PB가 검토 화면에서 고친 내용·체크·코멘트 저장 (다음 STEP 실행 없이 저장만)
+  if (body.action === "review") {
+    const edits = Array.isArray(body.edits) ? body.edits : [];
+    const sanitized = edits
+      .filter((edit): edit is { id: string } & typeof edit => typeof edit?.id === "string")
+      .map((edit) => ({
+        id: edit.id as string,
+        content: typeof edit.content === "string" ? edit.content : undefined,
+        checked: typeof edit.checked === "boolean" ? edit.checked : undefined,
+        pbComment: typeof edit.pbComment === "string" ? edit.pbComment : undefined,
+      }));
+    const reviewed = reviewHumanResearch(body.jobId, Number(body.expectedStep), sanitized);
+    return NextResponse.json(
+      reviewed.error ? { error: reviewed.error } : { job: reviewed.job },
+      { status: reviewed.status },
+    );
+  }
+
+  if (body.action !== "approve") {
+    return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });
   }
   const outcome = await approveHumanResearch(body.jobId, Number(body.expectedStep));
   return NextResponse.json(
