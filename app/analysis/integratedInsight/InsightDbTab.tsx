@@ -14,7 +14,6 @@ import {
   MessageSquare, Newspaper, Printer, RefreshCw, Scale, Search, Share2, Sparkles, Tags, TrendingDown, TrendingUp, X,
 } from "lucide-react";
 import type { InsightItem, InsightSource } from "@/app/api/insight-db/route";
-import type { DebateLogRow, DebateResult } from "@/app/api/insight-debate/route";
 import { allTags, buildClassifyMap, coOccurrence, topTags, type TagRank, type TagType } from "./insightAggregates";
 import KeywordTrendView from "./KeywordTrendView";
 import { TagEditSection, recordAiUsage, type AiModelId } from "./shared";
@@ -919,20 +918,6 @@ function formatInsightText(text: string): string {
     .join("\n");
 }
 
-type DebateStage = "idle" | "opening" | "rebuttal" | "synthesis" | "done";
-
-const DEBATE_STAGE_LABEL: Record<"opening" | "rebuttal" | "synthesis", string> = {
-  opening: "① 강세/약세 논거 생성 중",
-  rebuttal: "② 반박 중",
-  synthesis: "③ 종합 판단 중",
-};
-
-function frameLabels(tagType: DebateResult["tagType"]) {
-  return tagType === "macro"
-    ? { bull: "우호적 영향", bear: "비우호적 영향" }
-    : { bull: "강세 논거", bear: "약세 논거" };
-}
-
 // ── 메인 컴포넌트 ────────────────────────────────────────────────────────────
 export default function InsightDbTab() {
   const router = useRouter();
@@ -965,13 +950,6 @@ export default function InsightDbTab() {
   const [reportError, setReportError] = useState("");
   const [showReport, setShowReport] = useState(false);
 
-  // ── AI 찬반 토론 상태 ──────────────────────────────────────────────────────
-  const [debateKeyword, setDebateKeyword] = useState("");
-  const [debateStage, setDebateStage] = useState<DebateStage>("idle");
-  const [debateResult, setDebateResult] = useState<DebateResult | null>(null);
-  const [debateError, setDebateError] = useState("");
-  const [debateHistory, setDebateHistory] = useState<DebateLogRow[]>([]);
-  const [debateHistoryLoading, setDebateHistoryLoading] = useState(true);
 
   // ── 통합 리서치 엔진 상태 (단일 키워드) ───────────────────────────
   const [unifiedJobId, setUnifiedJobId] = useState<string | null>(null);
@@ -992,6 +970,7 @@ export default function InsightDbTab() {
   // 그 사이 편집은 로컬 draft에 두었다가 디바운스로 저장한다.
   const [reviewDraft, setReviewDraft] = useState<Record<string, { content: string; checked: boolean; pbComment: string }>>({});
   const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const reviewSeedRef = useRef<string>("");
   const reviewSaveTimerRef = useRef<number | null>(null);
   const [hasDebated, setHasDebated] = useState(false);
@@ -1165,19 +1144,6 @@ export default function InsightDbTab() {
     }
   };
 
-  const loadDebateHistory = useCallback(() => {
-    setDebateHistoryLoading(true);
-    fetch("/api/insight-debate?limit=50")
-      .then((r) => r.json())
-      .then((json: { debates?: DebateLogRow[] }) => setDebateHistory(json.debates ?? []))
-      .catch(() => { })
-      .finally(() => setDebateHistoryLoading(false));
-  }, []);
-
-  useEffect(() => {
-    loadDebateHistory();
-  }, [loadDebateHistory]);
-
   // 잡 소실 확인(1회) — 진행률 폴링은 BackgroundEngineProvider가 앱 전역에서 한 번만 수행하므로
   // 이 탭은 자체 인터벌을 돌리지 않는다 (기존 2.5초 자체 폴러 + 전역 3초 폴러 이중 요청 제거).
   useEffect(() => {
@@ -1247,38 +1213,6 @@ export default function InsightDbTab() {
       setReportKind("unified");
     }
   }, [unifiedJobId, researchJobs]);
-
-  const runDebate = useCallback(async (kw: string) => {
-    const targetKw = kw.trim();
-    if (!targetKw) return;
-    setDebateError("");
-    setDebateResult(null);
-    setDebateStage("opening");
-    const rebuttalTimer = setTimeout(() => setDebateStage("rebuttal"), 6000);
-    const synthesisTimer = setTimeout(() => setDebateStage("synthesis"), 14000);
-    try {
-      const res = await fetch("/api/insight-debate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyword: targetKw }),
-      });
-      const json = (await res.json()) as DebateResult & { error?: string };
-      if (!res.ok || json.error) {
-        setDebateError(json.error ?? "토론 생성에 실패했습니다.");
-        setDebateStage("idle");
-        return;
-      }
-      setDebateResult(json);
-      setDebateStage("done");
-      loadDebateHistory();
-    } catch (e) {
-      setDebateError(e instanceof Error ? e.message : "토론 생성 요청 실패");
-      setDebateStage("idle");
-    } finally {
-      clearTimeout(rebuttalTimer);
-      clearTimeout(synthesisTimer);
-    }
-  }, [loadDebateHistory]);
 
   const openDbModal = () => {
     const kwType = activeTags.length === 1 ? classifyMap.get(activeTags[0]) : null;
@@ -1370,6 +1304,8 @@ export default function InsightDbTab() {
     const seed = `${unifiedJobId ?? ""}:${hitl?.completedStep ?? ""}:${hitl?.reviewItems?.length ?? 0}`;
     if (!hitl || seed === reviewSeedRef.current) return;
     reviewSeedRef.current = seed;
+    // 새 검토 구간이 열리면 팝업을 자동으로 띄운다(같은 구간에서는 폴링으로 다시 뜨지 않음)
+    setReviewModalOpen(Boolean(hitl.awaitingApproval));
     const next: Record<string, { content: string; checked: boolean; pbComment: string }> = {};
     for (const entry of hitl.reviewItems ?? []) {
       next[entry.id] = { content: entry.content, checked: entry.checked, pbComment: entry.pbComment };
@@ -1443,6 +1379,7 @@ export default function InsightDbTab() {
         return;
       }
       setUnifiedJob(json.job);
+      setReviewModalOpen(false);
       await refreshResearchJobs();
     } catch (error) {
       setApprovalError(error instanceof Error ? error.message : "STEP 승인 처리 중 오류가 발생했습니다.");
@@ -1857,33 +1794,6 @@ export default function InsightDbTab() {
   };
 
 
-
-  // activeTags가 변경될 때 첫 번째 태그를 토론 키워드로 지정하고 자동으로 토론 시작 (기존 이력이 있으면 로드)
-  useEffect(() => {
-    if (debateHistoryLoading) return; // 히스토리 로드가 완료된 후에 판정하여 중복 생성 방지
-    if (activeTags.length > 0) {
-      const kw = activeTags[0];
-      setDebateKeyword(kw);
-
-      const existing = debateHistory.filter(
-        (h) => h.keyword.toLowerCase() === kw.toLowerCase()
-      );
-
-      if (existing.length > 0) {
-        // 기존 이력이 있으면 가장 최근(첫번째) 이력을 로드
-        const latest = [...existing].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
-        setDebateResult({ ...latest, dateFrom: latest.dateFrom ?? "", dateTo: latest.dateTo ?? "" });
-        setDebateStage("done");
-        setDebateError("");
-      } else {
-        // 기존 이력이 없으면 새로 분석 실행
-        void runDebate(kw);
-      }
-    } else {
-      setDebateKeyword("");
-      setDebateResult(null);
-    }
-  }, [activeTags, debateHistory, debateHistoryLoading, runDebate]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2522,10 +2432,22 @@ export default function InsightDbTab() {
                     </div>
                     {unifiedJob.hitl.awaitingApproval && unifiedJob.hitl.awaitingStep && (
                       <div className="mt-3 border-t border-[#DDE8E5] pt-3">
-                        <p className="text-[11px] font-semibold text-[#5F7A70]">
-                          아래에서 STEP {unifiedJob.hitl.completedStep} 산출물을 항목별로 검토·수정한 뒤
+                        <p className="mb-2 text-[11px] font-semibold text-[#5F7A70]">
+                          STEP {unifiedJob.hitl.completedStep} 산출물을 항목별로 검토·수정한 뒤
                           STEP {unifiedJob.hitl.awaitingStep} 실행을 승인해주세요.
                         </p>
+                        <button type="button" onClick={() => setReviewModalOpen(true)}
+                          className="flex w-full items-center justify-center gap-2 rounded-btn bg-primary px-4 py-2.5 text-[13px] font-black text-white transition hover:bg-primary-light">
+                          <Scale size={14} />
+                          STEP {unifiedJob.hitl.completedStep} 결과 검토하기
+                          {(() => {
+                            const total = unifiedJob.hitl.reviewItems?.length ?? 0;
+                            const done = (unifiedJob.hitl.reviewItems ?? []).filter(
+                              (entry) => reviewDraft[entry.id]?.checked ?? entry.checked,
+                            ).length;
+                            return total ? " (" + done + "/" + total + ")" : "";
+                          })()}
+                        </button>
                       </div>
                     )}
                   </div>
@@ -2533,7 +2455,7 @@ export default function InsightDbTab() {
 
                 {/* 상담실 제안서 검토와 같은 방식으로 STEP 산출물을 하나씩 확인·수정한다.
                     수정 내용은 즉시 서버 result에 반영되어 다음 STEP의 근거가 된다. */}
-                {unifiedJob?.hitl?.awaitingApproval && unifiedJob.hitl.awaitingStep && (
+                {reviewModalOpen && unifiedJob?.hitl?.awaitingApproval && unifiedJob.hitl.awaitingStep && (
                   <HitlReviewPanel
                     heading={"STEP " + unifiedJob.hitl.completedStep + " 결과 검토"}
                     description="AI가 작성한 중간 결과입니다. 각 항목을 확인하고 필요 시 수정한 뒤 다음 단계를 승인해주세요."
@@ -2553,6 +2475,7 @@ export default function InsightDbTab() {
                     })}
                     onChange={handleReviewChange}
                     onApprove={() => void approveNextStep()}
+                    onClose={() => setReviewModalOpen(false)}
                     approveLabel={"승인 · STEP " + unifiedJob.hitl.awaitingStep + " 실행"}
                     approving={approvalLoading}
                     saving={reviewSaving}
@@ -2595,160 +2518,6 @@ export default function InsightDbTab() {
 
               </section>
 
-              <section className="order-last rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card mt-6">
-                <div className="mb-3 flex items-center justify-between border-b border-[#F0F7F4] pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[18px] font-black tracking-tight text-[#0D2318]">AI 찬반 토론</span>
-                  </div>
-                  {debateKeyword && (
-                    <button
-                      type="button"
-                      onClick={() => void runDebate(debateKeyword)}
-                      disabled={debateStage !== "idle" && debateStage !== "done"}
-                      className="ml-auto flex items-center gap-1.5 rounded-btn bg-primary px-4 py-2 text-[13px] font-black text-white transition hover:bg-primary-light disabled:opacity-50"
-                    >
-                      {debateStage !== "idle" && debateStage !== "done" ? (
-                        <Loader2 size={13} className="animate-spin" />
-                      ) : (
-                        <RefreshCw size={13} />
-                      )}
-                      새로고침
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-4">
-                    {(debateStage !== "idle" && debateStage !== "done") && (
-                      <p className="flex items-center gap-2 py-4 text-sm font-bold text-[#94A8A0]">
-                        <Loader2 size={15} className="animate-spin" />
-                        {DEBATE_STAGE_LABEL[debateStage as "opening" | "rebuttal" | "synthesis"]}…
-                      </p>
-                    )}
-                    {debateError && (
-                      <p className="rounded-card border border-red-200 bg-red-50 p-3 text-[12px] font-semibold text-red-600">{debateError}</p>
-                    )}
-
-                    {debateResult && (
-                      <>
-                        <div className="rounded-btn border border-[#B2D8D2] bg-white p-4 shadow-soft">
-                          <div className="mb-3 flex items-center gap-2 border-b border-[#F0F7F4] pb-2">
-                            <span className="text-[15px] font-black text-primary">종합 판단 및 시사점</span>
-                            <span className="ml-auto rounded-full bg-primary-50 px-2.5 py-0.5 text-[11px] font-black text-primary">{debateResult.verdict}</span>
-                            <span className="rounded-full bg-[#F6FAF8] border border-[#DDE8E5] px-2.5 py-0.5 text-[11px] font-bold text-[#4B6358]">확신도 {debateResult.confidence}</span>
-                          </div>
-                          <div className="flex flex-col gap-2.5">
-                            <div>
-                              <p className="mb-0.5 text-[11px] font-black uppercase tracking-wide text-[#94A8A0]">종합 요약</p>
-                              <p className="text-[17px] leading-relaxed text-[#33493F]">{debateResult.rationale}</p>
-                            </div>
-                            <div>
-                              <p className="mb-0.5 text-[11px] font-black uppercase tracking-wide text-[#94A8A0]">향후 관찰 포인트</p>
-                              <p className="text-[17px] leading-relaxed text-[#5F7A70]">{debateResult.watchpoints}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          {(["bull", "bear"] as const).map((side) => {
-                            const labels = frameLabels(debateResult.tagType);
-                            const label = side === "bull" ? labels.bull : labels.bear;
-                            const opening = side === "bull" ? debateResult.bullOpening : debateResult.bearOpening;
-                            const Icon = side === "bull" ? TrendingUp : TrendingDown;
-                            return (
-                              <div key={`${side}-opening`} className="rounded-card border border-[#DDE8E5] bg-[#F7FAF9] p-4 shadow-soft flex flex-col">
-                                <div className="mb-2 flex items-center gap-1.5 border-b border-[#F0F7F4] pb-1.5">
-                                  <Icon size={14} className="text-[#5F7A70]" />
-                                  <span className="text-[17px] font-black text-[#0D2318]">{label} - 1차 논거</span>
-                                </div>
-                                <p className="text-[17px] leading-relaxed text-[#33493F]">{opening}</p>
-                              </div>
-                            );
-                          })}
-
-                          {(["bull", "bear"] as const).map((side) => {
-                            const labels = frameLabels(debateResult.tagType);
-                            const label = side === "bull" ? labels.bull : labels.bear;
-                            const rebuttal = side === "bull" ? debateResult.bullRebuttal : debateResult.bearRebuttal;
-                            const Icon = side === "bull" ? TrendingUp : TrendingDown;
-                            return (
-                              <div key={`${side}-rebuttal`} className="rounded-card border border-[#DDE8E5] bg-[#F7FAF9] p-4 shadow-soft flex flex-col">
-                                <div className="mb-2 flex items-center gap-1.5 border-b border-[#F0F7F4] pb-1.5">
-                                  <Icon size={14} className="text-[#5F7A70]" />
-                                  <span className="text-[17px] font-black text-[#0D2318]">{label} - 반박</span>
-                                </div>
-                                <p className="text-[17px] leading-relaxed text-[#33493F]">{rebuttal}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
-
-                    {!debateResult && (debateStage === "idle" || debateStage === "done") && !debateError && (
-                      <p className="py-10 text-center text-[13px] font-semibold text-[#94A8A0]">
-                        저장된 찬반 토론 결과가 없습니다.
-                      </p>
-                    )}
-                  </div>
-
-                  {(() => {
-                    const keywordHistory = debateHistory.filter(
-                      (h) => h.keyword.toLowerCase() === debateKeyword.toLowerCase()
-                    );
-                    if (keywordHistory.length === 0) return null;
-                    return (
-                      <div className="mt-2 border-t border-[#F0F7F4] pt-4">
-                        <h4 className="mb-2 text-[12px] font-black text-[#0D2318]">#{debateKeyword} 과거 분석 이력 ({keywordHistory.length}건)</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {keywordHistory.map((h) => (
-                            <div
-                              key={h.id}
-                              className="group/pill relative flex items-center rounded-btn border border-[#DDE8E5] bg-[#F7FAF9] pr-9 pl-3 py-1.5 text-left text-[11px] font-semibold text-[#4B6358] transition hover:border-primary hover:bg-[#F0F5F4]"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setDebateResult({ ...h, dateFrom: h.dateFrom ?? "", dateTo: h.dateTo ?? "" });
-                                  setDebateStage("done");
-                                  setDebateError("");
-                                }}
-                                className="w-full text-left"
-                              >
-                                <span className="font-bold text-[#1C3329] mr-1">{h.verdict}</span>
-                                <span className="text-[#94A8A0]">({h.createdAt.slice(0, 10)})</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  if (confirm("이 분석 이력을 삭제하시겠습니까?")) {
-                                    try {
-                                      const res = await fetch(`/api/insight-debate?id=${h.id}`, { method: "DELETE" });
-                                      if (res.ok) {
-                                        loadDebateHistory();
-                                        if (debateResult?.keyword === h.keyword || (debateResult as any)?.id === h.id) {
-                                          setDebateResult(null);
-                                        }
-                                      }
-                                    } catch (err) {
-                                      console.error("이력 삭제 실패:", err);
-                                    }
-                                  }
-                                }}
-                                className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full p-2 text-[#94A8A0] hover:bg-red-50 hover:text-red-500 opacity-0 group-hover/pill:opacity-100 transition-opacity"
-                                title="삭제"
-                              >
-                                <X size={13} className="stroke-[3.5]" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </section>
               </>
             );
           }
@@ -2799,160 +2568,6 @@ export default function InsightDbTab() {
                 ) : null}
               </section>
 
-              <section className="rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card mt-6">
-                <div className="mb-3 flex items-center justify-between border-b border-[#F0F7F4] pb-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[18px] font-black tracking-tight text-[#0D2318]">AI 찬반 토론</span>
-                  </div>
-                  {debateKeyword && (
-                    <button
-                      type="button"
-                      onClick={() => void runDebate(debateKeyword)}
-                      disabled={debateStage !== "idle" && debateStage !== "done"}
-                      className="ml-auto flex items-center gap-1.5 rounded-btn bg-primary px-4 py-2 text-[13px] font-black text-white transition hover:bg-primary-light disabled:opacity-50"
-                    >
-                      {debateStage !== "idle" && debateStage !== "done" ? (
-                        <Loader2 size={13} className="animate-spin" />
-                      ) : (
-                        <RefreshCw size={13} />
-                      )}
-                      새로고침
-                    </button>
-                  )}
-                </div>
-
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-4">
-                    {(debateStage !== "idle" && debateStage !== "done") && (
-                      <p className="flex items-center gap-2 py-4 text-sm font-bold text-[#94A8A0]">
-                        <Loader2 size={15} className="animate-spin" />
-                        {DEBATE_STAGE_LABEL[debateStage as "opening" | "rebuttal" | "synthesis"]}…
-                      </p>
-                    )}
-                    {debateError && (
-                      <p className="rounded-card border border-red-200 bg-red-50 p-3 text-[12px] font-semibold text-red-600">{debateError}</p>
-                    )}
-
-                    {debateResult && (
-                      <>
-                        <div className="rounded-btn border border-[#B2D8D2] bg-white p-4 shadow-soft">
-                          <div className="mb-3 flex items-center gap-2 border-b border-[#F0F7F4] pb-2">
-                            <span className="text-[15px] font-black text-primary">종합 판단 및 시사점</span>
-                            <span className="ml-auto rounded-full bg-primary-50 px-2.5 py-0.5 text-[11px] font-black text-primary">{debateResult.verdict}</span>
-                            <span className="rounded-full bg-[#F6FAF8] border border-[#DDE8E5] px-2.5 py-0.5 text-[11px] font-bold text-[#4B6358]">확신도 {debateResult.confidence}</span>
-                          </div>
-                          <div className="flex flex-col gap-2.5">
-                            <div>
-                              <p className="mb-0.5 text-[11px] font-black uppercase tracking-wide text-[#94A8A0]">종합 요약</p>
-                              <p className="text-[17px] leading-relaxed text-[#33493F]">{debateResult.rationale}</p>
-                            </div>
-                            <div>
-                              <p className="mb-0.5 text-[11px] font-black uppercase tracking-wide text-[#94A8A0]">향후 관찰 포인트</p>
-                              <p className="text-[17px] leading-relaxed text-[#5F7A70]">{debateResult.watchpoints}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          {(["bull", "bear"] as const).map((side) => {
-                            const labels = frameLabels(debateResult.tagType);
-                            const label = side === "bull" ? labels.bull : labels.bear;
-                            const opening = side === "bull" ? debateResult.bullOpening : debateResult.bearOpening;
-                            const Icon = side === "bull" ? TrendingUp : TrendingDown;
-                            return (
-                              <div key={`${side}-opening`} className="rounded-card border border-[#DDE8E5] bg-[#F7FAF9] p-4 shadow-soft flex flex-col">
-                                <div className="mb-2 flex items-center gap-1.5 border-b border-[#F0F7F4] pb-1.5">
-                                  <Icon size={14} className="text-[#5F7A70]" />
-                                  <span className="text-[17px] font-black text-[#0D2318]">{label} - 1차 논거</span>
-                                </div>
-                                <p className="text-[17px] leading-relaxed text-[#33493F]">{opening}</p>
-                              </div>
-                            );
-                          })}
-
-                          {(["bull", "bear"] as const).map((side) => {
-                            const labels = frameLabels(debateResult.tagType);
-                            const label = side === "bull" ? labels.bull : labels.bear;
-                            const rebuttal = side === "bull" ? debateResult.bullRebuttal : debateResult.bearRebuttal;
-                            const Icon = side === "bull" ? TrendingUp : TrendingDown;
-                            return (
-                              <div key={`${side}-rebuttal`} className="rounded-card border border-[#DDE8E5] bg-[#F7FAF9] p-4 shadow-soft flex flex-col">
-                                <div className="mb-2 flex items-center gap-1.5 border-b border-[#F0F7F4] pb-1.5">
-                                  <Icon size={14} className="text-[#5F7A70]" />
-                                  <span className="text-[17px] font-black text-[#0D2318]">{label} - 반박</span>
-                                </div>
-                                <p className="text-[17px] leading-relaxed text-[#33493F]">{rebuttal}</p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </>
-                    )}
-
-                    {!debateResult && (debateStage === "idle" || debateStage === "done") && !debateError && (
-                      <p className="py-10 text-center text-[13px] font-semibold text-[#94A8A0]">
-                        저장된 찬반 토론 결과가 없습니다.
-                      </p>
-                    )}
-                  </div>
-
-                  {(() => {
-                    const keywordHistory = debateHistory.filter(
-                      (h) => h.keyword.toLowerCase() === debateKeyword.toLowerCase()
-                    );
-                    if (keywordHistory.length === 0) return null;
-                    return (
-                      <div className="mt-2 border-t border-[#F0F7F4] pt-4">
-                        <h4 className="mb-2 text-[12px] font-black text-[#0D2318]">#{debateKeyword} 과거 분석 이력 ({keywordHistory.length}건)</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {keywordHistory.map((h) => (
-                            <div
-                              key={h.id}
-                              className="group/pill relative flex items-center rounded-btn border border-[#DDE8E5] bg-[#F7FAF9] pr-9 pl-3 py-1.5 text-left text-[11px] font-semibold text-[#4B6358] transition hover:border-primary hover:bg-[#F0F5F4]"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setDebateResult({ ...h, dateFrom: h.dateFrom ?? "", dateTo: h.dateTo ?? "" });
-                                  setDebateStage("done");
-                                  setDebateError("");
-                                }}
-                                className="w-full text-left"
-                              >
-                                <span className="font-bold text-[#1C3329] mr-1">{h.verdict}</span>
-                                <span className="text-[#94A8A0]">({h.createdAt.slice(0, 10)})</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  if (confirm("이 분석 이력을 삭제하시겠습니까?")) {
-                                    try {
-                                      const res = await fetch(`/api/insight-debate?id=${h.id}`, { method: "DELETE" });
-                                      if (res.ok) {
-                                        loadDebateHistory();
-                                        if (debateResult?.keyword === h.keyword || (debateResult as any)?.id === h.id) {
-                                          setDebateResult(null);
-                                        }
-                                      }
-                                    } catch (err) {
-                                      console.error("이력 삭제 실패:", err);
-                                    }
-                                  }
-                                }}
-                                className="absolute right-1 top-1/2 -translate-y-1/2 rounded-full p-2 text-[#94A8A0] hover:bg-red-50 hover:text-red-500 opacity-0 group-hover/pill:opacity-100 transition-opacity"
-                                title="삭제"
-                              >
-                                <X size={13} className="stroke-[3.5]" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              </section>
             </>
           );
         })()}

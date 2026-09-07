@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle2, Loader2, RotateCcw, X } from "lucide-react";
 
 /**
  * Human-In-The-Loop 검토 패널 — 상담실 제안서 검토(ProposalReviewModal)와 동일한
@@ -10,8 +10,7 @@ import { AlertCircle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
  *   · 본문 클릭 → 인라인 편집
  *   · 항목별 PB 코멘트
  *   · 전 항목 검토 전까지 승인 버튼 비활성
- * 상담실은 모달, 통합 인사이트는 파이프라인 흐름 안의 인라인 패널이라
- * 컨테이너만 다르고 항목 카드와 하단 액션은 같은 형태를 쓴다.
+ * 상담실 제안서 검토와 동일하게 모달(팝업)로 띄운다.
  */
 
 export type HitlReviewItemView = {
@@ -33,6 +32,7 @@ interface HitlReviewPanelProps {
   items: HitlReviewItemView[];
   onChange: (id: string, patch: HitlReviewPatch) => void;
   onApprove: () => void;
+  onClose: () => void;
   approveLabel: string;
   approving?: boolean;
   saving?: boolean;
@@ -49,6 +49,7 @@ export default function HitlReviewPanel({
   items,
   onChange,
   onApprove,
+  onClose,
   approveLabel,
   approving = false,
   saving = false,
@@ -60,22 +61,44 @@ export default function HitlReviewPanel({
   const checkedCount = useMemo(() => items.filter((entry) => entry.checked).length, [items]);
   const allChecked = items.length === 0 || checkedCount === items.length;
 
+  // 편집 중 실수로 닫히지 않도록, Esc는 편집을 먼저 해제한다
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (editingId) setEditingId(null);
+      else onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingId, onClose]);
+
   return (
-    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-soft">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-        <div>
-          <div className="text-[15px] font-bold text-slate-800">{heading}</div>
-          <div className="mt-0.5 text-[12px] text-slate-400">{description}</div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
+          <div>
+            <div className="text-[16px] font-bold text-slate-800">{heading}</div>
+            <div className="mt-0.5 text-[12px] text-slate-400">{description}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            {saving && (
+              <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
+                <Loader2 size={12} className="animate-spin" /> 저장 중
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              title="닫기 (검토 내용은 저장됩니다)"
+              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
-        {saving && (
-          <span className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400">
-            <Loader2 size={12} className="animate-spin" /> 저장 중
-          </span>
-        )}
-      </div>
 
       {/* AI 주의 배너 — 상담실 제안서 검토와 동일 체계 */}
-      <div className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-[#B8975A]/40 bg-[#FFFDF5] px-3.5 py-3 text-[12px] text-[#8A6D3B]">
+        <div className="mx-6 mt-4 flex items-start gap-2 rounded-lg border border-[#B8975A]/40 bg-[#FFFDF5] px-3.5 py-3 text-[12px] text-[#8A6D3B]">
         <AlertCircle size={16} className="mt-0.5 shrink-0 text-[#B8975A]" />
         <span>
           AI가 자동 생성한 중간 결과입니다. 사실과 다르거나 부적절한 표현이 포함될 수 있습니다.
@@ -83,7 +106,7 @@ export default function HitlReviewPanel({
         </span>
       </div>
 
-      <div className="max-h-[420px] space-y-3 overflow-y-auto px-5 py-4">
+        <div className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
         {items.length === 0 ? (
           <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-[12px] font-semibold text-slate-400">
             {emptyLabel}
@@ -171,24 +194,32 @@ export default function HitlReviewPanel({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-4">
-        <div className="text-[12px] text-slate-400">
-          {checkedCount} / {items.length} 항목 검토 완료
-        </div>
-        <div className="flex items-center gap-2">
-          {errorMessage && <span className="text-[11px] font-bold text-red-600">{errorMessage}</span>}
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={!allChecked || approving}
-            style={allChecked && !approving ? { backgroundColor: BRAND } : undefined}
-            className={`flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-bold text-white transition ${
-              allChecked && !approving ? "hover:opacity-90" : "cursor-not-allowed bg-slate-300"
-            }`}
-          >
-            {approving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-            {approving ? "승인 처리 중…" : approveLabel}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-6 py-4">
+          <div className="text-[12px] text-slate-400">
+            {checkedCount} / {items.length} 항목 검토 완료
+          </div>
+          <div className="flex items-center gap-2">
+            {errorMessage && <span className="text-[11px] font-bold text-red-600">{errorMessage}</span>}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-slate-200 px-4 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              나중에 검토
+            </button>
+            <button
+              type="button"
+              onClick={onApprove}
+              disabled={!allChecked || approving}
+              style={allChecked && !approving ? { backgroundColor: BRAND } : undefined}
+              className={`flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-bold text-white transition ${
+                allChecked && !approving ? "hover:opacity-90" : "cursor-not-allowed bg-slate-300"
+              }`}
+            >
+              {approving ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+              {approving ? "승인 처리 중…" : approveLabel}
+            </button>
+          </div>
         </div>
       </div>
     </div>
