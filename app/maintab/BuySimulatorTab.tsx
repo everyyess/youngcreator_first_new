@@ -501,6 +501,10 @@ function mergeBuyIntoBase(
               incomingPriceKrw > 0
                 ? incomingPriceKrw
                 : ex.current_price,
+            price_as_of:
+              incomingPriceKrw > 0
+                ? (row.priceAsOf ?? ex.price_as_of)
+                : ex.price_as_of,
             current_value:
               incomingPriceKrw > 0
                 ? nextQty * incomingPriceKrw
@@ -539,6 +543,7 @@ function mergeBuyIntoBase(
         bond_yield: Number.isFinite(bondYieldVal) && bondYieldVal > 0 ? bondYieldVal : null,
         bond_maturity: Number.isFinite(maturityVal) && maturityVal > 0 ? maturityVal : null,
         current_price: priceKrw ?? undefined,
+        price_as_of: row.priceAsOf,
         current_value: krwTotal || undefined,
         qtyAsOfDate: new Date().toISOString().slice(0, 10), // 지금 신규 매수하는 수량이라 확인일=오늘
       };
@@ -717,7 +722,7 @@ export default function BuySimulatorTab() {
     ticker: string; sector: string; isGlobal: boolean;
     kind: "etf" | "stock";
     mode: "buy" | "sell"; qtyStr: string;
-    price: number | null; currency: "KRW" | "USD"; isLoadingPrice: boolean;
+    price: number | null; currency: "KRW" | "USD"; priceAsOf?: string; isLoadingPrice: boolean;
   };
   const [dropModal, setDropModal] = useState<DropModal | null>(null);
 
@@ -828,14 +833,18 @@ export default function BuySimulatorTab() {
         const data = (await res.json()) as {
           ticker?: string;
           error?: string;
-          chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; currency?: string } }> };
+          chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; regularMarketTime?: number; currency?: string } }> };
         };
         if (data.ticker) {
           const chartMeta = data?.chart?.result?.[0]?.meta;
           const price = typeof chartMeta?.regularMarketPrice === "number" ? chartMeta.regularMarketPrice : null;
           const currency = chartMeta?.currency ?? (productType.includes("해외") ? "USD" : "KRW");
+          const priceAsOf =
+            typeof chartMeta?.regularMarketTime === "number"
+              ? new Date(chartMeta.regularMarketTime * 1000).toISOString()
+              : undefined;
           const updated = pbOrderRowsRef.current.map((r) =>
-            r.id === rowId ? { ...r, ticker: data.ticker!, currentPrice: price, priceCurrency: currency } : r,
+            r.id === rowId ? { ...r, ticker: data.ticker!, currentPrice: price, priceCurrency: currency, priceAsOf } : r,
           );
           setPbOrderRows(updated);
           setPbSearchState((prev) => ({ ...prev, [rowId]: { loading: false, error: null } }));
@@ -975,10 +984,14 @@ export default function BuySimulatorTab() {
           setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null);
           return;
         }
-        const data = (await r.json()) as { regularMarketPrice?: number };
+        const data = (await r.json()) as { regularMarketPrice?: number; regularMarketTime?: number };
         const price = typeof data?.regularMarketPrice === "number" ? data.regularMarketPrice : null;
         const currency: "KRW" | "USD" = pick.isGlobal ? "USD" : "KRW";
-        setDropModal((prev) => prev ? { ...prev, price, currency, isLoadingPrice: false } : null);
+        const priceAsOf =
+          typeof data?.regularMarketTime === "number"
+            ? new Date(data.regularMarketTime * 1000).toISOString()
+            : undefined;
+        setDropModal((prev) => prev ? { ...prev, price, currency, priceAsOf, isLoadingPrice: false } : null);
       })
       .catch(() => setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null));
   }, []);
@@ -1578,8 +1591,8 @@ export default function BuySimulatorTab() {
                           theme: "기타", country: dropModal.isGlobal ? "미국" : "한국",
                           buy_price: krwPrice, amount: dropQty, amount_type: "quantity" as const,
                           is_hedged: false, needs_review: false,
-                          current_price: krwPrice, current_value: dropQty * krwPrice,
-                          qtyAsOfDate: new Date().toISOString().slice(0, 10), // 지금 신규 매수하는 수량이라 확인일=오늘
+                          current_price: krwPrice, price_as_of: dropModal.priceAsOf, current_value: dropQty * krwPrice,
+                          qtyAsOfDate: new Date().toISOString().slice(0, 10), // �� � ��X��x|
                         };
                         updated = [...base, newAsset];
                       }
