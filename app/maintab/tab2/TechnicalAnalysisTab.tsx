@@ -156,12 +156,14 @@ function chartOptions(
 // ─── 지표 칩 ─────────────────────────────────────────────────────────────────
 
 function IndicatorChips({
-  active, interval, onToggle, onPreset,
+  active, interval, onToggle, onPreset, srHorizon, onSrHorizonChange,
 }: {
   active: Set<IndicatorId>;
   interval: Interval;
   onToggle: (id: IndicatorId) => void;
   onPreset: (p: "strength" | "weakness" | "clear") => void;
+  srHorizon: "short" | "mid" | "long";
+  onSrHorizonChange: (h: "short" | "mid" | "long") => void;
 }) {
   const chip = (def: IndicatorDef) => {
     const on = active.has(def.id);
@@ -185,6 +187,21 @@ function IndicatorChips({
         <span className="mr-0.5 text-[11px] font-semibold text-slate-400">추세</span>
         {INDICATOR_DEFS.filter((d) => d.group === "overlay").map(chip)}
       </div>
+      {active.has("supportResistance") && (
+        <div className="flex items-center gap-1">
+          {(["short", "mid", "long"] as const).map((h) => (
+            <button
+              key={h}
+              onClick={() => onSrHorizonChange(h)}
+              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                srHorizon === h ? "bg-samsung text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+              }`}
+            >
+              {h === "short" ? "단기" : h === "mid" ? "중기" : "장기"}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="mr-0.5 text-[11px] font-semibold text-slate-400">보조</span>
         {INDICATOR_DEFS.filter((d) => d.group === "oscillator").map(chip)}
@@ -201,12 +218,13 @@ function IndicatorChips({
 // ─── 차트 영역 (줌/팬 공유) ───────────────────────────────────────────────────
 
 function ChartArea({
-  ind, opens, active, interval,
+  ind, opens, active, interval, srHorizon,
 }: {
   ind: TAIndicators;
   opens: number[];
   active: Set<IndicatorId>;
   interval: Interval;
+  srHorizon: "short" | "mid" | "long";
 }) {
   // 일목을 켜지 않으면 실제 데이터 길이(ind.dates)만 사용해 빈 공간이 없게 함.
   // 일목을 켜면 미래 26일(SHIFT) 구름대를 보여주기 위해 그때만 ichDates로 확장함.
@@ -356,7 +374,7 @@ function ChartArea({
   let srLevels: SupportResistanceLevel[] = [];
   if (active.has("supportResistance")) {
     const lastClose = ind.prices[ind.prices.length - 1];
-    srLevels = computeSupportResistance(ind.highs, ind.lows, lastClose);
+    srLevels = computeSupportResistance(ind.highs, ind.lows, lastClose, srHorizon); 
     for (const level of srLevels) {
       const color = level.type === "resistance" ? "rgba(229,56,74,0.55)" : "rgba(37,99,235,0.55)";
       const lineData = new Array(total).fill(level.price);
@@ -638,6 +656,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
   const [taResult, setTaResult] = useState<TAResult | null>(null);
   const [opens, setOpens] = useState<number[]>([]);
   const [active, setActive] = useState<Set<IndicatorId>>(new Set(["sma20", "sma60"]));
+  const [srHorizon, setSrHorizon] = useState<"short" | "mid" | "long">("mid");
   const [fadeIn, setFadeIn] = useState(false);
 
   const [koreanNames, setKoreanNames] = useState<Record<string, string>>({});
@@ -825,7 +844,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
               style={{ opacity: fadeIn ? 1 : 0, transform: fadeIn ? "translateY(0)" : "translateY(10px)" }}>
               {subTab === "chart" ? (
                 <div className="space-y-3">
-                  <IndicatorChips active={active} interval={interval} onToggle={toggleIndicator} onPreset={applyPreset} />
+                                   <IndicatorChips active={active} interval={interval} onToggle={toggleIndicator} onPreset={applyPreset} srHorizon={srHorizon} onSrHorizonChange={setSrHorizon} />
 
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] text-slate-400">휠로 확대·축소 · 드래그로 이동</span>
@@ -841,7 +860,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
                     </div>
                   </div>
 
-                  <ChartArea ind={taResult.indicators} opens={opens} active={active} interval={interval} />
+                  <ChartArea ind={taResult.indicators} opens={opens} active={active} interval={interval} srHorizon={srHorizon} />
                 </div>
               ) : (
                 <ResultPanel result={taResult} active={active} onToggleKey={toggleByKey} />
