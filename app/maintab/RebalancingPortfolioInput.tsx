@@ -339,7 +339,7 @@ export default function RebalancingPortfolioInput({
             type="button"
             disabled={isConfirming || isSubmitting}
             onClick={handleConfirmClick}
-            className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#1b35bd] disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-50"
           >
             {(isConfirming || isSubmitting)
               ? <Loader2 size={16} className="animate-spin" />

@@ -877,7 +877,7 @@ export default function RebalancingHistoryTab() {
                                   )
                                 }
                                 placeholder="리밸런싱 근거를 입력하세요."
-                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-[#2f2f9d] focus:ring-2 focus:ring-[#2f2f9d]/10"
+                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-[#2563eb] focus:ring-2 focus:ring-[#2563eb]/10"
                               />
                             </td>
                           </tr>
@@ -890,7 +890,7 @@ export default function RebalancingHistoryTab() {
                     <button
                       type="button"
                       onClick={() => setCompareRecord(record)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-[#2f2f9d] bg-white px-4 py-2 text-xs font-bold text-[#2f2f9d] transition hover:bg-indigo-50"
+                      className="inline-flex items-center gap-2 rounded-lg border border-[#2563eb] bg-white px-4 py-2 text-xs font-bold text-[#2563eb] transition hover:bg-blue-50"
                     >
                       <GitCompareArrows size={15} />
                       포트폴리오 전후 비교

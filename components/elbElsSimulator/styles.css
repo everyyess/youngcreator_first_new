@@ -1,5 +1,6 @@
 .elb-els-simulator {
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* 앱 전체(app/layout.tsx)와 동일한 폰트로 통일 — Inter를 쓰면 숫자·영문 자간/굵기가 달라 보였다(2026-09) */
+  font-family: 'Noto Sans KR', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #182230;
   background: #f5f7fa;
   font-synthesis: none;
@@ -290,7 +291,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  background: #2f2f9d;
+  background: #2563eb;
   color: #fff;
 }
 
@@ -315,9 +316,9 @@
 .elb-els-simulator .beta-badge {
   flex: 0 0 auto;
   border-radius: 999px;
-  background: #eef0ff;
+  background: #eff6ff;
   padding: 5px 9px;
-  color: #2f2f9d;
+  color: #2563eb;
   font-size: 0.65rem;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -335,7 +336,7 @@
 .elb-els-simulator .section-heading { margin-bottom: 16px; }
 .elb-els-simulator .section-heading h2 { color: #0b1f3a; font-size: 1rem; font-weight: 800; }
 .elb-els-simulator .section-heading--products > span { color: #94a3b8; font-weight: 700; }
-.elb-els-simulator .eyebrow { color: #2f2f9d; }
+.elb-els-simulator .eyebrow { color: #2563eb; }
 
 .elb-els-simulator .product-card,
 .elb-els-simulator .detail-card,
@@ -365,38 +366,38 @@
 
 .elb-els-simulator input:focus,
 .elb-els-simulator select:focus {
-  border-color: #2f2f9d;
+  border-color: #2563eb;
   outline: 2px solid rgba(47, 47, 157, 0.16);
 }
 
 .elb-els-simulator .run-button {
   border-radius: 8px;
-  background: #2f2f9d;
+  background: #2563eb;
   box-shadow: 0 5px 12px rgba(47, 47, 157, 0.2);
 }
-.elb-els-simulator .run-button:hover { background: #252285; }
+.elb-els-simulator .run-button:hover { background: #1d4ed8; }
 
 .elb-els-simulator .path-controls button.active,
 .elb-els-simulator .strategy-horizon button.active {
-  border-color: #2f2f9d;
-  background: #eef0ff;
-  color: #2f2f9d;
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #2563eb;
 }
 .elb-els-simulator .stress-buttons button.active {
-  border-color: #2f2f9d;
-  background: #2f2f9d;
+  border-color: #2563eb;
+  background: #2563eb;
 }
 
 .elb-els-simulator .result-summary,
 .elb-els-simulator .analog-summary {
-  border-left-color: #2f2f9d;
+  border-left-color: #2563eb;
   background: #f7f7ff;
 }
 .elb-els-simulator .method-panel summary,
-.elb-els-simulator .product-documents summary { color: #2f2f9d; }
+.elb-els-simulator .product-documents summary { color: #2563eb; }
 .elb-els-simulator .product-documents { border-color: #e2e8f0; background: #f8fafc; }
 .elb-els-simulator .product-documents summary span,
-.elb-els-simulator .product-documents a i { background: #eef0ff; color: #2f2f9d; }
+.elb-els-simulator .product-documents a i { background: #eff6ff; color: #2563eb; }
 .elb-els-simulator .product-documents a:hover { border-color: rgba(47, 47, 157, 0.45); background: #f7f7ff; }
 
 @media (max-width: 640px) {

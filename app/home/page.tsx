@@ -579,7 +579,10 @@ export default function HomePage() {
     <main className="min-h-screen bg-[radial-gradient(ellipse_85%_65%_at_8%_0%,rgba(99,102,241,0.11),transparent_55%),radial-gradient(ellipse_65%_65%_at_98%_100%,rgba(59,130,246,0.18),transparent_55%),#f8fafc] p-4 text-slate-900">
       <div className="grid min-h-[calc(100vh-2rem)] gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "336px" : "56px"}` }}>
         <aside className={`box-border min-w-0 overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}>
-          <div className="mb-4 flex items-start justify-between gap-2">
+          {/* min-h를 좌/우 패널 헤더에 똑같이 줘서, 아래 첫 줄(로그아웃 vs 분석실·상담실 입장)이
+              항상 같은 높이에서 시작하게 맞춘다(2026-09) — 왼쪽은 인사말 3줄이라 원래 더 높고,
+              오른쪽은 로고 하나뿐이라 더 낮아서 그대로 두면 두 버튼 줄이 서로 어긋나 보였다. */}
+          <div className="mb-4 flex min-h-[70px] items-start justify-between gap-2">
             {leftOpen ? (
               <div>
                 <p className="text-base font-black text-blue-950">{pbSession?.name || tempPbName} PB님,</p>
@@ -656,7 +659,9 @@ export default function HomePage() {
         </section>
 
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>
-          <div className="mb-4 flex items-start justify-between gap-2">
+          {/* 왼쪽 패널 헤더와 동일한 min-h — 그 아래 첫 줄(분석실·상담실 입장)이 왼쪽의 로그아웃 버튼과
+              같은 높이에서 시작하도록 맞춘다(왼쪽 헤더 주석 참고). */}
+          <div className="mb-4 flex min-h-[70px] items-start justify-between gap-2">
             <button type="button" onClick={() => setRightOpen((value) => !value)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:text-blue-700">
               {rightOpen ? <PanelRightClose size={18} /> : <ChevronLeft size={18} />}
             </button>

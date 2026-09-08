@@ -13,7 +13,31 @@ function buildPdfHtml(bodyHtml: string, styles: string) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* Pretendard 임베드 — TAB4 제안서 PDF(app/maintab/tab4/PortfolioReportPdf.tsx)가 Font.register()로
+       쓰는 것과 동일한 CDN 소스(jsdelivr fonts-archive)를 그대로 재사용한다. 이 라우트는 react-pdf가
+       아니라 Puppeteer로 HTML을 그려서 PDF로 인쇄하는 방식이라 폰트 "등록"이 아니라 @font-face로
+       선언해야 하고, 아래 POST 핸들러의 document.fonts.ready 대기가 실제 다운로드·임베드를 보장한다.
+       전엔 폰트를 전혀 지정하지 않아 로컬(Windows 시스템 한글 폰트)에선 우연히 정상 출력됐지만, Vercel의
+       서버리스 Chromium(@sparticuz/chromium)엔 한글 폰트가 아예 없어 텍스트가 깨졌다(2026-09 발견·수정).
+       글자 크기·레이아웃은 건드리지 않고 폰트 소스만 추가한다. */
+    @font-face {
+      font-family: "Pretendard";
+      src: url("https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Regular.otf") format("opentype");
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Pretendard";
+      src: url("https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Bold.otf") format("opentype");
+      font-weight: bold;
+      font-style: normal;
+    }
     ${styles}
+    /* 캡처된 페이지 CSS(위 styles 변수) 뒤에 둬서, 혹시 거기 섞여 있을 다른 font-family 지정보다
+       항상 우선하도록 한다 — 이 라우트가 그리는 PDF의 폰트는 언제나 Pretendard여야 한다. */
+    html, body, #market-report-pdf {
+      font-family: "Pretendard", sans-serif;
+    }
     @page { size: A4; margin: 64.19px 106.98px; }
     html, body {
       margin: 0;

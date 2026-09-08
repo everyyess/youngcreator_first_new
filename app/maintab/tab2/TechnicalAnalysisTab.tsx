@@ -196,7 +196,7 @@ function IndicatorChips({
               key={h}
               onClick={() => onSrHorizonChange(h)}
               className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                srHorizon === h ? "bg-samsung text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                srHorizon === h ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
               }`}
             >
               {h === "short" ? "단기" : h === "mid" ? "중기" : "장기"}
@@ -481,7 +481,7 @@ function ChartArea({
         <button onClick={resetView} className="ml-2 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-50">
           초기화
         </button>
-        <span className="ml-auto rounded bg-[#2f2f9d] px-2 py-0.5 text-[11px] font-bold text-white">{won(last)}</span>
+        <span className="ml-auto rounded bg-[#2563eb] px-2 py-0.5 text-[11px] font-bold text-white">{won(last)}</span>
       </div>
 
       <div
@@ -581,7 +581,7 @@ function ResultPanel({
                 {s}<span className="text-[11px] font-normal text-slate-400"> / {c.max}</span>
               </div>
               <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-[#2f2f9d] transition-all duration-700" style={{ width: `${pct}%` }} />
+                <div className="h-full rounded-full bg-[#2563eb] transition-all duration-700" style={{ width: `${pct}%` }} />
               </div>
             </div>
           );
@@ -614,7 +614,7 @@ function ResultPanel({
               return (
                 <tr key={r.key} onClick={() => onToggleKey(r.key)}
                   className={`cursor-pointer border-t border-slate-100 transition-colors ${on ? "bg-indigo-50/50" : "bg-white hover:bg-slate-50"}`}>
-                  <td className="px-2 py-2 text-center">{on && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2f2f9d]" />}</td>
+                  <td className="px-2 py-2 text-center">{on && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2563eb]" />}</td>
                   <td className="px-2 py-2 text-slate-400">{r.cat}</td>
                   <td className="px-2 py-2 font-semibold text-slate-700">{r.key}</td>
                   <td className="px-2 py-2">
@@ -805,7 +805,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
               {tickerableAssets.map((a) => (
                 <button key={a.ticker} onClick={() => selectAsset(a.ticker!, a.name)}
                   className={`rounded-md border px-2.5 py-1 text-[12px] font-semibold transition ${
-                    selectedTicker === a.ticker ? "border-[#2f2f9d] bg-[#2f2f9d] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                    selectedTicker === a.ticker ? "border-[#2563eb] bg-[#2563eb] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                   }`}>
                   {koreanNames[a.ticker!] || a.name}
                 </button>
@@ -844,7 +844,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
                 {([["chart", "차트 분석"], ["result", "분석 결과"]] as const).map(([id, label]) => (
                   <button key={id} onClick={() => setSubTab(id)}
                     className={`rounded-md px-3.5 py-1.5 text-[12px] font-semibold transition ${
-                      subTab === id ? "bg-white text-[#2f2f9d] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      subTab === id ? "bg-white text-[#2563eb] shadow-sm" : "text-slate-500 hover:text-slate-700"
                     }`}>
                     {label}
                   </button>
