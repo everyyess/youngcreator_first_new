@@ -144,18 +144,6 @@ export default function Tab3Page() {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            sessionStorage.setItem("analysisReturnTab", "tab3");
-            window.location.href = "/analysis/screener";
-          }}
-          className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
-        >
-          분석실로 이동
-        </button>
-      </div>
       <div data-consultation-lock-exempt="true" className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
         {innerTabs.map((tab) => (
           <button
@@ -169,6 +157,21 @@ export default function Tab3Page() {
             {tab.label}
           </button>
         ))}
+        <button
+          type="button"
+          data-consultation-lock-exempt="true"
+          onClick={() => {
+            // "/analysis/screener"는 실제로 존재하는 라우트가 아니라 [tab]/page.tsx에서 매핑 실패로
+            // "/analysis/tab1"로 서버 리다이렉트되는데, 그 과정에서 쿼리스트링이 버려진다 — 그래서
+            // returnTab을 sessionStorage에만 의존하면 새 탭에서 유실될 수 있다. 처음부터 실제
+            // 목적지(tab1=종목분석)로 직접 이동하고 returnTab을 쿼리로 실어 보낸다.
+            sessionStorage.setItem("analysisReturnTab", "tab3");
+            window.open("/analysis/tab1?returnTab=tab3", "_blank", "noopener,noreferrer");
+          }}
+          className="shrink-0 rounded-md border border-samsung/30 bg-samsung/5 px-3 py-2.5 text-xs font-bold text-samsung transition hover:bg-samsung/10"
+        >
+          분석실로 이동
+        </button>
       </div>
 
       {activeInnerTab === "stock-rebalancing" && <BuySimulatorTab />}

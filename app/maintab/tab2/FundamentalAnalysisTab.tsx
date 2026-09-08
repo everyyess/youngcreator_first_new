@@ -9,6 +9,8 @@ import type { PortfolioAsset } from "../CustomerContext";
 import type { NaverReport } from "../../api/naver-reports/route";
 import type { TelegramMessage, TelegramSearchResponse } from "../../api/telegram-search/route";
 import StockSearchBox from "./StockSearchBox";
+import RecommendedPickChips from "./RecommendedPickChips";
+import { useRecommendedPicks } from "./useRecommendedPicks";
 
 // ─── 서브탭 타입 ─────────────────────────────────────────────────────────────
 
@@ -804,6 +806,31 @@ export default function FundamentalAnalysisTab({ selectedStock, onStockChange }:
     onStockChange?.({ ticker: a.ticker!, name: a.name });
   };
 
+  // 추천 종목 칩(자사·AI)은 보유 자산이 아니라 매수단가를 모르므로 currentPrice는 비워둔다.
+  const selectByTickerName = (ticker: string, name: string) => {
+    if (ticker === selectedTicker) return;
+    setSelectedTicker(ticker);
+    setSelectedName(name);
+    setSelectedCurrentPrice(undefined);
+    onStockChange?.({ ticker, name });
+  };
+
+  const { weeklyPicks, aiPicks } = useRecommendedPicks();
+  const [resolvingWeeklyPick, setResolvingWeeklyPick] = useState<string | null>(null);
+  const selectWeeklyPick = async (name: string) => {
+    setResolvingWeeklyPick(name);
+    try {
+      const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      const ticker = typeof data?.ticker === "string" ? data.ticker : "";
+      if (ticker) selectByTickerName(ticker, name);
+    } catch {
+      /* 조회 실패 — 조용히 무시 */
+    } finally {
+      setResolvingWeeklyPick(null);
+    }
+  };
+
   const selectedIsDomestic = isDomestic(selectedTicker);
   const naverCode = selectedTicker.replace(/\.(KS|KQ)$/i, "");
 
@@ -828,14 +855,27 @@ export default function FundamentalAnalysisTab({ selectedStock, onStockChange }:
   return (
     <div className="space-y-4">
       {/* 종목 선택 */}
-      {sortedStocks.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-            분석 종목 선택
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {sortedStocks.map(a => <StockButton key={a.ticker} a={a} />)}
-          </div>
+      {(sortedStocks.length > 0 || weeklyPicks.length > 0 || aiPicks.length > 0) && (
+        <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          {sortedStocks.length > 0 && (
+            <>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                분석 종목 선택
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {sortedStocks.map(a => <StockButton key={a.ticker} a={a} />)}
+              </div>
+            </>
+          )}
+          <RecommendedPickChips
+            weeklyPicks={weeklyPicks}
+            aiPicks={aiPicks}
+            selectedKey={selectedTicker}
+            resolvingWeeklyName={resolvingWeeklyPick}
+            onSelectWeekly={(p) => selectWeeklyPick(p.name)}
+            onSelectAi={(p) => selectByTickerName(p.symbol, p.name)}
+            withDivider={sortedStocks.length > 0}
+          />
         </div>
       )}
 
