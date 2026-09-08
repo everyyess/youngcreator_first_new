@@ -26,7 +26,7 @@ export async function GET(request) {
   const from = now - 7 * 24 * 3600;
   const url  =
     `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
-    `?period1=${from}&period2=${now}&interval=1d`;
+    `?period1=${from}&period2=${now}&interval=5m&includePrePost=false`;
 
   let res;
   try {
@@ -47,14 +47,49 @@ export async function GET(request) {
     return Response.json({ error: '응답 파싱 실패', ticker }, { status: 502 });
   }
 
-  const meta = json?.chart?.result?.[0]?.meta;
+  const chartResult = json?.chart?.result?.[0];
+  const meta = chartResult?.meta;
+
   if (!meta) {
     return Response.json({ error: '시세 데이터 없음', ticker }, { status: 404 });
+  }
+
+  const timestamps = Array.isArray(chartResult?.timestamp)
+    ? chartResult.timestamp
+    : [];
+
+  const closes = Array.isArray(chartResult?.indicators?.quote?.[0]?.close)
+    ? chartResult.indicators.quote[0].close
+    : [];
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+
+  let snapshotPrice = null;
+  let snapshotTime = null;
+
+  for (let i = timestamps.length - 1; i >= 0; i -= 1) {
+    const barStart = Number(timestamps[i]);
+    const barEnd = barStart + 5 * 60;
+    const close = Number(closes[i]);
+
+    if (
+      Number.isFinite(barStart) &&
+      barEnd <= nowSeconds &&
+      Number.isFinite(close) &&
+      close > 0
+    ) {
+      snapshotPrice = close;
+      snapshotTime = barEnd;
+      break;
+    }
   }
 
   return Response.json({
     ticker,
     regularMarketPrice: meta.regularMarketPrice ?? null,
-    currency:           meta.currency           ?? null,
+    regularMarketTime: meta.regularMarketTime ?? null,
+    snapshotPrice,
+    snapshotTime,
+    currency: meta.currency ?? null,
   });
 }

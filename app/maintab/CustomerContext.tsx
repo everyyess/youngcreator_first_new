@@ -228,6 +228,7 @@ export type PortfolioAsset = {
   weight?: number;
   gain?: number;
   price_source?: string;
+  price_as_of?: string;        // 실제 시세 기준시각 (ISO 8601)
   _rawAmount?: string;
   ticker?: string;           // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
   productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
@@ -309,6 +310,7 @@ export type PbOrderRow = {
   amountManStr: string;        // 구버전 호환 필드 (내부 계산에서 더 이상 사용하지 않음)
   currentPrice: number | null; // 현재가 (native currency — KRW or USD)
   priceCurrency: string;       // "KRW" | "USD"
+  priceAsOf?: string;          // 실제 시세 기준시각 (ISO 8601)
   quantity: string;            // 수량(주/개)
   bondYield: string;           // 채권수익률(%)
   maturityYears: string;       // 만기(년)
