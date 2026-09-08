@@ -4,6 +4,7 @@ const nextConfig = {
   outputFileTracingIncludes: {
     "/api/telegram-search": ["./node_modules/telegram/**/*"],
     "/api/telegram-channels": ["./node_modules/telegram/**/*"],
+    "/api/send-report-email": ["./node_modules/@sparticuz/chromium/bin/**/*"],
   },
 };
 
