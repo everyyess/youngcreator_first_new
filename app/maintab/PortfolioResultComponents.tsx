@@ -217,7 +217,7 @@ export function HoldingsCardGrid({
         {groupedAssetCards.map((group, gi) => (
           <div key={gi} className="flex flex-wrap gap-2">
             {group.assets.map((a) => {
-              const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+              const cls = normalizeAssetClass(a.productType ?? a.asset_class ?? "기타");
               const color = CLASS_COLORS[cls] ?? "#94a3b8";
               const key = makeAssetKey(a);
               const isSoldOut = a.amount_type === "quantity" && a.amount <= 0;
@@ -348,12 +348,12 @@ export function computeRebalancingStatuses(
 
   const initClassTotals: Record<string, number> = {};
   for (const a of initialAssets) {
-    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    const cls = normalizeAssetClass(a.productType ?? a.asset_class ?? "기타");
     initClassTotals[cls] = (initClassTotals[cls] ?? 0) + getAssetValueGeneric(a);
   }
   const newClassTotals: Record<string, number> = {};
   for (const a of newAssets) {
-    const cls = normalizeAssetClass(a.asset_class ?? a.productType ?? "기타");
+    const cls = normalizeAssetClass(a.productType ?? a.asset_class ?? "기타");
     newClassTotals[cls] = (newClassTotals[cls] ?? 0) + getAssetValueGeneric(a);
   }
 
@@ -374,8 +374,8 @@ export function computeRebalancingStatuses(
     const prevTotalWeight = initTotal > 0 ? initVal / initTotal : 0;
     const newTotalWeight = newTotal > 0 ? newVal / newTotal : 0;
 
-    const initCls = ia ? normalizeAssetClass(ia.asset_class ?? ia.productType ?? "기타") : "";
-    const newCls = na ? normalizeAssetClass(na.asset_class ?? na.productType ?? "기타") : "";
+    const initCls = ia ? normalizeAssetClass(ia.productType ?? ia.asset_class ?? "기타") : "";
+    const newCls = na ? normalizeAssetClass(na.productType ?? na.asset_class ?? "기타") : "";
     const cls = newCls || initCls;
 
     const prevClassWeight = (initClassTotals[initCls] ?? 0) > 0 ? initVal / initClassTotals[initCls] : 0;
