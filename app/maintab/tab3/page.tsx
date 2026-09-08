@@ -26,6 +26,7 @@ export default function Tab3Page() {
     appMode, tab3AnalysisState, updateTab3AnalysisState,
     rebalancingSellAssets, setRebalancingBuyAssets, setNewPortfolioAnalysisResult,
     confirmRebalancingBuy, saveTaxSummary, sellHistory, formData, selectedCustomer,
+    setIsNewPortfolioAnalyzing,
   } = useCustomerContext();
   const syncedActiveInnerTab = tab3AnalysisState.activeInnerTab;
 
@@ -53,9 +54,15 @@ export default function Tab3Page() {
   selectedCustomerRef.current = selectedCustomer;
 
   useEffect(() => {
-    if (rebalancingSellAssets.length === 0) return;
+    if (rebalancingSellAssets.length === 0) {
+      setIsNewPortfolioAnalyzing(false); // 포트폴리오가 비면 분석할 게 없으니 로딩 상태도 해제(끼임 방지)
+      return;
+    }
     const customerAtStart = selectedCustomerRef.current;
     const snapshot = rebalancingSellAssets;
+
+    // 디바운스 대기 시작부터 "최신 반영 중" — TAB4가 이 값을 보고 로딩 표시를 띄운다.
+    setIsNewPortfolioAnalyzing(true);
 
     const timer = setTimeout(async () => {
       try {
@@ -122,6 +129,8 @@ export default function Tab3Page() {
         saveTaxSummary("new", newTaxSummary);
       } catch (err) {
         console.error("[Tab3Page] 신규 포트폴리오 실시간 재분석 오류:", err);
+      } finally {
+        setIsNewPortfolioAnalyzing(false);
       }
     }, 800);
 

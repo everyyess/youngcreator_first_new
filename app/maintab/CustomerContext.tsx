@@ -237,8 +237,14 @@ export type PortfolioAsset = {
   // ── 채권 이자소득세 계산 전용 필드 (FinancialIncomeGauge의 AssetForIncomeCalc와 대응) ──
   issuerCountry?: string;        // 발행국(한국/미국/브라질 등) — 국가별 원천징수 판정용, country(광의 국내/해외)와 다른 개념
   couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
-  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득은 일반 이표채와 동일 계산(만기 불필요), 콜 이후 스텝업 가능성만 배지 표시
   maturityDate?: string;         // ISO(YYYY-MM-DD) — 만기 임박 안분·복리채 일시인식 계산에 사용
+  // 수량(amount_type="quantity") 확인일 — 액면병합 감지용. 이 날짜 "이후"에 액면병합이 있었는지를
+  // Yahoo 데이터와 대조해서 경고를 띄운다. undefined(레거시 데이터 등 확인일 미상)면 병합 이력이
+  // 하나라도 있으면 무조건 경고 — 자동 보정은 절대 안 함(수량은 PB가 직접 확인·수정).
+  qtyAsOfDate?: string;          // ISO(YYYY-MM-DD)
+  needsQtyCheck?: boolean;       // qtyAsOfDate 이후 액면병합이 감지되면 true — 계산엔 안 씀, 경고 표시 전용
+  latestSplitInfo?: string;      // 표시용 — "2026-07-15 1:10" 형태
   // 데이터 소유권 낙인 — 로드 시 해당 고객 ID로 강제 찍힘, null이면 미확정 상태
   owner_customer_id?: string | null;
 };
@@ -1627,6 +1633,9 @@ export type CustomerContextValue = {
   setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
   setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
   updateTab3AnalysisState: (patch: Partial<Tab3AnalysisState>, options?: { allowReadOnlyViewState?: boolean }) => void;
+  // 신규 포트폴리오 재분석이 백그라운드에서 진행 중인지(TAB4 "최신 반영 중" 표시용)
+  isNewPortfolioAnalyzing: boolean;
+  setIsNewPortfolioAnalyzing: (v: boolean) => void;
   // ── Tab 5 상품 선택 (고객별 격리, Supabase 영속) ──────────────────────────
   productSelectedIds: string[];
   setProductSelectedIds: (ids: string[]) => void;

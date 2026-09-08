@@ -540,6 +540,7 @@ function mergeBuyIntoBase(
         bond_maturity: Number.isFinite(maturityVal) && maturityVal > 0 ? maturityVal : null,
         current_price: priceKrw ?? undefined,
         current_value: krwTotal || undefined,
+        qtyAsOfDate: new Date().toISOString().slice(0, 10), // 지금 신규 매수하는 수량이라 확인일=오늘
       };
       merged.push(newRow);
     }
@@ -1578,6 +1579,7 @@ export default function BuySimulatorTab() {
                           buy_price: krwPrice, amount: dropQty, amount_type: "quantity" as const,
                           is_hedged: false, needs_review: false,
                           current_price: krwPrice, current_value: dropQty * krwPrice,
+                          qtyAsOfDate: new Date().toISOString().slice(0, 10), // 지금 신규 매수하는 수량이라 확인일=오늘
                         };
                         updated = [...base, newAsset];
                       }

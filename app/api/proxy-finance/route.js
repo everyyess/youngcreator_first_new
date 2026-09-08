@@ -692,9 +692,12 @@ export async function GET(request) {
   try {
     const endTs   = Math.floor(Date.now() / 1000);
     const startTs = endTs - 3 * 365 * 24 * 3600;
+    // events에 splits 추가 — 액면병합 "존재 여부·날짜·비율"만 화면 경고용으로 그대로 전달한다.
+    // 배당 금액 계산엔 절대 쓰지 않는다(그 시도가 왜 실패했는지는 관련 커밋 참고) — 여기선 단순히
+    // 날짜 비교("이 병합이 PB가 마지막으로 수량을 확인한 날짜보다 나중인가")에만 쓴다.
     const yahooUrl =
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}` +
-      `?period1=${startTs}&period2=${endTs}&interval=1mo&events=dividends%7Chistory`;
+      `?period1=${startTs}&period2=${endTs}&interval=1mo&events=dividends%7Csplits%7Chistory`;
 
     const chartRes = await fetchWithTimeout(yahooUrl, { headers: BROWSER_HEADERS }, 8_000);
 
