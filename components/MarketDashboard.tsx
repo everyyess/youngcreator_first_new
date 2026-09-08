@@ -915,7 +915,8 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
     key: string;
     label: string;
     score: number;
-    detail?: string;
+    grade: string;
+    detail: string;
   }>>([]);
   const [portfolioAssets, setPortfolioAssets] = useState<PortfolioAsset[]>([]);
   const [performanceProductAssets, setPerformanceProductAssets] = useState<RebalancingPortfolioSnapshot[]>([]);
@@ -1350,17 +1351,17 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
           const key = typeof item.key === "string" ? item.key : "";
           const label = typeof item.label === "string" ? item.label : "";
           const score = Number(item.score);
+          const grade = typeof item.grade === "string" ? item.grade : "";
+          const detail = typeof item.detail === "string" ? item.detail : "";
 
-          if (!key || !label || !Number.isFinite(score)) return null;
+          if (!key || !label || !grade || !Number.isFinite(score)) return null;
 
           return {
             key,
             label,
             score,
-            detail:
-              typeof item.detail === "string"
-                ? item.detail
-                : undefined,
+            grade,
+            detail,
           };
         })
         .filter(Boolean);
