@@ -144,6 +144,18 @@ export default function Tab3Page() {
 
   return (
     <>
+      <div className="mb-3 flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            sessionStorage.setItem("analysisReturnTab", "tab3");
+            window.location.href = "/analysis/screener";
+          }}
+          className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
+        >
+          분석실로 이동
+        </button>
+      </div>
       <div data-consultation-lock-exempt="true" className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
         {innerTabs.map((tab) => (
           <button

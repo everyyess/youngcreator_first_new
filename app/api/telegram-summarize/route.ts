@@ -20,8 +20,8 @@ const DEMO_TG_SUMMARIES = [
 
 // ─── 실제 라우트 ──────────────────────────────────────────────────────────────
 
-// gemini-3.1-flash-lite 우선 (RPD 500으로 여유 있음) → 1.5-flash 폴백
-const GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-1.5-flash", "gemini-2.5-flash-lite"] as const;
+// gemini-3.1-flash-lite 우선(한도 가장 넣넨) → lite → flash 순 폴백
+const GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.6-flash"] as const;
 type GeminiResp = { candidates?: Array<{ content: { parts: Array<{ text: string }> } }> };
 
 // 실패 시 null 반환 (200자 원문을 요약으로 오인하지 않도록)

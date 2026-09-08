@@ -209,16 +209,20 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
     const baseRows = apiData[baseDef.apiType];
     if (!baseRows) return [];
 
-    const merged: (StockRow & { __baseRank: number })[] = baseRows.map((row, idx) => {
-        let combined: StockRow & { __baseRank: number } = { ...row, __baseRank: idx };
+    const merged: (StockRow & { __baseRank: number })[] = baseRows
+    .map((row, idx) => {
+      let combined: StockRow & { __baseRank: number } = { ...row, __baseRank: idx };
+      let matchesAll = true;
       for (const cond of otherConditions) {
         const rows = apiData[cond.apiType];
-        if (!rows) continue;
+        if (!rows) { matchesAll = false; continue; }
         const match = rows.find((r) => r.ticker === row.ticker);
-        if (match) combined = { ...combined, ...match, ticker: row.ticker, name: row.name };
+        if (!match) { matchesAll = false; continue; }
+        combined = { ...combined, ...match, ticker: row.ticker, name: row.name };
       }
-      return combined;
-    });
+      return matchesAll ? combined : null;
+    })
+    .filter((c): c is StockRow & { __baseRank: number } => c !== null);
 
     const sortKey = sortOverride ?? "base";
     if (sortKey === "base") {

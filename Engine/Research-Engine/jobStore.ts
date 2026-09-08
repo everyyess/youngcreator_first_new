@@ -16,11 +16,33 @@ export type AgentUpdate = {
   summary: string;
   completedAt: string;
 };
+/**
+ * PB가 STEP 산출물을 항목 단위로 검토·수정하는 단위 (상담실 제안서 검토와 동일 방식).
+ * id는 result 내 위치 경로이며 hitlReview.applyReviewItems가 이 id로 되쓰기한다.
+ */
+export type HitlReviewItem = {
+  id: string;
+  step: HumanApprovalStep;
+  title: string;
+  hint: string;
+  content: string;   // 현재 값 (PB 수정 반영)
+  original: string;  // AI 원본 — 되돌리기·변경 표시용
+  edited: boolean;
+  checked: boolean;
+  pbComment: string;
+};
+
 export type HumanApprovalState = {
   completedStep: 0 | HumanApprovalStep;
   awaitingStep: HumanApprovalStep | null;
   awaitingApproval: boolean;
   agentUpdates: AgentUpdate[];
+  /** 직전 완료 STEP의 검토 항목 — 모두 체크되어야 다음 STEP 승인이 가능하다 */
+  reviewItems: HitlReviewItem[];
+  /** PB가 직접 수정한 항목 수 — 감사 표시용 누적치 */
+  editedCount: number;
+  /** 전 STEP에서 받은 PB 코멘트 누적 — STEP5 보고서 프롬프트에 반영된다 */
+  pbNotes: { step: HumanApprovalStep; title: string; comment: string }[];
 };
 
 export const jobLocalStorage = new AsyncLocalStorage<{ jobId: string; trackModel: (model: string) => void }>();
@@ -85,7 +107,7 @@ export function createJob(request: UnifiedResearchRequest): Job {
     result: null,
     error: null,
     modelUsage: {},
-    hitl: { completedStep: 0, awaitingStep: null, awaitingApproval: false, agentUpdates: [] },
+    hitl: { completedStep: 0, awaitingStep: null, awaitingApproval: false, agentUpdates: [], reviewItems: [], editedCount: 0, pbNotes: [] },
   };
   state().jobs.set(id, job);
   pruneOldJobs();

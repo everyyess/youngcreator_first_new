@@ -13,6 +13,13 @@ export type GeneratedResearchReport = {
   warning?: string;
 };
 
+// Gemini 2.5/3.x는 사고(thinking) 토큰이 maxOutputTokens 예산을 본문과 함께 소모한다.
+// 기존 8192는 사고 + 한국어 본문(목차 7개 + 판단 근거 10항목)을 담기에 빠듯해
+// MAX_TOKENS로 본문이 문장 중간에서 잘렸다. 예산을 넓히고 사고량에 상한을 둬 본문 몫을 확보한다.
+// (gemini-3.5-flash / gemini-3.1-flash-lite 모두 아래 값 수용 확인)
+const REPORT_MAX_OUTPUT_TOKENS = 32_768;
+const REPORT_THINKING_BUDGET = 4_096;
+
 const DB_LABEL: Record<string, string> = {
   telegram: "텔레그램",
   news: "뉴스",
@@ -317,7 +324,11 @@ ${result.debate ? `**AI 찬반토론 검증**
 ${bibliography(result.sources)}`;
 }
 
-export async function generateResearchReport(result: UnifiedResearchResult): Promise<GeneratedResearchReport> {
+export async function generateResearchReport(
+  result: UnifiedResearchResult,
+  /** PB가 HITL 검토에서 남긴 지시문 — 프롬프트 끝에 붙어 보고서에 반영된다 */
+  pbDirective = "",
+): Promise<GeneratedResearchReport> {
   if (!result.sources.length) {
     return { markdown: buildEvidenceFallbackReport(result), mode: "fallback", warning: "분석 가능한 출처가 없습니다." };
   }
@@ -330,22 +341,47 @@ export async function generateResearchReport(result: UnifiedResearchResult): Pro
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.3, maxOutputTokens: 8192 },
+            generationConfig: {
+              temperature: 0.3,
+              maxOutputTokens: REPORT_MAX_OUTPUT_TOKENS,
+              thinkingConfig: { thinkingBudget: REPORT_THINKING_BUDGET },
+            },
           }),
         },
       });
       if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
       const data = await res.json() as GeminiResponse;
-      const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
-      if (!text) throw new Error("Gemini 응답이 비어 있습니다.");
-      return { text, model };
+      const candidate = data.candidates?.[0];
+      const finishReason = candidate?.finishReason ?? "UNKNOWN";
+      const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
+      // 출력 상한에 걸리면 HTTP 200 + 문장 중간 절단으로 돌아온다.
+      // 이를 성공으로 취급하면 잘린 본문이 그대로 정상 보고서로 저장되므로 절단 여부를 함께 반환한다.
+      const truncated = finishReason === "MAX_TOKENS";
+      if (!text) throw new Error(`Gemini 응답이 비어 있습니다. (finishReason: ${finishReason})`);
+      return { text, model, truncated };
     };
 
-    let generated = await call(reportPrompt(result));
+    const basePrompt = reportPrompt(result) + (pbDirective ?? "");
+    let generated = await call(basePrompt);
     let markdown = normalizeAiReport(generated.text, result.sources);
-    if (!validReport(markdown, result.keywordType, result.sources.length)) {
-      generated = await call(reportPrompt(result) + "\n\n방금 출력은 분량 또는 목차·각주가 부족했습니다. 모든 목차를 빠짐없이 1,500자 이상으로 다시 작성하세요.");
+
+    if (generated.truncated || !validReport(markdown, result.keywordType, result.sources.length)) {
+      // 절단과 분량 미달은 지시 방향이 반대다. 절단이면 더 압축해서, 미달이면 더 길게 요구한다.
+      const retryHint = generated.truncated
+        ? "\n\n방금 출력은 길이 상한에 걸려 문장 중간에서 끊겼습니다. 모든 목차를 유지하되 각 항목을 더 압축해 끝까지 완결된 보고서로 다시 작성하세요."
+        : "\n\n방금 출력은 분량 또는 목차·각주가 부족했습니다. 모든 목차를 빠짐없이 1,500자 이상으로 다시 작성하세요.";
+      generated = await call(basePrompt + retryHint);
       markdown = normalizeAiReport(generated.text, result.sources);
+    }
+
+    if (generated.truncated) {
+      // 재시도까지 잘렸다면 미완성 본문을 정상 보고서로 내보내지 않는다.
+      return {
+        markdown: buildEvidenceFallbackReport(result),
+        mode: "fallback",
+        model: generated.model,
+        warning: "AI 출력이 길이 상한에 걸려 완결되지 않아 근거 기반 보고서로 대체했습니다.",
+      };
     }
     if (!validReport(markdown, result.keywordType, result.sources.length)) {
       return {

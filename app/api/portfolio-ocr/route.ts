@@ -11,17 +11,12 @@ export interface OcrAsset {
 }
 
 // 비전(이미지) 지원 모델 폴백 순서 (429·404 시 다음 모델로 자동 교체)
-// 한도가 남은 모델을 우선 배치 (Google AI Studio 무료 한도 기준 — 2026-06)
+// (2026-09-07 실제 이미지로 4개 모델 모두 비전 처리 확인)
 const GEMINI_MODELS = [
-  "gemini-2.0-flash",        // 1순위: 비전 특화, RPD 200
-  "gemini-3.1-flash-lite",   // 2순위: RPD 500 ★ 한도 가장 넉넉
-  "gemini-3.5-flash",        // 3순위: RPD 20, 완전 미사용
-  "gemini-3-flash",          // 4순위: RPD 20
-  "gemma-4-26b",             // 5순위: RPD 1.5K, 멀티모달 지원 (미사용)
-  "gemma-4-31b",             // 6순위: RPD 1.5K, 멀티모달 지원 (미사용)
-  "gemini-2.5-flash",        // 7순위: RPD 20 (현재 초과 — 429 시 자동 스킵)
-  "gemini-2.5-flash-lite",   // 8순위: RPD 20 (현재 초과 — 429 시 자동 스킵)
-  "gemini-1.5-flash",        // 9순위: 구세대, 별도 한도 풀
+  "gemini-3.1-flash-lite",   // 1순위: 한도 가장 넉넉
+  "gemini-3.6-flash",        // 2순위
+  "gemini-3.5-flash",        // 3순위
+  "gemini-3.5-flash-lite",   // 4순위
 ] as const;
 
 type GeminiRawResp = {

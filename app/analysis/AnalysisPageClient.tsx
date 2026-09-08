@@ -149,9 +149,24 @@ function AnalysisTabs({
 
   return (
     <CustomerContext.Provider value={contextValue}>
-      <section className="flex flex-col gap-4">
-        <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
-          {analysisTopTabs.map((tab) => (
+    <section className="flex flex-col gap-4">
+    {typeof window !== "undefined" && sessionStorage.getItem("analysisReturnTab") && (
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            const target = sessionStorage.getItem("analysisReturnTab") || "tab1";
+            sessionStorage.removeItem("analysisReturnTab");
+            router.push(`/consultation/${target}`);
+          }}
+          className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
+        >
+          ← 상담으로 돌아가기
+        </button>
+      </div>
+    )}
+    <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
+      {analysisTopTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -241,7 +256,7 @@ function AnalysisTabs({
             <ElbElsSimulator />
           </div>
         ) : (
-          <PlaceholderContent label={analysisTopTabs.find((tab) => tab.id === activeTopTab)?.label ?? "선택한 탭"} />
+          <PlaceholderContent label={analysisTopTabs.find((tab) => tab.id === activeTopTab)?.label ?? "선택된 탭"} />
         )}
       </section>
     </CustomerContext.Provider>

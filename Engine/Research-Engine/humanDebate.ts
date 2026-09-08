@@ -54,8 +54,18 @@ async function callGemini(
   });
   if (!res.ok) throw new Error(`${stage} Gemini HTTP ${res.status}`);
   const payload = await res.json() as GeminiResponse;
-  const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
-  if (!text) throw new Error(`${stage} Gemini 응답이 비어 있습니다.`);
+  const candidate = payload.candidates?.[0];
+  const finishReason = candidate?.finishReason ?? "UNKNOWN";
+  const text = candidate?.content?.parts?.map((part) => part.text ?? "").join("").trim() ?? "";
+  // 출력 상한에 걸리면 HTTP 200 + 문장(또는 JSON) 중간 절단으로 돌아온다.
+  // 토론 본문은 보고서에 그대로 삽입되고, 종합 판정은 잘린 JSON이 복구되며
+  // 엉뚱한 verdict가 될 수 있으므로 성공으로 취급하지 않는다.
+  // 여기서 던진 오류는 파이프라인이 받아 "토론 실패"로 기록하고 보고서는 토론 없이 생성된다
+  // (잘린 토론을 싣는 것보다 낫다).
+  if (finishReason === "MAX_TOKENS") {
+    throw new Error(`${stage} 응답이 길이 상한에 걸려 완결되지 않았습니다.`);
+  }
+  if (!text) throw new Error(`${stage} Gemini 응답이 비어 있습니다. (finishReason: ${finishReason})`);
   return { text, model };
 }
 

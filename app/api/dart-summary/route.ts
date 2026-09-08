@@ -448,12 +448,12 @@ ${personDocText ? `\n[보고자에 관한 사항 원문]\n${personDocText}` : ""
 
     // 4. Gemini 호출 (429·404 시 다음 모델로 자동 폴백)
     // 우선순위: 성능 ↘ / 남은 한도 ↗ 순
-    // (Google AI Studio 무료 한도 기준 — 2026-06)
+    // (모델 가용성 확인 — 2026-09-07, 등록 API 키 6개 전수)
     const GEMINI_MODELS = [
-      "gemini-3.1-flash-lite",   // 1순위: RPD 500 ★ 한도 가장 넉넉
-      "gemini-1.5-flash",        // 2순위: 구세대, 별도 한도 풀
-      "gemini-2.5-flash-lite",   // 3순위: RPD 20
-      "gemini-2.5-flash",        // 4순위: RPD 20
+      "gemini-3.1-flash-lite",   // 1순위: 한도 가장 넉넉
+      "gemini-3.5-flash-lite",   // 2순위
+      "gemini-3.6-flash",        // 3순위
+      "gemini-3.5-flash",        // 4순위
     ] as const;
 
     type GeminiResp = {

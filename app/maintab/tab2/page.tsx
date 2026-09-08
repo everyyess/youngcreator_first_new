@@ -18,6 +18,18 @@ export default function Tab2Page() {
 
   return (
     <div className="space-y-5">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            sessionStorage.setItem("analysisReturnTab", "tab2");
+            window.location.href = "/analysis/screener";
+          }}
+          className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
+        >
+          분석실로 이동
+        </button>
+      </div>
       <ExistingPortfolioTab />
       {data
         ? <PortfolioDiagnosisSection data={data} />

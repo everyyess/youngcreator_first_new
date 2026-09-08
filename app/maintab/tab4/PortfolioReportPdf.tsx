@@ -202,7 +202,7 @@ function PdfHealthRadar({
   badge?: string;
 }) {
   const gradeColor = badge === "Sell" ? "#DC2626" : badge === "Hold" ? "#0F766E" : "#D97706";
-  const cx = 100;
+    const cx = 140;
   const cy = 95;
   const maxR = 70;
   const n = items.length;
@@ -217,7 +217,7 @@ function PdfHealthRadar({
     items.map((_, i) => pointFor(i, ratio)).map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" "),
   );
   return (
-    <Svg width="200" height="210" viewBox="0 0 200 210">
+    <Svg width="280" height="210" viewBox="0 0 280 210">
       {gridRings.map((poly, i) => (
         <Polygon key={i} points={poly} stroke="#CBD5E1" strokeWidth={0.6} fill="none" />
       ))}
@@ -226,15 +226,18 @@ function PdfHealthRadar({
         return <Line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="#CBD5E1" strokeWidth={0.6} />;
       })}
       <Polygon points={dataPolygon} stroke={gradeColor} strokeWidth={1.4} fill={gradeColor} fillOpacity={0.22} />
-      {items.map((it, i) => {
-        const labelPos = pointFor(i, 1.28);
+           {items.map((it, i) => {
+        const labelPos = pointFor(i, 1.22);
+        const a = angleFor(i);
+        const cosA = Math.cos(a);
+        const anchor = cosA > 0.3 ? "start" : cosA < -0.3 ? "end" : "middle";
         return (
           <Text
             key={it.key}
             x={labelPos.x}
             y={labelPos.y}
             style={{ fontSize: 6.5, fontFamily: "Pretendard", fill: "#475569", fontWeight: "bold" }}
-            textAnchor="middle"
+            textAnchor={anchor}
           >
             {it.label}
           </Text>
@@ -433,58 +436,55 @@ function PBRecommendationPair({ left, right, styles }: {
   };
   const leftItems = getAllItems(left);
   const rightItems = getAllItems(right);
-  const leftKeys = leftItems.map(it => it.key);
-  const rightSorted = [
-    ...rightItems.filter(it => leftKeys.includes(it.key)).sort((a, b) => leftKeys.indexOf(a.key) - leftKeys.indexOf(b.key)),
-    ...rightItems.filter(it => !leftKeys.includes(it.key)),
+  const leftMap = new Map(leftItems.map((it) => [it.key, it]));
+  const rightMap = new Map(rightItems.map((it) => [it.key, it]));
+  const orderedKeys = [
+    ...leftItems.map((it) => it.key),
+    ...rightItems.filter((it) => !leftMap.has(it.key)).map((it) => it.key),
   ];
-  const renderItems = (items: HealthItem[]) => {
-    if (!items.length) return <Text style={styles.small}>항목 없음</Text>;
+
+  const renderCell = (it: HealthItem | undefined) => {
+    if (!it) return <View style={{ flex: 1 }} />;
+    const badge = getBadge(it.score);
     return (
-      <View>
-        {items.map((it, i) => {
-          const badge = getBadge(it.score);
-          return (
-            <View key={it.key ?? i} style={styles.recRow} wrap={false}>
-              <View style={{
-                width: 32, height: 15,
-                backgroundColor: badge.color,
-                borderRadius: 3,
-                marginRight: 6,
-                marginTop: 1,
-                flexShrink: 0,
-                alignItems: "center",
-                justifyContent: "center",
-              }}>
-               <Text style={{ fontSize: 6.5, fontWeight: "bold", color: "#FFFFFF", lineHeight: 1 }}>{badge.label}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.recLabel, { color: badge.color }]}>{it.label}</Text>
-                {it.detail ? <Text style={styles.recDetail}>{cleanDetail(it.detail)}</Text> : null}
-              </View>
-            </View>
-          );
-        })}
+      <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start" }} wrap={false}>
+        <View style={{
+          width: 32, height: 15,
+          backgroundColor: badge.color,
+          borderRadius: 3,
+          marginRight: 6,
+          marginTop: 1,
+          flexShrink: 0,
+          alignItems: "center",
+          justifyContent: "center",
+        }}>
+          <Text style={{ fontSize: 6.5, fontWeight: "bold", color: "#FFFFFF", lineHeight: 1 }}>{badge.label}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.recLabel, { color: badge.color }]}>{it.label}</Text>
+          {it.detail ? <Text style={styles.recDetail}>{cleanDetail(it.detail)}</Text> : null}
+        </View>
       </View>
     );
   };
-  const riskItems = rightSorted.filter(it => it.score === 0 || it.score === 1);
+
+  const riskItems = rightItems.filter((it) => it.score === 0 || it.score === 1);
+
   return (
     <View>
-      <View style={styles.twoCol}>
-        {left?.healthResult && (
-          <View style={styles.col}>
-            <Text style={styles.colLabel}>{left.label}</Text>
-            {renderItems(leftItems)}
-          </View>
-        )}
-        {right?.healthResult && (
-          <View style={styles.colNew}>
-            <Text style={styles.colLabelNew}>{right.label}</Text>
-            {renderItems(rightSorted)}
-          </View>
-        )}
-      </View>
+      {(left?.healthResult || right?.healthResult) && (
+        <View style={{ flexDirection: "row", marginBottom: 8 }}>
+          {left?.healthResult && <Text style={[styles.colLabel, { flex: 1, marginBottom: 0 }]}>{left.label}</Text>}
+          {right?.healthResult && <Text style={[styles.colLabelNew, { flex: 1, marginBottom: 0 }]}>{right.label}</Text>}
+        </View>
+      )}
+      {orderedKeys.length === 0 && <Text style={styles.small}>항목 없음</Text>}
+      {orderedKeys.map((key) => (
+        <View key={key} style={[styles.recRow, { flexDirection: "row", gap: 10 }]} wrap={false}>
+          {left?.healthResult && renderCell(leftMap.get(key))}
+          {right?.healthResult && renderCell(rightMap.get(key))}
+        </View>
+      ))}
       {right?.healthResult && riskItems.length > 0 && (
         <View style={{ marginTop: 10, padding: 8, borderRadius: 3, backgroundColor: "#F0FDF4", borderWidth: 1, borderColor: "#BBF7D0" }} wrap={false}>
           <Text style={{ fontSize: 6.5, fontWeight: "bold", color: GREENC, marginBottom: 4 }}>신규 포트폴리오 리스크 관리 코멘트</Text>
@@ -801,6 +801,12 @@ export function PortfolioReportPdf({
             )}
           </>
         )}
+                <View style={{ marginTop: 16, borderTopWidth: 1, borderTopColor: BORDER, paddingTop: 10, marginBottom: easy ? 8 : 0 }} wrap={false}>
+          <Text style={{ fontSize: (styles.small as AnyResult).fontSize, fontWeight: "bold", color: GRAY, marginBottom: 4 }}>※ 수치 관련 안내</Text>
+          <Text style={{ fontSize: (styles.small as AnyResult).fontSize, color: GRAY, lineHeight: 1.6 }}>
+            본 제안서에 기재된 세후 수익률, 최대낙폭(MDD), 샤프 비율, 변동성 등 모든 지표는 분석 시점의 보유 자산 구성과 과거 시장 데이터를 기반으로 산출된 추정치이며, 향후 실제 수익 또는 손실을 보장하지 않습니다. 시장 상황 변화에 따라 실제 결과는 본 수치와 달라질 수 있으며, 투자에 따른 손익은 투자자 본인에게 귀속됩니다. 본 자료는 투자 참고 목적으로만 활용하시기 바랍니다.
+          </Text>
+        </View>
         {easy && <GlossarySection terms={getUsedTerms()} styles={styles} />}
         <PageFooter customerName={customerName} styles={styles} />
       </Page>

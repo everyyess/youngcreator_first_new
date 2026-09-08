@@ -521,7 +521,10 @@ export interface SupportResistanceLevel {
   price: number;
   touches: number;
   type: "support" | "resistance";
+  method?: "swing" | "fibonacci" | "round";
 }
+
+export type SRHorizon = "short" | "mid" | "long";
 
 function findSwingPoints(
   values: number[],
@@ -545,20 +548,28 @@ export function computeSupportResistance(
   highs: number[],
   lows: number[],
   currentPrice: number,
-  k = 5,
-  gapPct = 1.5,
-  minTouches = 2,
-  maxLevelsEachSide = 2,
+  horizon: SRHorizon = "mid",
 ): SupportResistanceLevel[] {
-  const swingHighIdx = findSwingPoints(highs, k, "high");
-  const swingLowIdx = findSwingPoints(lows, k, "low");
+  const HORIZON_CONFIG = {
+    short: { lookback: 60, k: 2, gapPct: 1.0, minTouches: 2, maxDistPct: 12, maxLevels: 3 },
+    mid: { lookback: 250, k: 5, gapPct: 1.5, minTouches: 2, maxDistPct: 25, maxLevels: 3 },
+    long: { lookback: highs.length, k: 10, gapPct: 2.5, minTouches: 3, maxDistPct: 50, maxLevels: 3 },
+  } as const;
+  const cfg = HORIZON_CONFIG[horizon];
+
+  const sliceStart = Math.max(0, highs.length - cfg.lookback);
+  const h = highs.slice(sliceStart);
+  const l = lows.slice(sliceStart);
+
+  const swingHighIdx = findSwingPoints(h, cfg.k, "high");
+  const swingLowIdx = findSwingPoints(l, cfg.k, "low");
 
   const cluster = (prices: number[]): { price: number; touches: number }[] => {
     const sorted = [...prices].sort((a, b) => a - b);
     const clusters: { sum: number; count: number }[] = [];
     for (const p of sorted) {
       const last = clusters[clusters.length - 1];
-      if (last && Math.abs(p - last.sum / last.count) / (last.sum / last.count) * 100 <= gapPct) {
+      if (last && Math.abs(p - last.sum / last.count) / (last.sum / last.count) * 100 <= cfg.gapPct) {
         last.sum += p;
         last.count += 1;
       } else {
@@ -566,24 +577,63 @@ export function computeSupportResistance(
       }
     }
     return clusters
-      .filter((c) => c.count >= minTouches)
+      .filter((c) => c.count >= cfg.minTouches)
       .map((c) => ({ price: c.sum / c.count, touches: c.count }));
   };
 
-  const resistanceClusters = cluster(swingHighIdx.map((i) => highs[i]))
-    .filter((c) => c.price > currentPrice)
-    .sort((a, b) => a.price - b.price)
-    .slice(0, maxLevelsEachSide);
+  const withinDist = (price: number) =>
+    Math.abs(price - currentPrice) / currentPrice * 100 <= cfg.maxDistPct;
 
-  const supportClusters = cluster(swingLowIdx.map((i) => lows[i]))
-    .filter((c) => c.price < currentPrice)
-    .sort((a, b) => b.price - a.price)
-    .slice(0, maxLevelsEachSide);
+  const resistanceClusters = cluster(swingHighIdx.map((i) => h[i]))
+    .filter((c) => c.price > currentPrice && withinDist(c.price))
+    .sort((a, b) => b.touches - a.touches || a.price - b.price)
+    .slice(0, cfg.maxLevels);
+
+  const supportClusters = cluster(swingLowIdx.map((i) => l[i]))
+    .filter((c) => c.price < currentPrice && withinDist(c.price))
+    .sort((a, b) => b.touches - a.touches || b.price - a.price)
+    .slice(0, cfg.maxLevels);
 
   const levels: SupportResistanceLevel[] = [
-    ...resistanceClusters.map((c) => ({ ...c, type: "resistance" as const })),
-    ...supportClusters.map((c) => ({ ...c, type: "support" as const })),
+    ...resistanceClusters.map((c) => ({ ...c, type: "resistance" as const, method: "swing" as const })),
+    ...supportClusters.map((c) => ({ ...c, type: "support" as const, method: "swing" as const })),
   ];
+
+  // 중기·장기: 피보나치 되돌림 레벨 추가
+  if (horizon === "mid" || horizon === "long") {
+    const rangeHigh = Math.max(...h);
+    const rangeLow = Math.min(...l);
+    const diff = rangeHigh - rangeLow;
+    const fibRatios = [0.382, 0.5, 0.618];
+    for (const ratio of fibRatios) {
+      const price = rangeHigh - diff * ratio;
+      if (!withinDist(price)) continue;
+      levels.push({
+        price,
+        touches: 0,
+        type: price > currentPrice ? "resistance" : "support",
+        method: "fibonacci",
+      });
+    }
+  }
+
+  // 장기: 라운드 넘버(심리적 지지/저항) 추가
+  if (horizon === "long") {
+    const magnitude = Math.pow(10, Math.floor(Math.log10(currentPrice)) - 1);
+    const roundUnit = magnitude * (currentPrice >= 100000 ? 10 : 5);
+    const nearestRoundBelow = Math.floor(currentPrice / roundUnit) * roundUnit;
+    const nearestRoundAbove = nearestRoundBelow + roundUnit;
+    for (const price of [nearestRoundBelow, nearestRoundAbove]) {
+      if (price <= 0 || !withinDist(price)) continue;
+      levels.push({
+        price,
+        touches: 0,
+        type: price > currentPrice ? "resistance" : "support",
+        method: "round",
+      });
+    }
+  }
 
   return levels;
 }
+

@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getJob, listJobs } from "@/Engine/Research-Engine/jobStore";
 import {
-  approveHumanResearch, serializeResearchJob, startHumanResearch,
+  approveHumanResearch, reviewHumanResearch, serializeResearchJob, startHumanResearch,
 } from "@/Engine/Research-Engine/humanApprovalPipeline";
 import { getInsightSupabase, insightDbUnavailable } from "@/lib/supabaseInsightDb";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+// 이 라우트의 POST는 STEP 단위 작업을 동기로 끝낸다. 한 요청이 Gemini를 여러 번 호출한다.
+//   STEP4 토론 = 입론2(병렬) → 반박2(병렬) → 종합판정 = 순차 3파
+//   STEP5 보고서 = 생성 1회 + 필요 시 재시도 1회 = 순차 2회
+// geminiRunner의 호출당 내부 타임아웃은 120초다. 기존 maxDuration 60초는 이보다도 짧아,
+// 느린 호출에서 코드의 타임아웃·키/모델 폴백이 동작하기 전에 플랫폼이 함수를 먼저 끊었다
+// (로컬 dev에는 이 상한이 없어 드러나지 않음). 폴백이 실제로 작동할 여유를 준다.
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
   if (!getInsightSupabase(req)) return NextResponse.json(insightDbUnavailable(), { status: 401 });
@@ -37,11 +43,36 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   if (!getInsightSupabase(req)) return NextResponse.json(insightDbUnavailable(), { status: 401 });
-  let body: { jobId?: string; action?: string; expectedStep?: number };
+  let body: {
+    jobId?: string; action?: string; expectedStep?: number;
+    edits?: { id?: unknown; content?: unknown; checked?: unknown; pbComment?: unknown }[];
+  };
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "올바른 JSON 요청이 필요합니다." }, { status: 400 }); }
-  if (body.action !== "approve" || !body.jobId || !Number.isInteger(body.expectedStep)) {
-    return NextResponse.json({ error: "승인할 작업과 STEP 정보가 필요합니다." }, { status: 400 });
+  if (!body.jobId || !Number.isInteger(body.expectedStep)) {
+    return NextResponse.json({ error: "대상 작업과 STEP 정보가 필요합니다." }, { status: 400 });
+  }
+
+  // PB가 검토 화면에서 고친 내용·체크·코멘트 저장 (다음 STEP 실행 없이 저장만)
+  if (body.action === "review") {
+    const edits = Array.isArray(body.edits) ? body.edits : [];
+    const sanitized = edits
+      .filter((edit): edit is { id: string } & typeof edit => typeof edit?.id === "string")
+      .map((edit) => ({
+        id: edit.id as string,
+        content: typeof edit.content === "string" ? edit.content : undefined,
+        checked: typeof edit.checked === "boolean" ? edit.checked : undefined,
+        pbComment: typeof edit.pbComment === "string" ? edit.pbComment : undefined,
+      }));
+    const reviewed = reviewHumanResearch(body.jobId, Number(body.expectedStep), sanitized);
+    return NextResponse.json(
+      reviewed.error ? { error: reviewed.error } : { job: reviewed.job },
+      { status: reviewed.status },
+    );
+  }
+
+  if (body.action !== "approve") {
+    return NextResponse.json({ error: "지원하지 않는 작업입니다." }, { status: 400 });
   }
   const outcome = await approveHumanResearch(body.jobId, Number(body.expectedStep));
   return NextResponse.json(
