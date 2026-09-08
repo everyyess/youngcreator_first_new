@@ -883,6 +883,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const [marketMailSends, setMarketMailSends] = useState<{
     us: {
       report_type: "us";
+      report_date: string;
       sent_at: string;
       success_count: number;
       failed_count: number;
@@ -890,6 +891,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
     } | null;
     kr: {
       report_type: "kr";
+      report_date: string;
       sent_at: string;
       success_count: number;
       failed_count: number;
@@ -1930,6 +1932,7 @@ async function handleSendPdfToCustomer() {
                 body: JSON.stringify({
                   pbId: pbId || null,
                   reportType,
+                  reportDate: reportType === "us" ? reports.us?.reportDate : reports.kr?.reportDate,
                   successCount,
                   failedCount: 0,
                   skippedCount: 0,
@@ -2032,22 +2035,11 @@ async function handleSendPdfToCustomer() {
       };
     }
 
-    const generatedAt = new Date(report.generatedAt).getTime();
-
-    const sentAt = send?.sent_at
-      ? new Date(send.sent_at).getTime()
-      : 0;
-
-    const completed =
-      Boolean(send) &&
-      send!.success_count > 0 &&
-      send!.failed_count === 0 &&
-      send!.skipped_count === 0 &&
-      sentAt >= generatedAt;
+    const completed = Boolean(send && send.report_date === report.reportDate);
 
     return completed
       ? {
-          text: "전송 완료",
+          text: "전송",
           className: "text-emerald-600",
         }
       : {
@@ -2101,7 +2093,7 @@ async function handleSendPdfToCustomer() {
           <div className="flex items-center gap-2">
             <span
               className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
-                usMailingState.text === "전송 완료"
+                usMailingState.text === "전송"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : usMailingState.text === "미전송"
                     ? "border-red-200 bg-red-50 text-red-600"
@@ -2113,7 +2105,7 @@ async function handleSendPdfToCustomer() {
 
             <span
               className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
-                krMailingState.text === "전송 완료"
+                krMailingState.text === "전송"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : krMailingState.text === "미전송"
                     ? "border-red-200 bg-red-50 text-red-600"
