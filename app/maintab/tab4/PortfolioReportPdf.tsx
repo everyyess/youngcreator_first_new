@@ -353,7 +353,7 @@ function MetricBars({ quantResult, afterTaxReturn, withMarker, styles }: {
 function aggregateAssetClass(assets: AnyResult[] | undefined) {
   const map = new Map<string, number>(); let total = 0;
   (assets || []).forEach((a) => {
-    const cls = a.asset_class || a.productType || "기타";
+    const cls = a.productType || a.asset_class || "기타";
     const base = a.current_price && a.amount ? a.current_price * a.amount : 0;
     const val = a.current_value != null ? a.current_value : base;
     map.set(cls, (map.get(cls) || 0) + val); total += val;
@@ -595,7 +595,7 @@ function HoldingsTable({ assets, styles }: { assets: AnyResult[]; styles: Return
         return (
           <View key={i} style={i % 2 === 0 ? styles.tableRow : styles.tableRowAlt} wrap={false}>
             <Text style={[styles.td, { flex: 2 }]}>{a.name ?? "-"}</Text>
-            <Text style={styles.td}>{a.asset_class ?? "-"}</Text>
+            <Text style={styles.td}>{a.productType ?? a.asset_class ?? "-"}</Text>
             <Text style={styles.td}>{a.amount?.toLocaleString?.() ?? "-"}</Text>
             <Text style={styles.td}>{a.buy_price?.toLocaleString?.() ?? "-"}</Text>
             <Text style={styles.td}>{a.current_price?.toLocaleString?.() ?? "-"}</Text>

@@ -23,6 +23,8 @@ import type { OhlcvResponse } from "../../api/ta-ohlcv/route";
 import { usePortfolioResult } from "../PortfolioResultComponents";
 import type { PortfolioAsset } from "../CustomerContext";
 import StockSearchBox from "./StockSearchBox";
+import RecommendedPickChips from "./RecommendedPickChips";
+import { useRecommendedPicks } from "./useRecommendedPicks";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, LineController, BarController, Tooltip, Legend, Filler);
 
@@ -194,7 +196,7 @@ function IndicatorChips({
               key={h}
               onClick={() => onSrHorizonChange(h)}
               className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                srHorizon === h ? "bg-samsung text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                srHorizon === h ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500 hover:bg-slate-200"
               }`}
             >
               {h === "short" ? "단기" : h === "mid" ? "중기" : "장기"}
@@ -479,7 +481,7 @@ function ChartArea({
         <button onClick={resetView} className="ml-2 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-50">
           초기화
         </button>
-        <span className="ml-auto rounded bg-[#2f2f9d] px-2 py-0.5 text-[11px] font-bold text-white">{won(last)}</span>
+        <span className="ml-auto rounded bg-[#2563eb] px-2 py-0.5 text-[11px] font-bold text-white">{won(last)}</span>
       </div>
 
       <div
@@ -579,7 +581,7 @@ function ResultPanel({
                 {s}<span className="text-[11px] font-normal text-slate-400"> / {c.max}</span>
               </div>
               <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-[#2f2f9d] transition-all duration-700" style={{ width: `${pct}%` }} />
+                <div className="h-full rounded-full bg-[#2563eb] transition-all duration-700" style={{ width: `${pct}%` }} />
               </div>
             </div>
           );
@@ -612,7 +614,7 @@ function ResultPanel({
               return (
                 <tr key={r.key} onClick={() => onToggleKey(r.key)}
                   className={`cursor-pointer border-t border-slate-100 transition-colors ${on ? "bg-indigo-50/50" : "bg-white hover:bg-slate-50"}`}>
-                  <td className="px-2 py-2 text-center">{on && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2f2f9d]" />}</td>
+                  <td className="px-2 py-2 text-center">{on && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2563eb]" />}</td>
                   <td className="px-2 py-2 text-slate-400">{r.cat}</td>
                   <td className="px-2 py-2 font-semibold text-slate-700">{r.key}</td>
                   <td className="px-2 py-2">
@@ -672,6 +674,9 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
         .catch(() => {});
     }
   }, [tickerableAssets]);
+
+  const [resolvingWeeklyPick, setResolvingWeeklyPick] = useState<string | null>(null);
+  const { weeklyPicks, aiPicks } = useRecommendedPicks();
 
   const toggleIndicator = (id: IndicatorId) =>
     setActive((prev) => {
@@ -771,21 +776,51 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
     onStockChange?.({ ticker, name });
   };
 
+  // 자사 추천 종목은 티커가 없이 이름만 있어 클릭 시점에 조회해서 넘긴다(WeeklyTopPicksCard와 동일 패턴).
+  const selectWeeklyPick = async (name: string) => {
+    setResolvingWeeklyPick(name);
+    try {
+      const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      const ticker = typeof data?.ticker === "string" ? data.ticker : "";
+      if (ticker) selectAsset(ticker, name);
+    } catch {
+      /* 조회 실패 — 칩 클릭이 그냥 무반응으로 끝남, 별도 에러 UI 없이 조용히 무시 */
+    } finally {
+      setResolvingWeeklyPick(null);
+    }
+  };
+
   const displayName = koreanNames[selectedTicker] || selectedName;
+
+  const hasStockPicker = tickerableAssets.length > 0 || weeklyPicks.length > 0 || aiPicks.length > 0;
 
   return (
     <div className="space-y-3">
-      {tickerableAssets.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-          <span className="mr-1 text-[11px] font-semibold text-slate-400">보유 종목</span>
-          {tickerableAssets.map((a) => (
-            <button key={a.ticker} onClick={() => selectAsset(a.ticker!, a.name)}
-              className={`rounded-md border px-2.5 py-1 text-[12px] font-semibold transition ${
-                selectedTicker === a.ticker ? "border-[#2f2f9d] bg-[#2f2f9d] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-              }`}>
-              {koreanNames[a.ticker!] || a.name}
-            </button>
-          ))}
+      {hasStockPicker && (
+        <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+          {tickerableAssets.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-semibold text-slate-400">보유 종목</span>
+              {tickerableAssets.map((a) => (
+                <button key={a.ticker} onClick={() => selectAsset(a.ticker!, a.name)}
+                  className={`rounded-md border px-2.5 py-1 text-[12px] font-semibold transition ${
+                    selectedTicker === a.ticker ? "border-[#2563eb] bg-[#2563eb] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                  }`}>
+                  {koreanNames[a.ticker!] || a.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <RecommendedPickChips
+            weeklyPicks={weeklyPicks}
+            aiPicks={aiPicks}
+            selectedKey={selectedTicker}
+            resolvingWeeklyName={resolvingWeeklyPick}
+            onSelectWeekly={(p) => selectWeeklyPick(p.name)}
+            onSelectAi={(p) => selectAsset(p.symbol, p.name)}
+            withDivider={tickerableAssets.length > 0}
+          />
         </div>
       )}
 
@@ -809,7 +844,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
                 {([["chart", "차트 분석"], ["result", "분석 결과"]] as const).map(([id, label]) => (
                   <button key={id} onClick={() => setSubTab(id)}
                     className={`rounded-md px-3.5 py-1.5 text-[12px] font-semibold transition ${
-                      subTab === id ? "bg-white text-[#2f2f9d] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      subTab === id ? "bg-white text-[#2563eb] shadow-sm" : "text-slate-500 hover:text-slate-700"
                     }`}>
                     {label}
                   </button>

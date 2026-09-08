@@ -95,10 +95,10 @@ export default function StockSearchBox({ onSelect, market = "all", placeholder }
       : "종목명 또는 티커  (예: 삼성전자, AAPL)";
 
   return (
-    <div ref={containerRef} className="rounded-lg border border-[#2f2f9d]/20 bg-[#f5f6ff] p-3 shadow-sm">
+    <div ref={containerRef} className="rounded-lg border border-[#2563eb]/20 bg-[#eff6ff] p-3 shadow-sm">
       <div className="mb-2 flex items-center gap-1.5">
-        <Search size={11} className="text-[#2f2f9d]" />
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#2f2f9d]">
+        <Search size={11} className="text-[#2563eb]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-[#2563eb]">
           비보유 종목 검색
         </span>
         <span className="text-[10px] text-slate-400 ml-1">— 종목명 또는 티커로 검색하면 해당 종목 분석을 바로 확인합니다</span>
@@ -118,7 +118,7 @@ export default function StockSearchBox({ onSelect, market = "all", placeholder }
               if (e.key === "Escape") setShowDropdown(false);
             }}
             placeholder={placeholder ?? defaultPlaceholder}
-            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-[13px] text-slate-700 placeholder-slate-400 focus:border-[#2f2f9d] focus:outline-none focus:ring-1 focus:ring-[#2f2f9d]/30 transition"
+            className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-3 pr-8 text-[13px] text-slate-700 placeholder-slate-400 focus:border-[#2563eb] focus:outline-none focus:ring-1 focus:ring-[#2563eb]/30 transition"
           />
           {query && (
             <button
@@ -134,7 +134,7 @@ export default function StockSearchBox({ onSelect, market = "all", placeholder }
           type="button"
           onClick={doSearch}
           disabled={loading || !query.trim()}
-          className="flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#26268a] disabled:opacity-50 transition"
+          className="flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-[#1d4ed8] disabled:opacity-50 transition"
         >
           {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
           검색

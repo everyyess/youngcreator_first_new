@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, FileText, Loader2, RefreshCw } from "lucide-react";
 import { useCustomerContext } from "../CustomerContext";
 import StockSearchBox from "./StockSearchBox";
+import RecommendedPickChips from "./RecommendedPickChips";
+import { useRecommendedPicks } from "./useRecommendedPicks";
 
 interface StockEntry {
   displayName: string;
@@ -121,6 +123,28 @@ export default function DartAnalysisTab({ selectedStock: sharedStock, onStockCha
     onStockChange?.({ ticker: s.searchKey, name: s.displayName });
   };
 
+  // DART 공시는 국내 상장사만 다뤄서 해외 종목은 조회할 공시가 없다 — AI 추천은 국내 섹터만 받는다.
+  const { weeklyPicks, aiPicks } = useRecommendedPicks(false);
+  const [resolvingWeeklyPick, setResolvingWeeklyPick] = useState<string | null>(null);
+  const toStockEntry = (ticker: string, name: string): StockEntry => ({
+    displayName: name,
+    ticker,
+    searchKey: ticker.replace(/\.(KS|KQ|KN)$/i, ""),
+  });
+  const selectWeeklyPick = async (name: string) => {
+    setResolvingWeeklyPick(name);
+    try {
+      const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      const ticker = typeof data?.ticker === "string" ? data.ticker : "";
+      if (ticker) selectAsset(toStockEntry(ticker, name));
+    } catch {
+      /* 조회 실패 — 조용히 무시 */
+    } finally {
+      setResolvingWeeklyPick(null);
+    }
+  };
+
   const handleSearchSelect = (item: { name: string; ticker: string; code: string }) => {
     appliedSharedTickerRef.current = item.code;
     setSelectedStock({
@@ -158,27 +182,40 @@ export default function DartAnalysisTab({ selectedStock: sharedStock, onStockCha
 
   return (
     <div className="space-y-4">
-      {activeStocks.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="mb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">보유 종목</div>
-          <div className="flex flex-wrap gap-2">
-            {activeStocks.map((s) => {
-              const isSelected = selectedStock?.searchKey === s.searchKey;
-              return (
-                <button
-                  key={s.searchKey}
-                  onClick={() => selectAsset(s)}
-                  className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
-                    isSelected
-                      ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
-                      : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
-                  }`}
-                >
-                  {s.displayName}
-                </button>
-              );
-            })}
-          </div>
+      {(activeStocks.length > 0 || weeklyPicks.length > 0 || aiPicks.length > 0) && (
+        <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+          {activeStocks.length > 0 && (
+            <>
+              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">보유 종목</div>
+              <div className="flex flex-wrap gap-2">
+                {activeStocks.map((s) => {
+                  const isSelected = selectedStock?.searchKey === s.searchKey;
+                  return (
+                    <button
+                      key={s.searchKey}
+                      onClick={() => selectAsset(s)}
+                      className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
+                        isSelected
+                          ? "border-[#2563eb] bg-[#2563eb] text-white shadow-sm"
+                          : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                      }`}
+                    >
+                      {s.displayName}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <RecommendedPickChips
+            weeklyPicks={weeklyPicks}
+            aiPicks={aiPicks}
+            selectedKey={selectedStock?.searchKey ?? ""}
+            resolvingWeeklyName={resolvingWeeklyPick}
+            onSelectWeekly={(p) => selectWeeklyPick(p.name)}
+            onSelectAi={(p) => selectAsset(toStockEntry(p.symbol, p.name))}
+            withDivider={activeStocks.length > 0}
+          />
         </div>
       )}
 
@@ -199,7 +236,7 @@ export default function DartAnalysisTab({ selectedStock: sharedStock, onStockCha
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
                 className={`shrink-0 rounded-md px-3.5 py-1.5 text-[13px] font-semibold transition ${
-                  activeTab === t.id ? "bg-white text-[#2f2f9d] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  activeTab === t.id ? "bg-white text-[#2563eb] shadow-sm" : "text-slate-500 hover:text-slate-700"
                 }`}
               >
                 {t.label}

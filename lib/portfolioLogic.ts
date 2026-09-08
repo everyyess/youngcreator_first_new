@@ -422,10 +422,17 @@ export const runAnalysis = async (
           : {};
         return withKeywordSector({ ...a, ...fxPatch, sector: a.sector || '채권' });
       }
+      // 종목명 자리에 종목코드/티커가 그대로 들어와 있는지 체크 — 문자(한글·영문)가 하나도 없이 숫자·기호
+      // 뿐이면 코드로 의심한다(정상적인 종목명·펀드명엔 반드시 문자가 들어감). 이 기능 도입 이전에 이미
+      // 캐싱된 자산은 아래 캐시-스킵 조건에 걸려 영영 재조회가 안 될 수 있어, 이 경우만 예외적으로
+      // 캐시를 무시하고 재조회해서(officialName으로) 이름을 바로잡는다(2026-09 발견·수정).
+      const nameLooksLikeCode = !!a.name && /^[0-9.\-=^]+$/.test(a.name.trim());
+
       // 현재가·배당수익률·달력연도누적배당·병합체크가 전부 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
       // calendarYtdDividendRate·needsQtyCheck는 나중에 추가된 필드라, 이전에 캐싱된 자산엔 이 필드만
       // 빠져있을 수 있음 — 그 경우 조건에서 빠뜨리면 영원히 재조회가 안 일어나 값이 고정되는 문제가 있었음.
       if (
+        !nameLooksLikeCode &&
         a.current_price != null && a.current_price > 0 &&
         a.dividendYield != null &&
         a.calendarYtdDividendRate !== undefined &&
@@ -473,6 +480,13 @@ export const runAnalysis = async (
         const industryEnVal = typeof json.industryEn === "string" ? json.industryEn : null;
         const resolvedSector = resolveSectorKo(sectorEnVal, industryEnVal, a.theme, a.name, a.ticker) || undefined;
 
+        // 공식 종목명 — 이름 자리에 종목코드/티커가 그대로 들어와 있는 경우(예: ETF를 코드로 검색해서
+        // 담은 경우) 이 값으로 덮어써서 바로잡는다. RebalancingPortfolioInput.tsx·ExistingPortfolioTab.tsx의
+        // "지능형 추론"과 동일한 원칙(officialName 있으면 강제 보정) — 여기(runAnalysis)는 모든 종목·ETF가
+        // 어느 입력 경로로 들어왔든 공통으로 거치는 지점이라, 여기서 한 번만 고치면 전체에 적용된다.
+        const officialName = typeof json.officialName === "string" && json.officialName.trim()
+          ? json.officialName.trim() : undefined;
+
         // 현재가가 이미 있으면 배당 + 섹터 데이터만 보완하고 리턴
         // ※ trailingAnnualDividendRate(주당 배당금)는 Yahoo Finance가 종목 상장통화(USD 등) 기준으로 반환한다.
         //   current_price는 이미 원화로 정규화돼 있으므로, 배당금도 동일하게 원화 환산해야
@@ -484,6 +498,7 @@ export const runAnalysis = async (
           return {
             ...a,
             current_value: a.amount * a.current_price,
+            ...(officialName   != null ? { name:                       officialName   } : {}),
             ...(dy             != null ? { dividendYield:              dy             } : {}),
             ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
             ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),
@@ -513,6 +528,7 @@ export const runAnalysis = async (
             ...a,
             current_price: priceKrw,
             current_value: cvKrw,
+            ...(officialName   != null ? { name:                       officialName   } : {}),
             ...(dy             != null ? { dividendYield:              dy             } : {}),
             ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
             ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),

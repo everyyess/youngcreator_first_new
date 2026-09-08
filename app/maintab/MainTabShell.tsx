@@ -4,6 +4,7 @@ import { type DragEvent, type SyntheticEvent, useCallback, useEffect, useMemo, u
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Home, Trash2 } from "lucide-react";
 import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
+import { pbAuthStore } from "@/app/authStore";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile, type CustomerRow,
@@ -664,7 +665,13 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     let cancelled = false;
     async function load() {
       const authUser = appMode === "pb" && supabase ? (await supabase.auth.getUser().catch(() => null))?.data?.user : null;
-      const owner: CustomerOwnerScope = appMode === "pb" ? { pbId: authUser?.id } : {};
+      // 홈 화면(app/home/page.tsx)은 고객 소유권 스코프를 pbId뿐 아니라 pbEmployeeId까지 같이 넘겨서
+      // 조회하는데(applyCustomerOwnerFilter는 pbEmployeeId가 있으면 그걸 우선 사용), 여기(MainTabShell)는
+      // pbId만 넘기고 있었다 — 고객 행이 pb_id가 아니라 pb_employee_id로 스코핑돼 있으면 여기서
+      // 0건 조회로 이어져 "신규 고객" 빈 화면을 유발한다(2026-09 발견·수정). 홈 화면과 동일하게
+      // pbAuthStore 세션의 employeeId도 같이 넘긴다.
+      const pbSession = appMode === "pb" ? pbAuthStore.readSession() : null;
+      const owner: CustomerOwnerScope = appMode === "pb" ? { pbId: authUser?.id, pbEmployeeId: pbSession?.employeeId } : {};
       if (!cancelled) setCustomerOwner(owner);
       const selectedRows = await customerStorage.selectRows(owner);
       if (cancelled) return;
@@ -1998,9 +2005,9 @@ function TabStrip({ onNavigate, appMode }: { onNavigate: (id: string) => void; a
         return (
           <button
             key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
-            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
+            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#2563eb] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
           >
-            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#5656c7] text-white" : "bg-[#eef0ff] text-[#2f2f9d]"}`}>
+            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#3b82f6] text-white" : "bg-[#eff6ff] text-[#2563eb]"}`}>
               {String(index + 1).padStart(2, "0")}
             </span>
             <span className="min-w-0 whitespace-nowrap text-sm font-bold leading-tight tracking-normal">{tab.label}</span>
@@ -2030,8 +2037,8 @@ function CustomerSelector({
     <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-soft">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div className="flex min-w-0 flex-wrap gap-2">
-          <button type="button" onClick={onToggleSearch} className={`min-h-11 rounded-lg px-4 py-2 text-left text-sm font-bold transition ${showCustomers ? "bg-[#2f2f9d] text-white" : "bg-slate-50 text-navy hover:bg-slate-100"}`}>고객명 검색</button>
-          <button type="button" onClick={onAddCustomer} className="min-h-11 rounded-lg bg-samsung px-4 py-2 text-left text-sm font-bold text-white transition hover:bg-[#1b35bd]">고객 추가</button>
+          <button type="button" onClick={onToggleSearch} className={`min-h-11 rounded-lg px-4 py-2 text-left text-sm font-bold transition ${showCustomers ? "bg-[#2563eb] text-white" : "bg-slate-50 text-navy hover:bg-slate-100"}`}>고객명 검색</button>
+          <button type="button" onClick={onAddCustomer} className="min-h-11 rounded-lg bg-samsung px-4 py-2 text-left text-sm font-bold text-white transition hover:bg-blue-700">고객 추가</button>
         </div>
         <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-start items-center justify-end gap-x-2 gap-y-1 self-start text-right">
           <p className="text-sm font-bold text-slate-600">현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span></p>

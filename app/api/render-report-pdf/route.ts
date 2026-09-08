@@ -13,7 +13,31 @@ function buildPdfHtml(bodyHtml: string, styles: string) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
+    /* Pretendard 임베드 — TAB4 제안서 PDF(app/maintab/tab4/PortfolioReportPdf.tsx)가 Font.register()로
+       쓰는 것과 동일한 CDN 소스(jsdelivr fonts-archive)를 그대로 재사용한다. 이 라우트는 react-pdf가
+       아니라 Puppeteer로 HTML을 그려서 PDF로 인쇄하는 방식이라 폰트 "등록"이 아니라 @font-face로
+       선언해야 하고, 아래 POST 핸들러의 document.fonts.ready 대기가 실제 다운로드·임베드를 보장한다.
+       전엔 폰트를 전혀 지정하지 않아 로컬(Windows 시스템 한글 폰트)에선 우연히 정상 출력됐지만, Vercel의
+       서버리스 Chromium(@sparticuz/chromium)엔 한글 폰트가 아예 없어 텍스트가 깨졌다(2026-09 발견·수정).
+       글자 크기·레이아웃은 건드리지 않고 폰트 소스만 추가한다. */
+    @font-face {
+      font-family: "Pretendard";
+      src: url("https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Regular.otf") format("opentype");
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Pretendard";
+      src: url("https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Bold.otf") format("opentype");
+      font-weight: bold;
+      font-style: normal;
+    }
     ${styles}
+    /* 캡처된 페이지 CSS(위 styles 변수) 뒤에 둬서, 혹시 거기 섞여 있을 다른 font-family 지정보다
+       항상 우선하도록 한다 — 이 라우트가 그리는 PDF의 폰트는 언제나 Pretendard여야 한다. */
+    html, body, #market-report-pdf {
+      font-family: "Pretendard", sans-serif;
+    }
     @page { size: A4; margin: 64.19px 106.98px; }
     html, body {
       margin: 0;
@@ -166,12 +190,12 @@ export async function POST(request: NextRequest) {
         const [, viewY, viewWidth, viewHeight] = viewBox;
         const width = Math.max(280, Math.min(320, Math.ceil(viewHeight * 1.25)));
         const height = Math.max(1, Math.ceil(viewHeight));
-        const drawableBounds = Array.from(svg.querySelectorAll<SVGGraphicsElement>("path, text, line, circle, polygon, polyline")).map((element) => {
-          try { const bounds = element.getBBox(); return { left: bounds.x, right: bounds.x + bounds.width }; } catch { return null; }
-        }).filter((bounds): bounds is { left: number; right: number } => Boolean(bounds));
-        const visualLeft = drawableBounds.length ? Math.min(...drawableBounds.map((bounds) => bounds.left)) : viewBox[0];
-        const visualRight = drawableBounds.length ? Math.max(...drawableBounds.map((bounds) => bounds.right)) : viewBox[0] + viewWidth;
-        const visualCenter = (visualLeft + visualRight) / 2;
+        // Recharts는 극좌표 차트(RadarChart)를 항상 자신의 viewBox 정중앙(cx=50%, cy=50%)에 그린다.
+        // 예전엔 "실제로 그려진 요소들의 bounding box"(getBBox) 중심으로 크롭했는데, 축 라벨 텍스트
+        // (예: "세금 효율성"처럼 긴 글자)가 좌우로 비대칭하게 뻗어 있으면 그 중심이 진짜 도형 중심과
+        // 어긋나서 PDF에서 레이더 차트가 한쪽으로 치우쳐 보이는 문제가 있었다(2026-09 발견·수정).
+        // 라벨 범위가 아니라 viewBox 자체의 기하학적 중심을 기준으로 크롭하면 항상 정중앙에 온다.
+        const visualCenter = viewBox[0] + viewWidth / 2;
         const cropViewBox = `${visualCenter - width / 2} ${viewY} ${width} ${height}`;
         const svgClone = svg.cloneNode(true) as SVGElement;
         svgClone.setAttribute("width", String(width));

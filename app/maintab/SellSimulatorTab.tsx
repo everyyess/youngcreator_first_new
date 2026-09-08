@@ -750,7 +750,7 @@ export default function SellSimulatorTab() {
                     <Line
                       type="monotone"
                       dataKey="price"
-                      stroke="#2f2f9d"
+                      stroke="#2563eb"
                       strokeWidth={2}
                       dot={false}
                     />

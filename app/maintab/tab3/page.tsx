@@ -155,20 +155,6 @@ export default function Tab3Page() {
 
   return (
     <>
-      {!isCustomer && (
-        <div className="mb-3 flex justify-end">
-          <button
-            type="button"
-            onClick={() => {
-              sessionStorage.setItem("analysisReturnTab", "tab3");
-              window.location.href = "/analysis/screener";
-            }}
-            className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
-          >
-            분석실로 이동
-          </button>
-        </div>
-      )}
       <div data-consultation-lock-exempt="true" className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
         {visibleInnerTabs.map((tab) => (
           <button
@@ -176,12 +162,30 @@ export default function Tab3Page() {
             type="button"
             data-consultation-lock-exempt="true"
             onClick={() => selectInnerTab(tab.id)}
-            className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${effectiveInnerTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
+            className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${effectiveInnerTab === tab.id ? "bg-[#2563eb] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
           >
             {tab.icon}
             {tab.label}
           </button>
         ))}
+        {/* 분석실은 PB 전용 화면이라 고객 화면에서는 진입 버튼을 노출하지 않는다 */}
+        {!isCustomer && (
+          <button
+            type="button"
+            data-consultation-lock-exempt="true"
+            onClick={() => {
+              // "/analysis/screener"는 실제로 존재하는 라우트가 아니라 [tab]/page.tsx에서 매핑 실패로
+              // "/analysis/tab1"로 서버 리다이렉트되는데, 그 과정에서 쿼리스트링이 버려진다 — 그래서
+              // returnTab을 sessionStorage에만 의존하면 새 탭에서 유실될 수 있다. 처음부터 실제
+              // 목적지(tab1=종목분석)로 직접 이동하고 returnTab을 쿼리로 실어 보낸다.
+              sessionStorage.setItem("analysisReturnTab", "tab3");
+              window.open("/analysis/tab1?returnTab=tab3", "_blank", "noopener,noreferrer");
+            }}
+            className="shrink-0 rounded-md border border-samsung/30 bg-samsung/5 px-3 py-2.5 text-xs font-bold text-samsung transition hover:bg-samsung/10"
+          >
+            분석실로 이동
+          </button>
+        )}
       </div>
 
       {effectiveInnerTab === "stock-rebalancing" && <BuySimulatorTab />}

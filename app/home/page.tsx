@@ -13,10 +13,7 @@ import {
   customerRowsToStoredState,
   customerStorage,
   getStoredSelectedCustomerId,
-  loadAnalysisResult,
-  loadNewAnalysisResult,
-  loadPortfolioAssets,
-  loadRebalancingState,
+  loadSharedMaintabUiState,
   saveCustomerDataJsonOnly,
   saveCustomerProfileColumns,
   storeSelectedCustomerId,
@@ -24,8 +21,9 @@ import {
   type CustomerOwnerScope,
   type CustomerId,
   type CustomerProfile,
-  type PortfolioAsset,
+  type RebalancingHistoryRecord,
 } from "../maintab/CustomerContext";
+import { PortfolioCompareTable } from "../maintab/RebalancingHistoryTab";
 import { formatLiquiditySummary } from "../maintab/liquidityFields";
 import {
   autoEndedMessage,
@@ -129,22 +127,7 @@ function buildSummarySnapshot(state?: AppState) {
   };
 }
 
-type PortfolioSnapshotRow = {
-  name: string;
-  assetClass: string;
-  amount: number | null;
-  buyPrice: number | null;
-  currentPrice: number | null;
-  returnPct: number | null;
-  weight: number;
-};
-
-type SummarySnapshot = NonNullable<ReturnType<typeof buildSummarySnapshot>> & {
-  portfolioTables?: {
-    existing?: PortfolioSnapshotRow[];
-    proposed?: PortfolioSnapshotRow[];
-  };
-};
+type SummarySnapshot = NonNullable<ReturnType<typeof buildSummarySnapshot>>;
 
 function summaryRows(snapshot?: SummarySnapshot | null) {
   if (!snapshot) return [["요약", "상담 종료 후 요약 내용을 확인할 수 있습니다."]] as [string, string][];
@@ -594,9 +577,12 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_85%_65%_at_8%_0%,rgba(99,102,241,0.11),transparent_55%),radial-gradient(ellipse_65%_65%_at_98%_100%,rgba(59,130,246,0.18),transparent_55%),#f8fafc] p-4 text-slate-900">
-      <div className="grid min-h-[calc(100vh-2rem)] gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "255px" : "56px"}` }}>
+      <div className="grid min-h-[calc(100vh-2rem)] gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "336px" : "56px"}` }}>
         <aside className={`box-border min-w-0 overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}>
-          <div className="mb-4 flex items-start justify-between gap-2">
+          {/* min-h를 좌/우 패널 헤더에 똑같이 줘서, 아래 첫 줄(로그아웃 vs 분석실·상담실 입장)이
+              항상 같은 높이에서 시작하게 맞춘다(2026-09) — 왼쪽은 인사말 3줄이라 원래 더 높고,
+              오른쪽은 로고 하나뿐이라 더 낮아서 그대로 두면 두 버튼 줄이 서로 어긋나 보였다. */}
+          <div className="mb-4 flex min-h-[70px] items-start justify-between gap-2">
             {leftOpen ? (
               <div>
                 <p className="text-base font-black text-blue-950">{pbSession?.name || tempPbName} PB님,</p>
@@ -611,6 +597,9 @@ export default function HomePage() {
           {leftOpen ? (
             <div className="grid w-full min-w-0 gap-4 overflow-x-hidden">
               {storageMessage ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{storageMessage}</p> : null}
+              <button type="button" onClick={logout} className={`flex h-11 w-full min-w-0 ${leftPanelInnerWidthClass} items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600`}>
+                <LogOut size={15} /> 로그아웃
+              </button>
               <div className={`grid ${leftPanelInnerWidthClass} min-w-0 grid-cols-[minmax(0,1fr)_104px] gap-2 overflow-hidden`}>
                 <label className="flex h-11 min-w-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2">
                   <Search size={14} className="shrink-0 text-slate-400" />
@@ -655,7 +644,8 @@ export default function HomePage() {
               {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} /> : null}
               <section className={`${leftPanelInnerWidthClass} min-w-0 overflow-hidden`}>
                 <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">[{selectedCustomerName} 고객] 과거 상담 내역</p>
-                <div className="grid max-h-[440px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {/* 카드 약 6개 높이만큼만 보여주고, 그 이상은 안 잘라내고 스크롤로 내려서 보게 한다(2026-09). */}
+                <div className="grid max-h-[620px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).length ? selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).map((session) => (
                     <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onPreRecord={() => preRecordSession(session)} onStart={() => startSession(session)} />
                   )) : <EmptyBox text="상담 내역이 없습니다." />}
@@ -670,12 +660,9 @@ export default function HomePage() {
         </section>
 
         <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>
-          <div className="mb-4 flex items-start justify-between gap-2">
-            {rightOpen ? (
-              <button type="button" onClick={logout} className="hidden h-9 shrink-0 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
-                <LogOut size={14} /> 로그아웃
-              </button>
-            ) : null}
+          {/* 왼쪽 패널 헤더와 동일한 min-h — 그 아래 첫 줄(분석실·상담실 입장)이 왼쪽의 로그아웃 버튼과
+              같은 높이에서 시작하도록 맞춘다(왼쪽 헤더 주석 참고). */}
+          <div className="mb-4 flex min-h-[70px] items-start justify-between gap-2">
             <button type="button" onClick={() => setRightOpen((value) => !value)} className="rounded-lg border border-slate-200 bg-white p-2 text-slate-600 hover:text-blue-700">
               {rightOpen ? <PanelRightClose size={18} /> : <ChevronLeft size={18} />}
             </button>
@@ -684,9 +671,6 @@ export default function HomePage() {
           {rightOpen ? (
             <div className="grid gap-5 [&>p:first-of-type]:hidden">
               <p className="text-sm font-extrabold text-blue-900">상담 일정</p>
-              <button type="button" onClick={logout} className="inline-flex h-10 w-fit items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600">
-                <LogOut size={15} /> 로그아웃
-              </button>
               {activeConsultation ? (
                 <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/consultation/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
                   <span className="inline-flex items-center gap-1"><Home size={15} /> 상담 화면으로 돌아가기</span>
@@ -694,10 +678,6 @@ export default function HomePage() {
                 </button>
               ) : null}
               <div className="relative">
-              <p className="absolute bottom-full right-0 mb-1.5 w-[calc(50%-0.25rem)] text-center text-xs font-bold text-slate-500">
-                {selectedCustomerName}{customerBirth(selectedCustomer ?? undefined) ? ` (${customerBirth(selectedCustomer ?? undefined)})` : ""}
-              </p>
-
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -924,93 +904,32 @@ function SessionCard({ session, customer, expanded, onExpand, onDelete, onPreRec
   );
 }
 
-function toFiniteSnapshotNumber(value: unknown) {
-  const numberValue = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(numberValue) ? numberValue : 0;
-}
-
-function buildPortfolioSnapshotRows(assets: PortfolioAsset[]): PortfolioSnapshotRow[] {
-  const values = assets.map((asset) => {
-    const amount = toFiniteSnapshotNumber(asset.amount);
-    const currentPrice = toFiniteSnapshotNumber(asset.current_price);
-    const fallbackValue = amount > 0 && currentPrice > 0 ? amount * currentPrice : 0;
-    return toFiniteSnapshotNumber(asset.current_value) || fallbackValue;
-  });
-  const total = values.reduce((sum, value) => sum + value, 0);
-  return assets
-    .map((asset, index) => {
-      const amount = toFiniteSnapshotNumber(asset.amount);
-      const buyPrice = toFiniteSnapshotNumber(asset.buy_price);
-      const currentPrice = toFiniteSnapshotNumber(asset.current_price);
-      const returnPct = buyPrice > 0 && currentPrice > 0 ? (currentPrice - buyPrice) / buyPrice : null;
-      return {
-        name: asset.name?.trim() || asset.ticker?.trim() || "-",
-        assetClass: asset.asset_class || asset.productType || "-",
-        amount: amount > 0 ? amount : null,
-        buyPrice: buyPrice > 0 ? buyPrice : null,
-        currentPrice: currentPrice > 0 ? currentPrice : null,
-        returnPct,
-        weight: total > 0 ? (values[index] ?? 0) / total : 0,
-      };
-    })
-    .filter((row) => row.name !== "-")
-    .slice(0, 25);
-}
-
-function hasPortfolioTableRows(tables?: SummarySnapshot["portfolioTables"] | null) {
-  return Boolean((tables?.existing?.length ?? 0) > 0 || (tables?.proposed?.length ?? 0) > 0);
-}
-
 function SummaryModal({ session, customer, sessions, onUpdate, onPreRecord, onStart, onClose }: { session: ConsultationSession; customer?: CustomerProfile; sessions: ConsultationSession[]; onUpdate: (patch: Partial<ConsultationSession>) => void; onPreRecord: () => void; onStart: () => void; onClose: () => void }) {
   const snapshot = sessionSummarySnapshot(session);
-  const [fallbackPortfolioTables, setFallbackPortfolioTables] = useState<SummarySnapshot["portfolioTables"] | null>(null);
   const dateTimeValue = session.date.includes("T") ? session.date : `${session.date || todayDate()}T00:00`;
-  const portfolioTables = hasPortfolioTableRows(snapshot?.portfolioTables) ? snapshot?.portfolioTables : fallbackPortfolioTables ?? undefined;
+
+  // "기존 포트폴리오" 단순 표 대신, 상담실 TAB3-3(리밸런싱 히스토리)의 "포트폴리오 전후 비교"와 같은 표를
+  // 그대로 재사용한다(성향 및 니즈 분석 요약은 그대로 유지) — 리밸런싱 기록은 consultationId로 이 상담
+  // 세션과 연결돼 있어(rebalancingHistoryUtils.ts), 그 기록을 찾아서 넘긴다.
+  const [compareRecord, setCompareRecord] = useState<RebalancingHistoryRecord | null | undefined>(undefined);
 
   useEffect(() => {
-    if (hasPortfolioTableRows(snapshot?.portfolioTables)) {
-      setFallbackPortfolioTables(null);
-      return;
-    }
     let cancelled = false;
-    Promise.all([
-      loadAnalysisResult(session.customerId),
-      loadPortfolioAssets(session.customerId),
-      loadRebalancingState(session.customerId),
-      loadNewAnalysisResult(session.customerId),
-    ]).then(([leftResult, portfolioAssets, rebalancing, rightResult]) => {
+    setCompareRecord(undefined);
+    loadSharedMaintabUiState(session.customerId).then((state) => {
       if (cancelled) return;
-      const leftResultRecord = leftResult as { enrichedAssets?: PortfolioAsset[] } | null;
-      const rightResultRecord = rightResult as { enrichedAssets?: PortfolioAsset[] } | null;
-      const existingAssets = Array.isArray(leftResultRecord?.enrichedAssets) && leftResultRecord.enrichedAssets.length > 0
-        ? leftResultRecord.enrichedAssets
-        : portfolioAssets;
-      const remainingMap = new Map(existingAssets.map((asset) => [`${asset.name ?? ""}::${asset.ticker ?? ""}`, asset]));
-      const remainingAssets = rebalancing.sellAssets.map((asset) => {
-        const enriched = remainingMap.get(`${asset.name ?? ""}::${asset.ticker ?? ""}`);
-        return {
-          ...asset,
-          current_price: enriched?.current_price ?? asset.current_price,
-          current_value: enriched?.current_value ?? asset.current_value,
-        };
-      });
-      const proposedAssets = Array.isArray(rightResultRecord?.enrichedAssets) && rightResultRecord.enrichedAssets.length > 0
-        ? rightResultRecord.enrichedAssets
-        : remainingAssets.filter((asset) => toFiniteSnapshotNumber(asset.amount) > 0);
-      setFallbackPortfolioTables({
-        existing: buildPortfolioSnapshotRows(existingAssets),
-        proposed: buildPortfolioSnapshotRows(proposedAssets),
-      });
+      const record = (state.tab3?.rebalancingHistory ?? []).find((r) => r.consultationId === session.id) ?? null;
+      setCompareRecord(record);
     }).catch((error) => {
-      console.error("Failed to load portfolio tables for session modal", error);
-      if (!cancelled) setFallbackPortfolioTables(null);
+      console.error("Failed to load rebalancing history for session modal", error);
+      if (!cancelled) setCompareRecord(null);
     });
     return () => { cancelled = true; };
-  }, [session.customerId, snapshot?.portfolioTables]);
+  }, [session.customerId, session.id]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6">
-      <section className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+      <section className="max-h-[88vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-extrabold text-blue-600">{customerDisplay(customer)}</p>
@@ -1042,75 +961,22 @@ function SummaryModal({ session, customer, sessions, onUpdate, onPreRecord, onSt
           </label>
         </div>
         {session.autoEnded ? <p className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-extrabold text-red-700">{session.autoEndedMessage || autoEndedMessage}</p> : null}
-        <PortfolioTables tables={portfolioTables} />
+        {compareRecord === undefined ? (
+          <p className="mb-5 text-sm font-semibold text-slate-400">포트폴리오 비교 데이터를 불러오는 중…</p>
+        ) : compareRecord ? (
+          <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="mb-3 text-sm font-extrabold text-blue-900">포트폴리오 전후 비교</p>
+            <PortfolioCompareTable record={compareRecord} />
+          </div>
+        ) : (
+          <p className="mb-5 text-sm font-semibold text-slate-400">이 상담에 연결된 리밸런싱 기록이 없습니다.</p>
+        )}
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="mb-4 text-sm font-extrabold text-blue-900">성향 및 니즈 분석 요약</p>
           <SummaryTable snapshot={snapshot} />
         </div>
       </section>
     </div>
-  );
-}
-
-function formatSnapshotNumber(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return "-";
-  return Math.round(value).toLocaleString("ko-KR");
-}
-
-function formatSnapshotPercent(value: number | null | undefined, digits = 1) {
-  if (value == null || !Number.isFinite(value)) return "-";
-  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)}%`;
-}
-
-function PortfolioTables({ tables }: { tables?: SummarySnapshot["portfolioTables"] }) {
-  const existing = tables?.existing ?? [];
-  const proposed = tables?.proposed ?? [];
-  if (!existing.length && !proposed.length) return null;
-  return (
-    <div className="mb-5 grid gap-5">
-      {existing.length ? <PortfolioSnapshotTable title="기존 포트폴리오" rows={existing} /> : null}
-      {proposed.length ? <PortfolioSnapshotTable title="신규 포트폴리오" rows={proposed} /> : null}
-    </div>
-  );
-}
-
-function PortfolioSnapshotTable({ title, rows }: { title: string; rows: PortfolioSnapshotRow[] }) {
-  return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-      <div className="border-b border-amber-200 px-4 py-3">
-        <p className="text-base font-black text-amber-700">{title}</p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-blue-900 text-left text-xs font-black text-white">
-              <th className="px-3 py-3">종목명</th>
-              <th className="px-3 py-3">자산군</th>
-              <th className="px-3 py-3 text-right">수량</th>
-              <th className="px-3 py-3 text-right">매입가</th>
-              <th className="px-3 py-3 text-right">현재가</th>
-              <th className="px-3 py-3 text-right">손익률</th>
-              <th className="px-3 py-3 text-right">비중</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.name}-${index}`} className={index % 2 ? "bg-slate-50" : "bg-white"}>
-                <td className="px-3 py-3 font-bold text-slate-900">{row.name}</td>
-                <td className="px-3 py-3 font-bold text-slate-600">{row.assetClass}</td>
-                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.amount)}</td>
-                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.buyPrice)}</td>
-                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotNumber(row.currentPrice)}</td>
-                <td className={`px-3 py-3 text-right font-black ${row.returnPct == null ? "text-slate-400" : row.returnPct >= 0 ? "text-red-600" : "text-blue-700"}`}>
-                  {formatSnapshotPercent(row.returnPct)}
-                </td>
-                <td className="px-3 py-3 text-right font-bold text-slate-800">{formatSnapshotPercent(row.weight, 1).replace("+", "")}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
 
@@ -1163,11 +1029,8 @@ function SideSection({ title, sessions, customers, expandedSessionId, setExpande
   );
 }
 
-type CalendarPopupItem = {
-  id: string;
-  line: string;
-  type: "consultation" | "market";
-};
+type ConsultationCalendarItem = { id: string; time: string; text: string };
+type MarketCalendarItem = { id: string; time: string; market: string; title: string; importance: MarketCalendarEvent["importance"] };
 
 function formatCalendarItemTime(value: string) {
   const date = sessionDateTime(value);
@@ -1179,6 +1042,27 @@ function rightPanelMarketTitle(event: MarketCalendarEvent) {
   if (event.market === "유로존") return event.title;
   if (event.title.startsWith(event.market)) return event.title;
   return `${event.market} ${event.title}`;
+}
+
+// MarketCalendarEvent.market은 lib/calendarData.ts의 MARKET_LABELS로 이미 번역된 한글 국가/지역명이라
+// (원본 통화코드가 아님) 그 한글명 기준으로 ISO 3166-1 국가코드를 매핑한다.
+// 유니코드 국기 이모지(🇳🇿 등)는 Windows 기본 폰트(Segoe UI Emoji)가 조합 글리프를 지원 안 해서
+// "NZ" 같은 원문 알파벳 두 글자로 그대로 노출되는 문제가 있었다(2026-09 발견) — 실제 국기 이미지를
+// 써야 OS·브라우저 상관없이 항상 국기 모양으로 보인다.
+const MARKET_FLAG_CODE: Record<string, string> = {
+  호주: "au", 캐나다: "ca", 스위스: "ch", 중국: "cn", 유로존: "eu",
+  영국: "gb", 일본: "jp", 뉴질랜드: "nz", 미국: "us",
+};
+function MarketFlag({ market }: { market: string }) {
+  const code = MARKET_FLAG_CODE[market];
+  if (!code) return <span className="mr-1 text-[10px] font-black text-amber-400">🌐</span>;
+  return (
+    <img
+      src={`https://flagcdn.com/w20/${code}.png`}
+      alt={market}
+      className="mr-1.5 inline-block h-3 w-4 rounded-[2px] object-cover align-middle"
+    />
+  );
 }
 
 function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: ConsultationSession[]; customers: CustomerProfile[]; marketEvents: MarketCalendarEvent[] }) {
@@ -1223,26 +1107,32 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
     });
   }, [viewMonth, viewYear]);
 
-  const selectedItems = useMemo<CalendarPopupItem[]>(() => {
+  const selectedConsultationItems = useMemo<ConsultationCalendarItem[]>(() => {
     if (!selectedDateKey) return [];
-    const consultationItems = (consultationByDate.get(selectedDateKey) ?? []).map((session) => {
-      const customer = customers.find((item) => item.id === session.customerId);
-      return {
-        id: `consultation-${session.id}`,
-        line: `${formatCalendarItemTime(session.date)} ${customerDisplay(customer)} 상담 일정`,
-        type: "consultation" as const,
-      };
-    });
-    const marketItems = (marketByDate.get(selectedDateKey) ?? []).map((event) => ({
-      id: `market-${event.id}`,
-      line: `${formatCalendarItemTime(event.startsAt)} ${rightPanelMarketTitle(event)}`,
-      type: "market" as const,
-    }));
-    return [
-      ...consultationItems.sort((a, b) => a.line.localeCompare(b.line, "ko-KR")),
-      ...marketItems.sort((a, b) => a.line.localeCompare(b.line, "ko-KR")),
-    ];
-  }, [consultationByDate, customers, marketByDate, selectedDateKey]);
+    return (consultationByDate.get(selectedDateKey) ?? [])
+      .map((session) => {
+        const customer = customers.find((item) => item.id === session.customerId);
+        return {
+          id: `consultation-${session.id}`,
+          time: formatCalendarItemTime(session.date),
+          text: `${customerDisplay(customer)} 상담 일정`,
+        };
+      })
+      .sort((a, b) => a.time.localeCompare(b.time, "ko-KR"));
+  }, [consultationByDate, customers, selectedDateKey]);
+
+  const selectedMarketItems = useMemo<MarketCalendarItem[]>(() => {
+    if (!selectedDateKey) return [];
+    return (marketByDate.get(selectedDateKey) ?? [])
+      .map((event) => ({
+        id: `market-${event.id}`,
+        time: formatCalendarItemTime(event.startsAt),
+        market: event.market,
+        title: rightPanelMarketTitle(event),
+        importance: event.importance,
+      }))
+      .sort((a, b) => a.time.localeCompare(b.time, "ko-KR"));
+  }, [marketByDate, selectedDateKey]);
 
   const moveMonth = (offset: number) => {
     const next = new Date(viewYear, viewMonth + offset, 1);
@@ -1253,13 +1143,13 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-xs font-extrabold uppercase tracking-wide text-slate-500">전체 일정 캘린더</p>
-        <CalendarDays size={15} className="text-blue-600" />
+        <p className="text-sm font-extrabold uppercase tracking-wide text-slate-500">전체 일정 캘린더</p>
+        <CalendarDays size={17} className="text-blue-600" />
       </div>
-      <div className="rounded-xl border border-slate-100 bg-white p-3 shadow-sm">
-        <div className="mb-3 flex items-center gap-1.5">
+      <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
           <select
-            className="h-8 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-xs font-extrabold text-slate-700"
+            className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-extrabold text-slate-700"
             value={viewYear}
             onChange={(event) => setViewYear(Number(event.target.value))}
           >
@@ -1267,14 +1157,14 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
               <option key={year} value={year}>{year}</option>
             ))}
           </select>
-          <button type="button" onClick={() => moveMonth(-1)} className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-600 hover:bg-blue-50">‹</button>
-          <p className="min-w-0 flex-1 text-center text-sm font-black text-blue-950">{viewMonth + 1}월</p>
-          <button type="button" onClick={() => moveMonth(1)} className="h-8 w-8 rounded-lg border border-slate-200 bg-white text-xs font-black text-slate-600 hover:bg-blue-50">›</button>
+          <button type="button" onClick={() => moveMonth(-1)} className="h-9 w-9 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-600 hover:bg-blue-50">‹</button>
+          <p className="min-w-0 flex-1 text-center text-base font-black text-blue-950">{viewMonth + 1}월</p>
+          <button type="button" onClick={() => moveMonth(1)} className="h-9 w-9 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-600 hover:bg-blue-50">›</button>
         </div>
-        <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400">
+        <div className="grid grid-cols-7 gap-1.5 text-center text-xs font-black text-slate-400">
           {["일", "월", "화", "수", "목", "금", "토"].map((day) => <span key={day}>{day}</span>)}
         </div>
-        <div className="mt-1 grid grid-cols-7 gap-1">
+        <div className="mt-1.5 grid grid-cols-7 gap-1.5">
           {monthCells.map((cell, index) => {
             const hasConsultation = cell ? consultationByDate.has(cell.key) : false;
             const hasMarket = cell ? marketByDate.has(cell.key) : false;
@@ -1286,11 +1176,11 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
                 type="button"
                 disabled={!cell}
                 onClick={() => cell && setSelectedDateKey(cell.key)}
-                className={`relative h-8 rounded-lg text-[11px] font-extrabold transition ${cell ? "bg-slate-50 text-slate-700 hover:bg-blue-50" : "bg-transparent"} ${isToday ? "ring-1 ring-blue-500" : ""} ${isSelected ? "border border-slate-950" : ""}`}
+                className={`relative h-11 rounded-lg text-sm font-extrabold transition ${cell ? "bg-slate-50 text-slate-700 hover:bg-blue-50" : "bg-transparent"} ${isToday ? "ring-2 ring-blue-500" : ""} ${isSelected ? "border-2 border-slate-950" : ""}`}
               >
                 {cell?.day ?? ""}
                 {cell ? (
-                  <span className="absolute bottom-1 left-1/2 flex -translate-x-1/2 gap-0.5">
+                  <span className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 gap-1">
                     {hasConsultation ? <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> : null}
                     {hasMarket ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> : null}
                   </span>
@@ -1299,27 +1189,63 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
             );
           })}
         </div>
-        <div className="mt-1 flex items-center gap-3 text-[10px] font-bold text-slate-500">
+        <div className="mt-2 flex items-center gap-3 text-xs font-bold text-slate-500">
           <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> 상담 일정</span>
           <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> 주요 일정</span>
         </div>
-        <div className="mt-3 border-t border-slate-100 pt-2">
-          <p className="mb-1 text-[10px] font-black text-slate-400">{selectedDateKey ? selectedDateKey.replaceAll("-", ".") : "날짜를 선택해주세요"}</p>
-          {selectedDateKey ? (
-            selectedItems.length ? (
-              <div className="grid max-h-[140px] gap-1 overflow-y-auto pr-1">
-                {selectedItems.map((item) => (
-                  <p key={item.id} className={`line-clamp-2 break-keep rounded-lg px-2 py-1 text-[10px] font-extrabold leading-4 ${item.type === "consultation" ? "bg-blue-50 text-blue-900" : "bg-amber-50 text-amber-900"}`} title={item.line}>
-                    {item.line}
-                  </p>
-                ))}
-              </div>
-            ) : (
-              <p className="rounded-lg bg-slate-50 px-2 py-3 text-center text-[10px] font-bold text-slate-400">표시할 일정이 없습니다.</p>
-            )
-          ) : (
-            <p className="rounded-lg bg-slate-50 px-2 py-3 text-center text-[10px] font-bold text-slate-400">날짜를 선택하면 일정이 표시됩니다.</p>
-          )}
+
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="mb-2 text-xs font-black text-slate-400">{selectedDateKey ? selectedDateKey.replaceAll("-", ".") : "날짜를 선택해주세요"}</p>
+
+          {/* 상담 일정과 주요 일정을 각자 독립된 칸으로 분리 — 예전엔 두 종류를 한 목록에 섞어서
+              max-h-[140px] 하나로 스크롤했기 때문에, 상담 일정이 많으면 주요 일정을 보려고 그 안에서
+              또 스크롤해야 하는 번거로움이 있었다(2026-09 리디자인). 이제 각자 자기 칸 안에서만
+              스크롤되고, 서로의 항목 수에 영향받지 않는다. */}
+          <div className="grid gap-2">
+            <div className="rounded-xl bg-blue-50/60 p-2.5">
+              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black text-blue-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> 상담 일정
+                {selectedConsultationItems.length > 0 && <span className="text-blue-400">{selectedConsultationItems.length}건</span>}
+              </p>
+              {!selectedDateKey ? (
+                <p className="px-1 py-1 text-xs font-bold text-slate-400">날짜를 선택하면 표시됩니다.</p>
+              ) : selectedConsultationItems.length ? (
+                <div className="grid max-h-[210px] gap-1 overflow-y-auto pr-1">
+                  {selectedConsultationItems.map((item) => (
+                    <p key={item.id} className="break-keep rounded-lg bg-white px-2.5 py-1.5 text-xs font-extrabold leading-5 text-blue-900 shadow-sm">
+                      <span className="text-blue-400">{item.time}</span> {item.text}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-1 py-1 text-xs font-bold text-slate-400">일정이 없습니다.</p>
+              )}
+            </div>
+
+            <div className="rounded-xl bg-amber-50/60 p-2.5">
+              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black text-amber-700">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> 주요 일정
+                {selectedMarketItems.length > 0 && <span className="text-amber-500">{selectedMarketItems.length}건</span>}
+              </p>
+              {!selectedDateKey ? (
+                <p className="px-1 py-1 text-xs font-bold text-slate-400">날짜를 선택하면 표시됩니다.</p>
+              ) : selectedMarketItems.length ? (
+                <div className="grid max-h-[210px] gap-1 overflow-y-auto pr-1">
+                  {selectedMarketItems.map((item) => (
+                    <p
+                      key={item.id}
+                      className={`break-keep rounded-lg bg-white px-2.5 py-1.5 text-xs leading-5 shadow-sm ${item.importance === "high" ? "font-extrabold text-amber-900" : "font-bold text-amber-800"}`}
+                    >
+                      <MarketFlag market={item.market} />
+                      <span className="text-amber-500">{item.time}</span> {item.title}
+                    </p>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-1 py-1 text-xs font-bold text-slate-400">일정이 없습니다.</p>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </section>
