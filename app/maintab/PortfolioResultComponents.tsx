@@ -1,5 +1,7 @@
 "use client";
 
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import {
@@ -14,7 +16,7 @@ import {
 import { useCustomerContext, type PortfolioAnalysisResult, type PortfolioAsset } from "./CustomerContext";
 import { calcAfterTaxReturn, FINANCIAL_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary } from "./tab1/FinancialIncomeGauge";
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
+
 
 export const CLASS_COLORS: Record<string, string> = {
   국내주식: "#3B82F6",

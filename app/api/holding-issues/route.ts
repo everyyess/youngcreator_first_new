@@ -437,9 +437,9 @@ function isImportantNews(
 
 const GEMINI_MODELS = [
   "gemini-3.1-flash-lite",
-  "gemini-3.5-flash-lite",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
+  "gemini-1.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash",
 ] as const;
 
 async function isDirectlyRelevantHoldingNews(
@@ -921,7 +921,11 @@ export async function GET(request: Request) {
 
     let customerQuery = supabase.from("customers").select("*");
 
-    if (pbId) {
+    if (pbId && pbEmployeeId) {
+      customerQuery = customerQuery.or(
+        "pb_id.eq." + pbId + ",pb_employee_id.eq." + pbEmployeeId,
+      );
+    } else if (pbId) {
       customerQuery = customerQuery.eq("pb_id", pbId);
     } else {
       customerQuery = customerQuery.eq("pb_employee_id", pbEmployeeId);
