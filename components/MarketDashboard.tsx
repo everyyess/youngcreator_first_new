@@ -788,9 +788,7 @@ function ReportPreviewCard({
 
   return (
     <article
-      className={`${className} w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 transition ${
-        isExpanded ? "" : "h-[118px]"
-      }`}
+      className={`${className} w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 transition`}
     >
       <div
         role="button"
@@ -2196,7 +2194,7 @@ async function handleSendPdfToCustomer() {
   );
 
   return (
-    <div className={`lg:col-span-2 rounded-xl border border-slate-300 bg-slate-50 transition ${holdingIssuesExpanded ? "" : "h-[118px]"}`}>
+    <div className="lg:col-span-2 rounded-xl border border-slate-300 bg-slate-50 transition">
   <button
     type="button"
     onClick={() => setHoldingIssuesExpanded((prev) => !prev)}

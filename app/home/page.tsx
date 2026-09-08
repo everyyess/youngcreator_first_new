@@ -644,7 +644,8 @@ export default function HomePage() {
               {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} /> : null}
               <section className={`${leftPanelInnerWidthClass} min-w-0 overflow-hidden`}>
                 <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">[{selectedCustomerName} 고객] 과거 상담 내역</p>
-                <div className="grid max-h-[440px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {/* 카드 약 6개 높이만큼만 보여주고, 그 이상은 안 잘라내고 스크롤로 내려서 보게 한다(2026-09). */}
+                <div className="grid max-h-[620px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).length ? selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).map((session) => (
                     <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onPreRecord={() => preRecordSession(session)} onStart={() => startSession(session)} />
                   )) : <EmptyBox text="상담 내역이 없습니다." />}
