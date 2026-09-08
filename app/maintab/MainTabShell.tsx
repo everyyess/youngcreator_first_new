@@ -4,6 +4,7 @@ import { type DragEvent, type SyntheticEvent, useCallback, useEffect, useMemo, u
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Home, Trash2 } from "lucide-react";
 import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
+import { pbAuthStore } from "@/app/authStore";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile, type CustomerRow,
@@ -664,7 +665,13 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     let cancelled = false;
     async function load() {
       const authUser = appMode === "pb" && supabase ? (await supabase.auth.getUser().catch(() => null))?.data?.user : null;
-      const owner: CustomerOwnerScope = appMode === "pb" ? { pbId: authUser?.id } : {};
+      // 홈 화면(app/home/page.tsx)은 고객 소유권 스코프를 pbId뿐 아니라 pbEmployeeId까지 같이 넘겨서
+      // 조회하는데(applyCustomerOwnerFilter는 pbEmployeeId가 있으면 그걸 우선 사용), 여기(MainTabShell)는
+      // pbId만 넘기고 있었다 — 고객 행이 pb_id가 아니라 pb_employee_id로 스코핑돼 있으면 여기서
+      // 0건 조회로 이어져 "신규 고객" 빈 화면을 유발한다(2026-09 발견·수정). 홈 화면과 동일하게
+      // pbAuthStore 세션의 employeeId도 같이 넘긴다.
+      const pbSession = appMode === "pb" ? pbAuthStore.readSession() : null;
+      const owner: CustomerOwnerScope = appMode === "pb" ? { pbId: authUser?.id, pbEmployeeId: pbSession?.employeeId } : {};
       if (!cancelled) setCustomerOwner(owner);
       const selectedRows = await customerStorage.selectRows(owner);
       if (cancelled) return;

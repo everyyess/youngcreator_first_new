@@ -678,7 +678,10 @@ export default function BuySimulatorTab() {
       return stockSide.map((a) => {
         const e = priceMap.get(makeAssetKey(a));
         const cp = Number(e?.current_price ?? a.current_price);
-        return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
+        // runAnalysis(enrichedAssets)가 종목코드로 잘못 박혀있던 name을 공식 종목명으로 보정해도,
+        // 여기서 가격만 가져오고 name은 원본(rebalancingSellAssets)의 옛 값을 그대로 썼던 버그가
+        // 있었다(2026-09 발견·수정) — name도 같은 방식으로 보정된 값을 우선 사용한다.
+        return { ...a, name: e?.name || a.name, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
       });
     }
     // 주식 쪽 리밸런싱 이력이 아직 없으면(상품만 담긴 경우 포함) 원본 포트폴리오를 그대로 보여준다.
