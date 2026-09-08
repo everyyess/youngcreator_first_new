@@ -318,6 +318,7 @@ export default function Tab4Page() {
           sections={reportSections}
           setSections={setReportSections}
           onClose={() => setShowReportOptions(false)}
+          customerId={selectedCustomer || ""}
           customerName={selectedCustomerProfile?.name || selectedCustomerProfile?.fallbackName || "고객"}
           leftData={leftData}
           rightData={rightData}
@@ -554,14 +555,14 @@ function StressTestCard({ stressResult, selectedScenario, onSelectScenario }: {
 }
 
 function ReportOptionsModal({
-  sections, setSections, onClose, customerName,
+  sections, setSections, onClose, customerId, customerName,
   leftData, rightData, leftAssets, rightAssets,
   leftAfterTaxReturn, rightAfterTaxReturn,
   summary, newSummary, marginalTaxRate, mode, setMode,
   leftMetrics, rightMetrics, consultationProposal,
 }: {
   sections: ReportSectionToggles; setSections: (s: ReportSectionToggles) => void;
-  onClose: () => void; customerName: string;
+  onClose: () => void; customerId: string; customerName: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   leftData: any; rightData: any; leftAssets: any[]; rightAssets: any[];
   leftAfterTaxReturn: number | null; rightAfterTaxReturn: number | null;
@@ -611,6 +612,7 @@ function ReportOptionsModal({
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
           <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">취소</button>
           <PDFDownloadLinkClient
+            customerId={customerId}
             customerName={customerName} reportDate={today} sections={sections}
             left={leftSide} right={rightSide}
             leftTaxSummary={summary} rightTaxSummary={newSummary}
@@ -625,6 +627,7 @@ function ReportOptionsModal({
 }
 
 function PDFDownloadLinkClient(props: {
+  customerId: string;
   customerName: string; reportDate: string; sections: ReportSectionToggles;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   left: any; right: any;
@@ -633,43 +636,53 @@ function PDFDownloadLinkClient(props: {
   leftMetrics: MetricSnapshot; rightMetrics: MetricSnapshot;
   consultationProposal?: import("./PortfolioReportPdf").ConsultationProposalSections;
 }) {
-  const aiComment = (props.left && props.right)
-  ? generatePdfComment(props.leftMetrics, props.rightMetrics)
-  : "";
-const PDFDownloadLink = PDFDownloadLinkLazy;
-if (!PDFDownloadLink) {
-    return (
-      <button type="button" disabled className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">
-        준비 중...
-      </button>
-    );
+  const [sending, setSending] = useState(false);
+  const [mailMessage, setMailMessage] = useState("");
+  const aiComment = (props.left && props.right) ? generatePdfComment(props.leftMetrics, props.rightMetrics) : "";
+  const PDFDownloadLink = PDFDownloadLinkLazy;
+  const pdfDocument = useMemo(() => (
+    <PortfolioReportPdf
+      customerName={props.customerName} reportDate={props.reportDate}
+      sections={props.sections} left={props.left} right={props.right}
+      leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
+      marginalTaxRate={props.marginalTaxRate} mode={props.mode}
+      aiComment={aiComment} consultationProposal={props.consultationProposal}
+    />
+  ), [props.customerName, props.reportDate, props.sections, props.left, props.right, props.leftTaxSummary, props.rightTaxSummary, props.marginalTaxRate, props.mode, aiComment, props.consultationProposal]);
+
+  const fileDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("-", "");
+  const mailFileName = props.customerName + "_\uC81C\uC548\uC11C_" + fileDate + ".pdf";
+  const downloadFileName = props.customerName + "_\uD3EC\uD2B8\uD3F4\uB9AC\uC624_\uC81C\uC548\uC11C_" + props.reportDate.replace(/[^0-9]/g, "") + ".pdf";
+
+  async function handleSendProposalEmail() {
+    if (!props.customerId) { setMailMessage("\uC120\uD0DD\uB41C \uACE0\uAC1D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."); return; }
+    try {
+      setSending(true); setMailMessage("");
+      const { pdf } = await import("@react-pdf/renderer");
+      const blob = await pdf(pdfDocument).toBlob();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = ""; const chunkSize = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+      const response = await fetch("/api/send-proposal-email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: props.customerId, subject: "[\uC0BC\uC131\uC99D\uAD8C] " + props.customerName + " \uACE0\uAC1D\uB2D8 \uC81C\uC548\uC11C", fileName: mailFileName, pdfBase64: window.btoa(binary) }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof result?.error === "string" ? result.error : "\uBA54\uC77C \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+      setMailMessage("\uBA54\uC77C\uC744 \uC131\uACF5\uC801\uC73C\uB85C \uC804\uC1A1\uD588\uC2B5\uB2C8\uB2E4.");
+    } catch (error) {
+      setMailMessage(error instanceof Error ? error.message : "\uBA54\uC77C \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    } finally { setSending(false); }
   }
 
-  const pdfDocument = useMemo(
-    () => (
-      <PortfolioReportPdf
-        customerName={props.customerName} reportDate={props.reportDate}
-        sections={props.sections} left={props.left} right={props.right}
-        leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
-        marginalTaxRate={props.marginalTaxRate} mode={props.mode}
-        aiComment={aiComment}
-        consultationProposal={props.consultationProposal}
-      />
-    ),
-    [
-      props.customerName, props.reportDate, props.sections, props.left, props.right,
-      props.leftTaxSummary, props.rightTaxSummary, props.marginalTaxRate, props.mode,
-      aiComment, props.consultationProposal,
-    ],
-  );
-
+  if (!PDFDownloadLink) return <button type="button" disabled className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">\uC900\uBE44 \uC911...</button>;
   return (
-    <PDFDownloadLink
-      document={pdfDocument}
-      fileName={`${props.customerName}_포트폴리오_제안서_${props.reportDate.replace(/[^0-9]/g, "")}.pdf`}
-      className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90"
-    >
-           {() => "PDF 다운로드"}
-    </PDFDownloadLink>
+    <div className="flex min-w-0 flex-1 flex-wrap gap-3">
+      <PDFDownloadLink document={pdfDocument} fileName={downloadFileName} onClick={() => setMailMessage("")} className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90">{() => "PDF " + "\uB2E4\uC6B4\uB85C\uB4DC"}</PDFDownloadLink>
+      <button type="button" onClick={handleSendProposalEmail} disabled={sending} className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white hover:bg-samsung/90 disabled:cursor-wait disabled:opacity-60">
+        {sending ? "\uBA54\uC77C \uC804\uC1A1 \uC911..." : props.customerName + " \uACE0\uAC1D \uBA54\uC77C \uC804\uC1A1"}
+      </button>
+      {mailMessage ? <p className="basis-full text-center text-xs font-semibold text-slate-600">{mailMessage}</p> : null}
+    </div>
   );
 }

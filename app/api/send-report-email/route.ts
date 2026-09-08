@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
     const brevoApiKey = process.env.BREVO_API_KEY?.trim();
 
     if (!brevoApiKey) {
+      console.error("[send-report-email] missing BREVO_API_KEY");
       return NextResponse.json(
         { error: "BREVO_API_KEY가 설정되지 않았습니다." },
         { status: 500 },
@@ -103,6 +104,7 @@ export async function POST(request: NextRequest) {
         : "";
 
     if (!customerId) {
+      console.error("[send-report-email] invalid payload: customerId is missing", { customerId });
       return NextResponse.json(
         { error: "customerId가 없습니다." },
         { status: 400 },
@@ -110,6 +112,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!html.trim()) {
+      console.error("[send-report-email] invalid payload: html is empty", { customerId, fileName });
       return NextResponse.json(
         { error: "PDF로 변환할 HTML이 없습니다." },
         { status: 400 },
@@ -119,6 +122,7 @@ export async function POST(request: NextRequest) {
     const supabase = getSupabaseAdmin();
 
     if (!supabase) {
+      console.error("[send-report-email] missing Supabase server environment variables", { customerId });
       return NextResponse.json(
         { error: "Supabase 서버 환경변수가 설정되지 않았습니다." },
         { status: 500 },
@@ -133,10 +137,12 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (customerError) {
+      console.error("[send-report-email] customer lookup failed", { customerId, error: customerError });
       throw customerError;
     }
 
     if (!customer) {
+      console.error("[send-report-email] customer not found", { customerId });
       return NextResponse.json(
         { error: "고객을 찾을 수 없습니다." },
         { status: 404 },
@@ -144,6 +150,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!customer.email) {
+      console.error("[send-report-email] customer email is missing", { customerId, customerName: customer.name ?? null });
       return NextResponse.json(
         { error: `${customer.name ?? "해당 고객"}의 이메일이 없습니다.` },
         { status: 400 },
@@ -234,14 +241,25 @@ export async function POST(request: NextRequest) {
     const brevoResult = await brevoResponse.json().catch(() => ({}));
 
     if (!brevoResponse.ok) {
+      const providerMessage =
+        typeof brevoResult?.message === "string"
+          ? brevoResult.message
+          : "\uBA54\uC77C \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.";
+      console.error("[send-report-email] Brevo request failed", {
+        customerId,
+        recipient: customer.email,
+        status: brevoResponse.status,
+        statusText: brevoResponse.statusText,
+        response: brevoResult,
+      });
       return NextResponse.json(
         {
-          error:
-            typeof brevoResult?.message === "string"
-              ? brevoResult.message
-              : "메일 전송에 실패했습니다.",
+          error: providerMessage,
+          providerStatus: brevoResponse.status,
+          providerCode: brevoResult?.code ?? null,
+          detail: providerMessage,
         },
-        { status: 500 },
+        { status: brevoResponse.status === 429 ? 429 : 500 },
       );
     }
 
@@ -254,12 +272,19 @@ export async function POST(request: NextRequest) {
       pdfSize: pdfBuffer.length,
     });
   } catch (error) {
+    const errorInfo = {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      cause: error instanceof Error ? error.cause : undefined,
+    };
+    console.error("[send-report-email] error", errorInfo);
     return NextResponse.json(
       {
         error:
           error instanceof Error
             ? error.message
-            : "PDF 생성 또는 메일 전송 중 오류가 발생했습니다.",
+            : "PDF \uC0DD\uC131 \uB610\uB294 \uBA54\uC77C \uC804\uC1A1 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+        detail: errorInfo.message,
       },
       { status: 500 },
     );
