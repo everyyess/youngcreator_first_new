@@ -17,10 +17,16 @@ const FOREIGN_DIV_WITHHOLDING  = 0.15;  // 미국 조세조약 기준 (표시용
 export const TAX_RATES = {
   incomeWithholdingRate: 0.14,   // 이자·배당소득 원천징수(국세) — 소득세법 §127①
   localSurtaxRate: 0.10,         // 지방소득세 = 소득세액 × 10% — 지방세법 §92
-  grossUpRate: 0.11,             // 배당가산율(Gross-up) — 소득세법 §17③ (2025년 기준. 개정 가능성 있어 확인 필요)
   foreignStockCapitalGainsExemption: 2_500_000, // 해외주식 양도소득 기본공제(연간) — 소득세법 §118의4
   foreignStockCapitalGainsRate: 0.22,           // 지방세 포함 22%(국세 20%+지방세 2%) — 소득세법 §118의5
   domesticMajorShareholderValueThreshold: 5_000_000_000, // 대주주 판정 기준(종목당 보유액) — 소득세법 시행령 §157
+  // 배당수익률(주당 연간배당금÷현재가) 이상치 판정 기준. 100%를 기본값으로 둔 이유: 배당은 세율을
+  // 아무리 높게 잡아도 현실적으로 연 100%를 넘을 수 없어(그런 상품은 존재하지 않음), 그 이상이면
+  // 상품 자체의 문제가 아니라 데이터 정합성 문제로 본다 — 대표 사례가 레버리지/인버스 ETF(SOXS·SOXL·
+  // TQQQ 등)의 액면병합: 병합 전 주식 수 기준으로 지급된 과거 배당금(trailingAnnualDividendRate)이
+  // 병합 후 주식 수로 소급 조정되지 않은 채 Yahoo Finance에서 내려오면, 병합 후(현재) 주가로 나눈
+  // 배당수익률이 수백 %로 튀어버린다(실사례: SOXS 721.69%).
+  implausibleDividendYieldThreshold: 1.0,
   // 해외주식 배당 현지 원천징수세율(조세조약 제한세율). 국가명은 이 대시보드 자산입력 폼(COUNTRIES: 국내/미국/일본/중국/유럽/기타)과 일치.
   // 실사용 고객 자산이 사실상 미국주식 위주라 "유럽"·"기타"는 국가별 세율을 별도 관리하지 않기로 함(의도적 범위 제한).
   // 해당 국가는 getForeignDividendWithholdingRate()에서 국내세율(14%)로 폴백 — 추가징수 없음으로 처리.
@@ -30,6 +36,21 @@ export const TAX_RATES = {
     "중국": 0.10, // 한중 조세조약 제10조
   } as Record<string, number>,
 };
+
+// 배당가산율(Gross-up) — 소득세법 §17③. 법인세율 변동에 연동해 개정된다: 2024년 세법개정으로 11%→10%
+// 인하(2024년 이후 지급분부터), 2026년 법인세율 인상에 따라 2027-01-01 이후 지급분부터 다시 11%로 환원.
+// 하드코딩 대신 "지급연도 → 세율" 테이블로 관리 — 다음 개정 때도 이 표에 한 줄만 추가하면 된다.
+const GROSS_UP_RATE_SCHEDULE: { effectiveFrom: string; rate: number }[] = [
+  { effectiveFrom: "2024-01-01", rate: 0.10 },
+  { effectiveFrom: "2027-01-01", rate: 0.11 },
+];
+function getGrossUpRate(asOfDate: Date = new Date()): number {
+  let rate = GROSS_UP_RATE_SCHEDULE[0].rate;
+  for (const row of GROSS_UP_RATE_SCHEDULE) {
+    if (asOfDate.getTime() >= new Date(row.effectiveFrom).getTime()) rate = row.rate;
+  }
+  return rate;
+}
 
 // 해외주식 배당 현지 원천징수세율 조회 — 등록 안 된 국가("유럽"·"기타" 포함)는 0.14로 폴백(의도적 범위 제한, 위 주석 참고)
 function getForeignDividendWithholdingRate(country?: string): number {
@@ -99,7 +120,15 @@ function computeComprehensiveTax(
   tMarginal: number
 ): ComprehensiveTaxResult {
   const totalFinancialIncome = interestIncomeAmt + dividendIncomeAmt;
-  const grossUpAmount = grossUpTargetAmt * TAX_RATES.grossUpRate;
+  // Gross-up은 "Gross-up 대상 배당소득 전체"가 아니라, 그중 2,000만원을 초과하는 부분에만 적용된다
+  // (국세상담센터 기준 적용 순서: ①이자소득 → ②Gross-up 비대상 배당 → ③Gross-up 대상 배당 순으로
+  // 2,000만원 한도를 채우고, 그 다음(초과분)부터 Gross-up 대상 배당이 시작된다고 봄). 국내법인 배당이
+  // 아무리 커도 2,000만원 이내 구간은 애초에 14% 분리과세로 끝나는 구간이라 이중과세 조정을 안 해준다.
+  const nonGrossUpDividend = Math.max(0, dividendIncomeAmt - grossUpTargetAmt); // 해외직접·집합투자 배당 등
+  const bucketAfterInterest = Math.max(0, THRESHOLD - interestIncomeAmt);
+  const bucketAfterNonGrossUp = Math.max(0, bucketAfterInterest - nonGrossUpDividend);
+  const grossUpEligibleExcess = Math.max(0, grossUpTargetAmt - bucketAfterNonGrossUp);
+  const grossUpAmount = grossUpEligibleExcess * getGrossUpRate();
   const taxableFinancialIncome = totalFinancialIncome + grossUpAmount;
   let generalTax = 0;
   let comparisonTax = 0;
@@ -140,7 +169,10 @@ export interface IncomeBreakdownItem {
   principal?: number;      // 채권 액면금액(faceValue) 근사값
   withholdingRate: number; // 원천징수율 (소수)
   // 채권 전용 표시 배지 — 계산에서 제외되었거나(미확인/범위외) 특수 처리된(비과세/만기인식) 사유
-  bondNote?: "표면금리 미확인" | "신종자본증권(범위외)" | "조세조약 비과세" | "만기 일시인식";
+  bondNote?: "표면금리 미확인" | "조세조약 비과세" | "만기 일시인식" | "신종자본증권(콜 이후 금리변동 가능)" | "할인채 할인액 과세 확인 필요";
+  // 배당 전용 표시 배지 — 배당수익률이 현실적으로 불가능한 수준(100%↑)이면 데이터 정합성 문제로 보고
+  // 계산에서 제외한다(레버리지/인버스 ETF 액면병합 등). 임의로 "올바른" 값을 추정하지 않는다.
+  dividendNote?: "배당소득 계산 불가(레버리지/인버스 ETF 추정 — 액면병합)";
 }
 
 // 복리채 등 만기 일시상환형 채권의 "아직 도래하지 않은"(1년 이후) 미래 일시 인식 예정 이자.
@@ -256,7 +288,8 @@ function IncomeRow({ item }: { item: IncomeBreakdownItem }) {
   const bondNoteStyle =
     item.bondNote === "조세조약 비과세" ? "bg-emerald-50 text-emerald-600" :
     item.bondNote === "만기 일시인식" ? "bg-blue-50 text-blue-600" :
-    "bg-slate-100 text-slate-400"; // 표면금리 미확인 / 신종자본증권(범위외)
+    item.bondNote === "신종자본증권(콜 이후 금리변동 가능)" ? "bg-amber-50 text-amber-600" : // 계산은 됐지만 유의사항 있음
+    "bg-slate-100 text-slate-400"; // 표면금리 미확인 / 할인채 할인액 과세 확인 필요 — 계산 자체가 안 된 경우
 
   return (
     <div className="flex items-center justify-between gap-2 py-1.5 border-b border-slate-50 last:border-0">
@@ -279,7 +312,14 @@ function IncomeRow({ item }: { item: IncomeBreakdownItem }) {
           </>
         ) : (
           <>
-            <span className="text-[10px] text-slate-500 shrink-0">배당률 {fmtPct(item.yieldRate)}</span>
+            {/* 배당률(dividendYield)은 표시 전용 필드로, 실제 세금 계산엔 절대 안 쓴다(주당 실배당금
+                ×수량만 씀) — 그런데도 화면에 큰 숫자로 떠 있으면 그게 계산에 반영된 것처럼 오해를
+                살 수 있고(SOXS 721% 사례), 계산에 안 쓰는 값을 굳이 보여줄 이유도 없어 UI에서 제거. */}
+            {item.dividendNote && (
+              <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shrink-0">
+                {item.dividendNote}
+              </span>
+            )}
             {tagLabel && (
               <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-500 shrink-0">
                 {tagLabel}
@@ -682,7 +722,7 @@ export function FinancialIncomeGauge({
                     )}
                   </div>
                   {(summary?.bondMaturityLumpSums.length ?? 0) > 0 && (
-                    <div className="mt-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+                    <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
                       <p className="text-[10px] font-extrabold text-blue-700 mb-1">
                         만기 일시인식 예정 이자 (복리채 등 — 아직 향후 1년 합계엔 미포함)
                       </p>
@@ -983,7 +1023,7 @@ export interface AssetForIncomeCalc {
                                         // 배분금액으로 다루므로 매수단가≈액면가 근사가 실무상 오차가 작음)
   issuerCountry?: string;              // 채권 발행국(한국/미국/브라질 등) — country(배당용, 광의 국내/해외)와 다른 개념
   couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
-  isPerpetual?: boolean;                // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  isPerpetual?: boolean;                // 신종자본증권(영구채) — 이자소득은 일반 이표채와 동일하게 계산(만기 불필요), 콜 이후 스텝업 가능성만 배지로 표시
   maturityDate?: string;                // ISO(YYYY-MM-DD) — 만기 임박 안분·복리채 만기 일시인식에 사용
   purchaseDate?: string;                // ISO — 복리채 보유연수 계산 기준(없으면 오늘, 신규 매수 시뮬레이션 기준)
 }
@@ -1010,7 +1050,6 @@ export function calcFinancialIncomeSummary(
   let dividendIncome = 0;
   let totalCapitalGains = 0;
   let totalCapitalLosses = 0;
-  let domesticMajorShareholderTax = 0;
   let grossUpTargetDividend = 0;
   let totalWithholdingCollected = 0; // 실제 원천징수세액 합계 (국내·해외 항목별 실제 계산값의 합 — 종합과세 기납부세액 계산에 사용)
 
@@ -1071,20 +1110,33 @@ export function calcFinancialIncomeSummary(
       // issuerCountry 명시값이 없으면(수동 입력 채권 등) 배당에도 쓰는 일반 country 필드로 대체 폴백
       const issuerCountry = a.issuerCountry ?? a.country ?? (isDomesticListed ? "한국" : undefined);
 
-      // 신종자본증권(영구채) — 콜옵션 미행사 시 만기가 불확정이라 일반 이표채 공식을 적용할 수 없음.
-      // 이번 계산 범위에서 제외하고, 세액 0으로 별도 표시만 한다(임의로 세금을 매기지 않음).
-      if (a.isPerpetual) {
+      // 신종자본증권(영구채) — "만기"가 불확정인 건 맞지만, 이자소득(표면금리×액면금액)은 만기와 무관하게
+      // 정상 계산된다(만기가 필요한 건 YTM·듀레이션 같은 수익률 지표뿐, 이자소득 계산엔 안 씀). 개인
+      // 투자자에게는 이 이자도 그대로 15.4% 원천징수 대상이라, 계산에서 빼면 오히려 게이지가 실제보다
+      // 낮게 나오는 과소계상 오류가 된다(과대계상보다 위험 — 고객이 "안전하다"고 오해하고 넘어감).
+      // 그래서 일반 이표채와 동일하게 계산하고, 콜 이후 스텝업 조항으로 표면금리가 바뀔 수 있다는 점만
+      // 배지로 알린다(계산은 "현재 표면금리가 계속 유지된다"고 가정 — 다른 모든 종목의 향후1년 예상과 동일 원칙).
+
+      // 할인채(제로쿠폰) — "표면금리=0 → 이자 0원"과는 다른 경로로 처리해야 한다. 할인액(액면-매수가)은
+      // 원칙적으로 이자소득 과세 대상이다(소득세법상 채권 보유기간 이자상당액·할인액 과세 규정) — "할인채라
+      // 원래 비과세"가 아니다. 브라질국채(BLTN)가 0원인 건 할인채라서가 아니라 한-브라질 조세조약상
+      // 정부발행채 이자(할인액 포함)가 면제되기 때문 — 그 진짜 이유를 배지에 정확히 반영한다. 비과세국이
+      // 아닌 할인채는 실제 할인액을 계산할 신뢰할 만한 액면가 데이터가 없어 "확인 필요"로 표시하고 임의로
+      // 0원(=비과세로 오인될 수 있는 표시) 처리하지 않는다.
+      if (couponType === "할인채") {
+        const isTreatyExemptDiscount = !!(issuerCountry && BOND_TAX_EXEMPT_COUNTRIES.has(issuerCountry));
         if (faceValue > 0) {
           breakdown.push({
-            name, ticker, incomeType: "이자", annualIncome: 0, netIncome: 0, yieldRate: rate,
+            name, ticker, incomeType: "이자", annualIncome: 0, netIncome: 0, yieldRate: 0,
             value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
-            withholdingRate: 0, bondNote: "신종자본증권(범위외)",
+            withholdingRate: 0,
+            bondNote: isTreatyExemptDiscount ? "조세조약 비과세" : "할인채 할인액 과세 확인 필요",
           });
         }
         continue;
       }
 
-      // 표면금리 없음(할인채 포함) → 이자소득 0. 표면금리가 아예 미확인인 경우만 배지로 구분 표시(임의 추정 금지).
+      // 표면금리 없음 → 이자소득 0. 표면금리가 아예 미확인인 경우만 배지로 구분 표시(임의 추정 금지).
       if (!(rate > 0) || !(faceValue > 0)) {
         if (faceValue > 0) {
           breakdown.push({
@@ -1150,7 +1202,8 @@ export function calcFinancialIncomeSummary(
         breakdown.push({
           name, ticker, incomeType: "이자", annualIncome: Math.round(annualGross), netIncome: Math.round(w.net),
           yieldRate: rate, value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
-          withholdingRate: w.effectiveRate, bondNote: w.isExempt ? "조세조약 비과세" : undefined,
+          withholdingRate: w.effectiveRate,
+          bondNote: w.isExempt ? "조세조약 비과세" : a.isPerpetual ? "신종자본증권(콜 이후 금리변동 가능)" : undefined,
         });
       }
       continue; // 채권은 양도소득 계산 생략(매매차익 비과세)
@@ -1163,7 +1216,23 @@ export function calcFinancialIncomeSummary(
       const yieldRate = a.dividendYield ?? 0;
       const dividendPerShare = a.trailingAnnualDividendRate ?? a.annualDividendRate ?? 0;
 
-      if (dividendPerShare > 0 && a.amount_type === "quantity" && a.amount > 0) {
+      // 배당수익률 이상치 검사 — TAX_RATES.implausibleDividendYieldThreshold 주석 참고.
+      // 레버리지/인버스 ETF(SOXS·SOXL·TQQQ 등)는 구조적으로 가치가 계속 깎여나가 동전주 탈출용
+      // 액면병합을 반복하는데(SOXS는 최근 2년간 3회, 누적 2,000:1), Yahoo가 주는 "최근 12개월 배당금
+      // 합계"가 병합 전후로 서로 다른 "1주" 기준 금액을 그대로 더해서 줘 실제 배당수익률이 수백 %로
+      // 왜곡되는 사례가 실측 확인됨(SOXS 721.69%). 병합 비율로 역산 보정을 시도해봤지만 그렇게 해도
+      // 여전히 비정상적 수치가 나오고 외부 소스와도 설명 안 되는 차이가 있어(2026-09 검증) — 이 상품군은
+      // 데이터 자체를 신뢰할 수 있게 재구성할 방법이 없다고 결론. 계산에 쓰지 않고 배지로만 표시한다.
+      const impliedYield = a.current_price != null && a.current_price > 0 ? dividendPerShare / a.current_price : 0;
+      const isImplausibleDividend = a.amount_type === "quantity" && impliedYield > TAX_RATES.implausibleDividendYieldThreshold;
+
+      if (isImplausibleDividend) {
+        breakdown.push({
+          name, ticker, incomeType: "배당", annualIncome: 0, netIncome: 0, yieldRate,
+          value: Math.round(value), withholdingRate: 0,
+          dividendNote: "배당소득 계산 불가(레버리지/인버스 ETF 추정 — 액면병합)",
+        });
+      } else if (dividendPerShare > 0 && a.amount_type === "quantity" && a.amount > 0) {
         const annualGross = dividendPerShare * a.amount;
         // 달력연도(1/1~오늘) 누적분 — 종합과세 판정 전용, 데이터 없으면 0(=올해 아직 배당 없음으로 취급)
         const calendarYtdPerShare = a.calendarYtdDividendRate ?? 0;
@@ -1199,12 +1268,23 @@ export function calcFinancialIncomeSummary(
           ) {
             incomeType = "배당(집합투자)";
           }
-          // 집합투자기구(펀드·ETF·리츠 등)는 국내 상장/설정 여부로만 구분(국가별 조약세율 비교 대상 아님)
-          const w = calcWithholdingKRW(annualGross);
-          withholdingRate = DOMESTIC_DIV_WITHHOLDING;
-          annualNet = w.net;
-          totalWithholdingCollected += w.totalTax;
-          calendarYtdWithholdingCollected += calcWithholdingKRW(calendarYtdGross).totalTax;
+          // 집합투자기구(펀드·ETF·리츠 등)의 원천징수는 "어디서 설정됐는지"가 아니라 "어디에 상장돼
+          // 있는지"로 갈라야 한다 — 예: 미국에 상장된 SCHD는 미국이 조세조약 세율(15%)로 현지 원천징수
+          // 하지, 국내 세율(14%)로 떼지 않는다. 개별 해외주식과 완전히 같은 트랙(현지조약세율 vs 국내14%
+          // 비교)을 태운다. 국내 상장 ETF·펀드·리츠만 국내 원천징수(14%+1.4%)를 적용한다.
+          if (!isDomesticListed) {
+            const w = calcForeignDividendWithholding(annualGross, a.country);
+            withholdingRate = w.effectiveRate;
+            annualNet = w.net;
+            totalWithholdingCollected += w.totalTax;
+            calendarYtdWithholdingCollected += calcForeignDividendWithholding(calendarYtdGross, a.country).totalTax;
+          } else {
+            const w = calcWithholdingKRW(annualGross);
+            withholdingRate = DOMESTIC_DIV_WITHHOLDING;
+            annualNet = w.net;
+            totalWithholdingCollected += w.totalTax;
+            calendarYtdWithholdingCollected += calcWithholdingKRW(calendarYtdGross).totalTax;
+          }
         }
         dividendIncome += annualGross;
         calendarYtdDividendIncome += calendarYtdGross;
@@ -1223,18 +1303,17 @@ export function calcFinancialIncomeSummary(
     }
 
     // ── ② 국내 대주주 (보유액 50억 이상 국내주식) — gain 여부와 무관하게 항상 체크 ──────
+    // 2020년 귀속분부터 국내 대주주 주식·해외주식 양도소득은 손익통산되고 기본공제 250만원도 연 1회만
+    // 적용된다(국세청 개정) — 그래서 여기서 자체적으로 250만원 공제·세율을 매기지 않고, 아래 해외주식과
+    // 같은 통합 풀(totalCapitalGains/totalCapitalLosses)에 손익만 넣는다. 실제 공제·세율 적용은 루프
+    // 종료 후 통합 계산부에서 한 번에 한다. estimatedTax는 그 통합 계산 이후 귀속 세액으로 채워 넣는다
+    // (아래 "// 대주주 항목 estimatedTax 채우기" 참고).
     if (isDomesticListed && value >= TAX_RATES.domesticMajorShareholderValueThreshold && productType === "국내주식") {
-      // 기본공제 250만원 (국내 주식 양도소득 그룹 — 해외주식 그룹과 별도 적용)
-      const taxableGain = gain <= 0 ? 0 : Math.max(0, gain - 2_500_000);
-      // 세율: 3억 이하 22%, 3억 초과 27.5% (지방소득세 10% 포함)
-      const tax = taxableGain <= 0 ? 0
-        : taxableGain <= 300_000_000
-          ? taxableGain * 0.22
-          : 300_000_000 * 0.22 + (taxableGain - 300_000_000) * 0.275;
-      majorShareholderItems.push({ name: a.name, ticker, value, estimatedTax: Math.round(tax) });
-      if (tax > 0) {
-        domesticMajorShareholderTax += tax;
-        cgBreakdownTemp.push({ name: a.name, ticker, gain, tax: Math.round(tax), category: "국내대주주" });
+      majorShareholderItems.push({ name: a.name, ticker, value, estimatedTax: 0 });
+      if (gain > 0) totalCapitalGains += gain;
+      else if (gain < 0) totalCapitalLosses += gain;
+      if (gain !== 0) {
+        cgBreakdownTemp.push({ name: a.name, ticker, gain, tax: 0, category: "국내대주주" });
       }
     }
 
@@ -1299,23 +1378,43 @@ export function calcFinancialIncomeSummary(
     });
   }
 
-  // ── 해외 손익통산 및 양도소득세 ──────────────────────────────────────────────
+  // ── 국내대주주+해외주식 통합 손익통산 및 양도소득세 ──────────────────────────
+  // 2020년 귀속분부터 국내 대주주 주식과 해외주식(ETF·펀드 포함)의 양도소득은 하나의 풀로 손익통산되고,
+  // 기본공제 250만원도 그 통합 풀에 연 1회만 적용된다(국세청 개정) — 종전처럼 "해외주식 250만원 +
+  // 국내대주주 250만원"을 각각 따로 공제하면 과다공제가 된다.
+  // 세율 구조(3억원 기준 22%/27.5%)는 원래 국내대주주 전용이었는데, 통합 후 해외주식분에도 동일하게
+  // 적용되는지는 확인 필요 — 다만 3억원 이하 구간에서는 어차피 두 세율이 같은 22%로 일치하므로, 이 통합
+  // 세율표를 쓰는 게 "따로 나눠서 계산" 대비 더 정확할 것으로 판단해 적용한다(실무 확인 권장).
   const netCapitalGains = totalCapitalGains + totalCapitalLosses;
-  const foreignCapitalGainsTax = netCapitalGains > TAX_RATES.foreignStockCapitalGainsExemption
-    ? Math.round((netCapitalGains - TAX_RATES.foreignStockCapitalGainsExemption) * TAX_RATES.foreignStockCapitalGainsRate)
-    : 0;
+  const taxableNetGains = Math.max(0, netCapitalGains - TAX_RATES.foreignStockCapitalGainsExemption);
+  const capitalGainsTax = taxableNetGains <= 0 ? 0
+    : Math.round(
+        taxableNetGains <= 300_000_000
+          ? taxableNetGains * TAX_RATES.foreignStockCapitalGainsRate
+          : 300_000_000 * TAX_RATES.foreignStockCapitalGainsRate + (taxableNetGains - 300_000_000) * 0.275
+      );
+  const foreignCapitalGainsTax = capitalGainsTax; // 통합 풀 전체 세액(하위호환 필드 — 아래서 카테고리별로 재분배)
 
-  const capitalGainsTax = foreignCapitalGainsTax + Math.round(domesticMajorShareholderTax);
-
-  // 항목별 기여 세액 배분
+  // 항목별 기여 세액 배분 — 이제 국내대주주·해외주식 구분 없이 이익(gain>0) 종목에 비례 배분
   const capitalGainsBreakdown: CapitalGainsBreakdownItem[] = cgBreakdownTemp.map((item) => {
-    if (item.category === "국내대주주") return { ...item, gain: Math.round(item.gain) };
     let tax = 0;
-    if (foreignCapitalGainsTax > 0 && totalCapitalGains > 0 && item.gain > 0) {
-      tax = foreignCapitalGainsTax * (item.gain / totalCapitalGains);
+    if (capitalGainsTax > 0 && totalCapitalGains > 0 && item.gain > 0) {
+      tax = capitalGainsTax * (item.gain / totalCapitalGains);
     }
     return { ...item, gain: Math.round(item.gain), tax: Math.round(tax) };
   }).sort((a, b) => b.gain - a.gain);
+
+  // 대주주 항목 estimatedTax 채우기 — 통합 계산 결과에서 이 종목에 귀속된 세액을 역으로 채워 넣는다
+  // (경고 UI에서 "이 종목 때문에 예상되는 세금"을 보여주기 위한 근사치).
+  for (const mi of majorShareholderItems) {
+    const matched = capitalGainsBreakdown.find(
+      (b) => b.category === "국내대주주" && b.name === mi.name && b.ticker === mi.ticker
+    );
+    if (matched) mi.estimatedTax = matched.tax;
+  }
+  const domesticMajorShareholderTaxFinal = capitalGainsBreakdown
+    .filter((b) => b.category === "국내대주주")
+    .reduce((s, b) => s + b.tax, 0);
 
   // ── 금융소득 종합과세 계산 (gross 기준) ─────────────────────────────────────
   // rolling(트레일링 365일, "향후 1년 예상" 헤드라인용) — 종전과 동일한 기준·필드
@@ -1334,7 +1433,7 @@ export function calcFinancialIncomeSummary(
     totalCapitalLosses: Math.round(totalCapitalLosses),
     netCapitalGains: Math.round(netCapitalGains),
     foreignCapitalGainsTax,
-    domesticMajorShareholderTax: Math.round(domesticMajorShareholderTax),
+    domesticMajorShareholderTax: Math.round(domesticMajorShareholderTaxFinal),
     capitalGainsTax,
     totalFinancialIncome: rolling.totalFinancialIncome,
     grossUpAmount: rolling.grossUpAmount,

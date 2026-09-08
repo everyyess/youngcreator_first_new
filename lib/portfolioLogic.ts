@@ -311,8 +311,12 @@ export interface PortfolioAssetInput {
   // ── 채권 이자소득세 계산 전용 필드 (FinancialIncomeGauge의 AssetForIncomeCalc와 대응) ──
   issuerCountry?: string;        // 발행국(한국/미국/브라질 등) — 국가별 원천징수 판정용
   couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
-  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득은 일반 이표채와 동일 계산(만기 불필요), 콜 이후 스텝업 가능성만 배지 표시
   maturityDate?: string;         // ISO(YYYY-MM-DD)
+  // ── 액면병합 수량 확인 경고 전용 (계산에는 안 씀 — 수량을 PB가 확인/수정하게 안내만) ──
+  qtyAsOfDate?: string;           // ISO — 이 수량을 마지막으로 확인한 날짜
+  needsQtyCheck?: boolean;        // qtyAsOfDate 이후(또는 확인일 미상이면 무조건) 액면병합이 있었으면 true
+  latestSplitInfo?: string;       // 표시용 — "2026-07-15 1:10" 형태
 }
 
 export interface RunAnalysisResult {
@@ -383,13 +387,14 @@ export const runAnalysis = async (
       // 채권은 Yahoo Finance 조회 불가 — enrichedWithBonds 단계에서 buy_price × amount로 처리
       if (a.productType === '국내채권' || a.productType === '해외채권')
         return withKeywordSector({ ...a, sector: a.sector || '채권' });
-      // 현재가·배당수익률·달력연도누적배당이 전부 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
-      // calendarYtdDividendRate는 나중에 추가된 필드라, 이전에 캐싱된 자산엔 이 필드만 빠져있을 수 있음 —
-      // 그 경우 조건에서 빠뜨리면 영원히 재조회가 안 일어나 달력연도 종합과세 점검이 0으로 고정되는 문제가 있었음.
+      // 현재가·배당수익률·달력연도누적배당·병합체크가 전부 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
+      // calendarYtdDividendRate·needsQtyCheck는 나중에 추가된 필드라, 이전에 캐싱된 자산엔 이 필드만
+      // 빠져있을 수 있음 — 그 경우 조건에서 빠뜨리면 영원히 재조회가 안 일어나 값이 고정되는 문제가 있었음.
       if (
         a.current_price != null && a.current_price > 0 &&
         a.dividendYield != null &&
-        a.calendarYtdDividendRate !== undefined
+        a.calendarYtdDividendRate !== undefined &&
+        a.needsQtyCheck !== undefined
       ) return withKeywordSector(a);
 
       try {
@@ -405,6 +410,19 @@ export const runAnalysis = async (
         const json = await res.json();
         const result = json?.chart?.result?.[0];
         const meta = result?.meta;
+
+        // 액면병합 경고 — qtyAsOfDate(수량 마지막 확인일) 이후 병합이 있었는지만 확인. 계산엔 안 씀.
+        // qtyAsOfDate가 없으면(레거시 데이터 등 확인일 미상) 병합 이력이 하나라도 있으면 무조건 경고.
+        const rawSplits = result?.events?.splits ?? {};
+        const splitEvents: { date: number; splitRatio?: string }[] = Object.values(rawSplits)
+          .filter((e): e is { date: number; splitRatio?: string } => typeof (e as { date?: unknown })?.date === "number")
+          .sort((x, y) => y.date - x.date); // 최신순
+        const qtyAsOfTs = a.qtyAsOfDate ? Math.floor(new Date(a.qtyAsOfDate).getTime() / 1000) : null;
+        const relevantSplit = splitEvents.find((s) => qtyAsOfTs == null || s.date > qtyAsOfTs);
+        const needsQtyCheck = !!relevantSplit;
+        const latestSplitInfo = relevantSplit
+          ? `${new Date(relevantSplit.date * 1000).toISOString().slice(0, 10)} ${relevantSplit.splitRatio ?? ""}`.trim()
+          : undefined;
 
         // 배당수익률 — proxy-finance 응답 최상단에 반환됨
         const dy   = typeof json.dividendYield === "number" && json.dividendYield > 0
@@ -435,6 +453,8 @@ export const runAnalysis = async (
             ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
             ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),
             ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
+            needsQtyCheck,
+            ...(latestSplitInfo != null ? { latestSplitInfo } : {}),
           };
         }
 
@@ -462,6 +482,8 @@ export const runAnalysis = async (
             ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
             ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),
             ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
+            needsQtyCheck,
+            ...(latestSplitInfo != null ? { latestSplitInfo } : {}),
           };
         }
       } catch {
@@ -604,9 +626,14 @@ export const runAnalysis = async (
     const isBond = a.productType === '국내채권' || a.productType === '해외채권';
     if (isBond) return s;
     // dividendYield 는 Yahoo Finance 제공 소수값(예: 0.02 = 2%)
+    // 이상치 방지: 배당수익률은 현실적으로 연 100%를 넘을 수 없다 — 레버리지/인버스 ETF(SOXS·SOXL 등)가
+    // 동전주 탈출용 액면병합을 거치면 Yahoo 데이터가 병합 전/후 주식 수 불일치로 수백 %를 반환하는 사례가
+    // 실제 확인됨(FinancialIncomeGauge.tsx의 TAX_RATES.implausibleDividendYieldThreshold와 동일 기준).
+    const dy = a.dividendYield ?? 0;
+    if (dy > 1.0) return s;
     const value = a.current_value
       ?? (a.amount_type === 'quantity' ? (a.current_price ?? 0) * a.amount : a.amount);
-    return s + value * (a.dividendYield ?? 0);
+    return s + value * dy;
   }, 0);
 
   const financialIncomeTaxForHealth =

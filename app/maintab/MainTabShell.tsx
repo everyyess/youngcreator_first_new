@@ -294,6 +294,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [rebalancingSellMap, setRebalancingSellMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
   const [rebalancingBuyMap, setRebalancingBuyMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
   const [newPortfolioAnalysisResultMap, setNewPortfolioAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
+  // TAB3에서 상품/주식을 담을 때마다 백그라운드에서 돌아가는 신규 포트폴리오 재분석이 아직 진행 중인지 —
+  // 고객 전환 시 자동으로 무의미해지는 순간적 UI 상태라 고객별 map이 아니라 단순 플래그로 둔다.
+  // TAB4에서 이 값이 true인 동안 "최신 반영 중" 표시를 보여줘 사용자가 낡은 값을 최신인 줄 오해하지 않게 한다.
+  const [isNewPortfolioAnalyzing, setIsNewPortfolioAnalyzing] = useState(false);
   const [rebalancingLoadedMap, setRebalancingLoadedMap] = useState<Record<CustomerId, boolean>>({});
   const [rebalancingDirtyMap, setRebalancingDirtyMap] = useState<Record<CustomerId, boolean>>({});
   const [tab3AnalysisStateMap, setTab3AnalysisStateMap] = useState<Record<CustomerId, Tab3AnalysisState>>({});
@@ -1779,6 +1783,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState, sharedUiState, updateSharedUiState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
     confirmRebalancingBuy, resetRebalancingBuySummary, addBuyCost, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
+    isNewPortfolioAnalyzing, setIsNewPortfolioAnalyzing,
     // Tab 5 상품 선택 (고객별 Supabase 영속)
     productSelectedIds, setProductSelectedIds,
     // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)

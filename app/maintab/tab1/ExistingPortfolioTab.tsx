@@ -1160,9 +1160,28 @@ function AssetRow({
           value={fmtNum(a.amount)}
           onChange={(e) => {
             const raw = e.target.value.replace(/,/g, "");
-            onUpdate(idx, { amount: raw ? Number(raw) : 0, amount_type: "quantity" });
+            // 수량을 PB가 직접 입력/수정하는 시점 = "지금 이 수량이 맞다"고 확인한 시점이므로
+            // 자동으로 오늘 날짜를 확인일로 기록한다(액면병합 경고 판정 기준 — qtyAsOfDate 주석 참고).
+            onUpdate(idx, { amount: raw ? Number(raw) : 0, amount_type: "quantity", qtyAsOfDate: new Date().toISOString().slice(0, 10) });
           }}
         />
+        {a.needsQtyCheck && (
+          <div className="mt-1 flex flex-col gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-1">
+            <span className="text-[10px] font-bold leading-tight text-amber-700">
+              ⚠️ 액면병합 이력{a.latestSplitInfo ? `(${a.latestSplitInfo})` : ""} — 수량 확인 필요
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                // "확인했음" = 지금 수량이 맞다고 PB가 확인 — 자동으로 고치지 않고 확인일만 오늘로 갱신
+                onUpdate(idx, { qtyAsOfDate: new Date().toISOString().slice(0, 10), needsQtyCheck: false })
+              }
+              className="self-start rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 hover:bg-amber-200"
+            >
+              확인했음
+            </button>
+          </div>
+        )}
       </td>
 
       {/* 매수단가(원화) */}

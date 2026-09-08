@@ -95,7 +95,7 @@ function generatePdfComment(left: MetricSnapshot, right: MetricSnapshot): string
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
-  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData, selectedCustomerProfile } = useCustomerContext();
+  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData, selectedCustomerProfile, isNewPortfolioAnalyzing } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const [showPensionPanel, setShowPensionPanel] = useState(false);
 
@@ -205,6 +205,16 @@ export default function Tab4Page() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rightStressResult = (rightData as any)?.stressResult;
 
+  // 액면병합 수량 확인 필요 종목 — 배당·양도소득 계산 전부의 입력값(평가금액·수량)이 걸린 문제라
+  // 개별 종목 행 배지만으로는 놓칠 수 있어 포트폴리오 상단에 롤업으로도 보여준다.
+  const qtyCheckNeeded = useMemo(() => {
+    const seen = new Map<string, string | undefined>();
+    for (const a of [...leftAssets, ...rightAssets]) {
+      if (a.needsQtyCheck && a.name) seen.set(a.name, a.latestSplitInfo);
+    }
+    return Array.from(seen.entries());
+  }, [leftAssets, rightAssets]);
+
   // "세후 수익률"은 세금 점검(calcFinancialIncomeSummary)과 같은 이유로 펀드·랩어카운트를 뺀다 —
   // 이 상품들은 카탈로그에 실제 배당·이자 수익률 데이터가 없어(표시용 return1Y는 총수익률이지 배당률이
   // 아님) 세금 계산에서 사실상 반영되지 않는데, 세후 수익률에는 그대로 원금·평가금액이 섞여 들어가면
@@ -276,6 +286,21 @@ export default function Tab4Page() {
         rightMetrics={rightMetrics}
       />
 
+      {qtyCheckNeeded.length > 0 && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+          <div className="text-xs text-amber-800">
+            <p className="font-bold">액면병합 이력 감지 — 보유수량 확인이 필요합니다 ({qtyCheckNeeded.length}개 종목)</p>
+            <p className="mt-0.5 text-amber-700">
+              {qtyCheckNeeded.map(([name, split]) => `${name}${split ? `(${split})` : ""}`).join(", ")}
+            </p>
+            <p className="mt-1 text-[11px] text-amber-600">
+              수량은 자동으로 바뀌지 않습니다 — 평가금액·양도소득세·배당소득 전부에 영향을 주니 2번 탭(기존 포트폴리오)에서 실제 보유수량을 확인해주세요.
+            </p>
+          </div>
+        </div>
+      )}
+
       {showReportOptions && (
         <ReportOptionsModal
           sections={reportSections}
@@ -333,6 +358,15 @@ export default function Tab4Page() {
             <span className={`text-sm font-bold ${rightAssets.length > 0 ? "text-navy" : "text-slate-400"}`}>
               {rightData ? "신규 포트폴리오 (리밸런싱 완료)" : rightAssets.length > 0 ? "매도 후 잔여 포트폴리오" : "신규 포트폴리오 (준비 중)"}
             </span>
+            {isNewPortfolioAnalyzing && (
+              // TAB3에서 방금 담은 상품·주식이 아직 세금·지표 전체 반영 전(시세 재조회 중)이라는 표시.
+              // 자산군 비중·세후수익률은 이미 즉시 반영되지만, 세금 점검·핵심지표(샤프비율 등)는
+              // 전체 재분석이 끝나야 채워지므로, 그 사이 낡은 값을 최신인 줄 오해하지 않게 알려준다.
+              <span className="ml-auto flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-600">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                최신 반영 중...
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-4">
