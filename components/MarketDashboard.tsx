@@ -782,11 +782,13 @@ function ReportPreviewCard({
   children?: React.ReactNode;
   className?: string;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  // 시황 보고서 메일링 패널이 접힌 카드 3개만으로는 너무 짧아 보인다는 피드백에 따라 기본 펼침으로
+  // 바꿨다(2026-09) — 섹터 스캐너 쪽 높이도 이 패널 높이를 따라가므로, 같이 자연스럽게 채워진다.
+  const [isExpanded, setIsExpanded] = useState(true);
 
   return (
     <article
-      className={`${className} rounded-xl border border-slate-300 bg-slate-50 transition ${
+      className={`${className} w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 transition ${
         isExpanded ? "" : "h-[118px]"
       }`}
     >
@@ -824,7 +826,7 @@ function ReportPreviewCard({
       </div>
 
       {isExpanded ? (
-        <div className="border-t border-slate-200 px-4 pb-4 pt-3">
+        <div className="max-h-[360px] overflow-y-auto border-t border-slate-200 px-4 pb-4 pt-3">
           {children ? (
             children
           ) : (
@@ -908,7 +910,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const [savingComment, setSavingComment] = useState(false);
   const [holdingIssues, setHoldingIssues] = useState<HoldingIssueItem[]>([]);
   const [openHoldingTicker, setOpenHoldingTicker] = useState<string | null>(null);
-  const [holdingIssuesExpanded, setHoldingIssuesExpanded] = useState(false);
+  const [holdingIssuesExpanded, setHoldingIssuesExpanded] = useState(true);
   const [loadingHoldingIssues, setLoadingHoldingIssues] = useState(false);
   const [holdingIssuesError, setHoldingIssuesError] = useState("");
   const [portfolioHealthItems, setPortfolioHealthItems] = useState<Array<{
@@ -2138,16 +2140,24 @@ async function handleSendPdfToCustomer() {
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="grid gap-3">
+      {/* 옆(섹터 스캐너)과 나란히 절반 폭만 쓰게 되면서, 전체 페이지 폭 기준으로 잡혀 있던
+          xl:/lg: 반응형 컬럼 분기가 실제 컨테이너 폭보다 훨씬 넓은 뷰포트에서도 계속 다단으로 쪼개져
+          카드 안 글자가 세로로 깨지는 문제가 있었다(2026-09 발견·수정) — 뷰포트 기준이 아니라 항상
+          고정된 컬럼 수로 이 컨테이너의 실제 폭을 그대로 채우도록 바꾼다. */}
+      {/* grid(테두리 없는 암묵 컬럼)는 컨테이너가 w-full이어도 내부 트랙이 콘텐츠 크기만큼만 잡혀서
+          오른쪽에 빈 공간이 남는 문제가 있었다(2026-09 발견·수정) — 세로로 쌓기만 하면 되는 곳은
+          flex-col로 바꿔서 자식이 항상 100% 폭을 쓰게 한다. 실제로 2열이 필요한 곳(전일 미국 시황/
+          당일 국내 시황 카드 두 개)만 grid-cols-2를 그대로 쓴다. */}
+      <div className="flex w-full flex-col gap-3">
+        <div className="flex w-full flex-col gap-3">
 
 
           {reportsError ? <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">{reportsError}</p> : null}
           {actionMessage ? <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">{actionMessage}</p> : null}
         </div>
 
-        <div className="grid gap-3">
-          <div className="grid gap-3 lg:grid-cols-2">
+        <div className="flex w-full flex-col gap-3">
+          <div className="grid w-full grid-cols-2 gap-3">
             {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={marketCardSummary(usReport, "us")} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={marketCardMeta(usReport, "us").replace(/^.*?·\s*/, "")} /> : null}
             {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={marketCardSummary(krReport, "kr")} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={marketCardMeta(krReport, "kr").replace(/^.*?·\s*/, "")} /> : null}
           </div>
@@ -2195,7 +2205,6 @@ async function handleSendPdfToCustomer() {
 
   return (
     <div className={`lg:col-span-2 rounded-xl border border-slate-300 bg-slate-50 transition ${holdingIssuesExpanded ? "" : "h-[118px]"}`}>
-      <div>
   <button
     type="button"
     onClick={() => setHoldingIssuesExpanded((prev) => !prev)}
@@ -2217,7 +2226,11 @@ async function handleSendPdfToCustomer() {
       aria-hidden="true"
     />
   </button>
+  {/* 펼쳤을 때 종목이 많으면 카드가 한없이 길어져 가시성이 떨어지는 문제가 있어(2026-09) 이 안쪽
+      내용 전체(요약문+안내문구+종목 목록)를 하나의 스크롤 영역으로 묶었다 — 토글 버튼은 이 밖에 둬서
+      스크롤을 내려도 항상 접기 버튼을 다시 누를 수 있다. */}
   {holdingIssuesExpanded ? (
+    <div className="max-h-[360px] overflow-y-auto">
     <div className="border-t border-slate-200 px-4 pb-4 pt-3">
       <p className="text-xs font-bold text-slate-500">
         {loadingHoldingIssues
@@ -2229,20 +2242,16 @@ async function handleSendPdfToCustomer() {
               : "현재 주요 이슈가 감지된 보유 종목이 없습니다."}
       </p>
     </div>
-  ) : null}
 
-  {holdingIssuesExpanded &&
-  !loadingHoldingIssues &&
-  !holdingIssuesError &&
-  groupedIssues.length > 0 ? (
-    <p className="mt-2 px-4 text-[10px] font-medium text-slate-400">
-      ※종목명에 마우스를 올리면 해당 종목 보유고객을 확인할 수 있습니다.
-    </p>
-  ) : null}
-</div>
+    {!loadingHoldingIssues &&
+    !holdingIssuesError &&
+    groupedIssues.length > 0 ? (
+      <p className="mt-2 px-4 text-[10px] font-medium text-slate-400">
+        ※종목명에 마우스를 올리면 해당 종목 보유고객을 확인할 수 있습니다.
+      </p>
+    ) : null}
 
-      {holdingIssuesExpanded &&
-        !loadingHoldingIssues &&
+        {!loadingHoldingIssues &&
         !holdingIssuesError &&
         groupedIssues.length > 0 ? (
           <div className="grid gap-2 px-4 pb-4">
@@ -2361,6 +2370,8 @@ async function handleSendPdfToCustomer() {
             })}
           </div>
         ) : null}
+    </div>
+  ) : null}
     </div>
   );
 })() : null}
@@ -2833,7 +2844,7 @@ async function handleSendPdfToCustomer() {
                   </div>
                 </div>
               ) : null}
-              <div className="flex h-[58dvh] w-full max-w-none min-w-0 flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ height: "72vh", maxHeight: "72vh", width: "86vw", maxWidth: "1540px", minWidth: "1050px" }}>
+              <div className="flex h-[58dvh] w-full max-w-none min-w-0 flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ height: "88vh", maxHeight: "88vh", width: "86vw", maxWidth: "1540px", minWidth: "1050px" }}>
 
             <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
               <div>
@@ -3341,17 +3352,18 @@ async function handleSendPdfToCustomer() {
                                                 <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(row.returnRate)} style={{ fontSize: "7pt" }}>{formatPdfPercent(row.returnRate)}</td>
                                               </tr>
                                             ))}
-                                          </tbody>
-                                          <tfoot className="border-t border-slate-200 bg-slate-50">
-                                            <tr>
-                                              <td className="px-1.5 py-1.5 font-black text-slate-800" style={{ fontSize: "7pt" }}>합계</td>
-                                              <td className="px-1 py-1.5 text-right text-slate-400" style={{ fontSize: "7pt" }}>-</td>
-                                              <td className="px-1 py-1.5 text-right text-slate-400" style={{ fontSize: "7pt" }}>-</td>
-                                              <td className="px-1 py-1.5 text-right text-slate-600" style={{ fontSize: "7pt" }}>{totalPortfolioValue > 0 ? Math.round(totalPortfolioValue).toLocaleString("ko-KR") : "-"}</td>
-                                              <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(totalPortfolioProfitLoss)} style={{ fontSize: "7pt" }}>{formatPdfCurrency(totalPortfolioProfitLoss)}</td>
-                                              <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(totalPortfolioReturn)} style={{ fontSize: "7pt" }}>{formatPdfPercent(totalPortfolioReturn)}</td>
+                                            {/* tfoot은 표가 여러 페이지로 나뉘면 인쇄 시 페이지마다 반복 출력돼("합계"가
+                                                중간에도 계속 나타남) — tbody 마지막 행으로 넣어서 실제 마지막에 한 번만
+                                                나오게 한다(2026-09 발견·수정). 폰트도 7pt→10pt로 키움. */}
+                                            <tr className="border-t border-slate-200 bg-slate-50">
+                                              <td className="px-1.5 py-1.5 font-black text-slate-800" style={{ fontSize: "10pt" }}>합계</td>
+                                              <td className="px-1 py-1.5 text-right text-slate-400" style={{ fontSize: "10pt" }}>-</td>
+                                              <td className="px-1 py-1.5 text-right text-slate-400" style={{ fontSize: "10pt" }}>-</td>
+                                              <td className="px-1 py-1.5 text-right text-slate-600" style={{ fontSize: "10pt" }}>{totalPortfolioValue > 0 ? Math.round(totalPortfolioValue).toLocaleString("ko-KR") : "-"}</td>
+                                              <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(totalPortfolioProfitLoss)} style={{ fontSize: "10pt" }}>{formatPdfCurrency(totalPortfolioProfitLoss)}</td>
+                                              <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(totalPortfolioReturn)} style={{ fontSize: "10pt" }}>{formatPdfPercent(totalPortfolioReturn)}</td>
                                             </tr>
-                                          </tfoot>
+                                          </tbody>
                                         </table>
                                         <p className="border-t border-slate-100 px-1.5 py-1 text-right font-semibold text-slate-400" style={{ fontSize: "6.5pt" }}>
                                           {portfolioPriceAsOfLabel ? "현재가 기준 " + portfolioPriceAsOfLabel : "현재가 기준시각을 확인할 수 없습니다."}

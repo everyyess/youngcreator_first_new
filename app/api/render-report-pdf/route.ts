@@ -166,12 +166,12 @@ export async function POST(request: NextRequest) {
         const [, viewY, viewWidth, viewHeight] = viewBox;
         const width = Math.max(280, Math.min(320, Math.ceil(viewHeight * 1.25)));
         const height = Math.max(1, Math.ceil(viewHeight));
-        const drawableBounds = Array.from(svg.querySelectorAll<SVGGraphicsElement>("path, text, line, circle, polygon, polyline")).map((element) => {
-          try { const bounds = element.getBBox(); return { left: bounds.x, right: bounds.x + bounds.width }; } catch { return null; }
-        }).filter((bounds): bounds is { left: number; right: number } => Boolean(bounds));
-        const visualLeft = drawableBounds.length ? Math.min(...drawableBounds.map((bounds) => bounds.left)) : viewBox[0];
-        const visualRight = drawableBounds.length ? Math.max(...drawableBounds.map((bounds) => bounds.right)) : viewBox[0] + viewWidth;
-        const visualCenter = (visualLeft + visualRight) / 2;
+        // Recharts는 극좌표 차트(RadarChart)를 항상 자신의 viewBox 정중앙(cx=50%, cy=50%)에 그린다.
+        // 예전엔 "실제로 그려진 요소들의 bounding box"(getBBox) 중심으로 크롭했는데, 축 라벨 텍스트
+        // (예: "세금 효율성"처럼 긴 글자)가 좌우로 비대칭하게 뻗어 있으면 그 중심이 진짜 도형 중심과
+        // 어긋나서 PDF에서 레이더 차트가 한쪽으로 치우쳐 보이는 문제가 있었다(2026-09 발견·수정).
+        // 라벨 범위가 아니라 viewBox 자체의 기하학적 중심을 기준으로 크롭하면 항상 정중앙에 온다.
+        const visualCenter = viewBox[0] + viewWidth / 2;
         const cropViewBox = `${visualCenter - width / 2} ${viewY} ${width} ${height}`;
         const svgClone = svg.cloneNode(true) as SVGElement;
         svgClone.setAttribute("width", String(width));

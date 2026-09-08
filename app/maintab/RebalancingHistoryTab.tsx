@@ -258,13 +258,10 @@ function displayCategory(
   return raw || "-";
 }
 
-function PortfolioCompareModal({
-  record,
-  onClose,
-}: {
-  record: RebalancingHistoryRecord;
-  onClose: () => void;
-}) {
+// 표(전후 비교 테이블) 자체만 — 모달 껍데기(오버레이·헤더·닫기버튼) 없이 순수 콘텐츠만 그린다.
+// 홈 화면의 "상담 내역" 펼침 화면(app/home/page.tsx)에 같은 표를 그대로 끼워 넣기 위해 분리했다
+// (그쪽은 이미 자체 모달 안이라, 모달 안에 또 모달을 겹쳐 넣을 수 없어서).
+export function PortfolioCompareTable({ record }: { record: RebalancingHistoryRecord }) {
   const rows = useMemo(() => {
     const before = new Map(
       record.beforePortfolio.map((item) => [snapshotKey(item), item]),
@@ -412,35 +409,13 @@ function PortfolioCompareModal({
   );
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-6"
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
-      }}
-    >
-      <div className="max-h-[88vh] w-full max-w-[1500px] overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <div>
-            <h3 className="text-lg font-black text-slate-900">
-              포트폴리오 전후 비교
-            </h3>
+    <div>
+      <p className="mb-3 text-xs text-slate-500">
+        {formatDateTime(record.consultationAt)} 상담 기준
+      </p>
 
-            <p className="mt-1 text-xs text-slate-500">
-              {formatDateTime(record.consultationAt)} 상담 기준
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="max-h-[72vh] overflow-auto p-6">
-          <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full min-w-[1180px] border-collapse text-sm">
               <thead className="bg-slate-50">
                 <tr className="border-b border-slate-200">
@@ -577,6 +552,44 @@ function PortfolioCompareModal({
             <span>※ 초록 행: 신규 편입·가입</span>
             <span>※ 금액: 저장 금액 우선, 없으면 수량 × 단가</span>
           </div>
+      </div>
+    </div>
+  );
+}
+
+// 모달 껍데기(오버레이·헤더·닫기버튼) + PortfolioCompareTable — 탭3-3(리밸런싱 히스토리) 자체 화면의
+// 팝업 용도로 계속 이 형태를 쓴다.
+function PortfolioCompareModal({
+  record,
+  onClose,
+}: {
+  record: RebalancingHistoryRecord;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-6"
+      onMouseDown={(event) => {
+        if (event.currentTarget === event.target) onClose();
+      }}
+    >
+      <div className="max-h-[88vh] w-full max-w-[1500px] overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h3 className="text-lg font-black text-slate-900">
+            포트폴리오 전후 비교
+          </h3>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[72vh] overflow-auto p-6">
+          <PortfolioCompareTable record={record} />
         </div>
       </div>
     </div>
