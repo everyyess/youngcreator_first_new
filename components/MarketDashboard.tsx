@@ -3098,7 +3098,8 @@ async function handleSendPdfToCustomer() {
                 </div>
               </aside>
 
-              <main className="h-full min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto bg-slate-200 p-3">
+              <main className="pdf-preview-scroll h-full min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto bg-slate-200 p-3 pb-8">
+                <style>{`.pdf-preview-scroll #market-report-pdf { height: auto !important; min-height: 1123px; overflow: visible !important; }`}</style>
                 <div className="flex w-full min-w-[794px] justify-start px-[24px]">
 
                   <div
@@ -3152,7 +3153,7 @@ async function handleSendPdfToCustomer() {
                             (line) => pdfLineIncluded[line.id] !== false,
                           );
                           const isPortfolioPerformanceSection = section.id === "portfolioPerformance";
-                          const showPortfolioPerformanceContent = isPortfolioPerformanceSection && selectedLines.some((line) => line.id === "portfolioPerformance:content");
+                          const showPortfolioPerformanceContent = isPortfolioPerformanceSection && pdfLineIncluded["portfolioPerformance:content"] !== false;
                           const previewLines = isPortfolioPerformanceSection
                             ? selectedLines.filter((line) => line.id !== "portfolioPerformance:content")
                             : selectedLines;
