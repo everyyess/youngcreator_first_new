@@ -176,18 +176,30 @@ export default function Tab4Page() {
   // 가격 정보를 못 찾아 current_value=0으로 빠지고, 그 결과 도넛차트가 그 종목을 "가치 없음"으로 취급해
   // 상품(채권 등) 하나가 100%인 것처럼 보이는 왜곡이 생겼다.
   const rightAssets: PortfolioAsset[] = useMemo(() => {
+    // 이름 기준 매칭 외에 티커 기준도 같이 인덱싱한다 — runAnalysis가 종목코드로 잘못 박혀있던
+    // name을 공식 종목명으로 보정해도(2026-09), rebalancingSellAssets 쪽은 아직 옛 이름(코드) 그대로라
+    // 이름만으로 매칭하면 서로 어긋나서 가격·섹터 보완까지 통째로 실패했다 — 티커가 있으면 티커로도
+    // 매칭해서 이 경우를 구제하고, 매칭되면 name도 보정된 값으로 같이 교체한다.
     const priceByName = new Map<string, PortfolioAsset>();
-    for (const a of leftAssets) if (a.name) priceByName.set(a.name, a);
+    const priceByTicker = new Map<string, PortfolioAsset>();
+    for (const a of leftAssets) {
+      if (a.name) priceByName.set(a.name, a);
+      if (a.ticker) priceByTicker.set(a.ticker, a);
+    }
     if (Array.isArray(rightData?.enrichedAssets)) {
-      for (const a of rightData!.enrichedAssets as PortfolioAsset[]) if (a.name) priceByName.set(a.name, a);
+      for (const a of rightData!.enrichedAssets as PortfolioAsset[]) {
+        if (a.name) priceByName.set(a.name, a);
+        if (a.ticker) priceByTicker.set(a.ticker, a);
+      }
     }
     return rebalancingSellAssets
       .filter((a) => a.amount > 0)
       .map((a) => {
-        const priced = a.name ? priceByName.get(a.name) : undefined;
+        const priced = (a.ticker ? priceByTicker.get(a.ticker) : undefined) ?? (a.name ? priceByName.get(a.name) : undefined);
         const isBond = a.asset_class === "국내채권" || a.asset_class === "해외채권" || a.productType === "국내채권" || a.productType === "해외채권";
         return {
           ...a,
+          name: priced?.name || a.name,
           current_price: a.current_price ?? priced?.current_price,
           current_value: a.current_value ?? priced?.current_value,
           // sector도 가격과 같은 이유로 보완 필요 — 안 하면 방금 담은 자산은 전부 "기타"로 잡혀
