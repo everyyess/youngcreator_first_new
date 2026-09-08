@@ -1223,7 +1223,7 @@ export default function BuySimulatorTab() {
     <div className="flex flex-col gap-5">
 
       {/* ── 레이어 1: 가용 자금 전광판 (클라이언트 숨김) ─────────── */}
-      <div className="hidden rounded-xl border border-slate-200 bg-gradient-to-br from-[#2f2f9d] to-[#4a4ab8] p-4 text-white shadow-soft">
+      <div className="hidden rounded-xl border border-slate-200 bg-gradient-to-br from-[#2563eb] to-[#3b82f6] p-4 text-white shadow-soft">
         <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-white/60">
           <DollarSign size={13} />
           Buying Power — 가용 투자 자금
@@ -1735,14 +1735,14 @@ export default function BuySimulatorTab() {
       <div className="rounded-xl border border-slate-200 bg-white shadow-soft">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
           <div className="flex items-center gap-2">
-            <Plus size={16} className="text-violet-600" />
+            <Plus size={16} className="text-blue-600" />
             <span className="text-sm font-bold text-navy">PB 직접 추가 매수</span>
           </div>
           <button
             type="button"
             onClick={addPbRow}
             disabled={isCustomerView}
-            className="flex items-center gap-1.5 rounded-lg border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={12} />
             종목 추가
@@ -1784,7 +1784,7 @@ export default function BuySimulatorTab() {
                             value={row.productType}
                             onChange={(e) => updatePbRow(row.id, { productType: e.target.value })}
                             disabled={isCustomerView}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-navy outline-none focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-navy outline-none focus:border-[#2563eb] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <option>국내주식</option>
                             <option>해외주식</option>
@@ -1809,7 +1809,7 @@ export default function BuySimulatorTab() {
                               className={`w-full rounded border px-2 py-1 text-xs outline-none ${
                                 isBond
                                   ? "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400 placeholder:text-slate-300"
-                                  : "border-slate-200 bg-white text-navy placeholder:text-slate-300 focus:border-[#2f2f9d]"
+                                  : "border-slate-200 bg-white text-navy placeholder:text-slate-300 focus:border-[#2563eb]"
                               }`}
                             />
                             {pbState.loading && !isBond && (
@@ -1854,7 +1854,7 @@ export default function BuySimulatorTab() {
                             onChange={(e) => updatePbRow(row.id, { quantity: e.target.value })}
                             placeholder="0"
                             disabled={isCustomerView}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb] disabled:cursor-not-allowed disabled:opacity-50"
                           />
                         </td>
                         {/* 매수단가(원화) — 채권: 직접 입력 / 비채권: read-only 자동 연산 */}
@@ -1869,7 +1869,7 @@ export default function BuySimulatorTab() {
                                 updatePbRow(row.id, { amountManStr: raw });
                               }}
                               placeholder="투자금액(원)"
-                              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d]"
+                              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb]"
                             />
                           ) : (
                             <>
@@ -1894,7 +1894,7 @@ export default function BuySimulatorTab() {
                             onChange={(e) => updatePbRow(row.id, { bondYield: e.target.value })}
                             disabled={!isBond || isCustomerView}
                             placeholder={isBond ? "%" : "—"}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
                           />
                         </td>
                         {/* 만기(년) — 채권 유형만 활성 */}
@@ -1907,7 +1907,7 @@ export default function BuySimulatorTab() {
                             onChange={(e) => updatePbRow(row.id, { maturityYears: e.target.value })}
                             disabled={!isBond || isCustomerView}
                             placeholder={isBond ? "년" : "—"}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2f2f9d] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
                           />
                         </td>
                         {/* 삭제 */}
@@ -1927,18 +1927,18 @@ export default function BuySimulatorTab() {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between border-t border-slate-100 bg-violet-50 px-4 py-2.5">
+            <div className="flex items-center justify-between border-t border-slate-100 bg-blue-50 px-4 py-2.5">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-violet-700">매수 합계</span>
+                <span className="text-xs font-bold text-blue-700">매수 합계</span>
                 {usdKrwRate > 100 && (
-                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] text-violet-500">
+                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[9px] text-blue-500">
                     USD/KRW {usdKrwRate.toLocaleString("ko-KR", { maximumFractionDigits: 0 })}
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-3">
                 <span
-                  className={`text-sm font-black ${isOverBudget ? "text-red-600" : "text-violet-900"}`}
+                  className={`text-sm font-black ${isOverBudget ? "text-red-600" : "text-blue-900"}`}
                 >
                   {fmtKrwMan(pbTotalAmount)}
                 </span>
@@ -1946,7 +1946,7 @@ export default function BuySimulatorTab() {
                   type="button"
                   disabled={!hasPbItems}
                   onClick={handlePbConfirm}
-                  className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <CheckCircle2 size={12} />
                   매수 확정

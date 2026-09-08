@@ -32,9 +32,26 @@ function buildPdfHtml(bodyHtml: string, styles: string) {
   />
 
   <style>
+    /* Pretendard 임베드 — render-report-pdf/route.ts와 동일한 이유·동일한 소스(TAB4 제안서 PDF가
+       Font.register()로 쓰는 jsdelivr fonts-archive OTF)로 맞춘다. 이메일 전송용 PDF도 같은
+       Puppeteer 파이프라인이라 폰트를 지정 안 하면 Vercel에서 한글이 깨진다(2026-09 발견·수정). */
+    @font-face {
+      font-family: "Pretendard";
+      src: url("https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Regular.otf") format("opentype");
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Pretendard";
+      src: url("https://cdn.jsdelivr.net/gh/fonts-archive/Pretendard/Pretendard-Bold.otf") format("opentype");
+      font-weight: bold;
+      font-style: normal;
+    }
     ${styles}
 
-    
+    html, body, #market-report-pdf {
+      font-family: "Pretendard", sans-serif;
+    }
 
     @page { size: A4; margin: 64.19px 106.98px; }
     html,

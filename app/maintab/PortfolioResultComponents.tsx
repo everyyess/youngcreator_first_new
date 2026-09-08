@@ -8,10 +8,18 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  Boxes,
+  Coins,
+  Gauge,
   GitCompare,
+  Layers,
   ShieldCheck,
+  Target,
+  TrendingDown,
   TrendingUp,
   WalletCards,
+  Waves,
+  XCircle,
 } from "lucide-react";
 import { useCustomerContext, type PortfolioAnalysisResult, type PortfolioAsset } from "./CustomerContext";
 import { calcAfterTaxReturn, FINANCIAL_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
@@ -1366,19 +1374,37 @@ export function StressScenarioBar({
   );
 }
 
+// 배지(Hold/Rebalance/Sell) 색 테마 — HealthBadge·HealthSummaryBox·이슈 리스트가 모두 같은 기준을 쓴다.
+const HEALTH_BADGE_THEME: Record<string, { hex: string; border: string; bg: string; text: string; pill: string }> = {
+  Hold: { hex: "#10b981", border: "border-emerald-200", bg: "bg-emerald-50", text: "text-emerald-800", pill: "bg-emerald-600" },
+  Rebalance: { hex: "#f59e0b", border: "border-amber-200", bg: "bg-amber-50", text: "text-amber-800", pill: "bg-amber-500" },
+  Sell: { hex: "#ef4444", border: "border-red-200", bg: "bg-red-50", text: "text-red-800", pill: "bg-red-600" },
+};
+
+// 진단 항목별 아이콘 — quantEngine.js portfolioHealthCheck()의 item.key와 1:1로 대응.
+const HEALTH_ITEM_ICON: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+  diversification: Layers,
+  single_stock: Target,
+  single_sector: Boxes,
+  volatility: Waves,
+  sharpe: Gauge,
+  mdd: TrendingDown,
+  tax_efficiency: Coins,
+};
+
 export function HealthBadge({ badge, badgeKo, totalScore }: { badge: string; badgeKo: string; totalScore: number }) {
-  const styles: Record<string, string> = {
-    Hold: "bg-emerald-100 text-emerald-800 border-emerald-200",
-    Rebalance: "bg-amber-100 text-amber-800 border-amber-200",
-    Sell: "bg-red-100 text-red-800 border-red-200",
-  };
+  const t = HEALTH_BADGE_THEME[badge] ?? HEALTH_BADGE_THEME.Rebalance;
+  const dashIdx = badgeKo.indexOf(" – ");
+  const main = dashIdx >= 0 ? badgeKo.slice(0, dashIdx).trim() : badgeKo;
+  const action = dashIdx >= 0 ? badgeKo.slice(dashIdx + 3).trim() : "";
   return (
-    <div className="flex items-center gap-3">
-      <span className={`rounded-lg border px-4 py-2 text-lg font-bold ${styles[badge] ?? styles.Rebalance}`}>{badge}</span>
-      <div>
-        <p className="text-sm font-bold text-navy">{badgeKo}</p>
-        <p className="text-xs text-slate-500">{totalScore}/14점</p>
+    <div className={`flex flex-wrap items-center gap-4 rounded-xl border ${t.border} ${t.bg} px-5 py-4`}>
+      <span className={`rounded-lg ${t.pill} px-4 py-2 text-lg font-black text-white shadow-sm`}>{badge}</span>
+      <div className="min-w-0">
+        <p className={`text-sm font-bold ${t.text}`}>{main}</p>
+        {action && <p className={`mt-0.5 text-xs ${t.text} opacity-80`}>{action}</p>}
       </div>
+      <span className={`ml-auto whitespace-nowrap text-sm font-black ${t.text}`}>{totalScore}<span className="text-xs font-bold opacity-70"> / 14점</span></span>
     </div>
   );
 }
@@ -1391,7 +1417,7 @@ export function HealthSummaryBox({ healthResult }: { healthResult: any }) {
   const score: number = healthResult.totalScore ?? 0;
   const badge: string = healthResult.badge ?? "Rebalance";
 
-  const arcLen = Math.PI * 75;
+  const arcLen = Math.PI * 110;
   const filled = arcLen * (score / 14);
   const gaugeColor = badge === "Hold" ? "#10b981" : badge === "Sell" ? "#ef4444" : "#f59e0b";
 
@@ -1403,24 +1429,26 @@ export function HealthSummaryBox({ healthResult }: { healthResult: any }) {
     ? "위 주의 항목을 점검하고 점진적 조정을 검토하세요."
     : "현재 포트폴리오를 유지하며 정기 점검을 진행하세요.";
 
+  // 오른쪽 레이더 카드(차트 280px + 필 목록)와 세로 비율을 맞추기 위해 게이지 자체를 키우고,
+  // 안내 문구는 카드 밖(아래)으로 뺐다 — 카드는 flex-1로 늘어나 남는 세로 공간을 게이지가 채운다.
   return (
-    <div className="rounded-xl border border-slate-100 bg-white p-5">
-      <div className="flex flex-col items-center">
-        <svg width="190" height="108" viewBox="0 0 190 108" className="overflow-visible">
-          <path d="M 20 100 A 75 75 0 0 1 170 100" fill="none" stroke="#e2e8f0" strokeWidth="14" strokeLinecap="round" />
-          <path d="M 20 100 A 75 75 0 0 1 170 100" fill="none" stroke={gaugeColor} strokeWidth="14" strokeLinecap="round" strokeDasharray={`${filled} ${arcLen + 20}`} />
-          <text x="95" y="85" textAnchor="middle" fontSize="28" fontWeight="900" fill={gaugeColor}>
+    <div className="flex h-full flex-col gap-3">
+      <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-slate-100 bg-white p-6">
+        <svg width="260" height="150" viewBox="0 0 260 150" className="overflow-visible">
+          <path d="M 20 140 A 110 110 0 0 1 240 140" fill="none" stroke="#e2e8f0" strokeWidth="18" strokeLinecap="round" />
+          <path d="M 20 140 A 110 110 0 0 1 240 140" fill="none" stroke={gaugeColor} strokeWidth="18" strokeLinecap="round" strokeDasharray={`${filled} ${arcLen + 30}`} />
+          <text x="130" y="118" textAnchor="middle" fontSize="40" fontWeight="900" fill={gaugeColor}>
             {score}
           </text>
-          <text x="95" y="103" textAnchor="middle" fontSize="11" fontWeight="700" fill="#94a3b8">
+          <text x="130" y="144" textAnchor="middle" fontSize="16" fontWeight="700" fill="#94a3b8">
             / 14점
           </text>
         </svg>
-        <p className="mt-1 text-sm font-bold" style={{ color: gaugeColor }}>
+        <p className="mt-2 text-base font-bold" style={{ color: gaugeColor }}>
           {(healthResult.badgeKo as string)?.split(" – ")[0] ?? badge}
         </p>
       </div>
-      <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold leading-relaxed text-slate-600">{actionText}</p>
+      <p className="rounded-lg bg-slate-50 px-3 py-2.5 text-center text-sm font-semibold leading-relaxed text-slate-600">{actionText}</p>
     </div>
   );
 }
@@ -1456,11 +1484,16 @@ export function HealthRadarChart({ items, badge }: { items: HealthDiagnosisItem[
         </RadarChart>
       </ResponsiveContainer>
       <div className="mt-2 flex flex-wrap justify-center gap-2">
-        {items.map((item) => (
-          <span key={item.key} title={item.detail} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${item.score === 2 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : item.score === 1 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-red-200 bg-red-50 text-red-700"}`}>
-            {item.label} {item.score}/2
-          </span>
-        ))}
+        {/* 초록(2점) → 주황(1점) → 빨강(0점) 순으로 정렬해서 위험도가 한눈에 왼쪽부터 좋은 순으로 읽히게 한다. */}
+        {[...items].sort((a, b) => b.score - a.score).map((item) => {
+          const ItemIcon = HEALTH_ITEM_ICON[item.key];
+          return (
+            <span key={item.key} title={item.detail} className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${item.score === 2 ? "border-emerald-200 bg-emerald-50 text-emerald-700" : item.score === 1 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+              {ItemIcon && <ItemIcon size={11} className="shrink-0 opacity-70" />}
+              {item.label} {item.score}/2
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -1632,42 +1665,48 @@ export function PortfolioDiagnosisSection({ data }: { data: PortfolioAnalysisRes
                   <AlertTriangle size={14} className="shrink-0 text-red-500" />
                   <span className="text-xs font-extrabold uppercase tracking-widest text-red-600">포트폴리오 핵심 이슈</span>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {problemItems.length > 0 && (
                     <div>
-                      <p className="mb-1.5 flex items-center gap-1 text-xs font-bold text-red-600">
+                      <p className="mb-2 flex items-center gap-1 text-xs font-bold text-red-600">
                         <span>✕</span> 위험 항목
                       </p>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="space-y-1.5">
                         {problemItems.map((it: any) => (
-                          <span
+                          <div
                             key={it.key}
-                            title={it.detail}
-                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                              it.penalty ? "border-red-300 bg-red-100 text-red-800" : "border-red-200 bg-red-50 text-red-700"
-                            }`}
+                            className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${it.penalty ? "border-red-300 bg-red-100" : "border-red-200 bg-red-50"}`}
                           >
-                            {it.penalty ? "🔴" : "●"} {it.label}
-                          </span>
+                            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-red-500" />
+                            <XCircle size={13} className="mt-0.5 shrink-0 text-red-500" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-red-800">{it.label}</p>
+                              {it.detail && <p className="mt-0.5 text-[11px] leading-relaxed text-red-700">{it.detail}</p>}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
                   )}
                   {cautionItems.length > 0 && (
                     <div>
-                      <p className="mb-1.5 flex items-center gap-1 text-xs font-bold text-amber-600">
+                      <p className="mb-2 flex items-center gap-1 text-xs font-bold text-amber-600">
                         <span>⚠</span> 주의 항목
                       </p>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="space-y-1.5">
                         {cautionItems.map((it: any) => (
-                          <span key={it.key} title={it.detail} className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                            ● {it.label}
-                          </span>
+                          <div key={it.key} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                            <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-500" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-amber-800">{it.label}</p>
+                              {it.detail && <p className="mt-0.5 text-[11px] leading-relaxed text-amber-700">{it.detail}</p>}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
                   )}
-                 
                 </div>
               </div>
             )}

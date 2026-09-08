@@ -105,7 +105,7 @@ export default function ProposalReviewModal({ draft, sectionIssues, onCancel, on
               <div
                 key={key}
                 className={`rounded-lg border p-4 transition ${
-                  state.checked ? "border-[#1428A0]/30 bg-[#EEF1FA]" : "border-slate-200 bg-white"
+                  state.checked ? "border-[#2563eb]/30 bg-[#eff6ff]" : "border-slate-200 bg-white"
                 }`}
               >
                              <div className="mb-2 flex items-center justify-between">
@@ -114,12 +114,12 @@ export default function ProposalReviewModal({ draft, sectionIssues, onCancel, on
                     <span
                       onClick={() => updateSection(key, { checked: !state.checked })}
                       className={`flex h-5 w-5 items-center justify-center rounded border-2 transition ${
-                        state.checked ? "border-[#1428A0] bg-[#1428A0]" : "border-slate-300 bg-white"
+                        state.checked ? "border-[#2563eb] bg-[#2563eb]" : "border-slate-300 bg-white"
                       }`}
                     >
                       {state.checked && <CheckCircle2 size={14} className="text-white" />}
                     </span>
-                    <span className={state.checked ? "text-[#1428A0]" : ""}>검토 완료</span>
+                    <span className={state.checked ? "text-[#2563eb]" : ""}>검토 완료</span>
                   </label>
                 </div>
 
@@ -137,7 +137,7 @@ export default function ProposalReviewModal({ draft, sectionIssues, onCancel, on
                     onBlur={() => setEditingKey(null)}
                     autoFocus
                     rows={5}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-[#2f2f9d]"
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-[#2563eb]"
                   />
                 ) : (
                   <p
@@ -154,7 +154,7 @@ export default function ProposalReviewModal({ draft, sectionIssues, onCancel, on
                   value={state.pbComment}
                   onChange={(e) => updateSection(key, { pbComment: e.target.value })}
                   placeholder="PB 코멘트 (선택 — 제안서에 별도 표기됩니다)"
-                  className="mt-2 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] text-slate-600 outline-none focus:border-[#2f2f9d]"
+                  className="mt-2 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] text-slate-600 outline-none focus:border-[#2563eb]"
                 />
               </div>
             );
@@ -177,7 +177,7 @@ export default function ProposalReviewModal({ draft, sectionIssues, onCancel, on
               onClick={handleApprove}
               disabled={!allChecked}
               className={`flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-bold text-white transition ${
-                allChecked ? "bg-[#2f2f9d] hover:bg-[#0B1F3A]" : "cursor-not-allowed bg-slate-300"
+                allChecked ? "bg-[#2563eb] hover:bg-[#1d4ed8]" : "cursor-not-allowed bg-slate-300"
               }`}
             >
               <CheckCircle2 size={15} />

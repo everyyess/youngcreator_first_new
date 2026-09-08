@@ -8,7 +8,7 @@ const PDFDownloadLinkLazy = dynamic(
   () => import("@react-pdf/renderer").then((mod) => mod.PDFDownloadLink),
   { ssr: false },
 ) as any;
-import { Activity, AlertTriangle, Download, GitCompare, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
+import { Activity, AlertTriangle, Download, GitCompare, Loader2, Mail, Sparkles, TrendingUp, WalletCards, X } from "lucide-react";
 import PensionTaxPanel from "../tab1/PensionTaxPanel";
 import { useCustomerView } from "../CustomerViewContext";
 import {
@@ -595,10 +595,12 @@ function ReportOptionsModal({
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <h3 className="text-base font-bold text-navy">제안서 PDF 옵션 선택</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+          <button type="button" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+            <X size={16} />
+          </button>
         </div>
         <div className="px-6 py-5">
-          
+
           <p className="mb-3 text-xs font-bold text-slate-500 uppercase tracking-wide">포함할 항목 선택</p>
           <div className="space-y-2.5">
             {OPTIONAL_SECTIONS.map((opt) => (
@@ -609,17 +611,20 @@ function ReportOptionsModal({
             ))}
           </div>
         </div>
-        <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
-          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">취소</button>
-          <PDFDownloadLinkClient
-            customerId={customerId}
-            customerName={customerName} reportDate={today} sections={sections}
-            left={leftSide} right={rightSide}
-            leftTaxSummary={summary} rightTaxSummary={newSummary}
-            marginalTaxRate={marginalTaxRate} mode={mode} onGenerated={onClose}
-            leftMetrics={leftMetrics} rightMetrics={rightMetrics}
-            consultationProposal={consultationProposal}
-          />
+        <div className="border-t border-slate-100 px-6 py-4">
+          <p className="mb-3 text-xs font-semibold text-slate-400">{customerName || "선택된 고객"} 고객님 기준으로 생성됩니다.</p>
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose} className="shrink-0 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-50">취소</button>
+            <PDFDownloadLinkClient
+              customerId={customerId}
+              customerName={customerName} reportDate={today} sections={sections}
+              left={leftSide} right={rightSide}
+              leftTaxSummary={summary} rightTaxSummary={newSummary}
+              marginalTaxRate={marginalTaxRate} mode={mode} onGenerated={onClose}
+              leftMetrics={leftMetrics} rightMetrics={rightMetrics}
+              consultationProposal={consultationProposal}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -675,12 +680,35 @@ function PDFDownloadLinkClient(props: {
     } finally { setSending(false); }
   }
 
-  if (!PDFDownloadLink) return <button type="button" disabled className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">\uC900\uBE44 \uC911...</button>;
+  if (!PDFDownloadLink) return (
+    <button type="button" disabled className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">
+      <Loader2 size={15} className="animate-spin" />
+      {"\uC900\uBE44 \uC911..."}
+    </button>
+  );
   return (
     <div className="flex min-w-0 flex-1 flex-wrap gap-3">
-      <PDFDownloadLink document={pdfDocument} fileName={downloadFileName} onClick={() => setMailMessage("")} className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90">{() => "PDF " + "\uB2E4\uC6B4\uB85C\uB4DC"}</PDFDownloadLink>
-      <button type="button" onClick={handleSendProposalEmail} disabled={sending} className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white hover:bg-samsung/90 disabled:cursor-wait disabled:opacity-60">
-        {sending ? "\uBA54\uC77C \uC804\uC1A1 \uC911..." : props.customerName + " \uACE0\uAC1D \uBA54\uC77C \uC804\uC1A1"}
+      <PDFDownloadLink
+        document={pdfDocument}
+        fileName={downloadFileName}
+        onClick={() => setMailMessage("")}
+        className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white transition hover:bg-samsung/90"
+      >
+        {() => (
+          <>
+            <Download size={15} />
+            {"PDF \uB2E4\uC6B4\uB85C\uB4DC"}
+          </>
+        )}
+      </PDFDownloadLink>
+      <button
+        type="button"
+        onClick={handleSendProposalEmail}
+        disabled={sending}
+        className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-samsung bg-white px-4 py-2.5 text-sm font-bold text-samsung transition hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60"
+      >
+        {sending ? <Loader2 size={15} className="animate-spin" /> : <Mail size={15} />}
+        {sending ? "\uBA54\uC77C \uC804\uC1A1 \uC911..." : "\uBA54\uC77C \uC804\uC1A1"}
       </button>
       {mailMessage ? <p className="basis-full text-center text-xs font-semibold text-slate-600">{mailMessage}</p> : null}
     </div>

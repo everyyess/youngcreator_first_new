@@ -38,14 +38,14 @@ export default function RecommendedPickChips({ weeklyPicks, aiPicks, selectedKey
   return (
     <div className={`space-y-1.5 ${withDivider ? "border-t border-slate-100 pt-2.5" : ""}`}>
       {weeklyPicks.length > 0 && (
-        <PickRow label="자사" labelColorClass="text-violet-500">
+        <PickRow label="자사" labelColorClass="text-blue-500">
           {weeklyPicks.map((p) => (
             <button
               key={`weekly-${p.name}`}
               type="button"
               onClick={() => onSelectWeekly(p)}
               disabled={resolvingWeeklyName === p.name}
-              className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[12px] font-semibold text-violet-700 transition hover:bg-violet-100 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[12px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:opacity-50"
             >
               {resolvingWeeklyName === p.name ? <Loader2 size={10} className="animate-spin" /> : null}
               {p.name}
@@ -54,7 +54,7 @@ export default function RecommendedPickChips({ weeklyPicks, aiPicks, selectedKey
         </PickRow>
       )}
       {aiPicks.length > 0 && (
-        <PickRow label="AI" labelColorClass="text-blue-500">
+        <PickRow label="AI" labelColorClass="text-violet-500">
           {aiPicks.map((p) => (
             <button
               key={`ai-${p.symbol}`}
@@ -62,8 +62,8 @@ export default function RecommendedPickChips({ weeklyPicks, aiPicks, selectedKey
               onClick={() => onSelectAi(p)}
               className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold transition ${
                 selectedKey === p.symbol
-                  ? "border-[#2f2f9d] bg-[#2f2f9d] text-white"
-                  : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  ? "border-violet-600 bg-violet-600 text-white"
+                  : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
               }`}
             >
               {p.name}

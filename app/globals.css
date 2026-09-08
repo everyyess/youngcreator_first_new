@@ -87,11 +87,13 @@ textarea:focus-visible {
   border-color: var(--question-card-border, #b9dcff);
 }
 
-/* Imported market/analysis tools: align their visual language with the PB app. */
+/* Imported market/analysis tools: align their visual language with the PB app.
+   브랜드 색을 삼성증권 파란색(홈 화면 "신규 고객 추가" 버튼 등과 동일한 Tailwind blue-600/700)으로
+   통일했다(2026-09) — 예전엔 인디고(#2f2f9d)라 분석실 버튼들만 다른 파란색이었다. */
 .project-ui-theme {
-  --project-brand: #2f2f9d;
-  --project-brand-dark: #252285;
-  --project-brand-soft: #eef0ff;
+  --project-brand: #2563eb;
+  --project-brand-dark: #1d4ed8;
+  --project-brand-soft: #eff6ff;
   --project-navy: #0b1f3a;
   --project-ink: #172033;
   --project-muted: #64748b;
@@ -110,23 +112,23 @@ textarea:focus-visible {
 .project-ui-theme [class~="bg-primary-50"],
 .project-ui-theme [class~="bg-primary-100"],
 .project-ui-theme [class~="bg-primary/10"] { background-color: var(--project-brand-soft) !important; }
-.project-ui-theme [class~="bg-primary/70"] { background-color: rgba(47, 47, 157, 0.72) !important; }
+.project-ui-theme [class~="bg-primary/70"] { background-color: rgba(37, 99, 235, 0.72) !important; }
 .project-ui-theme [class~="text-primary"],
 .project-ui-theme [class~="text-primary-400"],
 .project-ui-theme [class~="text-primary/70"] { color: var(--project-brand) !important; }
 .project-ui-theme [class~="border-primary"] { border-color: var(--project-brand) !important; }
 .project-ui-theme [class~="border-primary/30"],
 .project-ui-theme [class~="border-primary/40"],
-.project-ui-theme [class~="border-primary/50"] { border-color: rgba(47, 47, 157, 0.42) !important; }
-.project-ui-theme [class~="ring-primary/10"] { --tw-ring-color: rgba(47, 47, 157, 0.12) !important; }
-.project-ui-theme [class~="focus:ring-primary/15"]:focus { --tw-ring-color: rgba(47, 47, 157, 0.16) !important; }
+.project-ui-theme [class~="border-primary/50"] { border-color: rgba(37, 99, 235, 0.42) !important; }
+.project-ui-theme [class~="ring-primary/10"] { --tw-ring-color: rgba(37, 99, 235, 0.12) !important; }
+.project-ui-theme [class~="focus:ring-primary/15"]:focus { --tw-ring-color: rgba(37, 99, 235, 0.16) !important; }
 .project-ui-theme [class~="hover:bg-primary-light"]:hover,
 .project-ui-theme [class~="hover:bg-primary"]:hover { background-color: var(--project-brand-dark) !important; }
 .project-ui-theme [class~="hover:bg-primary-50"]:hover { background-color: var(--project-brand-soft) !important; }
 .project-ui-theme [class~="hover:text-primary"]:hover { color: var(--project-brand) !important; }
 .project-ui-theme [class~="hover:border-primary"]:hover,
 .project-ui-theme [class~="hover:border-primary/40"]:hover,
-.project-ui-theme [class~="hover:border-primary/50"]:hover { border-color: rgba(47, 47, 157, 0.55) !important; }
+.project-ui-theme [class~="hover:border-primary/50"]:hover { border-color: rgba(37, 99, 235, 0.55) !important; }
 .project-ui-theme [class~="focus:border-primary"]:focus { border-color: var(--project-brand) !important; }
 
 .project-ui-theme [class~="bg-[#005B52]"],
@@ -138,9 +140,9 @@ textarea:focus-visible {
 .project-ui-theme [class~="hover:bg-[#15583d]"]:hover,
 .project-ui-theme [class~="hover:bg-[#155a3e]"]:hover,
 .project-ui-theme [class~="hover:bg-[#004D45]"]:hover { background-color: var(--project-brand-dark) !important; }
-.project-ui-theme [class~="hover:border-[#005B52]"]:hover { border-color: rgba(47, 47, 157, 0.55) !important; }
+.project-ui-theme [class~="hover:border-[#005B52]"]:hover { border-color: rgba(37, 99, 235, 0.55) !important; }
 .project-ui-theme [class~="focus:border-[#005B52]"]:focus { border-color: var(--project-brand) !important; }
-.project-ui-theme [class~="focus:ring-[#005B52]"]:focus { --tw-ring-color: rgba(47, 47, 157, 0.18) !important; }
+.project-ui-theme [class~="focus:ring-[#005B52]"]:focus { --tw-ring-color: rgba(37, 99, 235, 0.18) !important; }
 .project-ui-theme .group:hover [class~="group-hover:bg-[#005B52]"] { background-color: var(--project-brand) !important; }
 .project-ui-theme .group:hover [class~="group-hover:text-[#005B52]"] { color: var(--project-brand) !important; }
 

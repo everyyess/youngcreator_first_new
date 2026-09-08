@@ -41,7 +41,7 @@ interface HitlReviewPanelProps {
   emptyLabel?: string;
 }
 
-const BRAND = "#2f2f9d";
+const BRAND = "#2563eb";
 
 export default function HitlReviewPanel({
   heading,
@@ -119,7 +119,7 @@ export default function HitlReviewPanel({
               <div
                 key={entry.id}
                 className={`rounded-lg border p-4 transition ${
-                  entry.checked ? "border-[#2f2f9d]/30 bg-[#EEF1FA]" : "border-slate-200 bg-white"
+                  entry.checked ? "border-[#2563eb]/30 bg-[#eff6ff]" : "border-slate-200 bg-white"
                 }`}
               >
                 <div className="mb-2 flex items-start justify-between gap-3">
@@ -127,7 +127,7 @@ export default function HitlReviewPanel({
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[14px] font-bold text-slate-800">{entry.title}</span>
                       {entry.edited && (
-                        <span className="rounded-full bg-[#EEF1FA] px-2 py-0.5 text-[10px] font-bold text-[#2f2f9d]">
+                        <span className="rounded-full bg-[#eff6ff] px-2 py-0.5 text-[10px] font-bold text-[#2563eb]">
                           PB 수정됨
                         </span>
                       )}
@@ -141,12 +141,12 @@ export default function HitlReviewPanel({
                   >
                     <span
                       className={`flex h-5 w-5 items-center justify-center rounded border-2 transition ${
-                        entry.checked ? "border-[#2f2f9d] bg-[#2f2f9d]" : "border-slate-300 bg-white"
+                        entry.checked ? "border-[#2563eb] bg-[#2563eb]" : "border-slate-300 bg-white"
                       }`}
                     >
                       {entry.checked && <CheckCircle2 size={14} className="text-white" />}
                     </span>
-                    <span className={entry.checked ? "text-[#2f2f9d]" : ""}>검토 완료</span>
+                    <span className={entry.checked ? "text-[#2563eb]" : ""}>검토 완료</span>
                   </button>
                 </div>
 
@@ -157,7 +157,7 @@ export default function HitlReviewPanel({
                     onBlur={() => setEditingId(null)}
                     autoFocus
                     rows={rows}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-[#2f2f9d]"
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-[#2563eb]"
                   />
                 ) : (
                   <p
@@ -175,7 +175,7 @@ export default function HitlReviewPanel({
                     value={entry.pbComment}
                     onChange={(event) => onChange(entry.id, { pbComment: event.target.value })}
                     placeholder="PB 코멘트 (선택 — 이후 단계와 최종 보고서에 반영됩니다)"
-                    className="w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] text-slate-600 outline-none focus:border-[#2f2f9d]"
+                    className="w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-[12px] text-slate-600 outline-none focus:border-[#2563eb]"
                   />
                   {entry.edited && (
                     <button
