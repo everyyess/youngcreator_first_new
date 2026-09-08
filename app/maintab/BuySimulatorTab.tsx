@@ -827,6 +827,7 @@ export default function BuySimulatorTab() {
         const res = await fetch(`/api/proxy-finance?${qp}`);
         const data = (await res.json()) as {
           ticker?: string;
+          officialName?: string | null;
           error?: string;
           chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; currency?: string } }> };
         };
@@ -834,8 +835,12 @@ export default function BuySimulatorTab() {
           const chartMeta = data?.chart?.result?.[0]?.meta;
           const price = typeof chartMeta?.regularMarketPrice === "number" ? chartMeta.regularMarketPrice : null;
           const currency = chartMeta?.currency ?? (productType.includes("해외") ? "USD" : "KRW");
+          // PB가 종목코드(예: ETF 6자리 코드)로 검색한 경우, 검색창엔 입력한 코드가 그대로 남아있어
+          // 이후 매수 확정 시 name이 코드로 찍히는 버그가 있었다(2026-09 발견·수정) — API가 돌려주는
+          // 공식 명칭(officialName)이 있으면 검색창 표시 텍스트도 그 이름으로 교체한다.
+          const resolvedName = data.officialName?.trim() || undefined;
           const updated = pbOrderRowsRef.current.map((r) =>
-            r.id === rowId ? { ...r, ticker: data.ticker!, currentPrice: price, priceCurrency: currency } : r,
+            r.id === rowId ? { ...r, ticker: data.ticker!, currentPrice: price, priceCurrency: currency, ...(resolvedName ? { name: resolvedName } : {}) } : r,
           );
           setPbOrderRows(updated);
           setPbSearchState((prev) => ({ ...prev, [rowId]: { loading: false, error: null } }));
