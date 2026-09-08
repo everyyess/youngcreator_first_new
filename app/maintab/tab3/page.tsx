@@ -38,6 +38,9 @@ export default function Tab3Page() {
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
+    // 고객 화면은 PB 화면을 비추는 쪽이다. 고객이 탭을 눌러도 공유 상태에 쓰지 않아야
+    // PB 화면이 고객 조작으로 바뀌지 않는다 (PB가 탭을 옮기면 아래 동기화 effect로 따라간다).
+    if (appMode === "customer") return;
     updateTab3AnalysisState({ activeInnerTab: tab }, { allowReadOnlyViewState: true });
   };
 
@@ -138,32 +141,42 @@ export default function Tab3Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rebalancingSellAssets]);
 
-  if (appMode === "customer") {
-    return <BuySimulatorTab />;
-  }
+  // 고객 화면도 PB 상담실과 같은 내부 탭 구조를 쓴다.
+  // 다만 「분석실로 이동」(PB 분석실 진입)과 「리밸런싱 히스토리」는 고객에게 노출하지 않는다.
+  const isCustomer = appMode === "customer";
+  const visibleInnerTabs = isCustomer
+    ? innerTabs.filter((tab) => tab.id !== "rebalancing-history")
+    : innerTabs;
+  // 고객 화면에서 숨긴 탭이 PB 쪽 동기화 값으로 선택돼 있으면 첫 탭으로 되돌린다
+  const effectiveInnerTab: InnerTab =
+    isCustomer && !visibleInnerTabs.some((tab) => tab.id === activeInnerTab)
+      ? "stock-rebalancing"
+      : activeInnerTab;
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            sessionStorage.setItem("analysisReturnTab", "tab3");
-            window.location.href = "/analysis/screener";
-          }}
-          className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
-        >
-          분석실로 이동
-        </button>
-      </div>
+      {!isCustomer && (
+        <div className="mb-3 flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              sessionStorage.setItem("analysisReturnTab", "tab3");
+              window.location.href = "/analysis/screener";
+            }}
+            className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
+          >
+            분석실로 이동
+          </button>
+        </div>
+      )}
       <div data-consultation-lock-exempt="true" className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
-        {innerTabs.map((tab) => (
+        {visibleInnerTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             data-consultation-lock-exempt="true"
             onClick={() => selectInnerTab(tab.id)}
-            className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${activeInnerTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
+            className={`flex shrink-0 flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition ${effectiveInnerTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
           >
             {tab.icon}
             {tab.label}
@@ -171,9 +184,9 @@ export default function Tab3Page() {
         ))}
       </div>
 
-      {activeInnerTab === "stock-rebalancing" && <BuySimulatorTab />}
-      {activeInnerTab === "product-rebalancing" && <ProductMatchingTab />}
-      {activeInnerTab === "rebalancing-history" && <RebalancingHistoryTab />}
+      {effectiveInnerTab === "stock-rebalancing" && <BuySimulatorTab />}
+      {effectiveInnerTab === "product-rebalancing" && <ProductMatchingTab />}
+      {effectiveInnerTab === "rebalancing-history" && !isCustomer && <RebalancingHistoryTab />}
     </>
   );
 }

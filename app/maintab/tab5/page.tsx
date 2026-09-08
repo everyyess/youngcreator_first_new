@@ -1649,7 +1649,8 @@ const additionalInvestmentAmount = (() => {
   return (
     <>
       {modalProduct && <ProductModal product={modalProduct} onClose={()=>setModalProduct(null)}/>}
-      {salesSolutionOpen && (() => {
+      {/* 영업 솔루션 모달 — 고객 화면 미노출 */}
+      {salesSolutionOpen && !isCustomerView && (() => {
         const activeMonth = SALES_SOLUTIONS.find((m) => m.month === salesSolutionMonth) ?? SALES_SOLUTIONS[SALES_SOLUTIONS.length - 1];
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={() => setSalesSolutionOpen(false)}>
@@ -1949,13 +1950,16 @@ const additionalInvestmentAmount = (() => {
             <h2 className="text-lg font-bold text-navy">삼성증권 추천 상품</h2>
             <p className="mt-0.5 text-xs text-slate-400">성향 적합 상품이 우선 표시됩니다. 카드를 클릭해 상세 정보를 확인하고 체크박스로 선택하세요</p>
           </div>
-          <button
-            type="button"
-            onClick={()=>setSalesSolutionOpen(true)}
-            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-2 text-xs font-bold text-samsung transition hover:bg-samsung/10"
-          >
-            <Newspaper size={14}/>영업 솔루션 읽기
-          </button>
+          {/* 영업 솔루션은 삼성증권 리서치센터 PB 참고자료 — 고객 화면에는 노출하지 않는다 */}
+          {!isCustomerView && (
+            <button
+              type="button"
+              onClick={()=>setSalesSolutionOpen(true)}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-2 text-xs font-bold text-samsung transition hover:bg-samsung/10"
+            >
+              <Newspaper size={14}/>영업 솔루션 읽기
+            </button>
+          )}
         </div>
         {!rrttlluReady ? (
           <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50">
