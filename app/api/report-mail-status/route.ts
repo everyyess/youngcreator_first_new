@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from("market_report_mail_sends")
-      .select("report_type, sent_at, success_count, failed_count, skipped_count")
+      .select("report_type, report_date, sent_at, success_count, failed_count, skipped_count")
       .in("report_type", ["us", "kr"])
       .order("sent_at", { ascending: false });
 
@@ -99,19 +99,39 @@ export async function POST(request: NextRequest) {
         ? payload.pbId.trim()
         : null;
 
+    const reportDate = typeof payload.reportDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(payload.reportDate)
+      ? payload.reportDate
+      : null;
+
+    if (!reportDate) {
+      return NextResponse.json({ error: "reportDate는 YYYY-MM-DD 형식이어야 합니다." }, { status: 400 });
+    }
+
+    const insertPayload = {
+      pb_id: pbId,
+      report_type: reportType,
+      report_date: reportDate,
+      success_count: Number(payload.successCount) || 0,
+      failed_count: Number(payload.failedCount) || 0,
+      skipped_count: Number(payload.skippedCount) || 0,
+    };
+
     const { data, error } = await supabase
       .from("market_report_mail_sends")
-      .insert({
-        pb_id: pbId,
-        report_type: reportType,
-        success_count: Number(payload.successCount) || 0,
-        failed_count: Number(payload.failedCount) || 0,
-        skipped_count: Number(payload.skippedCount) || 0,
-      })
-      .select("report_type, sent_at, success_count, failed_count, skipped_count")
+      .insert(insertPayload)
+      .select("report_type, report_date, sent_at, success_count, failed_count, skipped_count")
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error("[report-mail-status] POST Supabase insert failed", { error, insertPayload });
+      return NextResponse.json({
+        error: "\uBA54\uC77C \uC804\uC1A1 \uC0C1\uD0DC \uC800\uC7A5 \uC911 \uC624\uB958\uAC00 \uBC1C\uC0DD\uD588\uC2B5\uB2C8\uB2E4.",
+        detail: error.message,
+        code: error.code,
+        hint: error.hint,
+        details: error.details,
+      }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true, send: data });
   } catch (error) {

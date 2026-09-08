@@ -11,6 +11,7 @@
  */
 
 import { resolveTickerWithGemini } from '@/utils/geminiTicker';
+import { getLeveragedEtfDistribution, isLeveragedEtf, isPlausibleDistribution } from '@/lib/leveragedEtfDistributions.mjs';
 import krAssetMaster from './kr-asset-master.json';
 
 export const runtime = 'nodejs';
@@ -778,7 +779,7 @@ export async function GET(request) {
     const yearStartTs = Math.floor((Date.UTC(currentYearKst, 0, 1, 0, 0, 0) - 9 * 3600 * 1000) / 1000);
     const calendarYtdEvents = Object.values(rawDividends)
       .filter(e => typeof e?.date === 'number' && typeof e?.amount === 'number' && e.amount > 0 && e.date >= yearStartTs && e.date <= nowTs);
-    const calendarYtdDividendPerShare = calendarYtdEvents.reduce((s, e) => s + e.amount, 0);
+    let calendarYtdDividendPerShare = calendarYtdEvents.reduce((s, e) => s + e.amount, 0);
 
     // ── quoteSummary API로 배당 + 섹터 데이터 통합 조회 ────────────────
     const quoteSummaryUrls = [
@@ -828,11 +829,37 @@ export async function GET(request) {
     }
 
     // 최종 배당수익률: quoteSummary > events 연간화 > Naver Finance
-    const dividendYield =
+    let dividendYield =
       summaryDividendYield > 0 ? summaryDividendYield
       : eventsDividendYield  > 0 ? eventsDividendYield
       : naverDividendYield;
-    const trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
+    let trailingAnnualDividendRate = summaryTrailingRate > 0 ? summaryTrailingRate : eventsTrailingRate;
+    let dividendSource = summaryDividendYield > 0 ? 'yahoo-summary' : eventsDividendYield > 0 ? 'yahoo-events' : 'none';
+    let dividendQuality = 'unverified';
+    let dividendAsOf = null;
+
+    if (isLeveragedEtf(ticker, chartMeta)) {
+      const verified = await getLeveragedEtfDistribution({
+        ticker,
+        currentPrice: regularMarketPrice,
+      });
+      if (verified.provider) {
+        dividendYield = verified.dividendYield;
+        trailingAnnualDividendRate = verified.trailingAnnualDividendRate;
+        calendarYtdDividendPerShare = verified.calendarYtdDividendPerShare;
+        dividendSource = verified.provider;
+        dividendQuality = verified.quality;
+        dividendAsOf = verified.asOf;
+      } else if (!isPlausibleDistribution(dividendYield, trailingAnnualDividendRate, regularMarketPrice)) {
+        dividendYield = 0;
+        trailingAnnualDividendRate = 0;
+        calendarYtdDividendPerShare = 0;
+        dividendSource = 'none';
+        dividendQuality = 'rejected';
+      }
+    }
+
+    Object.assign(yahooJson, { dividendSource, dividendQuality, dividendAsOf });
 
     // officialName 결정 우선순위:
     //   KR 종목 → Naver/Gemini 한국어명 우선 → kr-asset-master.json → Yahoo meta 폴백
