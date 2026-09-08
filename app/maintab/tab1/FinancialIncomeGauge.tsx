@@ -63,9 +63,10 @@ function getForeignDividendWithholdingRate(country?: string): number {
 // - 브라질: 한·브라질 조세조약상 정부 발행 채권 이자는 국내 과세도 면제(원천징수 대상 자체가 아님, 아래 별도 처리)
 // - 그 외 국가는 채권이자 전용 조세조약 세율표가 없어 배당 세율표로 임시 대체(확인 필요 — TAX_RATES 주석 참고 패턴과 동일)
 const BOND_TAX_EXEMPT_COUNTRIES = new Set(["브라질"]);
+// "현지(local)" 세율 — 순수 해외(비과세국 제외) 채권에만 쓰인다. 국내 채권은 calcBondInterestWithholding에서
+// calcWithholdingKRW로 별도 처리(국세14%+지방세1.4%=15.4%)하므로 이 함수까지 안 온다.
 function getBondWithholdingRate(issuerCountry?: string): number {
   if (issuerCountry === "미국") return 0;
-  if (!issuerCountry || issuerCountry === "한국" || issuerCountry === "국내") return TAX_RATES.incomeWithholdingRate;
   return getForeignDividendWithholdingRate(issuerCountry); // 기타 국가: 확인 필요(위 주석 참고)
 }
 
@@ -76,6 +77,14 @@ function calcBondInterestWithholding(
 ): { totalTax: number; net: number; effectiveRate: number; isExempt: boolean } {
   if (issuerCountry && BOND_TAX_EXEMPT_COUNTRIES.has(issuerCountry)) {
     return { totalTax: 0, net: grossIncomeKRW, effectiveRate: 0, isExempt: true };
+  }
+  // 국내 채권 — "현지세율 vs 국내세율 비교 후 부족분만 top-up" 모델은 해외 채권 전용이다. 국내 채권을
+  // 그 모델에 태우면 getBondWithholdingRate가 돌려주는 기준값(14%, 국세만)과 비교 기준(국내세율 14%,
+  // 역시 국세만)이 같은 값이라 "이미 충분함" 판정이 나서 지방소득세 1.4%가 통째로 누락되는 버그가 있었다
+  // (2026-09 발견·수정) — 국내 채권 이자는 배당과 동일하게 calcWithholdingKRW(14%+지방세1.4%=15.4%)로 계산한다.
+  if (!issuerCountry || issuerCountry === "한국" || issuerCountry === "국내") {
+    const w = calcWithholdingKRW(grossIncomeKRW);
+    return { totalTax: w.totalTax, net: w.net, effectiveRate: grossIncomeKRW > 0 ? w.totalTax / grossIncomeKRW : DOMESTIC_DIV_WITHHOLDING, isExempt: false };
   }
   const localRate = getBondWithholdingRate(issuerCountry);
   const localWithholding = Math.floor(grossIncomeKRW * localRate);
@@ -137,9 +146,14 @@ function computeComprehensiveTax(
   let additionalTax = 0;
   if (totalFinancialIncome > THRESHOLD) {
     generalTax = (taxableFinancialIncome - THRESHOLD) * tMarginal + THRESHOLD * TAX_RATES.incomeWithholdingRate;
-    comparisonTax = taxableFinancialIncome * TAX_RATES.incomeWithholdingRate;
+    // 비교산출세액(분리과세 가정 시 세액)엔 Gross-up을 넣지 않는다 — Gross-up은 종합과세 표준에만
+    // 얹는 가공의 가산액이라, "분리과세했다면 냈을 세금"엔 애초에 존재하지 않는 개념이다(출처:
+    // https://sootax.co.kr/3922 — 분리과세 산출세액 = 금융소득 전체 × 14%, Gross-up 미포함).
+    comparisonTax = totalFinancialIncome * TAX_RATES.incomeWithholdingRate;
     finalTax = Math.max(generalTax, comparisonTax);
-    dividendTaxCredit = Math.min(grossUpAmount, finalTax * 0.1);
+    // 배당세액공제 한도 = 종합과세로 인해 늘어난 세부담(종합과세 산출세액 − 분리과세 산출세액).
+    // "산출세액의 10%" 같은 식은 세법에 없다 — Gross-up 세율(10%)이 잘못 섞여 들어갔던 오류였다.
+    dividendTaxCredit = Math.min(grossUpAmount, Math.max(0, generalTax - comparisonTax));
     additionalTax = Math.max(finalTax - dividendTaxCredit - withholdingCollected, 0);
   }
   return {
@@ -173,6 +187,10 @@ export interface IncomeBreakdownItem {
   // 배당 전용 표시 배지 — 배당수익률이 현실적으로 불가능한 수준(100%↑)이면 데이터 정합성 문제로 보고
   // 계산에서 제외한다(레버리지/인버스 ETF 액면병합 등). 임의로 "올바른" 값을 추정하지 않는다.
   dividendNote?: "배당소득 계산 불가(레버리지/인버스 ETF 추정 — 액면병합)";
+  // 외화표시 채권 전용 표시 배지 — bondNote와 별개(동시에 뜰 수 있음). "미확인"은 진입 시점 환율을
+  // 정확히 캡처하지 못해 오늘 환율로 근사한 경우(신규 추가 전 저장된 포지션 등), "만기 시점 환율
+  // 미확정"은 만기가 멀어(1년 이후) 그 시점 환율을 알 수 없는데 오늘 환율로 근사 계산한 경우.
+  fxNote?: "진입환율 미확인(근사치)" | "만기 시점 환율 미확정";
 }
 
 // 복리채 등 만기 일시상환형 채권의 "아직 도래하지 않은"(1년 이후) 미래 일시 인식 예정 이자.
@@ -183,6 +201,7 @@ export interface BondMaturityLumpSum {
   maturityYear: number;
   lumpSumGross: number;
   lumpSumNet: number;
+  fxNote?: "진입환율 미확인(근사치)" | "만기 시점 환율 미확정";
 }
 
 export interface CapitalGainsBreakdownItem {
@@ -307,6 +326,11 @@ function IncomeRow({ item }: { item: IncomeBreakdownItem }) {
             {item.bondNote && (
               <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold shrink-0 ${bondNoteStyle}`}>
                 {item.bondNote}
+              </span>
+            )}
+            {item.fxNote && (
+              <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shrink-0">
+                {item.fxNote}
               </span>
             )}
           </>
@@ -727,9 +751,16 @@ export function FinancialIncomeGauge({
                         만기 일시인식 예정 이자 (복리채 등 — 아직 향후 1년 합계엔 미포함)
                       </p>
                       {summary!.bondMaturityLumpSums.map((m, i) => (
-                        <div key={i} className="flex justify-between text-[11px] text-blue-600">
-                          <span>{m.name} · {m.maturityYear}년 만기</span>
-                          <span>{fmtWon(m.lumpSumGross)}</span>
+                        <div key={i} className="flex justify-between items-center gap-1 text-[11px] text-blue-600">
+                          <span className="flex items-center gap-1 min-w-0">
+                            <span className="truncate">{m.name} · {m.maturityYear}년 만기</span>
+                            {m.fxNote && (
+                              <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shrink-0">
+                                {m.fxNote}
+                              </span>
+                            )}
+                          </span>
+                          <span className="shrink-0">{fmtWon(m.lumpSumGross)}</span>
                         </div>
                       ))}
                       <p className="text-[10px] text-blue-400 mt-1">
@@ -1026,6 +1057,15 @@ export interface AssetForIncomeCalc {
   isPerpetual?: boolean;                // 신종자본증권(영구채) — 이자소득은 일반 이표채와 동일하게 계산(만기 불필요), 콜 이후 스텝업 가능성만 배지로 표시
   maturityDate?: string;                // ISO(YYYY-MM-DD) — 만기 임박 안분·복리채 만기 일시인식에 사용
   purchaseDate?: string;                // ISO — 복리채 보유연수 계산 기준(없으면 오늘, 신규 매수 시뮬레이션 기준)
+  // 외화표시 채권 환율 재환산용 — "투자 시점 원화 환산액에 환율이 고정"되는 문제를 막기 위해, 진입 시점
+  // 환율로 외화 원금을 역산한 뒤 계산 시점의 실시간 환율로 다시 곱한다(주식 배당과 같은 원칙).
+  bondCurrency?: string;                 // "USD"|"BRL" 등 — 없으면 원화 채권(재환산 불필요)
+  bondFxRateAtEntry?: number;            // 진입 시점 환율(1회 캐싱)
+  bondFxRateNow?: number;                // 계산 시점 실시간 환율(매번 갱신)
+  // true = bondFxRateAtEntry가 실제 "탭5 채권 추가" 클릭 순간의 실시간 환율로 캡처된 값(신뢰 가능).
+  // false/undefined = runAnalysis가 이 필드를 처음 마주쳐 방어적으로 오늘 환율을 대입한 값(진짜 진입
+  // 시점 환율이 아닐 수 있음 — 이 기능 배포 이전부터 저장돼 있던 포지션 등). 배지 표시 판단에 사용.
+  bondFxRateEntryConfirmed?: boolean;
 }
 
 // 매도로 실현된 손익(예: CustomerContext의 SellRecord) — 보유 중인 자산의 미실현 평가손익과 별개로
@@ -1110,6 +1150,23 @@ export function calcFinancialIncomeSummary(
       // issuerCountry 명시값이 없으면(수동 입력 채권 등) 배당에도 쓰는 일반 country 필드로 대체 폴백
       const issuerCountry = a.issuerCountry ?? a.country ?? (isDomesticListed ? "한국" : undefined);
 
+      // 외화표시 채권(USD/BRL 등) 환율 재환산 배수 — 액면금액(faceValue)은 "투자 시점 원화 환산액"으로
+      // 고정 저장되어 있으므로, 이자소득도 그 시점 환율에 영구히 고정하면 안 된다(주식 배당은 매 분석마다
+      // 실시간 환율을 다시 적용하는데 채권만 예외로 두면 형평이 안 맞고, 환율이 오른 만큼 실제 원화 수령액도
+      // 커진다). foreignPrincipal(외화 원금) = faceValue / 진입환율로 복원한 뒤, 표면금리를 곱하고 현재
+      // 환율로 재환산한다 — 결과적으로 faceValue × rate × (bondFxRateNow / bondFxRateAtEntry)와 동일하다.
+      // 두 환율 값이 모두 없으면(원화표시 채권이거나 환율 조회 실패) 배수 1(기존 방식)로 그대로 둔다.
+      const fxRatio =
+        a.bondCurrency && a.bondFxRateAtEntry && a.bondFxRateAtEntry > 0 && a.bondFxRateNow
+          ? a.bondFxRateNow / a.bondFxRateAtEntry
+          : 1;
+      // 재환산이 실제로 적용된(fxRatio가 1이 아니거나, 통화가 있어 재환산 로직을 탄) 경우에만 배지 후보.
+      // bondFxRateEntryConfirmed가 true(탭5 "추가" 클릭 순간 실제로 캡처된 값)이면 신뢰할 수 있으므로
+      // 배지를 붙이지 않는다 — false/undefined면 runAnalysis가 방어적으로 오늘 환율을 대입한 것이라
+      // 진짜 진입 시점 환율이 아닐 수 있음을 알린다.
+      const entryFxUnconfirmedNote: "진입환율 미확인(근사치)" | undefined =
+        a.bondCurrency && !a.bondFxRateEntryConfirmed ? "진입환율 미확인(근사치)" : undefined;
+
       // 신종자본증권(영구채) — "만기"가 불확정인 건 맞지만, 이자소득(표면금리×액면금액)은 만기와 무관하게
       // 정상 계산된다(만기가 필요한 건 YTM·듀레이션 같은 수익률 지표뿐, 이자소득 계산엔 안 씀). 개인
       // 투자자에게는 이 이자도 그대로 15.4% 원천징수 대상이라, 계산에서 빼면 오히려 게이지가 실제보다
@@ -1156,7 +1213,7 @@ export function calcFinancialIncomeSummary(
         // 만기 일시상환형(예: 국민주택채권 1종) — 보유기간 중 현금흐름 0. 이자는 만기 시점에 일시 인식된다.
         const purchase = a.purchaseDate ? new Date(a.purchaseDate) : today;
         const holdingYears = maturity ? Math.max(0, (maturity.getTime() - purchase.getTime()) / (365 * 86_400_000)) : 0;
-        const lumpSumGross = faceValue * (Math.pow(1 + rate, holdingYears) - 1);
+        const lumpSumGross = faceValue * (Math.pow(1 + rate, holdingYears) - 1) * fxRatio;
         if (lumpSumGross > 0 && maturity) {
           if (daysToMaturity !== null && daysToMaturity <= 365) {
             // 만기가 향후 1년 이내 — 실제로 이 기간에 현금으로 들어오므로 "향후 1년 예상"에 포함
@@ -1171,13 +1228,18 @@ export function calcFinancialIncomeSummary(
               name, ticker, incomeType: "이자", annualIncome: Math.round(lumpSumGross), netIncome: Math.round(w.net),
               yieldRate: rate, value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
               withholdingRate: w.effectiveRate, bondNote: w.isExempt ? "조세조약 비과세" : "만기 일시인식",
+              fxNote: entryFxUnconfirmedNote,
             });
           } else {
-            // 만기가 1년 이후 — 이번 "향후 1년" 합계엔 넣지 않고 미래 일시인식 예정으로만 별도 기록
+            // 만기가 1년 이후 — 이번 "향후 1년" 합계엔 넣지 않고 미래 일시인식 예정으로만 별도 기록.
+            // 이 시점의 fxRatio는 "오늘 환율이 수년 뒤 만기 시점까지 유지된다"는 훨씬 약한 가정 위에
+            // 있으므로(이표채·근시일 복리채보다 불확실성이 큼), 진입환율 확인 여부와 무관하게 항상
+            // "만기 시점 환율 미확정" 배지를 붙인다.
             const w = calcBondInterestWithholding(lumpSumGross, issuerCountry);
             bondMaturityLumpSums.push({
               name, ticker, maturityYear: maturity.getFullYear(),
               lumpSumGross: Math.round(lumpSumGross), lumpSumNet: Math.round(w.net),
+              fxNote: a.bondCurrency ? "만기 시점 환율 미확정" : undefined,
             });
           }
         }
@@ -1186,7 +1248,7 @@ export function calcFinancialIncomeSummary(
 
       // 이표채(기본) — 연간 표면이자 = 액면금액 × 표면금리. 지급주기(paymentFrequency)는 등간격 지급이면
       // 어느 주기든 "향후 1년" 합계엔 영향이 없어(회차만 다를 뿐 연 합계는 동일) 계산에 쓰지 않는다.
-      let annualGross = faceValue * rate;
+      let annualGross = faceValue * rate * fxRatio;
       if (daysToMaturity !== null && daysToMaturity < 365) {
         // 만기가 1년 이내면 만기 이후엔 이자가 없으므로 잔존일수만큼만 반영
         annualGross = annualGross * Math.max(0, daysToMaturity) / 365;
@@ -1204,6 +1266,7 @@ export function calcFinancialIncomeSummary(
           yieldRate: rate, value: value > 0 ? Math.round(value) : Math.round(faceValue), principal: Math.round(faceValue),
           withholdingRate: w.effectiveRate,
           bondNote: w.isExempt ? "조세조약 비과세" : a.isPerpetual ? "신종자본증권(콜 이후 금리변동 가능)" : undefined,
+          fxNote: entryFxUnconfirmedNote,
         });
       }
       continue; // 채권은 양도소득 계산 생략(매매차익 비과세)

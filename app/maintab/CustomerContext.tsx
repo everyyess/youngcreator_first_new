@@ -239,6 +239,15 @@ export type PortfolioAsset = {
   couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
   isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득은 일반 이표채와 동일 계산(만기 불필요), 콜 이후 스텝업 가능성만 배지 표시
   maturityDate?: string;         // ISO(YYYY-MM-DD) — 만기 임박 안분·복리채 일시인식 계산에 사용
+  // 외화표시 채권 환율 재환산용 — 투자 시점 원화 환산액에 환율이 고정되는 걸 막기 위해, 외화 원금을
+  // 역산할 "진입 시점 환율"과 계산 시점마다 새로 조회하는 "현재 환율"을 분리해서 갖고 있는다.
+  bondCurrency?: string;         // "USD"|"BRL" 등 — 없으면 원화 채권(재환산 불필요)
+  bondFxRateAtEntry?: number;    // 이 포지션을 처음 분석했을 때의 환율(1회만 캐싱, 이후 안 바뀜)
+  bondFxRateNow?: number;        // 가장 최근 분석 시점의 실시간 환율(매번 갱신)
+  // true = bondFxRateAtEntry가 탭5 "채권 추가" 클릭 순간 실제 진입 환율로 캡처된 값(신뢰 가능).
+  // false/undefined = 분석 로직이 처음 마주쳐 방어적으로 그 시점 환율을 대입한 값일 수 있음(이 기능
+  // 배포 이전부터 저장돼 있던 포지션 등) — 진짜 매수 시점 환율이 아닐 수 있어 배지로 구분 표시한다.
+  bondFxRateEntryConfirmed?: boolean;
   // 수량(amount_type="quantity") 확인일 — 액면병합 감지용. 이 날짜 "이후"에 액면병합이 있었는지를
   // Yahoo 데이터와 대조해서 경고를 띄운다. undefined(레거시 데이터 등 확인일 미상)면 병합 이력이
   // 하나라도 있으면 무조건 경고 — 자동 보정은 절대 안 함(수량은 PB가 직접 확인·수정).
@@ -396,6 +405,10 @@ export type SharedMaintabUiState = {
     activeEffectId?: string | null;
     unsuitableWarningProductId?: string | null;
     pinnedAmounts?: Record<string, number>; // 상품 편입 금액 PB 직접 지정(pin) — 고객 화면 미러링용
+    // 외화표시 채권 상품(bondRef.currency 있음)을 "추가" 클릭한 그 순간의 실시간 환율 — 상품ID 기준 1회
+    // 캐싱. productAssets는 버킷 재분배(다른 상품 추가/가중치 변경)가 있을 때마다 통째로 재생성되므로
+    // (bondFxRateAtEntry를 그 객체 위에 얹어두는 방식으로는 보존이 안 됨) 별도 원장으로 분리해서 보존한다.
+    bondFxEntryRates?: Record<string, number>;
   };
 };
 
