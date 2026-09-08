@@ -1,5 +1,7 @@
 "use client";
 
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import {
@@ -14,7 +16,7 @@ import {
 import { useCustomerContext, type PortfolioAnalysisResult, type PortfolioAsset } from "./CustomerContext";
 import { calcAfterTaxReturn, FINANCIAL_INCOME_STORAGE_KEY } from "./tab1/FinancialIncomeGauge";
 import type { FinancialIncomeSummary } from "./tab1/FinancialIncomeGauge";
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from "recharts";
+
 
 export const CLASS_COLORS: Record<string, string> = {
   국내주식: "#3B82F6",
@@ -1434,7 +1436,15 @@ interface HealthDiagnosisItem {
 
 export function HealthRadarChart({ items, badge }: { items: HealthDiagnosisItem[]; badge?: string }) {
   const chartData = items.map((item) => ({ label: item.label, score: item.score, fullMark: 2 }));
-  const strokeColor = badge === "Sell" ? "#ef4444" : badge === "Hold" ? "#10b981" : "#f59e0b";
+  // 색상은 항목 점수 합계(0~14점)로 직접 계산한다 — quantEngine.js의 portfolioHealthCheck()가 쓰는
+  // 등급 구간(12점 이상 Hold=초록, 8점 이상 Rebalance=노랑, 그 미만 Sell=빨강)과 동일한 기준이다.
+  // badge를 안 넘기는 호출부(시황 보고서 등)는 예전엔 항상 기본값(노랑)으로만 떴었다(2026-09 발견·수정)
+  // — 이제 items만 있으면 badge 없이도 항상 점수에 맞는 색이 나온다. badge를 명시로 넘긴 경우는
+  // 그 값을 우선한다(기존 tab4 호출부와 동일한 결과가 나오지만, 굳이 재계산할 필요가 없을 때 대비).
+  const totalScore = items.reduce((sum, item) => sum + (item.score ?? 0), 0);
+  const scoreBadge = totalScore >= 12 ? "Hold" : totalScore >= 8 ? "Rebalance" : "Sell";
+  const effectiveBadge = badge ?? scoreBadge;
+  const strokeColor = effectiveBadge === "Sell" ? "#ef4444" : effectiveBadge === "Hold" ? "#10b981" : "#f59e0b";
   return (
     <div className="w-full">
       <ResponsiveContainer width="100%" height={280}>

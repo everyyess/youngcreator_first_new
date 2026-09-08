@@ -2,9 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Mail, RefreshCw, ChevronDown} from "lucide-react";
+
+import { Download, FileText, Mail, RefreshCw, ChevronDown} from "lucide-react";
 import type { MarketIndexItem } from "@/lib/marketData";
-import type { AppState, CustomerProfile } from "@/app/maintab/CustomerContext";
+import type { AppState, CustomerProfile, PortfolioAsset, RebalancingHistoryRecord, RebalancingPortfolioSnapshot } from "@/app/maintab/CustomerContext";
+import { loadAnalysisResult, loadPortfolioAssets, loadRebalancingState, loadSharedMaintabUiState } from "@/app/maintab/CustomerContext";
+import { HealthRadarChart } from "@/app/maintab/PortfolioResultComponents";
+import { getCustomerSessions } from "@/app/consultationStore";
 import { buildCustomerReportSections } from "@/services/customerService";
 import { MacroChartViewer } from "@/components/MacroChartViewer";
 import SectorScanner from "@/components/SectorScanner";
@@ -388,30 +392,42 @@ function getPdfTodayTitle() {
   return `${get("year")}-${get("month")}-${get("day")} 오늘의 시황 보고서`;
 }
 
-function getPortfolioAvailabilityText() {
-  const now = new Date();
+function getMonthlyPerformanceSchedule(baseDate = new Date()) {
+  const kst = new Date(
+    baseDate.toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+  );
+  const target = new Date(
+    kst.getFullYear(),
+    kst.getMonth() + 1,
+    1,
+    8,
+    30,
+    0,
+    0,
+  );
 
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-
-  const get = (type: Intl.DateTimeFormatPartTypes) =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-
-  const year = get("year");
-  const month = get("month");
-  const day = get("day");
-  const lastDay = new Date(year, month, 0).getDate();
-  const dDay = lastDay - day;
-
-  if (dDay <= 0) {
-    return `포트폴리오 성과는 매월 마지막 날에 제공됩니다. (${month}/${lastDay} 오늘 제공)`;
+  while (target.getDay() === 0 || target.getDay() === 6) {
+    target.setDate(target.getDate() + 1);
   }
 
-  return `포트폴리오 성과는 매월 마지막 날에 제공됩니다. (${month}/${lastDay} D-${dDay})`;
+  const weekdayLabels = ["일", "월", "화", "수", "목", "금", "토"];
+  const targetDate = `${target.getMonth() + 1}/${target.getDate()}(${weekdayLabels[target.getDay()]})`;
+  const today = new Date(kst.getFullYear(), kst.getMonth(), kst.getDate());
+  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const diffDays = Math.ceil((targetDay.getTime() - today.getTime()) / 86400000);
+  const dDay = diffDays <= 0 ? "D-DAY" : `D-${diffDays}`;
+
+  return {
+    target,
+    targetDate,
+    dDay,
+    isAvailable: kst.getTime() >= target.getTime(),
+    notice: `포트폴리오 성과는 다음 달 첫 거래일에 제공됩니다. (${targetDate} ${dDay})`,
+  };
+}
+
+function getPortfolioAvailabilityText() {
+  return getMonthlyPerformanceSchedule().notice;
 }
 
 function PdfRichText({ text }: { text: string }) {
@@ -590,6 +606,13 @@ function buildPdfSelectableSections({
       label: getPortfolioAvailabilityText(),
       text: getPortfolioAvailabilityText(),
     },
+    {
+      id: "portfolioPerformance:content",
+      section: "portfolioPerformance",
+      group: "안내",
+      label: "포트폴리오 성과 (오른쪽 미리보기에서 확인하세요.)",
+      text: "",
+    },
   ];
 
   return [
@@ -740,19 +763,46 @@ function NarrativePreview({ narrative, fallbackBullets }: { narrative?: MarketRe
   );
 }
 
-function ReportPreviewCard({ title, summary, bullets, meta, narrative }: { title: string; summary: string; bullets: string[]; meta?: string; narrative?: MarketReportNarrative }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+function ReportPreviewCard({
+  title,
+  summary,
+  bullets,
+  meta,
+  narrative,
+  headerExtra,
+  children,
+  className = "",
+}: {
+  title: string;
+  summary: string;
+  bullets: string[];
+  meta?: string;
+  narrative?: MarketReportNarrative;
+  headerExtra?: React.ReactNode;
+  children?: React.ReactNode;
+  className?: string;
+}) {
+  // 시황 보고서 메일링 패널이 접힌 카드 3개만으로는 너무 짧아 보인다는 피드백에 따라 기본 펼침으로
+  // 바꿨다(2026-09) — 섹터 스캐너 쪽 높이도 이 패널 높이를 따라가므로, 같이 자연스럽게 채워진다.
+  const [isExpanded, setIsExpanded] = useState(true);
 
   return (
     <article
-      className={`rounded-xl border border-slate-300 bg-slate-50 transition ${
+      className={`${className} w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 transition ${
         isExpanded ? "" : "h-[118px]"
       }`}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsExpanded((prev) => !prev)}
-        className="flex w-full items-center justify-between gap-4 p-4 text-left"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setIsExpanded((prev) => !prev);
+          }
+        }}
+        className="flex w-full cursor-pointer items-center justify-between gap-4 p-4 text-left"
         aria-expanded={isExpanded}
       >
         <p className="min-w-0 text-sm font-black text-navy">{title}</p>
@@ -773,23 +823,31 @@ function ReportPreviewCard({ title, summary, bullets, meta, narrative }: { title
             aria-hidden="true"
           />
         </div>
-      </button>
+      </div>
 
       {isExpanded ? (
-        <div className="border-t border-slate-200 px-4 pb-4 pt-3">
-          {!narrative ? (
-            <p className="text-xs font-bold leading-5 text-slate-600">
-              {summary || "자동 생성된 보고서 본문이 이 영역에 표시됩니다."}
-            </p>
-          ) : null}
+        <div className="max-h-[360px] overflow-y-auto border-t border-slate-200 px-4 pb-4 pt-3">
+          {children ? (
+            children
+          ) : (
+            <>
+              {!narrative ? (
+                <p className="text-xs font-bold leading-5 text-slate-600">
+                  {summary}
+                </p>
+              ) : null}
 
-          <NarrativePreview narrative={narrative} fallbackBullets={bullets} />
+              <NarrativePreview
+                narrative={narrative}
+                fallbackBullets={bullets}
+              />
+            </>
+          )}
         </div>
       ) : null}
     </article>
   );
 }
-
 function MarketStatusRow({ label, market, report, refreshing, onRefresh }: { label: string; market: "us" | "kr"; report?: MarketReport; refreshing: boolean; onRefresh: (market: "us" | "kr") => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2">
@@ -819,12 +877,15 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const [refreshingMarket, setRefreshingMarket] = useState<"us" | "kr" | null>(null);
   const [actionMessage, setActionMessage] = useState("");
   const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [portfolioApprovalOpen, setPortfolioApprovalOpen] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [sendingCustomerMail, setSendingCustomerMail] = useState(false);
   const [sendingAllCustomerMail, setSendingAllCustomerMail] = useState(false);
   const [allMailProgress, setAllMailProgress] = useState("");
   const [marketMailSends, setMarketMailSends] = useState<{
     us: {
       report_type: "us";
+      report_date: string;
       sent_at: string;
       success_count: number;
       failed_count: number;
@@ -832,6 +893,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
     } | null;
     kr: {
       report_type: "kr";
+      report_date: string;
       sent_at: string;
       success_count: number;
       failed_count: number;
@@ -850,14 +912,473 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   const [savingComment, setSavingComment] = useState(false);
   const [holdingIssues, setHoldingIssues] = useState<HoldingIssueItem[]>([]);
   const [openHoldingTicker, setOpenHoldingTicker] = useState<string | null>(null);
-  const [holdingIssuesExpanded, setHoldingIssuesExpanded] = useState(false);
+  const [holdingIssuesExpanded, setHoldingIssuesExpanded] = useState(true);
   const [loadingHoldingIssues, setLoadingHoldingIssues] = useState(false);
   const [holdingIssuesError, setHoldingIssuesError] = useState("");
+  const [portfolioHealthItems, setPortfolioHealthItems] = useState<Array<{
+    key: string;
+    label: string;
+    score: number;
+    grade: string;
+    detail: string;
+  }>>([]);
+  const [portfolioAssets, setPortfolioAssets] = useState<PortfolioAsset[]>([]);
+  const [performanceProductAssets, setPerformanceProductAssets] = useState<RebalancingPortfolioSnapshot[]>([]);
+  const [performanceRebalancingHistory, setPerformanceRebalancingHistory] = useState<RebalancingHistoryRecord[]>([]);
+
+  const portfolioPerformanceRows = portfolioAssets
+  .filter((asset) => Boolean(asset.name?.trim()))
+    .map((asset) => {
+      const buyPrice = Number(asset.buy_price);
+      const amount = Number(asset.amount);
+      const rawCurrentPrice = Number(asset.current_price);
+      const rawCurrentValue = Number(asset.current_value);
+
+      const currentPrice =
+        Number.isFinite(rawCurrentPrice) && rawCurrentPrice > 0
+          ? rawCurrentPrice
+          : null;
+
+      const quantity =
+        asset.amount_type === "quantity" &&
+        Number.isFinite(amount) &&
+        amount > 0
+          ? amount
+          : null;
+
+      const costBasis =
+        quantity != null &&
+        Number.isFinite(buyPrice) &&
+        buyPrice > 0
+          ? quantity * buyPrice
+          : null;
+
+      const currentValue =
+        quantity != null && currentPrice != null
+          ? quantity * currentPrice
+          : Number.isFinite(rawCurrentValue) && rawCurrentValue >= 0
+            ? rawCurrentValue
+            : null;
+
+      const profitLoss =
+        costBasis != null && currentValue != null
+          ? currentValue - costBasis
+          : null;
+
+      const returnRate =
+        costBasis != null && costBasis > 0 && profitLoss != null
+          ? (profitLoss / costBasis) * 100
+          : null;
+
+      return {
+        name: asset.name,
+        ticker: asset.ticker?.trim() || "",
+        buyPrice:
+          Number.isFinite(buyPrice) && buyPrice > 0
+            ? buyPrice
+            : null,
+        quantity,
+        currentPrice,
+        currentValue,
+        costBasis,
+        profitLoss,
+        returnRate,
+        priceAsOf: asset.price_as_of ?? null,
+      };
+    });
+
+  const validPortfolioRows = portfolioPerformanceRows.filter(
+    (row) =>
+      row.currentValue != null &&
+      row.currentValue >= 0 &&
+      row.costBasis != null &&
+      row.costBasis > 0,
+  );
+
+  const totalPortfolioCost = validPortfolioRows.reduce(
+    (sum, row) => sum + (row.costBasis ?? 0),
+    0,
+  );
+
+  const totalPortfolioValue = validPortfolioRows.reduce(
+    (sum, row) => sum + (row.currentValue ?? 0),
+    0,
+  );
+
+  const totalPortfolioProfitLoss =
+    totalPortfolioCost > 0
+      ? totalPortfolioValue - totalPortfolioCost
+      : null;
+
+  const totalPortfolioReturn =
+    totalPortfolioCost > 0 && totalPortfolioProfitLoss != null
+      ? (totalPortfolioProfitLoss / totalPortfolioCost) * 100
+      : null;
+
+  const portfolioPriceAsOf = portfolioPerformanceRows
+    .map((row) => row.priceAsOf)
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => b.getTime() - a.getTime())[0];
+
+  const portfolioPriceAsOfLabel = portfolioPriceAsOf
+    ? portfolioPriceAsOf.toLocaleString("ko-KR", {
+        timeZone: "Asia/Seoul",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      })
+    : null;
   const customerSections = buildCustomerReportSections(selectedCustomer, selectedState);
   const pdfCustomer =
     customers.find((customer) => customer.id === pdfCustomerId) ??
     selectedCustomer ??
     null;
+  const performanceCustomer = pdfCustomer;
+
+  const performanceCustomerState = performanceCustomer
+    ? (performanceCustomer.id === selectedCustomer?.id ? selectedState : undefined) ??
+      customerData[performanceCustomer.id] ??
+      performanceCustomer.data
+    : undefined;
+
+  const currentMonthConsultations = (() => {
+    if (!performanceCustomer?.id) return [];
+
+    const nowKst = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+    );
+
+    return getCustomerSessions(performanceCustomerState)
+      .filter((session) => session.customerId === performanceCustomer.id)
+      .filter((session) => session.status === "completed")
+      .filter((session) => {
+        const source =
+          session.date ||
+          session.updatedAt ||
+          session.createdAt;
+
+        if (!source) return false;
+
+        const date = new Date(source);
+        if (Number.isNaN(date.getTime())) return false;
+
+        const kstDate = new Date(
+          date.toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+        );
+
+        return (
+          kstDate.getFullYear() === nowKst.getFullYear() &&
+          kstDate.getMonth() === nowKst.getMonth()
+        );
+      })
+      .sort((a, b) => {
+        const aTime = new Date(a.date || a.updatedAt || a.createdAt).getTime();
+        const bTime = new Date(b.date || b.updatedAt || b.createdAt).getTime();
+        return bTime - aTime;
+      });
+  })();
+
+  const currentConsultationMonthLabel = `${
+    new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }),
+    ).getMonth() + 1
+  }월 상담`;
+
+  const monthlyPerformanceSchedule = getMonthlyPerformanceSchedule();
+
+  function formatPdfCurrency(value: number | null) {
+    if (value == null || !Number.isFinite(value)) return "-";
+    return `${value >= 0 ? "+" : ""}${Math.round(value).toLocaleString("ko-KR")}원`;
+  }
+
+  function formatPdfNumber(value: number | null) {
+    if (value == null || !Number.isFinite(value)) return "-";
+    return value.toLocaleString("ko-KR");
+  }
+
+  function formatPdfPercent(value: number | null) {
+    if (value == null || !Number.isFinite(value)) return "-";
+    return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+  }
+
+  function pdfAmountClass(value: number | null) {
+    if (value == null || !Number.isFinite(value) || value === 0) return "text-slate-700";
+    return value > 0 ? "text-red-600" : "text-blue-600";
+  }
+
+  function getPerformanceProductJoinedDate(asset: RebalancingPortfolioSnapshot) {
+    const normalizeProductKey = (value?: string | null) =>
+      (value ?? "").trim().toLowerCase();
+
+    const assetKeys = [
+      normalizeProductKey(asset.id),
+      normalizeProductKey(asset.name),
+      normalizeProductKey(asset.ticker),
+    ].filter(Boolean);
+
+    const joinedRecord = [...performanceRebalancingHistory]
+      .sort(
+        (a, b) =>
+          new Date(a.consultationAt || a.confirmedAt).getTime() -
+          new Date(b.consultationAt || b.confirmedAt).getTime(),
+      )
+      .find((record) => {
+        const beforeKeys = (record.beforePortfolio ?? [])
+          .filter((item) => item.source === "product")
+          .flatMap((item) => [
+            normalizeProductKey(item.id),
+            normalizeProductKey(item.name),
+            normalizeProductKey(item.ticker),
+          ]);
+
+        const afterKeys = (record.afterPortfolio ?? [])
+          .filter((item) => item.source === "product")
+          .flatMap((item) => [
+            normalizeProductKey(item.id),
+            normalizeProductKey(item.name),
+            normalizeProductKey(item.ticker),
+          ]);
+
+        const existedBefore = assetKeys.some((key) => beforeKeys.includes(key));
+        const existsAfter = assetKeys.some((key) => afterKeys.includes(key));
+
+        return !existedBefore && existsAfter;
+      });
+
+    const joinedSource = joinedRecord?.consultationAt || joinedRecord?.confirmedAt || "";
+
+    return joinedSource
+      ? new Date(joinedSource).toLocaleDateString("ko-KR", {
+          timeZone: "Asia/Seoul",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        })
+      : "-";
+  }
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPortfolioPerformanceAssets() {
+      if (!performanceCustomer?.id) {
+        setPortfolioAssets([]);
+        setPerformanceProductAssets([]);
+        setPerformanceRebalancingHistory([]);
+        return;
+      }
+
+      const [assets, rebalancing, sharedUi] = await Promise.all([
+        loadPortfolioAssets(performanceCustomer.id),
+        loadRebalancingState(performanceCustomer.id),
+        loadSharedMaintabUiState(performanceCustomer.id),
+      ]);
+
+      if (cancelled) return;
+
+      setPerformanceRebalancingHistory(
+        sharedUi.tab3?.rebalancingHistory ?? [],
+      );
+
+      const rebalancingHistory =
+        sharedUi.tab3?.rebalancingHistory ?? [];
+
+      const latestRebalancing =
+        [...rebalancingHistory]
+          .sort((a, b) => {
+            const aTime = new Date(
+              a.consultationAt || a.confirmedAt || 0,
+            ).getTime();
+
+            const bTime = new Date(
+              b.consultationAt || b.confirmedAt || 0,
+            ).getTime();
+
+            return bTime - aTime;
+          })[0] ?? null;
+
+      const finalProducts = latestRebalancing
+        ? (latestRebalancing.afterPortfolio ?? [])
+            .filter((asset) => {
+              const category = (asset.category ?? "").toLowerCase();
+
+              return (
+                asset.source === "product" &&
+                !category.includes("주식") &&
+                !category.includes("stock") &&
+                !category.includes("etf")
+              );
+            })
+            .map((asset) => ({
+              ...asset,
+              owner_customer_id: performanceCustomer.id,
+            }))
+        : [];
+
+      setPerformanceProductAssets(finalProducts);
+
+      const pricedAssets = await Promise.all(
+        assets.map(async (asset) => {
+          const ticker = asset.ticker?.trim();
+
+          if (!ticker) {
+            return asset;
+          }
+
+          try {
+            const response = await fetch(
+              `/api/price?ticker=${encodeURIComponent(ticker)}`,
+              { cache: "no-store" },
+            );
+
+            if (!response.ok) {
+              return asset;
+            }
+
+            const priceData = await response.json();
+
+            const snapshotPrice = Number(priceData?.snapshotPrice);
+            const regularMarketPrice = Number(priceData?.regularMarketPrice);
+
+            const nextPrice =
+              Number.isFinite(snapshotPrice) && snapshotPrice > 0
+                ? snapshotPrice
+                : Number.isFinite(regularMarketPrice) && regularMarketPrice > 0
+                  ? regularMarketPrice
+                  : null;
+
+            const rawPriceTime =
+              priceData?.snapshotTime ??
+              priceData?.regularMarketTime ??
+              null;
+
+            const numericPriceTime = Number(rawPriceTime);
+
+            const priceAsOf =
+              Number.isFinite(numericPriceTime) && numericPriceTime > 0
+                ? new Date(
+                    numericPriceTime < 1000000000000
+                      ? numericPriceTime * 1000
+                      : numericPriceTime,
+                  ).toISOString()
+                : asset.price_as_of;
+
+            if (nextPrice == null) {
+              return {
+                ...asset,
+                price_as_of: priceAsOf,
+              };
+            }
+
+            return {
+              ...asset,
+              current_price: nextPrice,
+              price_as_of: priceAsOf,
+            };
+          } catch {
+            return asset;
+          }
+        }),
+      );
+
+      if (!cancelled) {
+        setPortfolioAssets(pricedAssets);
+      }
+    }
+
+    void loadPortfolioPerformanceAssets();
+
+    const now = new Date();
+
+    const elapsedMsInFiveMinuteBlock =
+      ((now.getMinutes() % 5) * 60 + now.getSeconds()) * 1000 +
+      now.getMilliseconds();
+
+    const delayToNextFiveMinuteBoundary =
+      5 * 60 * 1000 - elapsedMsInFiveMinuteBlock;
+
+    let portfolioRefreshInterval: ReturnType<typeof setInterval> | null = null;
+
+    const portfolioRefreshTimeout = setTimeout(() => {
+      void loadPortfolioPerformanceAssets();
+
+      portfolioRefreshInterval = setInterval(() => {
+        void loadPortfolioPerformanceAssets();
+      }, 5 * 60 * 1000);
+    }, delayToNextFiveMinuteBoundary);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(portfolioRefreshTimeout);
+
+      if (portfolioRefreshInterval !== null) {
+        clearInterval(portfolioRefreshInterval);
+      }
+    };
+  }, [performanceCustomer?.id]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPortfolioHealth() {
+      if (!performanceCustomer?.id) {
+        setPortfolioHealthItems([]);
+        return;
+      }
+
+      const result = await loadAnalysisResult(performanceCustomer.id);
+      if (cancelled) return;
+
+      const raw =
+        result && typeof result === "object"
+          ? result
+          : null;
+
+      const healthResult =
+        raw && "healthResult" in raw
+          ? (raw as any).healthResult
+          : null;
+
+      const items =
+        healthResult &&
+        typeof healthResult === "object" &&
+        Array.isArray((healthResult as any).items)
+          ? (healthResult as any).items
+          : [];
+
+      const normalized = items
+        .map((item: any) => {
+          if (!item || typeof item !== "object") return null;
+
+          const key = typeof item.key === "string" ? item.key : "";
+          const label = typeof item.label === "string" ? item.label : "";
+          const score = Number(item.score);
+          const grade = typeof item.grade === "string" ? item.grade : "";
+          const detail = typeof item.detail === "string" ? item.detail : "";
+
+          if (!key || !label || !grade || !Number.isFinite(score)) return null;
+
+          return {
+            key,
+            label,
+            score,
+            grade,
+            detail,
+          };
+        })
+        .filter(Boolean);
+
+      setPortfolioHealthItems(normalized);
+    }
+
+    void loadPortfolioHealth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [performanceCustomer?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1048,7 +1569,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   function handlePdfPreview() {
     const initialSelection = Object.fromEntries(
       visiblePdfSections.flatMap((section) =>
-        section.lines.map((line) => [line.id, true]),
+        section.lines.map((line) => [line.id, line.id !== "portfolioPerformance:content"]),
       ),
     );
 
@@ -1057,7 +1578,98 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
     setPdfCustomerId(selectedCustomer?.id ?? customers[0]?.id ?? "");
     setPdfPreviewOpen(true);
   }
-  async function handleSendPdfToCustomer() {
+  async function handleDownloadPdf() {
+    const element = document.getElementById("market-report-pdf");
+    if (!element) {
+      setActionMessage("PDF 미리보기 영역을 찾을 수 없습니다.");
+      return;
+    }
+
+    try {
+      setDownloadingPdf(true);
+      setActionMessage("PDF 다운로드 준비 중...");
+      await document.fonts.ready;
+
+      // Recharts writes the animated radar polygon directly into the SVG path.
+      // Wait for the final path before cloning the preview for server-side PDF rendering.
+      const radarPolygon = element.querySelector<SVGPathElement>(
+        '.portfolio-health-radar-pdf path[fill="#f3b64f"]',
+      );
+      if (radarPolygon) {
+        const deadline = Date.now() + 3000;
+        let previousPath = "";
+        let stableFrames = 0;
+        while (Date.now() < deadline) {
+          const currentPath = radarPolygon.getAttribute("d") ?? "";
+          if (currentPath && currentPath === previousPath) stableFrames += 1;
+          else stableFrames = 0;
+          previousPath = currentPath;
+          if (stableFrames >= 3) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+
+      const customerName = pdfCustomer?.name || pdfCustomer?.fallbackName || "고객";
+      const clonedElement = element.cloneNode(true) as HTMLElement;
+      const originalTextareas = element.querySelectorAll<HTMLTextAreaElement>("textarea");
+      const clonedTextareas = clonedElement.querySelectorAll<HTMLTextAreaElement>("textarea");
+
+      originalTextareas.forEach((textarea, index) => {
+        const clonedTextarea = clonedTextareas[index];
+        if (!clonedTextarea) return;
+        const replacement = document.createElement("div");
+        replacement.textContent = textarea.value;
+        replacement.className = textarea.className;
+        replacement.setAttribute("style", textarea.getAttribute("style") ?? "");
+        clonedTextarea.replaceWith(replacement);
+      });
+
+      const styles = Array.from(document.styleSheets)
+        .map((sheet) => {
+          try {
+            return Array.from(sheet.cssRules).map((rule) => rule.cssText).join("\n");
+          } catch {
+            return "";
+          }
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      const response = await fetch("/api/render-report-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: clonedElement.outerHTML, styles }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(typeof body?.error === "string" ? body.error : "PDF 생성에 실패했습니다.");
+      }
+
+      const pdfBlob = await response.blob();
+      const reportDate = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date()).replaceAll("-", "");
+      const url = URL.createObjectURL(pdfBlob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = customerName + "_포트폴리오보고서_" + reportDate + ".pdf";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setActionMessage(customerName + " 고객 포트폴리오 보고서를 다운로드했습니다.");
+    } catch (error) {
+      console.error("[pdf-download]", error);
+      setActionMessage(error instanceof Error ? error.message : "PDF 다운로드 중 오류가 발생했습니다.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
+async function handleSendPdfToCustomer() {
     if (!pdfCustomer?.id) {
       setActionMessage("전송할 고객을 찾을 수 없습니다.");
       return;
@@ -1149,6 +1761,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
         `${customerName} 고객님께 시황 보고서를 전송했습니다.`,
       );
     } catch (error) {
+      console.error("[pdf-mail]", error);
       setActionMessage(
         error instanceof Error
           ? error.message
@@ -1166,17 +1779,29 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
 
     const originalCustomerId = pdfCustomerId;
 
+    const isMarketIncludedInPdf = (reportType: "us" | "kr") => {
+      const section = pdfSections.find((item) => item.id === `${reportType}Market`);
+      return Boolean(
+        activeIncluded[`${reportType}Market`] &&
+          section?.lines.some(
+            (line) =>
+              !pdfSelectionInitialized ||
+              pdfLineIncluded[line.id] !== false,
+          ),
+      );
+    };
+
     const reportTypesBeingSent: Array<"us" | "kr"> = [];
 
     if (
-      activeIncluded.usMarket &&
+      isMarketIncludedInPdf("us") &&
       reports.us?.generationStatus === "success"
     ) {
       reportTypesBeingSent.push("us");
     }
 
     if (
-      activeIncluded.krMarket &&
+      isMarketIncludedInPdf("kr") &&
       reports.kr?.generationStatus === "success"
     ) {
       reportTypesBeingSent.push("kr");
@@ -1295,12 +1920,9 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
           failedCustomers.push(customerName);
         }
       }
-      const allCustomersSentSuccessfully =
-        successCount > 0 &&
-        failedCustomers.length === 0 &&
-        skippedCustomers.length === 0;
-
-      if (allCustomersSentSuccessfully && reportTypesBeingSent.length > 0) {
+      // The UI send workflow is complete after the customer loop finishes.
+      // Persist only checked reports that were already generated.
+      if (reportTypesBeingSent.length > 0) {
         try {
           const savedStatuses = await Promise.all(
             reportTypesBeingSent.map(async (reportType) => {
@@ -1312,6 +1934,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                 body: JSON.stringify({
                   pbId: pbId || null,
                   reportType,
+                  reportDate: reportType === "us" ? reports.us?.reportDate : reports.kr?.reportDate,
                   successCount,
                   failedCount: 0,
                   skippedCount: 0,
@@ -1414,22 +2037,11 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
       };
     }
 
-    const generatedAt = new Date(report.generatedAt).getTime();
-
-    const sentAt = send?.sent_at
-      ? new Date(send.sent_at).getTime()
-      : 0;
-
-    const completed =
-      Boolean(send) &&
-      send!.success_count > 0 &&
-      send!.failed_count === 0 &&
-      send!.skipped_count === 0 &&
-      sentAt >= generatedAt;
+    const completed = Boolean(send && send.report_date === report.reportDate);
 
     return completed
       ? {
-          text: "전송 완료",
+          text: "전송",
           className: "text-emerald-600",
         }
       : {
@@ -1483,7 +2095,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
           <div className="flex items-center gap-2">
             <span
               className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
-                usMailingState.text === "전송 완료"
+                usMailingState.text === "전송"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : usMailingState.text === "미전송"
                     ? "border-red-200 bg-red-50 text-red-600"
@@ -1495,7 +2107,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
 
             <span
               className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-bold ${
-                krMailingState.text === "전송 완료"
+                krMailingState.text === "전송"
                   ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                   : krMailingState.text === "미전송"
                     ? "border-red-200 bg-red-50 text-red-600"
@@ -1520,20 +2132,29 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
         </div>
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-        <div className="grid gap-3">
+      {/* 옆(섹터 스캐너)과 나란히 절반 폭만 쓰게 되면서, 전체 페이지 폭 기준으로 잡혀 있던
+          xl:/lg: 반응형 컬럼 분기가 실제 컨테이너 폭보다 훨씬 넓은 뷰포트에서도 계속 다단으로 쪼개져
+          카드 안 글자가 세로로 깨지는 문제가 있었다(2026-09 발견·수정) — 뷰포트 기준이 아니라 항상
+          고정된 컬럼 수로 이 컨테이너의 실제 폭을 그대로 채우도록 바꾼다. */}
+      {/* grid(테두리 없는 암묵 컬럼)는 컨테이너가 w-full이어도 내부 트랙이 콘텐츠 크기만큼만 잡혀서
+          오른쪽에 빈 공간이 남는 문제가 있었다(2026-09 발견·수정) — 세로로 쌓기만 하면 되는 곳은
+          flex-col로 바꿔서 자식이 항상 100% 폭을 쓰게 한다. 실제로 2열이 필요한 곳(전일 미국 시황/
+          당일 국내 시황 카드 두 개)만 grid-cols-2를 그대로 쓴다. */}
+      <div className="flex w-full flex-col gap-3">
+        <div className="flex w-full flex-col gap-3">
 
 
           {reportsError ? <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-700">{reportsError}</p> : null}
           {actionMessage ? <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700">{actionMessage}</p> : null}
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="grid content-start gap-3">
+        <div className="flex w-full flex-col gap-3">
+          <div className="grid w-full grid-cols-2 gap-3">
             {activeIncluded.usMarket ? <ReportPreviewCard title={marketReportTitle("usMarket")} summary={marketCardSummary(usReport, "us")} bullets={reportBullets(usReport)} narrative={reportNarrative(usReport)} meta={marketCardMeta(usReport, "us").replace(/^.*?·\s*/, "")} /> : null}
             {activeIncluded.krMarket ? <ReportPreviewCard title={marketReportTitle("krMarket")} summary={marketCardSummary(krReport, "kr")} bullets={reportBullets(krReport)} narrative={reportNarrative(krReport)} meta={marketCardMeta(krReport, "kr").replace(/^.*?·\s*/, "")} /> : null}
           </div>
-          <div className="grid content-start gap-3">
+          <>
+            <div className="lg:col-span-2">
             {activeIncluded.holdingIssues ? (() => {
   const groupedIssues = Array.from(
     holdingIssues.reduce((map, issue) => {
@@ -1575,8 +2196,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
   );
 
   return (
-    <div className={`rounded-xl border border-slate-300 bg-slate-50 transition ${holdingIssuesExpanded ? "" : "h-[118px]"}`}>
-      <div>
+    <div className={`lg:col-span-2 rounded-xl border border-slate-300 bg-slate-50 transition ${holdingIssuesExpanded ? "" : "h-[118px]"}`}>
   <button
     type="button"
     onClick={() => setHoldingIssuesExpanded((prev) => !prev)}
@@ -1598,7 +2218,11 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
       aria-hidden="true"
     />
   </button>
+  {/* 펼쳤을 때 종목이 많으면 카드가 한없이 길어져 가시성이 떨어지는 문제가 있어(2026-09) 이 안쪽
+      내용 전체(요약문+안내문구+종목 목록)를 하나의 스크롤 영역으로 묶었다 — 토글 버튼은 이 밖에 둬서
+      스크롤을 내려도 항상 접기 버튼을 다시 누를 수 있다. */}
   {holdingIssuesExpanded ? (
+    <div className="max-h-[360px] overflow-y-auto">
     <div className="border-t border-slate-200 px-4 pb-4 pt-3">
       <p className="text-xs font-bold text-slate-500">
         {loadingHoldingIssues
@@ -1610,20 +2234,16 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
               : "현재 주요 이슈가 감지된 보유 종목이 없습니다."}
       </p>
     </div>
-  ) : null}
 
-  {holdingIssuesExpanded &&
-  !loadingHoldingIssues &&
-  !holdingIssuesError &&
-  groupedIssues.length > 0 ? (
-    <p className="mt-2 px-4 text-[10px] font-medium text-slate-400">
-      ※종목명에 마우스를 올리면 해당 종목 보유고객을 확인할 수 있습니다.
-    </p>
-  ) : null}
-</div>
+    {!loadingHoldingIssues &&
+    !holdingIssuesError &&
+    groupedIssues.length > 0 ? (
+      <p className="mt-2 px-4 text-[10px] font-medium text-slate-400">
+        ※종목명에 마우스를 올리면 해당 종목 보유고객을 확인할 수 있습니다.
+      </p>
+    ) : null}
 
-      {holdingIssuesExpanded &&
-        !loadingHoldingIssues &&
+        {!loadingHoldingIssues &&
         !holdingIssuesError &&
         groupedIssues.length > 0 ? (
           <div className="grid gap-2 px-4 pb-4">
@@ -1743,16 +2363,480 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
           </div>
         ) : null}
     </div>
+  ) : null}
+    </div>
   );
-})() : null}{activeIncluded.portfolioPerformance ? <ReportPreviewCard title={customerSections.portfolioPerformance.title} summary={customerSections.portfolioPerformance.summary} bullets={customerSections.portfolioPerformance.bullets} /> : null}
+})() : null}
+            </div>
+
+<div className="lg:col-span-2">
+{activeIncluded.portfolioPerformance ? (
+  <ReportPreviewCard
+    className="lg:col-span-2"
+    title="월별 포트폴리오 성과"
+    summary=""
+    bullets={[]}
+    headerExtra={
+      <div
+        onClick={(event) => event.stopPropagation()}
+        className="flex items-center gap-2">
+        <span className="inline-flex h-6 items-center rounded-md border border-red-300 bg-red-50 px-2 text-[10px] font-black text-red-600">
+          {monthlyPerformanceSchedule.dDay}
+        </span>
+        <div className="flex h-7 items-center overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <button
+          type="button"
+          onClick={() => movePdfCustomer(-1)}
+          disabled={customers.length <= 1}
+          className="flex h-full w-7 items-center justify-center text-sm font-black text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+          aria-label="이전 고객"
+        >
+          ‹
+        </button>
+
+        <span className="min-w-[110px] border-x border-slate-200 px-2 text-center text-[11px] font-bold text-slate-700">
+          {pdfCustomer?.name || pdfCustomer?.fallbackName || "고객"}
+          {pdfCustomerBirthDate ? ` (${pdfCustomerBirthDate})` : ""}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => movePdfCustomer(1)}
+          disabled={customers.length <= 1}
+          className="flex h-full w-7 items-center justify-center text-sm font-black text-slate-500 hover:bg-slate-50 disabled:opacity-30"
+          aria-label="다음 고객"
+        >
+          ›
+        </button>
+        </div>
+      </div>
+    }
+  >
+    <div className="mt-3 space-y-4">
+      <section>
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black text-slate-800">
+              주식·ETF 포트폴리오 성과
+            </p>
+            <p className="mt-1 text-[10px] font-semibold text-slate-400">
+              수익률은 주식·ETF 보유분에 한해 제공됩니다.
+            </p>
           </div>
+
+          {totalPortfolioReturn != null ? (
+            <div className="text-right">
+              <p className="text-[10px] font-semibold text-slate-400">
+                전체 수익률
+              </p>
+              <p className="text-sm font-black text-slate-800">
+                {totalPortfolioReturn >= 0 ? "+" : ""}
+                {totalPortfolioReturn.toFixed(2)}%
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        {portfolioPerformanceRows.length > 0 ? (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <table className="w-full min-w-[760px] table-fixed">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  <th className="w-[25%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    종목명
+                  </th>
+                  <th className="w-[15%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    매입단가
+                  </th>
+                  <th className="w-[10%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    수량
+                  </th>
+                  <th className="w-[15%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    현재가
+                  </th>
+                  <th className="w-[20%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    평가손익
+                  </th>
+                  <th className="w-[15%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    수익률
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {portfolioPerformanceRows.map((row, index) => (
+                  <tr
+                    key={`${row.ticker || row.name}-${index}`}
+                    className="border-b border-slate-100 last:border-b-0"
+                  >
+                    <td className="px-3 py-2.5">
+                      <p className="truncate text-xs font-bold text-slate-700">
+                        {row.name}
+                      </p>
+                      {row.ticker ? (
+                        <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                          {row.ticker}
+                        </p>
+                      ) : null}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                      {row.buyPrice != null
+                        ? row.buyPrice.toLocaleString("ko-KR")
+                        : "-"}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                      {row.quantity != null
+                        ? row.quantity.toLocaleString("ko-KR")
+                        : "-"}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                      {row.currentPrice != null
+                        ? row.currentPrice.toLocaleString("ko-KR")
+                        : "-"}
+                    </td>
+
+                    <td
+                      className={`px-3 py-2.5 text-right text-xs font-bold ${
+                        row.profitLoss == null
+                          ? "text-slate-700"
+                          : row.profitLoss > 0
+                            ? "text-red-600"
+                            : row.profitLoss < 0
+                              ? "text-blue-600"
+                              : "text-slate-700"
+                      }`}
+                    >
+                      {row.profitLoss != null
+                        ? `${row.profitLoss >= 0 ? "+" : ""}${Math.round(
+                            row.profitLoss,
+                          ).toLocaleString("ko-KR")}원`
+                        : "-"}
+                    </td>
+
+                    <td
+                      className={`px-3 py-2.5 text-right text-xs font-black ${
+                        row.returnRate == null
+                          ? "text-slate-700"
+                          : row.returnRate > 0
+                            ? "text-red-600"
+                            : row.returnRate < 0
+                              ? "text-blue-600"
+                              : "text-slate-700"
+                      }`}
+                    >
+                      {row.returnRate != null
+                        ? `${row.returnRate >= 0 ? "+" : ""}${row.returnRate.toFixed(2)}%`
+                        : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t border-slate-200 bg-slate-50">
+                <tr>
+                  <td className="px-3 py-2.5 text-xs font-black text-slate-800">
+                    합계
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-400">
+                    -
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-400">
+                    -
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-400">
+                    {totalPortfolioValue > 0
+                      ? Math.round(totalPortfolioValue).toLocaleString("ko-KR")
+                      : "-"}
+                  </td>
+                  <td
+                    className={`px-3 py-2.5 text-right text-xs font-black ${
+                      totalPortfolioProfitLoss == null
+                        ? "text-slate-700"
+                        : totalPortfolioProfitLoss > 0
+                          ? "text-red-600"
+                          : totalPortfolioProfitLoss < 0
+                            ? "text-blue-600"
+                            : "text-slate-700"
+                    }`}
+                  >
+                    {totalPortfolioProfitLoss != null
+                      ? `${totalPortfolioProfitLoss >= 0 ? "+" : ""}${Math.round(
+                          totalPortfolioProfitLoss,
+                        ).toLocaleString("ko-KR")}원`
+                      : "-"}
+                  </td>
+                  <td
+                    className={`px-3 py-2.5 text-right text-xs font-black ${
+                      totalPortfolioReturn == null
+                        ? "text-slate-700"
+                        : totalPortfolioReturn > 0
+                          ? "text-red-600"
+                          : totalPortfolioReturn < 0
+                            ? "text-blue-600"
+                            : "text-slate-700"
+                    }`}
+                  >
+                    {totalPortfolioReturn != null
+                      ? `${totalPortfolioReturn >= 0 ? "+" : ""}${totalPortfolioReturn.toFixed(2)}%`
+                      : "-"}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+
+            <p className="border-t border-slate-100 px-3 py-1.5 text-right text-[10px] font-semibold text-slate-400">
+              {portfolioPriceAsOfLabel
+                ? `현재가 기준 ${portfolioPriceAsOfLabel}`
+                : "현재가 기준시각을 확인할 수 없습니다."}
+            </p>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            주식·ETF 보유 내역을 확인할 수 없습니다.
+          </p>
+        )}
+      </section>
+
+      <section className="border-t border-slate-200 pt-4">
+        <p className="mb-3 text-xs font-black text-slate-800">
+          포트폴리오 위험·분산 진단
+        </p>
+
+        {portfolioHealthItems.length === 7 ? (
+          <HealthRadarChart items={portfolioHealthItems} />
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            포트폴리오 진단 결과를 확인할 수 없습니다.
+          </p>
+        )}
+      </section>
+
+      <section className="border-t border-slate-200 pt-4">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <p className="text-xs font-black text-slate-800">
+            상품 현황
+          </p>
+          <p className="text-[10px] font-semibold text-slate-400">
+            채권·펀드·랩 등
+          </p>
+        </div>
+
+        {performanceProductAssets.length > 0 ? (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full table-fixed">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  <th className="w-[34%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    상품명
+                  </th>
+                  <th className="w-[22%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    상품유형
+                  </th>
+                  <th className="w-[18%] px-3 py-2 text-center text-[10px] font-black text-slate-500">
+                    가입일
+                  </th>
+                  <th className="w-[26%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    매입금액
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {performanceProductAssets.map((asset, index) => {
+                  const productType =
+                    asset.category?.trim() ||
+                    "-";
+
+                  const purchaseAmount =
+                    Number.isFinite(Number(asset.amountKrw)) &&
+                    Number(asset.amountKrw) > 0
+                      ? Number(asset.amountKrw)
+                      : null;
+
+                  const normalizeProductKey = (value?: string | null) =>
+                    (value ?? "").trim().toLowerCase();
+
+                  const assetKeys = [
+                    normalizeProductKey(asset.id),
+                    normalizeProductKey(asset.name),
+                    normalizeProductKey(asset.ticker),
+                  ].filter(Boolean);
+
+                  const joinedRecord = [...performanceRebalancingHistory]
+                    .sort(
+                      (a, b) =>
+                        new Date(a.consultationAt || a.confirmedAt).getTime() -
+                        new Date(b.consultationAt || b.confirmedAt).getTime(),
+                    )
+                    .find((record) => {
+                      const beforeKeys = (record.beforePortfolio ?? []).filter((item) => item.source === "product").flatMap(
+                        (item) => [
+                          normalizeProductKey(item.id),
+                          normalizeProductKey(item.name),
+                          normalizeProductKey(item.ticker),
+                        ],
+                      );
+
+                      const afterKeys = (record.afterPortfolio ?? []).filter((item) => item.source === "product").flatMap(
+                        (item) => [
+                          normalizeProductKey(item.id),
+                          normalizeProductKey(item.name),
+                          normalizeProductKey(item.ticker),
+                        ],
+                      );
+
+                      const existedBefore = assetKeys.some((key) =>
+                        beforeKeys.includes(key),
+                      );
+
+                      const existsAfter = assetKeys.some((key) =>
+                        afterKeys.includes(key),
+                      );
+
+                      return !existedBefore && existsAfter;
+                    });
+
+                  const joinedSource =
+                    joinedRecord?.consultationAt ||
+                    joinedRecord?.confirmedAt ||
+                    "";
+
+                  const joinedDate = joinedSource
+                    ? new Date(joinedSource).toLocaleDateString("ko-KR", {
+                        timeZone: "Asia/Seoul",
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                      })
+                    : "-";
+
+                  return (
+                    <tr
+                      key={`${asset.id || asset.name}-${index}`}
+                      className="border-b border-slate-100 last:border-b-0"
+                    >
+                      <td className="px-3 py-2.5 text-xs font-bold text-slate-700">
+                        {asset.name || "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs font-semibold text-slate-600">
+                        {productType}
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-xs font-semibold text-slate-600">
+                        {joinedDate}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                        {purchaseAmount != null
+                          ? `${Math.round(purchaseAmount).toLocaleString("ko-KR")}원`
+                          : "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            보유 중인 채권·펀드·랩 등 상품이 없습니다.
+          </p>
+        )}
+      </section>
+
+      <section className="border-t border-slate-200 pt-4">
+        <p className="mb-3 text-xs font-black text-slate-800">
+          {currentConsultationMonthLabel}
+        </p>
+
+        {currentMonthConsultations.length > 0 ? (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full table-fixed">
+              <thead className="bg-slate-50">
+                <tr className="border-b border-slate-200">
+                  <th className="w-[25%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    일시
+                  </th>
+                  <th className="w-[50%] px-3 py-2 text-left text-[10px] font-black text-slate-500">
+                    상담 내용
+                  </th>
+                  <th className="w-[25%] px-3 py-2 text-right text-[10px] font-black text-slate-500">
+                    상담시간
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {currentMonthConsultations.map((session) => {
+                  const dateSource =
+                    session.date ||
+                    session.updatedAt ||
+                    session.createdAt;
+
+                  const consultationDate = dateSource
+                    ? new Date(dateSource).toLocaleString("ko-KR", {
+                        timeZone: "Asia/Seoul",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        hour12: false,
+                      })
+                    : "-";
+
+                  return (
+                    <tr
+                      key={session.id}
+                      className="border-b border-slate-100 last:border-b-0"
+                    >
+                      <td className="px-3 py-2.5 text-xs font-semibold text-slate-600">
+                        {consultationDate}
+                      </td>
+                      <td className="px-3 py-2.5 text-xs font-bold text-slate-700">
+                        {session.title || "-"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-xs font-semibold text-slate-600">
+                        {session.duration || "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 px-4 py-4 text-center text-xs font-semibold text-slate-400">
+            이번 달 완료된 상담 내역이 없습니다.
+          </p>
+        )}
+      </section>
+    </div>
+  </ReportPreviewCard>
+) : null}
+</div>
+          </>
         </div>
       </div>
 
       {pdfPreviewOpen && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-[9999] flex h-dvh w-screen items-center justify-center overflow-hidden bg-slate-950/50 p-4">
-              <div className="flex h-[58dvh] w-full max-w-none min-w-0 flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ height: "72vh", maxHeight: "72vh", width: "86vw", maxWidth: "1540px", minWidth: "1050px" }}>
+            <div className="fixed inset-0 z-[9999] flex h-dvh w-screen items-center justify-center overflow-hidden bg-slate-950/50 p-4">              {portfolioApprovalOpen ? (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/35 p-4">
+                  <div className="w-[calc(100%_-_32px)] max-w-[640px] rounded-2xl bg-white p-5 shadow-2xl">
+                    <p className="text-sm font-black leading-6 text-slate-800">
+                      포트폴리오 성과는 다음 달 첫 거래일에 제공할 것을 권고합니다. ({monthlyPerformanceSchedule.targetDate} {monthlyPerformanceSchedule.dDay})
+                    </p>
+                    <p className="mt-3 text-sm font-bold text-slate-600">
+                      제공일 이전이지만 포트폴리오 성과를 PDF에 포함하시겠습니까?
+                    </p>
+                    <div className="mt-5 flex justify-end gap-2">
+                      <button type="button" onClick={() => setPortfolioApprovalOpen(false)} className="h-9 rounded-lg border border-slate-200 bg-white px-4 text-xs font-black text-slate-600 hover:bg-slate-50">취소</button>
+                      <button type="button" onClick={() => { setPdfLineIncluded((current) => ({ ...current, "portfolioPerformance:content": true })); setPortfolioApprovalOpen(false); }} className="h-9 rounded-lg bg-blue-600 px-4 text-xs font-black text-white hover:bg-blue-700">승인</button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex h-[58dvh] w-full max-w-none min-w-0 flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ height: "88vh", maxHeight: "88vh", width: "86vw", maxWidth: "1540px", minWidth: "1050px" }}>
 
             <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
               <div>
@@ -1763,6 +2847,17 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
               </div>
 
               <div className="flex items-center gap-2">
+
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={downloadingPdf || sendingCustomerMail || sendingAllCustomerMail}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-wait disabled:opacity-50"
+                  aria-label="PDF 다운로드"
+                  title="PDF 다운로드"
+                >
+                  <Download size={15} />
+                </button>
 
                 <div className="flex h-9 items-center rounded-lg border border-slate-200 bg-white">
                   <button
@@ -1878,15 +2973,22 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                   {pdfControlSections.map((section, sectionIndex) => (
                     <div key={section.id} className={`rounded-xl border border-slate-200 bg-white p-3 ${activeIncluded[section.id as MailingItemId] ? "" : "opacity-50"}`}>
                       <div className="mb-3 flex items-start justify-between gap-2">
-                        <p className="text-xs font-black leading-5 text-navy">
-                          {section.id === "usMarket"
+                                                <div className="flex min-w-0 items-center gap-2">
+                          <p className="text-xs font-black leading-5 text-navy">
+                            {section.id === "usMarket"
   ? `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}전일 미국 시황`
   : section.id === "krMarket"
     ? `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}당일 국내 시황`
     : section.id === "holdingIssues"
       ? `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}보유종목 주요 이슈`
       : `${pdfSectionNumber.get(section.id) ? `${pdfSectionNumber.get(section.id)}. ` : ""}월별 포트폴리오 성과`}
-                        </p>
+                          </p>
+                          {section.id === "portfolioPerformance" ? (
+                            <span className="inline-flex h-5 shrink-0 items-center rounded-md border border-red-300 bg-red-50 px-1.5 text-[10px] font-black text-red-600">
+                              {monthlyPerformanceSchedule.dDay}
+                            </span>
+                          ) : null}
+                        </div>
 
                         <span className="shrink-0 text-[10px] font-bold text-slate-400">
                           {section.lines.filter((line) => pdfLineIncluded[line.id] !== false).length}/{section.lines.length}
@@ -1914,12 +3016,21 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                                         type="checkbox"
                                         checked={!pdfSelectionInitialized || pdfLineIncluded[line.id] !== false}
                                         disabled={!activeIncluded[section.id as MailingItemId]}
-                                        onChange={(event) =>
+                                        onChange={(event) => {
+                                          if (
+                                            line.id === "portfolioPerformance:content" &&
+                                            event.target.checked &&
+                                            !monthlyPerformanceSchedule.isAvailable
+                                          ) {
+                                            setPortfolioApprovalOpen(true);
+                                            return;
+                                          }
+
                                           setPdfLineIncluded((current) => ({
                                             ...current,
                                             [line.id]: event.target.checked,
-                                          }))
-                                        }
+                                          }));
+                                        }}
                                         className="mt-0.5 h-4 w-4 shrink-0 accent-blue-600"
                                       />
 
@@ -1991,7 +3102,8 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                 </div>
               </aside>
 
-              <main className="h-full min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto bg-slate-200 p-3">
+              <main className="pdf-preview-scroll h-full min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto bg-slate-200 p-3 pb-8">
+                <style>{`.pdf-preview-scroll #market-report-pdf { height: auto !important; min-height: 1123px; overflow: visible !important; }`}</style>
                 <div className="flex w-full min-w-[794px] justify-start px-[24px]">
 
                   <div
@@ -2044,6 +3156,11 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                           const selectedLines = section.lines.filter(
                             (line) => pdfLineIncluded[line.id] !== false,
                           );
+                          const isPortfolioPerformanceSection = section.id === "portfolioPerformance";
+                          const showPortfolioPerformanceContent = isPortfolioPerformanceSection && pdfLineIncluded["portfolioPerformance:content"] !== false;
+                          const previewLines = isPortfolioPerformanceSection
+                            ? selectedLines.filter((line) => line.id !== "portfolioPerformance:content")
+                            : selectedLines;
 
                           if (!selectedLines.length) return null;
                           const sectionNumber = pdfSectionNumber.has(section.id) ? `${pdfSectionNumber.get(section.id)}.` : "";
@@ -2106,8 +3223,8 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                               />
 
                               <div className="grid gap-2.5">
-                                {Array.from(new Set(selectedLines.map((line) => line.group))).map((group) => {
-                                  const groupLines = selectedLines.filter((line) => line.group === group);
+                                {Array.from(new Set(previewLines.map((line) => line.group))).map((group) => {
+                                  const groupLines = previewLines.filter((line) => line.group === group);
 
                                   return (
                                     <div key={`${section.id}:preview:${group}`} style={{ marginBottom: "22px" }}>
@@ -2185,7 +3302,102 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
                                     </div>
                                   );
                                 })}
-                              </div>
+                              {showPortfolioPerformanceContent ? (
+                                <div className="portfolio-performance-pdf grid gap-3" style={{ marginTop: "8px" }}>
+                                  <section>
+                                    <div className="mb-2 flex items-end justify-between gap-2">
+                                      <div>
+                                        <h3 className="font-semibold text-slate-700" style={{ fontSize: "10pt" }}>주식·ETF 포트폴리오 성과</h3>
+                                        <p className="mt-1 text-slate-400" style={{ fontSize: "7pt" }}>수익률은 주식·ETF 보유분에 한해 제공됩니다.</p>
+                                      </div>
+                                      {totalPortfolioReturn != null ? (
+                                        <div className="text-right">
+                                          <p className="font-semibold text-slate-400" style={{ fontSize: "7pt" }}>전체 수익률</p>
+                                          <p className="font-black text-slate-800" style={{ fontSize: "9pt" }}>{formatPdfPercent(totalPortfolioReturn)}</p>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                    {portfolioPerformanceRows.length > 0 ? (
+                                      <div className="overflow-hidden rounded-lg border border-slate-200">
+                                        <table className="w-full table-fixed">
+                                          <thead className="bg-slate-50">
+                                            <tr className="border-b border-slate-200">
+                                              <th className="w-[25%] break-words px-1.5 py-1.5 text-left font-black text-slate-500" style={{ fontSize: "7pt" }}>종목명</th>
+                                              <th className="w-[15%] px-1 py-1.5 text-right font-black text-slate-500" style={{ fontSize: "7pt" }}>매입단가</th>
+                                              <th className="w-[10%] px-1 py-1.5 text-right font-black text-slate-500" style={{ fontSize: "7pt" }}>수량</th>
+                                              <th className="w-[15%] px-1 py-1.5 text-right font-black text-slate-500" style={{ fontSize: "7pt" }}>현재가</th>
+                                              <th className="w-[20%] px-1 py-1.5 text-right font-black text-slate-500" style={{ fontSize: "7pt" }}>평가손익</th>
+                                              <th className="w-[15%] px-1 py-1.5 text-right font-black text-slate-500" style={{ fontSize: "7pt" }}>수익률</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {portfolioPerformanceRows.map((row, index) => (
+                                              <tr key={(row.ticker || row.name) + "-" + index} className="border-b border-slate-100 last:border-b-0">
+                                                <td className="break-words px-1.5 py-1.5 align-top">
+                                                  <p className="break-words font-bold text-slate-700" style={{ fontSize: "7pt" }}>{row.name}</p>
+                                                  {row.ticker ? <p className="break-words text-slate-400" style={{ fontSize: "6.5pt" }}>{row.ticker}</p> : null}
+                                                </td>
+                                                <td className="px-1 py-1.5 text-right text-slate-600" style={{ fontSize: "7pt" }}>{formatPdfNumber(row.buyPrice)}</td>
+                                                <td className="px-1 py-1.5 text-right text-slate-600" style={{ fontSize: "7pt" }}>{formatPdfNumber(row.quantity)}</td>
+                                                <td className="px-1 py-1.5 text-right text-slate-600" style={{ fontSize: "7pt" }}>{formatPdfNumber(row.currentPrice)}</td>
+                                                <td className={"px-1 py-1.5 text-right font-bold " + pdfAmountClass(row.profitLoss)} style={{ fontSize: "7pt" }}>{formatPdfCurrency(row.profitLoss)}</td>
+                                                <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(row.returnRate)} style={{ fontSize: "7pt" }}>{formatPdfPercent(row.returnRate)}</td>
+                                              </tr>
+                                            ))}
+                                            {/* tfoot은 표가 여러 페이지로 나뉘면 인쇄 시 페이지마다 반복 출력돼("합계"가
+                                                중간에도 계속 나타남) — tbody 마지막 행으로 넣어서 실제 마지막에 한 번만
+                                                나오게 한다(2026-09 발견·수정). 폰트도 7pt→10pt로 키움. */}
+                                            <tr className="border-t border-slate-200 bg-slate-50">
+                                              <td className="px-1.5 py-1.5 font-black text-slate-800" style={{ fontSize: "10pt" }}>합계</td>
+                                              <td className="px-1 py-1.5 text-right text-slate-400" style={{ fontSize: "10pt" }}>-</td>
+                                              <td className="px-1 py-1.5 text-right text-slate-400" style={{ fontSize: "10pt" }}>-</td>
+                                              <td className="px-1 py-1.5 text-right text-slate-600" style={{ fontSize: "10pt" }}>{totalPortfolioValue > 0 ? Math.round(totalPortfolioValue).toLocaleString("ko-KR") : "-"}</td>
+                                              <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(totalPortfolioProfitLoss)} style={{ fontSize: "10pt" }}>{formatPdfCurrency(totalPortfolioProfitLoss)}</td>
+                                              <td className={"px-1 py-1.5 text-right font-black " + pdfAmountClass(totalPortfolioReturn)} style={{ fontSize: "10pt" }}>{formatPdfPercent(totalPortfolioReturn)}</td>
+                                            </tr>
+                                          </tbody>
+                                        </table>
+                                        <p className="border-t border-slate-100 px-1.5 py-1 text-right font-semibold text-slate-400" style={{ fontSize: "6.5pt" }}>
+                                          {portfolioPriceAsOfLabel ? "현재가 기준 " + portfolioPriceAsOfLabel : "현재가 기준시각을 확인할 수 없습니다."}
+                                        </p>
+                                      </div>
+                                    ) : <p className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-slate-400" style={{ fontSize: "7pt" }}>주식·ETF 보유 내역을 확인할 수 없습니다.</p>}
+                                  </section>
+
+                                  <section className="portfolio-health-radar-pdf border-t border-slate-200 pt-3">
+                                    <h3 className="mb-2 font-semibold text-slate-700" style={{ fontSize: "10pt" }}>포트폴리오 위험·분산 진단</h3>
+                                    {portfolioHealthItems.length === 7 ? (
+                                      <div className="overflow-hidden rounded-lg border border-slate-200 p-2">
+                                        <HealthRadarChart items={portfolioHealthItems} />
+                                      </div>
+                                    ) : <p className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-slate-400" style={{ fontSize: "7pt" }}>포트폴리오 진단 결과를 확인할 수 없습니다.</p>}
+                                  </section>
+
+                                  <section className="border-t border-slate-200 pt-3">
+                                    <h3 className="mb-2 font-semibold text-slate-700" style={{ fontSize: "10pt" }}>상품 현황</h3>
+                                    {performanceProductAssets.length > 0 ? (
+                                      <div className="overflow-hidden rounded-lg border border-slate-200">
+                                        <table className="w-full table-fixed">
+                                          <thead className="bg-slate-50"><tr className="border-b border-slate-200"><th className="w-[34%] px-1.5 py-1.5 text-left font-black text-slate-500" style={{ fontSize: "7pt" }}>상품명</th><th className="w-[23%] px-1.5 py-1.5 text-left font-black text-slate-500" style={{ fontSize: "7pt" }}>상품유형</th><th className="w-[20%] px-1.5 py-1.5 text-left font-black text-slate-500" style={{ fontSize: "7pt" }}>가입일</th><th className="w-[23%] px-1.5 py-1.5 text-right font-black text-slate-500" style={{ fontSize: "7pt" }}>매입금액</th></tr></thead>
+                                          <tbody>{performanceProductAssets.map((asset, index) => <tr key={(asset.id || asset.name || "product") + "-" + index} className="border-b border-slate-100 last:border-b-0"><td className="break-words px-1.5 py-1.5 font-bold text-slate-700" style={{ fontSize: "7pt" }}>{asset.name || "-"}</td><td className="break-words px-1.5 py-1.5 text-slate-600" style={{ fontSize: "7pt" }}>{asset.category?.trim() || "-"}</td><td className="px-1.5 py-1.5 text-slate-600" style={{ fontSize: "7pt" }}>{getPerformanceProductJoinedDate(asset)}</td><td className="px-1.5 py-1.5 text-right text-slate-600" style={{ fontSize: "7pt" }}>{Number.isFinite(Number(asset.amountKrw)) && Number(asset.amountKrw) > 0 ? Math.round(Number(asset.amountKrw)).toLocaleString("ko-KR") + "원" : "-"}</td></tr>)}</tbody>
+                                        </table>
+                                      </div>
+                                    ) : <p className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-slate-400" style={{ fontSize: "7pt" }}>보유 중인 상품이 없습니다.</p>}
+                                  </section>
+
+                                  <section className="border-t border-slate-200 pt-3">
+                                    <h3 className="mb-2 font-semibold text-slate-700" style={{ fontSize: "10pt" }}>{currentConsultationMonthLabel}</h3>
+                                    {currentMonthConsultations.length > 0 ? (
+                                      <div className="overflow-hidden rounded-lg border border-slate-200">
+                                        <table className="w-full table-fixed">
+                                          <thead className="bg-slate-50"><tr className="border-b border-slate-200"><th className="w-[25%] px-1.5 py-1.5 text-left font-black text-slate-500" style={{ fontSize: "7pt" }}>일시</th><th className="w-[50%] px-1.5 py-1.5 text-left font-black text-slate-500" style={{ fontSize: "7pt" }}>상담 내용</th><th className="w-[25%] px-1.5 py-1.5 text-right font-black text-slate-500" style={{ fontSize: "7pt" }}>상담시간</th></tr></thead>
+                                          <tbody>{currentMonthConsultations.map((session) => { const dateSource = session.date || session.updatedAt || session.createdAt; const consultationDate = dateSource ? new Date(dateSource).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"; return <tr key={session.id} className="border-b border-slate-100 last:border-b-0"><td className="px-1.5 py-1.5 text-slate-600" style={{ fontSize: "7pt" }}>{consultationDate}</td><td className="break-words px-1.5 py-1.5 font-bold text-slate-700" style={{ fontSize: "7pt" }}>{session.title || "-"}</td><td className="px-1.5 py-1.5 text-right text-slate-600" style={{ fontSize: "7pt" }}>{session.duration || "-"}</td></tr>; })}</tbody>
+                                        </table>
+                                      </div>
+                                    ) : <p className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-slate-400" style={{ fontSize: "7pt" }}>이번 달 완료된 상담 내역이 없습니다.</p>}
+                                  </section>
+                                </div>
+                              ) : null}                              </div>
                             </section>
                           );
                         })}
@@ -2193,7 +3405,6 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
 
                     </div>
                   </div>
-
                 </div>
               </main>
 

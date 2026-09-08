@@ -95,7 +95,7 @@ function generatePdfComment(left: MetricSnapshot, right: MetricSnapshot): string
 
 export default function Tab4Page() {
   const data = usePortfolioResult();
-  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData, selectedCustomerProfile } = useCustomerContext();
+  const { newPortfolioAnalysisResult, selectedCustomer, rebalancingSellAssets, formData, selectedCustomerProfile, isNewPortfolioAnalyzing } = useCustomerContext();
   const { isCustomerView } = useCustomerView();
   const [showPensionPanel, setShowPensionPanel] = useState(false);
 
@@ -176,18 +176,30 @@ export default function Tab4Page() {
   // 가격 정보를 못 찾아 current_value=0으로 빠지고, 그 결과 도넛차트가 그 종목을 "가치 없음"으로 취급해
   // 상품(채권 등) 하나가 100%인 것처럼 보이는 왜곡이 생겼다.
   const rightAssets: PortfolioAsset[] = useMemo(() => {
+    // 이름 기준 매칭 외에 티커 기준도 같이 인덱싱한다 — runAnalysis가 종목코드로 잘못 박혀있던
+    // name을 공식 종목명으로 보정해도(2026-09), rebalancingSellAssets 쪽은 아직 옛 이름(코드) 그대로라
+    // 이름만으로 매칭하면 서로 어긋나서 가격·섹터 보완까지 통째로 실패했다 — 티커가 있으면 티커로도
+    // 매칭해서 이 경우를 구제하고, 매칭되면 name도 보정된 값으로 같이 교체한다.
     const priceByName = new Map<string, PortfolioAsset>();
-    for (const a of leftAssets) if (a.name) priceByName.set(a.name, a);
+    const priceByTicker = new Map<string, PortfolioAsset>();
+    for (const a of leftAssets) {
+      if (a.name) priceByName.set(a.name, a);
+      if (a.ticker) priceByTicker.set(a.ticker, a);
+    }
     if (Array.isArray(rightData?.enrichedAssets)) {
-      for (const a of rightData!.enrichedAssets as PortfolioAsset[]) if (a.name) priceByName.set(a.name, a);
+      for (const a of rightData!.enrichedAssets as PortfolioAsset[]) {
+        if (a.name) priceByName.set(a.name, a);
+        if (a.ticker) priceByTicker.set(a.ticker, a);
+      }
     }
     return rebalancingSellAssets
       .filter((a) => a.amount > 0)
       .map((a) => {
-        const priced = a.name ? priceByName.get(a.name) : undefined;
+        const priced = (a.ticker ? priceByTicker.get(a.ticker) : undefined) ?? (a.name ? priceByName.get(a.name) : undefined);
         const isBond = a.asset_class === "국내채권" || a.asset_class === "해외채권" || a.productType === "국내채권" || a.productType === "해외채권";
         return {
           ...a,
+          name: priced?.name || a.name,
           current_price: a.current_price ?? priced?.current_price,
           current_value: a.current_value ?? priced?.current_value,
           // sector도 가격과 같은 이유로 보완 필요 — 안 하면 방금 담은 자산은 전부 "기타"로 잡혀
@@ -204,6 +216,16 @@ export default function Tab4Page() {
   const leftStressResult = (leftData as any)?.stressResult;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rightStressResult = (rightData as any)?.stressResult;
+
+  // 액면병합 수량 확인 필요 종목 — 배당·양도소득 계산 전부의 입력값(평가금액·수량)이 걸린 문제라
+  // 개별 종목 행 배지만으로는 놓칠 수 있어 포트폴리오 상단에 롤업으로도 보여준다.
+  const qtyCheckNeeded = useMemo(() => {
+    const seen = new Map<string, string | undefined>();
+    for (const a of [...leftAssets, ...rightAssets]) {
+      if (a.needsQtyCheck && a.name) seen.set(a.name, a.latestSplitInfo);
+    }
+    return Array.from(seen.entries());
+  }, [leftAssets, rightAssets]);
 
   // "세후 수익률"은 세금 점검(calcFinancialIncomeSummary)과 같은 이유로 펀드·랩어카운트를 뺀다 —
   // 이 상품들은 카탈로그에 실제 배당·이자 수익률 데이터가 없어(표시용 return1Y는 총수익률이지 배당률이
@@ -276,11 +298,27 @@ export default function Tab4Page() {
         rightMetrics={rightMetrics}
       />
 
+      {qtyCheckNeeded.length > 0 && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-500" />
+          <div className="text-xs text-amber-800">
+            <p className="font-bold">액면병합 이력 감지 — 보유수량 확인이 필요합니다 ({qtyCheckNeeded.length}개 종목)</p>
+            <p className="mt-0.5 text-amber-700">
+              {qtyCheckNeeded.map(([name, split]) => `${name}${split ? `(${split})` : ""}`).join(", ")}
+            </p>
+            <p className="mt-1 text-[11px] text-amber-600">
+              수량은 자동으로 바뀌지 않습니다 — 평가금액·양도소득세·배당소득 전부에 영향을 주니 2번 탭(기존 포트폴리오)에서 실제 보유수량을 확인해주세요.
+            </p>
+          </div>
+        </div>
+      )}
+
       {showReportOptions && (
         <ReportOptionsModal
           sections={reportSections}
           setSections={setReportSections}
           onClose={() => setShowReportOptions(false)}
+          customerId={selectedCustomer || ""}
           customerName={selectedCustomerProfile?.name || selectedCustomerProfile?.fallbackName || "고객"}
           leftData={leftData}
           rightData={rightData}
@@ -333,6 +371,15 @@ export default function Tab4Page() {
             <span className={`text-sm font-bold ${rightAssets.length > 0 ? "text-navy" : "text-slate-400"}`}>
               {rightData ? "신규 포트폴리오 (리밸런싱 완료)" : rightAssets.length > 0 ? "매도 후 잔여 포트폴리오" : "신규 포트폴리오 (준비 중)"}
             </span>
+            {isNewPortfolioAnalyzing && (
+              // TAB3에서 방금 담은 상품·주식이 아직 세금·지표 전체 반영 전(시세 재조회 중)이라는 표시.
+              // 자산군 비중·세후수익률은 이미 즉시 반영되지만, 세금 점검·핵심지표(샤프비율 등)는
+              // 전체 재분석이 끝나야 채워지므로, 그 사이 낡은 값을 최신인 줄 오해하지 않게 알려준다.
+              <span className="ml-auto flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-600">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                최신 반영 중...
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-4">
@@ -508,14 +555,14 @@ function StressTestCard({ stressResult, selectedScenario, onSelectScenario }: {
 }
 
 function ReportOptionsModal({
-  sections, setSections, onClose, customerName,
+  sections, setSections, onClose, customerId, customerName,
   leftData, rightData, leftAssets, rightAssets,
   leftAfterTaxReturn, rightAfterTaxReturn,
   summary, newSummary, marginalTaxRate, mode, setMode,
   leftMetrics, rightMetrics, consultationProposal,
 }: {
   sections: ReportSectionToggles; setSections: (s: ReportSectionToggles) => void;
-  onClose: () => void; customerName: string;
+  onClose: () => void; customerId: string; customerName: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   leftData: any; rightData: any; leftAssets: any[]; rightAssets: any[];
   leftAfterTaxReturn: number | null; rightAfterTaxReturn: number | null;
@@ -565,6 +612,7 @@ function ReportOptionsModal({
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
           <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">취소</button>
           <PDFDownloadLinkClient
+            customerId={customerId}
             customerName={customerName} reportDate={today} sections={sections}
             left={leftSide} right={rightSide}
             leftTaxSummary={summary} rightTaxSummary={newSummary}
@@ -579,6 +627,7 @@ function ReportOptionsModal({
 }
 
 function PDFDownloadLinkClient(props: {
+  customerId: string;
   customerName: string; reportDate: string; sections: ReportSectionToggles;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   left: any; right: any;
@@ -587,43 +636,53 @@ function PDFDownloadLinkClient(props: {
   leftMetrics: MetricSnapshot; rightMetrics: MetricSnapshot;
   consultationProposal?: import("./PortfolioReportPdf").ConsultationProposalSections;
 }) {
-  const aiComment = (props.left && props.right)
-  ? generatePdfComment(props.leftMetrics, props.rightMetrics)
-  : "";
-const PDFDownloadLink = PDFDownloadLinkLazy;
-if (!PDFDownloadLink) {
-    return (
-      <button type="button" disabled className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">
-        준비 중...
-      </button>
-    );
+  const [sending, setSending] = useState(false);
+  const [mailMessage, setMailMessage] = useState("");
+  const aiComment = (props.left && props.right) ? generatePdfComment(props.leftMetrics, props.rightMetrics) : "";
+  const PDFDownloadLink = PDFDownloadLinkLazy;
+  const pdfDocument = useMemo(() => (
+    <PortfolioReportPdf
+      customerName={props.customerName} reportDate={props.reportDate}
+      sections={props.sections} left={props.left} right={props.right}
+      leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
+      marginalTaxRate={props.marginalTaxRate} mode={props.mode}
+      aiComment={aiComment} consultationProposal={props.consultationProposal}
+    />
+  ), [props.customerName, props.reportDate, props.sections, props.left, props.right, props.leftTaxSummary, props.rightTaxSummary, props.marginalTaxRate, props.mode, aiComment, props.consultationProposal]);
+
+  const fileDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()).replaceAll("-", "");
+  const mailFileName = props.customerName + "_\uC81C\uC548\uC11C_" + fileDate + ".pdf";
+  const downloadFileName = props.customerName + "_\uD3EC\uD2B8\uD3F4\uB9AC\uC624_\uC81C\uC548\uC11C_" + props.reportDate.replace(/[^0-9]/g, "") + ".pdf";
+
+  async function handleSendProposalEmail() {
+    if (!props.customerId) { setMailMessage("\uC120\uD0DD\uB41C \uACE0\uAC1D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."); return; }
+    try {
+      setSending(true); setMailMessage("");
+      const { pdf } = await import("@react-pdf/renderer");
+      const blob = await pdf(pdfDocument).toBlob();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = ""; const chunkSize = 0x8000;
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+      const response = await fetch("/api/send-proposal-email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: props.customerId, subject: "[\uC0BC\uC131\uC99D\uAD8C] " + props.customerName + " \uACE0\uAC1D\uB2D8 \uC81C\uC548\uC11C", fileName: mailFileName, pdfBase64: window.btoa(binary) }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof result?.error === "string" ? result.error : "\uBA54\uC77C \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+      setMailMessage("\uBA54\uC77C\uC744 \uC131\uACF5\uC801\uC73C\uB85C \uC804\uC1A1\uD588\uC2B5\uB2C8\uB2E4.");
+    } catch (error) {
+      setMailMessage(error instanceof Error ? error.message : "\uBA54\uC77C \uC804\uC1A1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.");
+    } finally { setSending(false); }
   }
 
-  const pdfDocument = useMemo(
-    () => (
-      <PortfolioReportPdf
-        customerName={props.customerName} reportDate={props.reportDate}
-        sections={props.sections} left={props.left} right={props.right}
-        leftTaxSummary={props.leftTaxSummary} rightTaxSummary={props.rightTaxSummary}
-        marginalTaxRate={props.marginalTaxRate} mode={props.mode}
-        aiComment={aiComment}
-        consultationProposal={props.consultationProposal}
-      />
-    ),
-    [
-      props.customerName, props.reportDate, props.sections, props.left, props.right,
-      props.leftTaxSummary, props.rightTaxSummary, props.marginalTaxRate, props.mode,
-      aiComment, props.consultationProposal,
-    ],
-  );
-
+  if (!PDFDownloadLink) return <button type="button" disabled className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white opacity-60">\uC900\uBE44 \uC911...</button>;
   return (
-    <PDFDownloadLink
-      document={pdfDocument}
-      fileName={`${props.customerName}_포트폴리오_제안서_${props.reportDate.replace(/[^0-9]/g, "")}.pdf`}
-      className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90"
-    >
-           {() => "PDF 다운로드"}
-    </PDFDownloadLink>
+    <div className="flex min-w-0 flex-1 flex-wrap gap-3">
+      <PDFDownloadLink document={pdfDocument} fileName={downloadFileName} onClick={() => setMailMessage("")} className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-samsung/90">{() => "PDF " + "\uB2E4\uC6B4\uB85C\uB4DC"}</PDFDownloadLink>
+      <button type="button" onClick={handleSendProposalEmail} disabled={sending} className="flex-1 rounded-xl bg-samsung px-4 py-2.5 text-sm font-bold text-white hover:bg-samsung/90 disabled:cursor-wait disabled:opacity-60">
+        {sending ? "\uBA54\uC77C \uC804\uC1A1 \uC911..." : props.customerName + " \uACE0\uAC1D \uBA54\uC77C \uC804\uC1A1"}
+      </button>
+      {mailMessage ? <p className="basis-full text-center text-xs font-semibold text-slate-600">{mailMessage}</p> : null}
+    </div>
   );
 }

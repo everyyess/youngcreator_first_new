@@ -23,6 +23,8 @@ import type { OhlcvResponse } from "../../api/ta-ohlcv/route";
 import { usePortfolioResult } from "../PortfolioResultComponents";
 import type { PortfolioAsset } from "../CustomerContext";
 import StockSearchBox from "./StockSearchBox";
+import RecommendedPickChips from "./RecommendedPickChips";
+import { useRecommendedPicks } from "./useRecommendedPicks";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, LineController, BarController, Tooltip, Legend, Filler);
 
@@ -673,6 +675,9 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
     }
   }, [tickerableAssets]);
 
+  const [resolvingWeeklyPick, setResolvingWeeklyPick] = useState<string | null>(null);
+  const { weeklyPicks, aiPicks } = useRecommendedPicks();
+
   const toggleIndicator = (id: IndicatorId) =>
     setActive((prev) => {
       const n = new Set(prev);
@@ -771,21 +776,51 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
     onStockChange?.({ ticker, name });
   };
 
+  // 자사 추천 종목은 티커가 없이 이름만 있어 클릭 시점에 조회해서 넘긴다(WeeklyTopPicksCard와 동일 패턴).
+  const selectWeeklyPick = async (name: string) => {
+    setResolvingWeeklyPick(name);
+    try {
+      const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      const ticker = typeof data?.ticker === "string" ? data.ticker : "";
+      if (ticker) selectAsset(ticker, name);
+    } catch {
+      /* 조회 실패 — 칩 클릭이 그냥 무반응으로 끝남, 별도 에러 UI 없이 조용히 무시 */
+    } finally {
+      setResolvingWeeklyPick(null);
+    }
+  };
+
   const displayName = koreanNames[selectedTicker] || selectedName;
+
+  const hasStockPicker = tickerableAssets.length > 0 || weeklyPicks.length > 0 || aiPicks.length > 0;
 
   return (
     <div className="space-y-3">
-      {tickerableAssets.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-          <span className="mr-1 text-[11px] font-semibold text-slate-400">보유 종목</span>
-          {tickerableAssets.map((a) => (
-            <button key={a.ticker} onClick={() => selectAsset(a.ticker!, a.name)}
-              className={`rounded-md border px-2.5 py-1 text-[12px] font-semibold transition ${
-                selectedTicker === a.ticker ? "border-[#2f2f9d] bg-[#2f2f9d] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-              }`}>
-              {koreanNames[a.ticker!] || a.name}
-            </button>
-          ))}
+      {hasStockPicker && (
+        <div className="space-y-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+          {tickerableAssets.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[11px] font-semibold text-slate-400">보유 종목</span>
+              {tickerableAssets.map((a) => (
+                <button key={a.ticker} onClick={() => selectAsset(a.ticker!, a.name)}
+                  className={`rounded-md border px-2.5 py-1 text-[12px] font-semibold transition ${
+                    selectedTicker === a.ticker ? "border-[#2f2f9d] bg-[#2f2f9d] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                  }`}>
+                  {koreanNames[a.ticker!] || a.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <RecommendedPickChips
+            weeklyPicks={weeklyPicks}
+            aiPicks={aiPicks}
+            selectedKey={selectedTicker}
+            resolvingWeeklyName={resolvingWeeklyPick}
+            onSelectWeekly={(p) => selectWeeklyPick(p.name)}
+            onSelectAi={(p) => selectAsset(p.symbol, p.name)}
+            withDivider={tickerableAssets.length > 0}
+          />
         </div>
       )}
 

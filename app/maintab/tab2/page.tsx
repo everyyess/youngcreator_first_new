@@ -22,8 +22,10 @@ export default function Tab2Page() {
         <button
           type="button"
           onClick={() => {
+            // "/analysis/screener"는 실제 라우트가 아니라 [tab]/page.tsx에서 "/analysis/tab1"로 리다이렉트
+            // 되며 쿼리스트링이 버려진다 — 처음부터 실제 목적지로 직접 이동한다(tab3/page.tsx와 동일 수정).
             sessionStorage.setItem("analysisReturnTab", "tab2");
-            window.location.href = "/analysis/screener";
+            window.location.href = "/analysis/tab1?returnTab=tab2";
           }}
           className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
         >

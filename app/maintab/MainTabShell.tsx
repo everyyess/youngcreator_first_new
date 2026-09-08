@@ -4,6 +4,7 @@ import { type DragEvent, type SyntheticEvent, useCallback, useEffect, useMemo, u
 import { useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Home, Trash2 } from "lucide-react";
 import SodaPopLogoImage from "@/app/components/SodaPopLogoImage";
+import { pbAuthStore } from "@/app/authStore";
 import {
   CustomerContext,
   type AppState, type ChangeEntry, type CustomerId, type CustomerProfile, type CustomerRow,
@@ -294,6 +295,10 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [rebalancingSellMap, setRebalancingSellMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
   const [rebalancingBuyMap, setRebalancingBuyMap] = useState<Record<CustomerId, PortfolioAsset[]>>({});
   const [newPortfolioAnalysisResultMap, setNewPortfolioAnalysisResultMap] = useState<Record<CustomerId, PortfolioAnalysisResult | null>>({});
+  // TAB3에서 상품/주식을 담을 때마다 백그라운드에서 돌아가는 신규 포트폴리오 재분석이 아직 진행 중인지 —
+  // 고객 전환 시 자동으로 무의미해지는 순간적 UI 상태라 고객별 map이 아니라 단순 플래그로 둔다.
+  // TAB4에서 이 값이 true인 동안 "최신 반영 중" 표시를 보여줘 사용자가 낡은 값을 최신인 줄 오해하지 않게 한다.
+  const [isNewPortfolioAnalyzing, setIsNewPortfolioAnalyzing] = useState(false);
   const [rebalancingLoadedMap, setRebalancingLoadedMap] = useState<Record<CustomerId, boolean>>({});
   const [rebalancingDirtyMap, setRebalancingDirtyMap] = useState<Record<CustomerId, boolean>>({});
   const [tab3AnalysisStateMap, setTab3AnalysisStateMap] = useState<Record<CustomerId, Tab3AnalysisState>>({});
@@ -660,7 +665,13 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     let cancelled = false;
     async function load() {
       const authUser = appMode === "pb" && supabase ? (await supabase.auth.getUser().catch(() => null))?.data?.user : null;
-      const owner: CustomerOwnerScope = appMode === "pb" ? { pbId: authUser?.id } : {};
+      // 홈 화면(app/home/page.tsx)은 고객 소유권 스코프를 pbId뿐 아니라 pbEmployeeId까지 같이 넘겨서
+      // 조회하는데(applyCustomerOwnerFilter는 pbEmployeeId가 있으면 그걸 우선 사용), 여기(MainTabShell)는
+      // pbId만 넘기고 있었다 — 고객 행이 pb_id가 아니라 pb_employee_id로 스코핑돼 있으면 여기서
+      // 0건 조회로 이어져 "신규 고객" 빈 화면을 유발한다(2026-09 발견·수정). 홈 화면과 동일하게
+      // pbAuthStore 세션의 employeeId도 같이 넘긴다.
+      const pbSession = appMode === "pb" ? pbAuthStore.readSession() : null;
+      const owner: CustomerOwnerScope = appMode === "pb" ? { pbId: authUser?.id, pbEmployeeId: pbSession?.employeeId } : {};
       if (!cancelled) setCustomerOwner(owner);
       const selectedRows = await customerStorage.selectRows(owner);
       if (cancelled) return;
@@ -1779,6 +1790,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     rebalancingSellAssets, rebalancingBuyAssets, newPortfolioAnalysisResult, tab3AnalysisState, sharedUiState, updateSharedUiState,
     pushToRebalancingSell, setRebalancingSellAssets, confirmRebalancingSell, resetRebalancingSellSummary,
     confirmRebalancingBuy, resetRebalancingBuySummary, addBuyCost, setRebalancingBuyAssets, setNewPortfolioAnalysisResult, updateTab3AnalysisState,
+    isNewPortfolioAnalyzing, setIsNewPortfolioAnalyzing,
     // Tab 5 상품 선택 (고객별 Supabase 영속)
     productSelectedIds, setProductSelectedIds,
     // 세금 요약 저장 (Tab 2/3 → Supabase → Tab 4 복원)

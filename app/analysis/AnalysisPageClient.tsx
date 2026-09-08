@@ -112,6 +112,12 @@ function AnalysisTabs({
   isInsightSessionReady: boolean;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // "상담으로 돌아가기" 버튼이 어느 탭으로 돌아갈지 — sessionStorage에만 의존했는데, "분석실로 이동"
+  // 버튼을 window.open(..., "noopener")으로 새 탭에 열면 noopener가 opener와의 연결을 끊어서
+  // sessionStorage가 새 탭으로 안 넘어간다(2026-09 발견·수정) — URL 쿼리(returnTab)를 우선 소스로 쓰고,
+  // sessionStorage는 (noopener 없이 여는 다른 진입점을 위한) 하위 호환 폴백으로 유지한다.
+  const urlReturnTab = searchParams.get("returnTab");
   const [activeStockTab, setActiveStockTab] = useState<StockAnalysisTab>("technical");
   const [mountedStockTabs, setMountedStockTabs] = useState<Set<StockAnalysisTab>>(new Set(["technical"]));
 
@@ -147,23 +153,29 @@ function AnalysisTabs({
     setMountedStockTabs((prev) => new Set([...prev, tab]));
   };
 
+  const hasReturnTarget = Boolean(urlReturnTab || (typeof window !== "undefined" && sessionStorage.getItem("analysisReturnTab")));
+  const returnToConsultation = () => {
+    const target = urlReturnTab || sessionStorage.getItem("analysisReturnTab") || "tab1";
+    sessionStorage.removeItem("analysisReturnTab");
+    router.push(`/consultation/${target}`);
+  };
+  const returnButton = hasReturnTarget ? (
+    <button
+      type="button"
+      onClick={returnToConsultation}
+      className="flex min-h-10 shrink-0 items-center justify-center rounded-md border border-samsung/30 bg-samsung/5 px-3 py-2 text-xs font-bold text-samsung transition hover:bg-samsung/10"
+    >
+      ← 상담으로 돌아가기
+    </button>
+  ) : null;
+
   return (
     <CustomerContext.Provider value={contextValue}>
     <section className="flex flex-col gap-4">
-    {typeof window !== "undefined" && sessionStorage.getItem("analysisReturnTab") && (
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            const target = sessionStorage.getItem("analysisReturnTab") || "tab1";
-            sessionStorage.removeItem("analysisReturnTab");
-            router.push(`/consultation/${target}`);
-          }}
-          className="rounded-lg border border-samsung/30 bg-samsung/5 px-3 py-1.5 text-xs font-bold text-samsung hover:bg-samsung/10"
-        >
-          ← 상담으로 돌아가기
-        </button>
-      </div>
+    {/* 종목분석 탭(활성 시 "분석 고객" 칸 오른쪽에 붙임)이 아닌 다른 탭에 있을 때의 대체 위치 —
+        여기서만 안 보이면 스크리너·경쟁사분석 등으로 이동했을 때 돌아가기 버튼이 아예 사라진다. */}
+    {returnButton && activeTopTab !== "stock" && (
+      <div className="flex justify-end">{returnButton}</div>
     )}
     <div className="flex gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 shadow-soft">
       {analysisTopTabs.map((tab) => (
@@ -186,8 +198,8 @@ function AnalysisTabs({
         ) : activeTopTab === "stock" ? (
           <div className="flex flex-col gap-4">
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-soft lg:p-5">
-              <div className="grid gap-4 lg:grid-cols-[minmax(240px,0.7fr)]">
-                <label className="space-y-2">
+              <div className="flex flex-wrap items-end gap-4">
+                <label className="min-w-[240px] flex-1 space-y-2 lg:flex-none lg:basis-[0.7fr]">
                   <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">분석 고객</span>
                   <select
                     value={contextValue.selectedCustomer}
@@ -219,6 +231,7 @@ function AnalysisTabs({
                   {tab.label}
                 </button>
               ))}
+              {returnButton}
             </div>
 
             {mountedStockTabs.has("technical") ? (

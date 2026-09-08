@@ -228,6 +228,7 @@ export type PortfolioAsset = {
   weight?: number;
   gain?: number;
   price_source?: string;
+  price_as_of?: string;        // 실제 시세 기준시각 (ISO 8601)
   _rawAmount?: string;
   ticker?: string;           // Yahoo Finance 티커 (Gemini 자동완성 또는 직접 입력)
   productType?: string;      // 통합 상품유형 (국내주식|해외주식|국내채권|해외채권|국내ETF|해외ETF|예적금/현금)
@@ -237,8 +238,23 @@ export type PortfolioAsset = {
   // ── 채권 이자소득세 계산 전용 필드 (FinancialIncomeGauge의 AssetForIncomeCalc와 대응) ──
   issuerCountry?: string;        // 발행국(한국/미국/브라질 등) — 국가별 원천징수 판정용, country(광의 국내/해외)와 다른 개념
   couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
-  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득은 일반 이표채와 동일 계산(만기 불필요), 콜 이후 스텝업 가능성만 배지 표시
   maturityDate?: string;         // ISO(YYYY-MM-DD) — 만기 임박 안분·복리채 일시인식 계산에 사용
+  // 외화표시 채권 환율 재환산용 — 투자 시점 원화 환산액에 환율이 고정되는 걸 막기 위해, 외화 원금을
+  // 역산할 "진입 시점 환율"과 계산 시점마다 새로 조회하는 "현재 환율"을 분리해서 갖고 있는다.
+  bondCurrency?: string;         // "USD"|"BRL" 등 — 없으면 원화 채권(재환산 불필요)
+  bondFxRateAtEntry?: number;    // 이 포지션을 처음 분석했을 때의 환율(1회만 캐싱, 이후 안 바뀜)
+  bondFxRateNow?: number;        // 가장 최근 분석 시점의 실시간 환율(매번 갱신)
+  // true = bondFxRateAtEntry가 탭5 "채권 추가" 클릭 순간 실제 진입 환율로 캡처된 값(신뢰 가능).
+  // false/undefined = 분석 로직이 처음 마주쳐 방어적으로 그 시점 환율을 대입한 값일 수 있음(이 기능
+  // 배포 이전부터 저장돼 있던 포지션 등) — 진짜 매수 시점 환율이 아닐 수 있어 배지로 구분 표시한다.
+  bondFxRateEntryConfirmed?: boolean;
+  // 수량(amount_type="quantity") 확인일 — 액면병합 감지용. 이 날짜 "이후"에 액면병합이 있었는지를
+  // Yahoo 데이터와 대조해서 경고를 띄운다. undefined(레거시 데이터 등 확인일 미상)면 병합 이력이
+  // 하나라도 있으면 무조건 경고 — 자동 보정은 절대 안 함(수량은 PB가 직접 확인·수정).
+  qtyAsOfDate?: string;          // ISO(YYYY-MM-DD)
+  needsQtyCheck?: boolean;       // qtyAsOfDate 이후 액면병합이 감지되면 true — 계산엔 안 씀, 경고 표시 전용
+  latestSplitInfo?: string;      // 표시용 — "2026-07-15 1:10" 형태
   // 데이터 소유권 낙인 — 로드 시 해당 고객 ID로 강제 찍힘, null이면 미확정 상태
   owner_customer_id?: string | null;
 };
@@ -294,6 +310,7 @@ export type PbOrderRow = {
   amountManStr: string;        // 구버전 호환 필드 (내부 계산에서 더 이상 사용하지 않음)
   currentPrice: number | null; // 현재가 (native currency — KRW or USD)
   priceCurrency: string;       // "KRW" | "USD"
+  priceAsOf?: string;          // 실제 시세 기준시각 (ISO 8601)
   quantity: string;            // 수량(주/개)
   bondYield: string;           // 채권수익률(%)
   maturityYears: string;       // 만기(년)
@@ -390,6 +407,10 @@ export type SharedMaintabUiState = {
     activeEffectId?: string | null;
     unsuitableWarningProductId?: string | null;
     pinnedAmounts?: Record<string, number>; // 상품 편입 금액 PB 직접 지정(pin) — 고객 화면 미러링용
+    // 외화표시 채권 상품(bondRef.currency 있음)을 "추가" 클릭한 그 순간의 실시간 환율 — 상품ID 기준 1회
+    // 캐싱. productAssets는 버킷 재분배(다른 상품 추가/가중치 변경)가 있을 때마다 통째로 재생성되므로
+    // (bondFxRateAtEntry를 그 객체 위에 얹어두는 방식으로는 보존이 안 됨) 별도 원장으로 분리해서 보존한다.
+    bondFxEntryRates?: Record<string, number>;
   };
 };
 
@@ -1627,6 +1648,9 @@ export type CustomerContextValue = {
   setRebalancingBuyAssets: (assets: PortfolioAsset[]) => void;
   setNewPortfolioAnalysisResult: (result: PortfolioAnalysisResult | null) => void;
   updateTab3AnalysisState: (patch: Partial<Tab3AnalysisState>, options?: { allowReadOnlyViewState?: boolean }) => void;
+  // 신규 포트폴리오 재분석이 백그라운드에서 진행 중인지(TAB4 "최신 반영 중" 표시용)
+  isNewPortfolioAnalyzing: boolean;
+  setIsNewPortfolioAnalyzing: (v: boolean) => void;
   // ── Tab 5 상품 선택 (고객별 격리, Supabase 영속) ──────────────────────────
   productSelectedIds: string[];
   setProductSelectedIds: (ids: string[]) => void;

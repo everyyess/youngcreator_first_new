@@ -311,8 +311,17 @@ export interface PortfolioAssetInput {
   // ── 채권 이자소득세 계산 전용 필드 (FinancialIncomeGauge의 AssetForIncomeCalc와 대응) ──
   issuerCountry?: string;        // 발행국(한국/미국/브라질 등) — 국가별 원천징수 판정용
   couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주
-  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득세 계산 범위 제외
+  isPerpetual?: boolean;         // 신종자본증권(영구채) — 이자소득은 일반 이표채와 동일 계산(만기 불필요), 콜 이후 스텝업 가능성만 배지 표시
   maturityDate?: string;         // ISO(YYYY-MM-DD)
+  // ── 액면병합 수량 확인 경고 전용 (계산에는 안 씀 — 수량을 PB가 확인/수정하게 안내만) ──
+  qtyAsOfDate?: string;           // ISO — 이 수량을 마지막으로 확인한 날짜
+  needsQtyCheck?: boolean;        // qtyAsOfDate 이후(또는 확인일 미상이면 무조건) 액면병합이 있었으면 true
+  latestSplitInfo?: string;       // 표시용 — "2026-07-15 1:10" 형태
+  // ── 외화표시 채권 환율 재환산용 (계산 시점마다 실시간 환율로 다시 환산하기 위해 진입환율과 분리) ──
+  bondCurrency?: string;         // "USD"|"BRL" 등 — 없으면 원화 채권(재환산 불필요)
+  bondFxRateAtEntry?: number;    // 이 포지션을 처음 분석했을 때의 환율(1회만 캐싱, 이후 안 바뀜)
+  bondFxRateNow?: number;        // 가장 최근 분석 시점의 실시간 환율(매번 갱신)
+  bondFxRateEntryConfirmed?: boolean; // true=탭5 "추가" 클릭 순간 실제 캡처된 값(신뢰 가능)
 }
 
 export interface RunAnalysisResult {
@@ -366,6 +375,29 @@ export const runAnalysis = async (
     console.warn("실시간 환율 로드 실패. 기본 환율 1380을 적용합니다.");
   }
 
+  // ── Step 0-a2: 외화표시 채권(USD 외) 실시간 환율 조회 ──
+  // 채권 이자소득은 "투자 시점 원화 환산액"에 환율이 고정되면 안 되고, 주식 배당과 동일하게 계산
+  // 시점마다 실시간 환율로 재환산해야 한다(외화로 지급되는 이자를 원화로 받을 때 그 시점 환율이
+  // 적용되므로). USD는 위에서 조회한 currentExchangeRate를 그대로 재사용하고, 그 외 통화만 추가 조회.
+  const bondFxRates: Record<string, number> = { USD: currentExchangeRate };
+  const extraCurrencies = Array.from(
+    new Set(assets.map((a) => a.bondCurrency).filter((c): c is string => !!c && c !== "USD"))
+  );
+  for (const cur of extraCurrencies) {
+    try {
+      const fxRes = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(`${cur}KRW=X`)}`);
+      if (fxRes.ok) {
+        const fxJson = await fxRes.json();
+        const fxMeta = fxJson?.chart?.result?.[0]?.meta;
+        const latestFx = typeof fxMeta?.regularMarketPrice === "number" && fxMeta.regularMarketPrice > 0
+          ? fxMeta.regularMarketPrice : null;
+        if (latestFx != null) bondFxRates[cur] = latestFx;
+      }
+    } catch {
+      console.warn(`${cur}/KRW 환율 조회 실패 — 해당 통화 채권은 환율 재환산 없이 기존 방식으로 계산됩니다.`);
+    }
+  }
+
   // ── Step 0-b: quantity 자산에 실시간 현재가 자동 조회 ──
   // current_price 는 항상 원화(KRW) 로 정규화하여 저장한다.
   // 통화 판단: Yahoo Finance meta.currency === "USD" 이면 환율을 곱해 원화로 환산.
@@ -381,15 +413,30 @@ export const runAnalysis = async (
 
       if (a.amount_type !== "quantity" || !a.name) return withKeywordSector(a);
       // 채권은 Yahoo Finance 조회 불가 — enrichedWithBonds 단계에서 buy_price × amount로 처리
-      if (a.productType === '국내채권' || a.productType === '해외채권')
-        return withKeywordSector({ ...a, sector: a.sector || '채권' });
-      // 현재가·배당수익률·달력연도누적배당이 전부 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
-      // calendarYtdDividendRate는 나중에 추가된 필드라, 이전에 캐싱된 자산엔 이 필드만 빠져있을 수 있음 —
-      // 그 경우 조건에서 빠뜨리면 영원히 재조회가 안 일어나 달력연도 종합과세 점검이 0으로 고정되는 문제가 있었음.
+      if (a.productType === '국내채권' || a.productType === '해외채권') {
+        // 외화표시 채권: 진입 시점 환율은 최초 1회만 고정(이미 있으면 유지), 현재 환율은 매번 갱신.
+        // 이자소득 계산 시 "원금은 진입환율로 환산 → 이표/할인액은 현재환율로 재환산"에 사용된다.
+        const fxNow = a.bondCurrency ? bondFxRates[a.bondCurrency] : undefined;
+        const fxPatch = a.bondCurrency && fxNow
+          ? { bondFxRateAtEntry: a.bondFxRateAtEntry ?? fxNow, bondFxRateNow: fxNow }
+          : {};
+        return withKeywordSector({ ...a, ...fxPatch, sector: a.sector || '채권' });
+      }
+      // 종목명 자리에 종목코드/티커가 그대로 들어와 있는지 체크 — 문자(한글·영문)가 하나도 없이 숫자·기호
+      // 뿐이면 코드로 의심한다(정상적인 종목명·펀드명엔 반드시 문자가 들어감). 이 기능 도입 이전에 이미
+      // 캐싱된 자산은 아래 캐시-스킵 조건에 걸려 영영 재조회가 안 될 수 있어, 이 경우만 예외적으로
+      // 캐시를 무시하고 재조회해서(officialName으로) 이름을 바로잡는다(2026-09 발견·수정).
+      const nameLooksLikeCode = !!a.name && /^[0-9.\-=^]+$/.test(a.name.trim());
+
+      // 현재가·배당수익률·달력연도누적배당·병합체크가 전부 있으면 API 재요청 생략 (sector 없으면 키워드 폴백)
+      // calendarYtdDividendRate·needsQtyCheck는 나중에 추가된 필드라, 이전에 캐싱된 자산엔 이 필드만
+      // 빠져있을 수 있음 — 그 경우 조건에서 빠뜨리면 영원히 재조회가 안 일어나 값이 고정되는 문제가 있었음.
       if (
+        !nameLooksLikeCode &&
         a.current_price != null && a.current_price > 0 &&
         a.dividendYield != null &&
-        a.calendarYtdDividendRate !== undefined
+        a.calendarYtdDividendRate !== undefined &&
+        a.needsQtyCheck !== undefined
       ) return withKeywordSector(a);
 
       try {
@@ -406,6 +453,19 @@ export const runAnalysis = async (
         const result = json?.chart?.result?.[0];
         const meta = result?.meta;
 
+        // 액면병합 경고 — qtyAsOfDate(수량 마지막 확인일) 이후 병합이 있었는지만 확인. 계산엔 안 씀.
+        // qtyAsOfDate가 없으면(레거시 데이터 등 확인일 미상) 병합 이력이 하나라도 있으면 무조건 경고.
+        const rawSplits = result?.events?.splits ?? {};
+        const splitEvents: { date: number; splitRatio?: string }[] = Object.values(rawSplits)
+          .filter((e): e is { date: number; splitRatio?: string } => typeof (e as { date?: unknown })?.date === "number")
+          .sort((x, y) => y.date - x.date); // 최신순
+        const qtyAsOfTs = a.qtyAsOfDate ? Math.floor(new Date(a.qtyAsOfDate).getTime() / 1000) : null;
+        const relevantSplit = splitEvents.find((s) => qtyAsOfTs == null || s.date > qtyAsOfTs);
+        const needsQtyCheck = !!relevantSplit;
+        const latestSplitInfo = relevantSplit
+          ? `${new Date(relevantSplit.date * 1000).toISOString().slice(0, 10)} ${relevantSplit.splitRatio ?? ""}`.trim()
+          : undefined;
+
         // 배당수익률 — proxy-finance 응답 최상단에 반환됨
         const dy   = typeof json.dividendYield === "number" && json.dividendYield > 0
           ? json.dividendYield : undefined;
@@ -420,6 +480,13 @@ export const runAnalysis = async (
         const industryEnVal = typeof json.industryEn === "string" ? json.industryEn : null;
         const resolvedSector = resolveSectorKo(sectorEnVal, industryEnVal, a.theme, a.name, a.ticker) || undefined;
 
+        // 공식 종목명 — 이름 자리에 종목코드/티커가 그대로 들어와 있는 경우(예: ETF를 코드로 검색해서
+        // 담은 경우) 이 값으로 덮어써서 바로잡는다. RebalancingPortfolioInput.tsx·ExistingPortfolioTab.tsx의
+        // "지능형 추론"과 동일한 원칙(officialName 있으면 강제 보정) — 여기(runAnalysis)는 모든 종목·ETF가
+        // 어느 입력 경로로 들어왔든 공통으로 거치는 지점이라, 여기서 한 번만 고치면 전체에 적용된다.
+        const officialName = typeof json.officialName === "string" && json.officialName.trim()
+          ? json.officialName.trim() : undefined;
+
         // 현재가가 이미 있으면 배당 + 섹터 데이터만 보완하고 리턴
         // ※ trailingAnnualDividendRate(주당 배당금)는 Yahoo Finance가 종목 상장통화(USD 등) 기준으로 반환한다.
         //   current_price는 이미 원화로 정규화돼 있으므로, 배당금도 동일하게 원화 환산해야
@@ -431,10 +498,13 @@ export const runAnalysis = async (
           return {
             ...a,
             current_value: a.amount * a.current_price,
+            ...(officialName   != null ? { name:                       officialName   } : {}),
             ...(dy             != null ? { dividendYield:              dy             } : {}),
             ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
             ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),
             ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
+            needsQtyCheck,
+            ...(latestSplitInfo != null ? { latestSplitInfo } : {}),
           };
         }
 
@@ -458,10 +528,13 @@ export const runAnalysis = async (
             ...a,
             current_price: priceKrw,
             current_value: cvKrw,
+            ...(officialName   != null ? { name:                       officialName   } : {}),
             ...(dy             != null ? { dividendYield:              dy             } : {}),
             ...(tadrKrw        != null ? { trailingAnnualDividendRate: tadrKrw        } : {}),
             ...(calendarYtdKrw != null ? { calendarYtdDividendRate:    calendarYtdKrw } : {}),
             ...(resolvedSector != null ? { sector:                     resolvedSector } : {}),
+            needsQtyCheck,
+            ...(latestSplitInfo != null ? { latestSplitInfo } : {}),
           };
         }
       } catch {
@@ -474,17 +547,21 @@ export const runAnalysis = async (
   );
 
   // ── Step 0-c: 실물 채권 cost-basis 폴백 ──
-  // 채권(국내/해외)은 수량 × 매수단가로 평가금액을 산출한다.
-  // amount_type·current_price 조건을 제거하여 Supabase 로드 데이터에서도 안전하게 처리한다.
+  // 채권(국내/해외)은 수량 × 매수단가로 평가금액을 산출한다 — 단, 이건 "수량"으로 입력된 채권(TAB1
+  // 수동입력 등)에만 맞는 공식이다. 탭5 카탈로그에서 "금액"으로 담은 채권은 amount·buy_price 둘 다
+  // 이미 같은 원화 금액이 들어있어서(수량 개념이 없음), 곱하면 평가금액이 천문학적으로 부풀려진다
+  // (예: 3천만원 채권이 900조원으로 계산되는 버그 — 2026-09 발견·수정). amount_type이 "value"면 그
+  // 금액을 그대로 쓰고, "quantity"거나 값이 없으면(레거시 Supabase 데이터 안전 처리) 기존처럼 곱한다.
   const enrichedWithBonds = enrichedAssets.map((a) => {
     const isBond = a.productType === '국내채권' || a.productType === '해외채권';
     if (!isBond) return a;
     const bp  = Number(a.buy_price);
     const amt = Number(a.amount);
-    if (bp > 0 && amt > 0) {
-      return { ...a, current_price: bp, current_value: amt * bp };
+    if (bp <= 0 || amt <= 0) return a;
+    if (a.amount_type === 'value') {
+      return { ...a, current_price: bp, current_value: amt };
     }
-    return a;
+    return { ...a, current_price: bp, current_value: amt * bp };
   });
 
   // ── Step 0-d: buy_price cost-basis 폴백 (전체 quantity 자산) ──
@@ -604,9 +681,14 @@ export const runAnalysis = async (
     const isBond = a.productType === '국내채권' || a.productType === '해외채권';
     if (isBond) return s;
     // dividendYield 는 Yahoo Finance 제공 소수값(예: 0.02 = 2%)
+    // 이상치 방지: 배당수익률은 현실적으로 연 100%를 넘을 수 없다 — 레버리지/인버스 ETF(SOXS·SOXL 등)가
+    // 동전주 탈출용 액면병합을 거치면 Yahoo 데이터가 병합 전/후 주식 수 불일치로 수백 %를 반환하는 사례가
+    // 실제 확인됨(FinancialIncomeGauge.tsx의 TAX_RATES.implausibleDividendYieldThreshold와 동일 기준).
+    const dy = a.dividendYield ?? 0;
+    if (dy > 1.0) return s;
     const value = a.current_value
       ?? (a.amount_type === 'quantity' ? (a.current_price ?? 0) * a.amount : a.amount);
-    return s + value * (a.dividendYield ?? 0);
+    return s + value * dy;
   }, 0);
 
   const financialIncomeTaxForHealth =

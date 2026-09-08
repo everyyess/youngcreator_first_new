@@ -501,6 +501,10 @@ function mergeBuyIntoBase(
               incomingPriceKrw > 0
                 ? incomingPriceKrw
                 : ex.current_price,
+            price_as_of:
+              incomingPriceKrw > 0
+                ? (row.priceAsOf ?? ex.price_as_of)
+                : ex.price_as_of,
             current_value:
               incomingPriceKrw > 0
                 ? nextQty * incomingPriceKrw
@@ -539,7 +543,9 @@ function mergeBuyIntoBase(
         bond_yield: Number.isFinite(bondYieldVal) && bondYieldVal > 0 ? bondYieldVal : null,
         bond_maturity: Number.isFinite(maturityVal) && maturityVal > 0 ? maturityVal : null,
         current_price: priceKrw ?? undefined,
+        price_as_of: row.priceAsOf,
         current_value: krwTotal || undefined,
+        qtyAsOfDate: new Date().toISOString().slice(0, 10), // 지금 신규 매수하는 수량이라 확인일=오늘
       };
       merged.push(newRow);
     }
@@ -672,7 +678,10 @@ export default function BuySimulatorTab() {
       return stockSide.map((a) => {
         const e = priceMap.get(makeAssetKey(a));
         const cp = Number(e?.current_price ?? a.current_price);
-        return { ...a, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
+        // runAnalysis(enrichedAssets)가 종목코드로 잘못 박혀있던 name을 공식 종목명으로 보정해도,
+        // 여기서 가격만 가져오고 name은 원본(rebalancingSellAssets)의 옛 값을 그대로 썼던 버그가
+        // 있었다(2026-09 발견·수정) — name도 같은 방식으로 보정된 값을 우선 사용한다.
+        return { ...a, name: e?.name || a.name, current_price: cp > 0 ? cp : a.current_price, current_value: a.amount > 0 && cp > 0 ? a.amount * cp : 0 };
       });
     }
     // 주식 쪽 리밸런싱 이력이 아직 없으면(상품만 담긴 경우 포함) 원본 포트폴리오를 그대로 보여준다.
@@ -716,7 +725,7 @@ export default function BuySimulatorTab() {
     ticker: string; sector: string; isGlobal: boolean;
     kind: "etf" | "stock";
     mode: "buy" | "sell"; qtyStr: string;
-    price: number | null; currency: "KRW" | "USD"; isLoadingPrice: boolean;
+    price: number | null; currency: "KRW" | "USD"; priceAsOf?: string; isLoadingPrice: boolean;
   };
   const [dropModal, setDropModal] = useState<DropModal | null>(null);
 
@@ -826,15 +835,24 @@ export default function BuySimulatorTab() {
         const res = await fetch(`/api/proxy-finance?${qp}`);
         const data = (await res.json()) as {
           ticker?: string;
+          officialName?: string | null;
           error?: string;
-          chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; currency?: string } }> };
+          chart?: { result?: Array<{ meta?: { regularMarketPrice?: number; regularMarketTime?: number; currency?: string } }> };
         };
         if (data.ticker) {
           const chartMeta = data?.chart?.result?.[0]?.meta;
           const price = typeof chartMeta?.regularMarketPrice === "number" ? chartMeta.regularMarketPrice : null;
           const currency = chartMeta?.currency ?? (productType.includes("해외") ? "USD" : "KRW");
+          // PB가 종목코드(예: ETF 6자리 코드)로 검색한 경우, 검색창엔 입력한 코드가 그대로 남아있어
+          // 이후 매수 확정 시 name이 코드로 찍히는 버그가 있었다(2026-09 발견·수정) — API가 돌려주는
+          // 공식 명칭(officialName)이 있으면 검색창 표시 텍스트도 그 이름으로 교체한다.
+          const resolvedName = data.officialName?.trim() || undefined;
+          const priceAsOf =
+            typeof chartMeta?.regularMarketTime === "number"
+              ? new Date(chartMeta.regularMarketTime * 1000).toISOString()
+              : undefined;
           const updated = pbOrderRowsRef.current.map((r) =>
-            r.id === rowId ? { ...r, ticker: data.ticker!, currentPrice: price, priceCurrency: currency } : r,
+            r.id === rowId ? { ...r, ticker: data.ticker!, currentPrice: price, priceCurrency: currency, priceAsOf, ...(resolvedName ? { name: resolvedName } : {}) } : r,
           );
           setPbOrderRows(updated);
           setPbSearchState((prev) => ({ ...prev, [rowId]: { loading: false, error: null } }));
@@ -974,10 +992,14 @@ export default function BuySimulatorTab() {
           setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null);
           return;
         }
-        const data = (await r.json()) as { regularMarketPrice?: number };
+        const data = (await r.json()) as { regularMarketPrice?: number; regularMarketTime?: number };
         const price = typeof data?.regularMarketPrice === "number" ? data.regularMarketPrice : null;
         const currency: "KRW" | "USD" = pick.isGlobal ? "USD" : "KRW";
-        setDropModal((prev) => prev ? { ...prev, price, currency, isLoadingPrice: false } : null);
+        const priceAsOf =
+          typeof data?.regularMarketTime === "number"
+            ? new Date(data.regularMarketTime * 1000).toISOString()
+            : undefined;
+        setDropModal((prev) => prev ? { ...prev, price, currency, priceAsOf, isLoadingPrice: false } : null);
       })
       .catch(() => setDropModal((prev) => prev ? { ...prev, isLoadingPrice: false } : null));
   }, []);
@@ -1577,7 +1599,8 @@ export default function BuySimulatorTab() {
                           theme: "기타", country: dropModal.isGlobal ? "미국" : "한국",
                           buy_price: krwPrice, amount: dropQty, amount_type: "quantity" as const,
                           is_hedged: false, needs_review: false,
-                          current_price: krwPrice, current_value: dropQty * krwPrice,
+                          current_price: krwPrice, price_as_of: dropModal.priceAsOf, current_value: dropQty * krwPrice,
+                          qtyAsOfDate: new Date().toISOString().slice(0, 10), // �� � ��X��x|
                         };
                         updated = [...base, newAsset];
                       }

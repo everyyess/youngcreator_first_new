@@ -277,9 +277,13 @@ interface Bond {
   issuerCountry?: "한국" | "미국" | "브라질";  // 발행국 — market(국내/해외)과 다른 개념. 브라질 국채는 market:"해외"지만
                                               // 세율은 미국채와 다름(조세조약상 이자 비과세)이라 반드시 구분해야 함.
   couponType?: "이표채" | "복리채" | "할인채"; // 없으면 이표채로 간주(대부분의 이표부 채권 기본값)
-  isPerpetual?: boolean;        // 신종자본증권(영구채) — 이자소득세 계산 범위 제외(콜옵션 미행사 시 만기가 불확정이라
-                                // 일반 이표채 공식으로 세전/세후를 단정할 수 없음). isSubordinated와 별개로 명시.
+  isPerpetual?: boolean;        // 신종자본증권(영구채) — 이자소득(표면금리×액면금액)은 만기와 무관하게 일반 이표채와
+                                // 동일하게 계산한다. 콜 이후 스텝업 조항으로 표면금리가 바뀔 수 있다는 점만 배지로 표시.
+                                // isSubordinated와 별개로 명시.
   maturityDate?: string;        // ISO(YYYY-MM-DD) — BONDS_WITH_MATURITY에서 name/maturity 문자열로부터 파생, 직접 입력 안 함
+  // 외화표시 채권 통화 — 없으면 원화. 이자소득 계산 시 "투자 시점 환율에 고정"되지 않고 계산 시점마다
+  // 실시간 환율로 재환산하기 위해 필요(주식 배당과 같은 원칙 — 아래 issuerCountry 주석 옆 설명 참고).
+  currency?: "USD" | "BRL";
 }
 
 const CATALOG_ASOF_DATE = "2026-07-24"; // 해외채권·국내 크레딧/단기채 라인업 공통 기준일(각 섹션 주석 참고)
@@ -309,25 +313,25 @@ function deriveMaturityDate(b: Bond): string | undefined {
 
 const BONDS_RAW: Bond[] = [
   // 해외채권 라인업 ('26.7.24 기준)
-  { id:"b1", name:"미국국채 T 1.125 10/31/26", market:"해외", creditRating:"AA+", maturity:"3개월", riskGrade:3, bucket:"유동성", couponRate:1.125, issuerCountry:"미국", yieldPretax:3.55, yieldMaxTax:5.15, yieldCorporate:3.15, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b2", name:"미국국채 T 0.5 04/30/27", market:"해외", creditRating:"AA+", maturity:"9개월", riskGrade:3, bucket:"유동성", couponRate:0.5, issuerCountry:"미국", yieldPretax:4.35, yieldMaxTax:6.95, yieldCorporate:3.75, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b3", name:"미국국채 T 0.375 09/30/27", market:"해외", creditRating:"AA+", maturity:"1.2년", riskGrade:3, bucket:"유동성", couponRate:0.375, issuerCountry:"미국", yieldPretax:4.50, yieldMaxTax:7.30, yieldCorporate:3.90, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b4", name:"미국국채 T 1.125 08/15/40", market:"해외", creditRating:"AA+", maturity:"14.1년", riskGrade:3, bucket:"절세", couponRate:1.125, issuerCountry:"미국", yieldPretax:6.85, yieldMaxTax:10.30, yieldCorporate:6.05, note:"잔존만기가 14.1년으로 길어, 국민주택채권 등 원화 저쿠폰물보다 금리(듀레이션) 리스크가 절세 효과에 비해 크게 작용할 수 있습니다 — 금리가 오르면 가격 손실이 절세로 아낀 금액을 넘어설 수 있습니다. 달러(USD) 표시라 환위험도 함께 있습니다." },
-  { id:"b5", name:"알파벳 GOOGL 0.8 08/15/27", market:"해외", creditRating:"AA+(안정적)", maturity:"1.0년", riskGrade:3, bucket:"유동성", couponRate:0.8, issuerCountry:"미국", yieldPretax:4.10, yieldMaxTax:6.35, yieldCorporate:3.60, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
-  { id:"b6", name:"우리은행 WOORIB 6.375 PERP", market:"해외", creditRating:"BBB-(안정적)", maturity:"3.0년콜(영구채)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, couponRate:6.375, issuerCountry:"미국", yieldPretax:4.25, yieldMaxTax:3.00, yieldCorporate:4.55, note:"신종자본증권(영구채) — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b8", name:"브라질국채 BLTN 0 01/01/32(할인채)", market:"해외", creditRating:"BB", maturity:"5.4년", riskGrade:1, bucket:"절세", couponRate:0, couponType:"할인채", issuerCountry:"브라질", yieldPretax:22.75, yieldMaxTax:38.15, yieldCorporate:19.25, note:"실질은 헤알화(BRL) 환베팅에 가깝습니다 — 환율 변동폭이 세제 혜택보다 손익에 훨씬 크게 작용합니다. 표면금리 0%(제로쿠폰)라 수익 전부가 만기 상환차익(비과세)에서 나온다는 절세 논리는 있지만, BB등급·중개 제한 종목이라 절세 칸 안에서도 원화 저쿠폰물(국민주택채권 등) 다음의 바깥쪽 선택지로 두세요." },
-  { id:"b9", name:"브라질국채 BNTNF 10 01/01/27(이표채)", market:"해외", creditRating:"BB", maturity:"5개월", riskGrade:1, bucket:"인컴창출", couponRate:10, couponType:"이표채", issuerCountry:"브라질", yieldPretax:14.30, yieldMaxTax:23.95, yieldCorporate:12.10, note:"표면금리 10%대 이표채로 이자가 꾸준히 들어오며, 한·브라질 조세협약상 이자소득이 비과세입니다(절세 성격도 겸함). 잔존만기만 보면 5개월로 유동성 조건에 가깝지만, 헤알화(BRL) 환위험과 브라질 국가위험 때문에 '원금 그대로 꺼내 쓸 수 있는가'를 충족하지 못해 유동성에서 제외했습니다. BB등급·중개 제한 종목이라, 인컴 칸 안에서도 국채→우량회사채→신종자본증권 다음의 가장 바깥쪽 선택지로 두세요." },
+  { id:"b1", name:"미국국채 T 1.125 10/31/26", market:"해외", creditRating:"AA+", maturity:"3개월", riskGrade:3, bucket:"유동성", couponRate:1.125, issuerCountry:"미국", currency:"USD", yieldPretax:3.55, yieldMaxTax:5.15, yieldCorporate:3.15, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b2", name:"미국국채 T 0.5 04/30/27", market:"해외", creditRating:"AA+", maturity:"9개월", riskGrade:3, bucket:"유동성", couponRate:0.5, issuerCountry:"미국", currency:"USD", yieldPretax:4.35, yieldMaxTax:6.95, yieldCorporate:3.75, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b3", name:"미국국채 T 0.375 09/30/27", market:"해외", creditRating:"AA+", maturity:"1.2년", riskGrade:3, bucket:"유동성", couponRate:0.375, issuerCountry:"미국", currency:"USD", yieldPretax:4.50, yieldMaxTax:7.30, yieldCorporate:3.90, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b4", name:"미국국채 T 1.125 08/15/40", market:"해외", creditRating:"AA+", maturity:"14.1년", riskGrade:3, bucket:"절세", couponRate:1.125, issuerCountry:"미국", currency:"USD", yieldPretax:6.85, yieldMaxTax:10.30, yieldCorporate:6.05, note:"잔존만기가 14.1년으로 길어, 국민주택채권 등 원화 저쿠폰물보다 금리(듀레이션) 리스크가 절세 효과에 비해 크게 작용할 수 있습니다 — 금리가 오르면 가격 손실이 절세로 아낀 금액을 넘어설 수 있습니다. 달러(USD) 표시라 환위험도 함께 있습니다." },
+  { id:"b5", name:"알파벳 GOOGL 0.8 08/15/27", market:"해외", creditRating:"AA+(안정적)", maturity:"1.0년", riskGrade:3, bucket:"유동성", couponRate:0.8, issuerCountry:"미국", currency:"USD", yieldPretax:4.10, yieldMaxTax:6.35, yieldCorporate:3.60, note:"달러(USD) 표시 채권이라 즉시 현금화는 가능하지만, 원화 환산 시 환율 변동에 따라 원금이 달라집니다 — '원금 그대로 꺼내 쓸 수 있는가'라는 유동성의 정의를 엄밀히는 완전히 충족하지 못합니다." },
+  { id:"b6", name:"우리은행 WOORIB 6.375 PERP", market:"해외", creditRating:"BBB-(안정적)", maturity:"3.0년콜(영구채)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, couponRate:6.375, issuerCountry:"미국", currency:"USD", yieldPretax:4.25, yieldMaxTax:3.00, yieldCorporate:4.55, note:"신종자본증권(영구채) — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  { id:"b8", name:"브라질국채 BLTN 0 01/01/32(할인채)", market:"해외", creditRating:"BB", maturity:"5.4년", riskGrade:1, bucket:"절세", couponRate:0, couponType:"할인채", issuerCountry:"브라질", currency:"BRL", yieldPretax:22.75, yieldMaxTax:38.15, yieldCorporate:19.25, note:"실질은 헤알화(BRL) 환베팅에 가깝습니다 — 환율 변동폭이 세제 혜택보다 손익에 훨씬 크게 작용합니다. 표면금리 0%(제로쿠폰)라 수익 전부가 만기 상환차익(비과세)에서 나온다는 절세 논리는 있지만, BB등급·중개 제한 종목이라 절세 칸 안에서도 원화 저쿠폰물(국민주택채권 등) 다음의 바깥쪽 선택지로 두세요." },
+  { id:"b9", name:"브라질국채 BNTNF 10 01/01/27(이표채)", market:"해외", creditRating:"BB", maturity:"5개월", riskGrade:1, bucket:"인컴창출", couponRate:10, couponType:"이표채", issuerCountry:"브라질", currency:"BRL", yieldPretax:14.30, yieldMaxTax:23.95, yieldCorporate:12.10, note:"표면금리 10%대 이표채로 이자가 꾸준히 들어오며, 한·브라질 조세협약상 이자소득이 비과세입니다(절세 성격도 겸함). 잔존만기만 보면 5개월로 유동성 조건에 가깝지만, 헤알화(BRL) 환위험과 브라질 국가위험 때문에 '원금 그대로 꺼내 쓸 수 있는가'를 충족하지 못해 유동성에서 제외했습니다. BB등급·중개 제한 종목이라, 인컴 칸 안에서도 국채→우량회사채→신종자본증권 다음의 가장 바깥쪽 선택지로 두세요." },
   // 국내채권 라인업(크레딧/단기채, '26.7.24 기준)
-  { id:"b11", name:"한국투자캐피탈", market:"국내", creditRating:"A(안정적)", maturity:"0.9년", riskGrade:4, bucket:"유동성", issuerCountry:"한국", yieldPretax:4.87, yieldMaxTax:5.49, yieldCorporate:4.74 },
-  { id:"b12", name:"메리츠캐피탈", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.73, yieldMaxTax:4.61, yieldCorporate:4.76 },
-  { id:"b13", name:"종근당홀딩스", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.43, yieldMaxTax:4.35, yieldCorporate:4.45 },
-  { id:"b14", name:"한국전력", market:"국내", creditRating:"AAA(안정적)", maturity:"3.3년", riskGrade:5, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.82, yieldMaxTax:6.73, yieldCorporate:4.39, note:"절세 → 인컴창출 재분류. 기존 절세 배정 근거는 \"세전수익률(4.82%)보다 최고세율적용(과세형 등가) 수익률(6.73%)이 높다\"는 것 하나였는데, 이 비교는 표면금리가 낮은지와 무관하게 이자소득에 세금이 붙는 채권이면 구조적으로 항상 성립합니다 — 세후로 환산했을 때 같은 실수령액을 내려면 일반과세 채권은 더 높은 표면금리가 필요하기 때문입니다. 즉 \"저쿠폰이라 상환차익(비과세) 비중이 크다\"는 절세 버킷의 핵심 조건을 증명하는 지표가 아닙니다. 이 채권 자체의 정확한 표면이율(couponRate)은 데이터에 없어 직접 확인은 못 했지만, 비슷한 시기(2026년) 같은 AAA등급 국내 발행사인 KB금융지주가 실제로 발행한 회사채(3년물 4.092%, 5년물 4.264%, 한국신용평가·한국기업평가·NICE신용평가 3사 공동 AAA — 디지털데일리 2026.05.22 보도)를 참고하면, 이 신용등급·시장 구간의 회사채 표면금리는 4%대가 일반적입니다. 저쿠폰(국민주택채권 1.000%, 국고채 1.5~2.375%처럼 표면금리 자체가 낮은 채권)과는 성격이 다를 가능성이 커, 표면금리 수준의 정기 이자소득이 주된 수익원이라고 보고 인컴창출로 재분류했습니다." },
-  { id:"b15", name:"KB금융지주", market:"국내", creditRating:"AAA(안정적)", maturity:"3.9년", riskGrade:5, bucket:"인컴창출", issuerCountry:"한국", yieldPretax:4.96, yieldMaxTax:7.11, yieldCorporate:4.48, note:"절세 → 인컴창출 재분류. 기존 절세 배정 근거는 \"세전수익률(4.96%)보다 최고세율적용(과세형 등가) 수익률(7.11%)이 높다\"는 것 하나였는데, 이 비교는 표면금리가 낮은지와 무관하게 이자소득에 세금이 붙는 채권이면 구조적으로 항상 성립합니다 — 세후로 환산했을 때 같은 실수령액을 내려면 일반과세 채권은 더 높은 표면금리가 필요하기 때문입니다. 즉 \"저쿠폰이라 상환차익(비과세) 비중이 크다\"는 절세 버킷의 핵심 조건을 증명하는 지표가 아닙니다. 이 채권 자체의 정확한 표면이율(couponRate)은 데이터에 없어 직접 확인은 못 했지만, 잔존만기(3.9년)와 가장 가까운 시기(2026년 5월)에 발행사 본인이 직접 발행한 실제 회사채가 3년물 표면금리 4.092%, 5년물 4.264%(한국신용평가·한국기업평가·NICE신용평가 3사 공동 AAA — 디지털데일리 2026.05.22 보도)로 확인됩니다. 이 채권은 발행 회차가 정확히 일치하진 않지만(3.9년 잔존은 두 회차 사이) 같은 발행사·같은 시기 기준이라 가장 근접한 참고치이며, 저쿠폰(국민주택채권 1.000%, 국고채 1.5~2.375%)과는 확연히 다른 4%대 표면금리 구간으로 보입니다. 표면금리 수준의 정기 이자소득이 주된 수익원이라고 보고 인컴창출로 재분류했습니다." },
-  { id:"b16", name:"기업은행 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"1.6년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:3.64, yieldMaxTax:3.08, yieldCorporate:3.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b17", name:"신한은행 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"3.5년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.32, yieldMaxTax:5.10, yieldCorporate:4.14, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b18", name:"iM금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.1년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.55, yieldMaxTax:5.24, yieldCorporate:4.39, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b19", name:"하나금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.31, yieldMaxTax:4.05, yieldCorporate:4.36, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
-  { id:"b20", name:"DB손해보험 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", yieldPretax:4.70, yieldMaxTax:4.37, yieldCorporate:4.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다." },
+  { id:"b11", name:"한국투자캐피탈", market:"국내", creditRating:"A(안정적)", maturity:"0.9년", riskGrade:4, bucket:"유동성", issuerCountry:"한국", couponRate:3.956, yieldPretax:4.87, yieldMaxTax:5.49, yieldCorporate:4.74 },
+  { id:"b12", name:"메리츠캐피탈", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", issuerCountry:"한국", couponRate:4.746, yieldPretax:4.73, yieldMaxTax:4.61, yieldCorporate:4.76 },
+  { id:"b13", name:"종근당홀딩스", market:"국내", creditRating:"A+(안정적)", maturity:"1.9년", riskGrade:4, bucket:"인컴창출", issuerCountry:"한국", couponRate:4.557, yieldPretax:4.43, yieldMaxTax:4.35, yieldCorporate:4.45 },
+  { id:"b14", name:"한국전력", market:"국내", creditRating:"AAA(안정적)", maturity:"3.3년", riskGrade:5, bucket:"인컴창출", issuerCountry:"한국", couponRate:1.798, yieldPretax:4.82, yieldMaxTax:6.73, yieldCorporate:4.39, note:"⚠️ 버킷 재검토 필요(2026-09 표면금리 실측 확인 후). 절세→인컴창출 재분류 당시엔 표면금리를 몰라 \"세전수익률<최고세율적용수익률\"이라는 구조적으로 항상 성립하는(저쿠폰 여부와 무관한) 근거만으로 판단했는데, 실측 표면금리가 1.798%로 확인되면서 오히려 국민주택채권(1.0%)·국고채(1.5~2.375%)와 같은 저쿠폰 구간에 해당한다는 게 드러났습니다 — 애초 절세 배정의 핵심 조건(\"저쿠폰이라 세전-세후 수익률차 대부분이 비과세 상환차익에서 나온다\")을 오히려 이 채권이 실제로 충족하는 셈이라, 인컴창출보다 절세 버킷이 다시 더 맞을 수 있습니다. 이자소득세 계산에는 실측 표면금리(1.798%)가 정확히 반영됩니다 — 버킷 재배정 여부만 별도 확인 필요." },
+  { id:"b15", name:"KB금융지주", market:"국내", creditRating:"AAA(안정적)", maturity:"3.9년", riskGrade:5, bucket:"인컴창출", issuerCountry:"한국", couponRate:3.3, yieldPretax:4.96, yieldMaxTax:7.11, yieldCorporate:4.48, note:"절세→인컴창출 재분류 당시 추정(4%대)했던 것과 달리 실측 표면금리는 3.3%로 확인(2026-09)됐습니다. 국민주택채권(1.0%)·국고채(1.5~2.375%) 같은 저쿠폰 구간보다는 높지만, 같은 발행사의 최근 비교 회차(4.092~4.264%)보다는 낮은 중간 구간이라 인컴창출 재분류 자체를 뒤집을 만큼 명확하진 않습니다(참고로 b14 한국전력은 실측 결과 저쿠폰 구간으로 확인돼 재검토가 필요한 상태 — 별도 표시 참고). 이자소득세 계산에는 실측 표면금리(3.3%)가 정확히 반영됩니다." },
+  { id:"b16", name:"기업은행 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"1.6년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", couponRate:4.12, yieldPretax:3.64, yieldMaxTax:3.08, yieldCorporate:3.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다. 표면금리 4.12%는 발행일·회차 근거자료 없이 콜기간만으로 대조한 값이라 다른 회차와 섞였을 가능성이 있습니다(확인 권장)." },
+  { id:"b17", name:"신한은행 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"3.5년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", couponRate:4.20, yieldPretax:4.32, yieldMaxTax:5.10, yieldCorporate:4.14, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다. 표면금리 4.20%는 발행일·회차 근거자료 없이 콜기간만으로 대조한 값이라 다른 회차와 섞였을 가능성이 있습니다(확인 권장)." },
+  { id:"b18", name:"iM금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.1년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", couponRate:4.3, yieldPretax:4.55, yieldMaxTax:5.24, yieldCorporate:4.39, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다. 표면금리 4.3%는 발행일·회차 근거자료 없이 콜기간만으로 대조한 값이라 다른 회차와 섞였을 가능성이 있습니다(확인 권장)." },
+  { id:"b19", name:"하나금융지주 신종자본증권", market:"국내", creditRating:"AA-(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", couponRate:4.8, yieldPretax:4.31, yieldMaxTax:4.05, yieldCorporate:4.36, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다. 표면금리 4.8%는 2026년 5월 발행분과 콜기간이 일치해 신뢰도가 높습니다." },
+  { id:"b20", name:"DB손해보험 신종자본증권", market:"국내", creditRating:"AA(안정적)", maturity:"4.8년콜(신종자본증권)", riskGrade:2, bucket:"인컴창출", isSubordinated:true, isPerpetual:true, issuerCountry:"한국", couponRate:5.30, yieldPretax:4.70, yieldMaxTax:4.37, yieldCorporate:4.76, note:"신종자본증권 — 콜옵션 미행사·이자지급유예·후순위 변제 리스크가 있어 신용등급과 별개로 위험도가 높게 평가될 수 있습니다. 표면금리 5.30%는 2026년 6월 발행분과 콜기간이 일치해 신뢰도가 높습니다." },
   // 국민주택채권 4종 (전산 조회 기준, 조회일 2026-09-01) — 국민주택채권 1종은 만기 일시상환형 복리채
   { id:"b22", name:"국민주택1종26-08", market:"국내", creditRating:"국공채", maturity:"4년 11개월(2031-08-31)", riskGrade:6, bucket:"절세", issuerCountry:"한국", couponType:"복리채", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.501, tradeYield:4.145, bankConvertedYield:5.104, couponRate:1.000, quoteDate:"2026-09-01" },
   { id:"b23", name:"국민주택1종26-07", market:"국내", creditRating:"국공채", maturity:"4년 10개월(2031-07-31)", riskGrade:6, bucket:"절세", issuerCountry:"한국", couponType:"복리채", yieldPretax:null, yieldMaxTax:null, yieldCorporate:4.460, tradeYield:4.116, bankConvertedYield:5.057, couponRate:1.000, quoteDate:"2026-09-01" },
@@ -827,6 +831,23 @@ function hasRrttllu(f: { rrttllu: { returnObjective: string; timeHorizon: string
   return !!(f.rrttllu.returnObjective||f.rrttllu.timeHorizon||f.rrttllu.riskAttitude);
 }
 
+// 외화표시 채권 "추가" 확정 순간의 실시간 환율 조회 — 진짜 진입환율 캡처용(1회성, 실패해도 조용히
+// null 반환해서 미확인 배지 경로로 자연스럽게 넘어가게 함). USD는 Yahoo 관례상 KRW=X, 그 외 통화는
+// {통화}KRW=X (예: BRLKRW=X) — lib/portfolioLogic.ts의 실시간 환율 조회와 동일한 티커 규칙.
+async function fetchLiveFxRate(currency: string): Promise<number | null> {
+  const ticker = currency === "USD" ? "KRW=X" : `${currency}KRW=X`;
+  try {
+    const res = await fetch(`/api/proxy-finance?assetName=${encodeURIComponent(ticker)}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const meta = json?.chart?.result?.[0]?.meta;
+    return typeof meta?.regularMarketPrice === "number" && meta.regularMarketPrice > 0
+      ? meta.regularMarketPrice : null;
+  } catch {
+    return null;
+  }
+}
+
 // 참고: 현재 라인업의 랩어카운트(14개)에는 위험헷지·인컴창출·절세에 해당하는 상품이
 // 하나도 없다(전부 자본증식·유동성 둘로만 분류돼 있다). 분류 오류가 아니라 그런 성격의
 // 랩 상품(방어형·월분배형·절세특화형) 자체가 지금 라인업에 없어서다 — 위험헷지·인컴창출·
@@ -868,7 +889,7 @@ const TOP_PICK_MONTHS: TopPickMonth[] = [
       "n7",  // 에셋플러스 미국 리치투게더
       "b26", // 국고01500-5003(20-2) (잔존 23.6년)
       "b23", // 국민주택1종26-07 (잔존 5.0년)
-      "b6",  // WOORIB 6.375 PERP (콜잔존 3.0년, 우리은행KP신종)
+      // "b6" WOORIB 6.375 PERP — 2026-09 사용자 요청으로 8월 TOP PICK 배지 제거(우리은행 채권 카드에서 삭제)
       "b20", // DB손보신종자본증권4 (콜 4.9년) — 라인업 b20(콜 4.8년)과 0.1년 차이, 조회 시점 차이로 판단해 매핑
     ]),
   },
@@ -1121,6 +1142,10 @@ export default function Tab5Page() {
   const [minInvestBlocked, setMinInvestBlocked] = useState<{ product: Product; perProductAmt: number; requiredAmt: number; blockedBy: Product | null } | null>(null);
   // 버킷 내 상품별 편입 금액 수동 고정(pin) — productId → PB가 직접 지정한 금액(원). 없으면 버킷 균등분배.
   const [pinnedAmounts, setPinnedAmounts] = useState<Record<string, number>>({});
+  // 외화표시 채권 "추가" 확정 순간의 실시간 환율 — 상품ID(productId) → 환율. productAssets는 버킷
+  // 재분배 때마다 통째로 재생성돼 그 위에 얹은 값은 보존이 안 되므로 별도 원장으로 관리한다(pinnedAmounts와
+  // 동일한 지속 방식). 한 번 채워지면 이 상품을 뺐다가 다시 담기 전까진 덮어쓰지 않는다(진짜 진입 환율 보존).
+  const [bondFxEntryRates, setBondFxEntryRates] = useState<Record<string, number>>({});
   const [amountEditError, setAmountEditError] = useState<{ product: Product; message: string } | null>(null);
   // 상품을 새로 담기 전, 얼마 담을지 먼저 입력받는 단계(주식 리밸런싱 탭의 매수 모달과 같은 흐름)
   const [pendingAdd, setPendingAdd] = useState<Product | null>(null);
@@ -1137,6 +1162,7 @@ export default function Tab5Page() {
     setModalProduct(ALL_ITEMS.find((product) => product.id === syncedTab5Ui.modalProductId) ?? null);
     setUnsuitableWarning(ALL_ITEMS.find((product) => product.id === syncedTab5Ui.unsuitableWarningProductId) ?? null);
     setPinnedAmounts(syncedTab5Ui.pinnedAmounts ?? {});
+    setBondFxEntryRates(syncedTab5Ui.bondFxEntryRates ?? {});
   }, [isCustomerView, syncedTab5Ui]);
 
   // PB 화면(고객 미러링 아님): 고객 전환 시 저장돼 있던 pinnedAmounts를 딱 1번만 복원.
@@ -1149,6 +1175,7 @@ export default function Tab5Page() {
     if (!syncedTab5Ui) return; // 아직 로드 전 — 로드되면 다시 실행됨(syncedTab5Ui deps)
     pinnedRestoredForRef.current = selectedCustomer;
     setPinnedAmounts(syncedTab5Ui.pinnedAmounts ?? {});
+    setBondFxEntryRates(syncedTab5Ui.bondFxEntryRates ?? {});
   }, [isCustomerView, selectedCustomer, syncedTab5Ui]);
 
   useEffect(() => {
@@ -1159,9 +1186,10 @@ export default function Tab5Page() {
         activeEffectId,
         unsuitableWarningProductId: unsuitableWarning?.id ?? null,
         pinnedAmounts,
+        bondFxEntryRates,
       },
     });
-  }, [isCustomerView, modalProduct, activeEffectId, unsuitableWarning, pinnedAmounts, updateSharedUiState]);
+  }, [isCustomerView, modalProduct, activeEffectId, unsuitableWarning, pinnedAmounts, bondFxEntryRates, updateSharedUiState]);
 
 useEffect(() => {
   if (!selectedCustomer) return;
@@ -1344,6 +1372,13 @@ const additionalInvestmentAmount = (() => {
           couponType: p.bondRef.couponType,
           isPerpetual: p.bondRef.isPerpetual,
           maturityDate: p.bondRef.maturityDate,
+          bondCurrency: p.bondRef.currency, // 외화표시 채권이면 계산 시점마다 실시간 환율로 재환산(투자 시점 환율에 고정 안 함)
+          // bondFxEntryRates 원장에 이 상품의 "추가" 확정 순간 환율이 캡처돼 있으면 진짜 진입환율로 채택
+          // (bondFxRateEntryConfirmed:true → 미확인 배지 안 뜸). 없으면 undefined로 두어 runAnalysis가
+          // 방어적으로 오늘 환율을 대입하게 하고, 그 경우엔 "진입환율 미확인" 배지가 뜬다.
+          ...(p.bondRef.currency && bondFxEntryRates[p.id] != null
+            ? { bondFxRateAtEntry: bondFxEntryRates[p.id], bondFxRateEntryConfirmed: true }
+            : {}),
         };
       }
       const isForeign = p.taxType === "해외주식형";
@@ -1371,8 +1406,10 @@ const additionalInvestmentAmount = (() => {
     // selectedIds는 참조가 매 렌더 바뀔 수 있어(빈 배열 리터럴 등) 배열 자체가 아닌
     // 내용물(join)을 deps로 사용 — 그래야 실제 선택이 바뀔 때만 재실행된다.
     // pinnedAmounts는 setPinnedAmounts에서 항상 새 객체로 교체하므로 참조 비교로 재실행 여부 판단이 안전함.
+    // bondFxEntryRates도 동일 — "추가" 확정 직후 비동기 환율 조회가 끝나면 이 값이 갱신되면서 재실행돼,
+    // 처음엔 미확정 상태로 만들어졌던 productAssets를 확정된 진입환율로 다시 채워 넣는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds.join(","), pinnedAmounts]);
+  }, [selectedIds.join(","), pinnedAmounts, bondFxEntryRates]);
 
   // 최소가입금액 미달 상품은 어떤 경로로도 포트폴리오에 담기지 않도록, 실제 추가는 전부 이 함수를 거친다.
   // (경고만 하고 통과시키는 게 아니라 실제로 차단한다 — "그래도 진행" 옵션이 있는 성향 부적합과는 다름)
@@ -1479,6 +1516,15 @@ const additionalInvestmentAmount = (() => {
 
     const added = tryAddProduct(p); // 기존 최소가입금액 하드블록 그대로 재사용(자동분배 기준으로 우선 검증)
     if (!added) { setPendingAdd(null); return; } // 실패 시 minInvestBlocked 모달이 대신 뜸
+    // 외화표시 채권을 이번에 처음("추가" 클릭) 담는 순간의 실시간 환율을 진짜 진입환율로 캡처해서 원장에
+    // 고정한다. 이미 원장에 있으면(과거에 담았다가 뺐다 다시 담는 경우 등) 덮어쓰지 않는다 — 그 값이 더
+    // 오래된 진짜 진입 기록일 수 있고, 최소한 "오늘 값으로 슬쩍 갱신"보다는 안전하다.
+    if (p.bondRef?.currency && bondFxEntryRates[p.id] == null) {
+      fetchLiveFxRate(p.bondRef.currency).then((rate) => {
+        if (rate == null) return;
+        setBondFxEntryRates((prev) => (prev[p.id] != null ? prev : { ...prev, [p.id]: rate }));
+      });
+    }
     if (typedAmt !== defaultAmt) {
       const ok = trySetProductAmount(p, typedAmt);
       if (!ok) return; // 초과·미달 — 상품은 이미 자동분배 금액으로 담긴 상태로 유지, 이 모달은 열어두고 에러 표시
@@ -1803,6 +1849,11 @@ const additionalInvestmentAmount = (() => {
                     />
                     <span className="text-sm font-bold text-slate-400">원</span>
                   </div>
+                  {pendingAddAmountStr && Number(pendingAddAmountStr) > 0 && (
+                    <p className="mt-1 text-right text-xs font-semibold text-slate-400">
+                      {fmtWon(Number(pendingAddAmountStr))}
+                    </p>
+                  )}
                   <button type="button" onClick={() => openPendingAdd(p)}
                     className="mt-1.5 text-[11px] font-semibold text-slate-400 underline hover:text-slate-600">
                     자동분배 금액으로

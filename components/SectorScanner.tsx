@@ -51,10 +51,10 @@ function fmtPrice(v: number | null, currency: string): string {
 }
 
 function changeColor(v: number | null): string {
-  if (v === null) return "text-[#94A8A0]";
+  if (v === null) return "text-slate-400";
   if (v > 0) return "text-red-500";
   if (v < 0) return "text-blue-600";
-  return "text-[#5F7A70]";
+  return "text-slate-500";
 }
 
 export default function SectorScanner() {
@@ -265,29 +265,29 @@ export default function SectorScanner() {
   return (
     <div className="project-ui-theme flex flex-col gap-4">
       {/* ── 헤더 카드 ── */}
-      <section className="rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card">
+      <section className="rounded-card border border-slate-200 bg-white p-5 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-white">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-white">
               <Flame size={22} />
             </span>
             <div>
-              <h2 className="text-lg font-black text-[#0D2318]">섹터 스캐너</h2>
-              <p className="text-xs font-semibold text-[#7A9488]">
+              <h2 className="text-lg font-black text-navy">섹터 스캐너</h2>
+              <p className="text-xs font-semibold text-slate-500">
                 국내 및 글로벌 시장의 업종별 실시간 등락 현황과 주도 테마를 스캔합니다
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex rounded-btn bg-[#F0F5F4] p-1">
+            <div className="flex rounded-btn bg-slate-100 p-1">
               {(["domestic", "global"] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => setMarket(m)}
                   className={`rounded-lg px-3 py-1.5 text-sm font-bold transition ${
-                    market === m ? "bg-primary text-white shadow-soft" : "text-[#4B6358] hover:text-primary"
+                    market === m ? "bg-blue-600 text-white shadow-soft" : "text-slate-600 hover:text-blue-600"
                   }`}
                 >
                   {m === "domestic" ? "국내 시장" : "해외 시장"}
@@ -300,16 +300,16 @@ export default function SectorScanner() {
               onClick={() => setCustomPanelOpen((v) => !v)}
               className={`flex items-center gap-1.5 rounded-btn border px-3 py-2 text-sm font-bold transition ${
                 customPanelOpen || marketCustomStocks.length > 0
-                  ? "border-primary bg-primary-50 text-primary"
-                  : "border-[#DDE8E5] bg-white text-[#4B6358] hover:border-primary hover:text-primary"
+                  ? "border-blue-600 bg-blue-50 text-blue-600"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-blue-600 hover:text-blue-600"
               }`}
             >
               <Star size={13} />
               관심 종목{marketCustomStocks.length > 0 ? ` ${marketCustomStocks.length}` : ""}
             </button>
 
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs font-bold text-[#5F7A70]">
-              <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="accent-[#005B52]" />
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs font-bold text-slate-500">
+              <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="accent-blue-600" />
               60초 자동 갱신
             </label>
 
@@ -317,7 +317,7 @@ export default function SectorScanner() {
               type="button"
               onClick={() => void load(market)}
               disabled={loading}
-              className="flex items-center gap-1.5 rounded-btn border border-[#DDE8E5] bg-white px-3 py-2 text-sm font-bold text-[#4B6358] transition hover:border-primary hover:text-primary disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-btn border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-600 transition hover:border-blue-600 hover:text-blue-600 disabled:opacity-50"
             >
               <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
               새로고침
@@ -327,19 +327,19 @@ export default function SectorScanner() {
       </section>
 
       {/* ── 메인 콘텐츠 영역 ── */}
-      <div className="rounded-xl border border-[#DDE8E5] bg-white p-6 shadow-sm overflow-hidden flex flex-col gap-4">
+      <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm overflow-hidden flex flex-col gap-4">
         {asOfLabel && (
-          <div className="flex items-center justify-between border-b border-[#F0F7F4] pb-2">
-            <span className="text-xs font-bold text-[#5F7A70]">업종 분류 및 등락 현황</span>
-            <span className="text-[11px] font-semibold text-[#94A8A0]">{asOfLabel} 기준</span>
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+            <span className="text-xs font-bold text-slate-500">업종 분류 및 등락 현황</span>
+            <span className="text-[11px] font-semibold text-slate-400">{asOfLabel} 기준</span>
           </div>
         )}
 
       {/* 관심 종목 관리 패널 */}
       {customPanelOpen && (
-        <div className="rounded-card border border-[#DDE8E5] bg-white p-4 shadow-card">
-          <p className="text-[13px] font-black text-[#0D2318]">관심 종목 추가</p>
-          <p className="mt-0.5 text-[11px] font-semibold text-[#94A8A0]">
+        <div className="rounded-card border border-slate-200 bg-white p-4 shadow-card">
+          <p className="text-[13px] font-black text-navy">관심 종목 추가</p>
+          <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
             시총 상위가 아니어도 스크리닝에 포함할 종목을 추가합니다.
             <span className="font-black"> 종목명(국내는 한글, 해외는 영어)이나 티커</span>를 입력하면 자동으로 종목을 찾아 섹터까지 배정합니다.
           </p>
@@ -351,19 +351,19 @@ export default function SectorScanner() {
                 onChange={(e) => setNewSymbol(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") addCustomStock(); }}
                 placeholder={market === "domestic" ? "예: 한화오션, 알테오젠, 042660" : "예: Palantir, PLTR"}
-                className="w-56 rounded-input border border-[#DDE8E5] px-3 py-2 text-sm font-bold text-[#0D2318] placeholder:font-semibold placeholder:text-[#B9CCC4] focus:border-primary focus:ring-2 focus:ring-primary/15"
+                className="w-56 rounded-input border border-slate-200 px-3 py-2 text-sm font-bold text-navy placeholder:font-semibold placeholder:text-slate-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
               />
               {suggestions.length > 0 && (
-                <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-btn border border-[#DDE8E5] bg-white shadow-popup">
+                <div className="absolute left-0 top-full z-20 mt-1 w-72 overflow-hidden rounded-btn border border-slate-200 bg-white shadow-popup">
                   {suggestions.map((s) => (
                     <button
                       key={s.ticker}
                       type="button"
                       onClick={() => void addResolvedStock(s.ticker, s.name)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-primary-50"
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-blue-50"
                     >
-                      <span className="font-bold text-[#0D2318]">{s.name}</span>
-                      <span className="text-[11px] font-semibold text-[#94A8A0]">{s.ticker}</span>
+                      <span className="font-bold text-navy">{s.name}</span>
+                      <span className="text-[11px] font-semibold text-slate-400">{s.ticker}</span>
                     </button>
                   ))}
                 </div>
@@ -372,7 +372,7 @@ export default function SectorScanner() {
             <select
               value={newSectorId}
               onChange={(e) => setNewSectorId(e.target.value)}
-              className="rounded-input border border-[#DDE8E5] bg-white px-2.5 py-2 text-sm font-bold text-[#33493F] focus:border-primary"
+              className="rounded-input border border-slate-200 bg-white px-2.5 py-2 text-sm font-bold text-slate-700 focus:border-blue-600"
               title="비워두면 업종 정보로 자동 배정합니다"
             >
               <option value="">섹터 자동 인식</option>
@@ -382,7 +382,7 @@ export default function SectorScanner() {
               type="button"
               onClick={addCustomStock}
               disabled={!newSymbol.trim() || addingSymbol}
-              className="flex items-center gap-1 rounded-btn bg-primary px-3.5 py-2 text-xs font-black text-white transition hover:bg-primary-light disabled:opacity-40"
+              className="flex items-center gap-1 rounded-btn bg-blue-600 px-3.5 py-2 text-xs font-black text-white transition hover:bg-blue-700 disabled:opacity-40"
             >
               {addingSymbol ? <RefreshCw size={13} className="animate-spin" /> : <Plus size={13} />}
               {addingSymbol ? "인식 중…" : "추가"}
@@ -396,10 +396,10 @@ export default function SectorScanner() {
               {marketCustomStocks.map((s) => {
                 const sectorName = marketSectors.find((x) => x.id === s.sectorId)?.name ?? s.sectorId;
                 return (
-                  <span key={s.symbol} className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary-50 px-2.5 py-1 text-[11px] font-bold text-primary">
+                  <span key={s.symbol} className="flex items-center gap-1.5 rounded-full border border-blue-600/30 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-600">
                     <Star size={10} />
                     {s.name ?? s.symbol}
-                    <span className="font-semibold text-primary-400">{sectorName}</span>
+                    <span className="font-semibold text-blue-400">{sectorName}</span>
                     <button type="button" onClick={() => removeCustomStock(s.symbol)} className="opacity-50 transition hover:opacity-100">
                       <X size={11} />
                     </button>
@@ -421,21 +421,21 @@ export default function SectorScanner() {
           <div className="flex items-center gap-3 rounded-card border border-red-100 bg-red-50/40 p-4 shadow-card">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 text-red-500"><Flame size={18} /></span>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[#7A9488]">지금 가장 뜨거운 섹터</p>
-              <p className="truncate text-sm font-black text-[#0D2318]">
+              <p className="text-[11px] font-bold text-slate-500">지금 가장 뜨거운 섹터</p>
+              <p className="truncate text-sm font-black text-navy">
                 {topSector.name} <span className={`ml-1 ${changeColor(topSector.changePercent)}`}>{fmtChange(topSector.changePercent)}</span>
               </p>
-              <p className="truncate text-[11px] font-semibold text-[#94A8A0]">주도주 {topSector.topGainer ?? "-"}</p>
+              <p className="truncate text-[11px] font-semibold text-slate-400">주도주 {topSector.topGainer ?? "-"}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 rounded-card border border-blue-100 bg-blue-50/40 p-4 shadow-card">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-500"><Snowflake size={18} /></span>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[#7A9488]">지금 가장 차가운 섹터</p>
-              <p className="truncate text-sm font-black text-[#0D2318]">
+              <p className="text-[11px] font-bold text-slate-500">지금 가장 차가운 섹터</p>
+              <p className="truncate text-sm font-black text-navy">
                 {bottomSector.name} <span className={`ml-1 ${changeColor(bottomSector.changePercent)}`}>{fmtChange(bottomSector.changePercent)}</span>
               </p>
-              <p className="truncate text-[11px] font-semibold text-[#94A8A0]">최약체 {bottomSector.topLoser ?? "-"}</p>
+              <p className="truncate text-[11px] font-semibold text-slate-400">최약체 {bottomSector.topLoser ?? "-"}</p>
             </div>
           </div>
         </div>
@@ -443,7 +443,7 @@ export default function SectorScanner() {
 
       {/* 섹터 그리드 */}
       {!data && loading ? (
-        <div className="flex min-h-48 items-center justify-center text-sm font-bold text-[#94A8A0]">섹터 데이터 로딩 중…</div>
+        <div className="flex min-h-48 items-center justify-center text-sm font-bold text-slate-400">섹터 데이터 로딩 중…</div>
       ) : data ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
           {data.sectors.map((sector, rank) => {
@@ -456,21 +456,21 @@ export default function SectorScanner() {
                 onClick={() => setSelectedSectorId(selected ? null : sector.id)}
                 className={`group flex flex-col gap-1.5 rounded-card border p-3.5 text-left transition ${
                   selected
-                    ? "border-primary bg-primary-50 shadow-soft"
-                    : "border-[#DDE8E5] bg-white shadow-card hover:border-primary/50 hover:shadow-soft"
+                    ? "border-blue-600 bg-blue-50 shadow-soft"
+                    : "border-slate-200 bg-white shadow-card hover:border-blue-600/50 hover:shadow-soft"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black text-[#94A8A0]">#{rank + 1}</span>
+                  <span className="text-[10px] font-black text-slate-400">#{rank + 1}</span>
                   {up
                     ? <ArrowUpRight size={14} className="text-red-500" />
                     : <ArrowDownRight size={14} className="text-blue-600" />}
                 </div>
-                <p className="text-sm font-black text-[#0D2318]">{sector.name}</p>
+                <p className="text-sm font-black text-navy">{sector.name}</p>
                 <p className={`text-lg font-black tabular-nums leading-none ${changeColor(sector.changePercent)}`}>
                   {fmtChange(sector.changePercent)}
                 </p>
-                <p className="truncate text-[10px] font-semibold text-[#94A8A0]">
+                <p className="truncate text-[10px] font-semibold text-slate-400">
                   {up ? `주도 ${sector.topGainer ?? "-"}` : `부진 ${sector.topLoser ?? "-"}`}
                 </p>
               </button>
@@ -493,16 +493,16 @@ export default function SectorScanner() {
             aria-modal="true"
             aria-labelledby="sector-stock-dialog-title"
             tabIndex={-1}
-            className="flex max-h-[88dvh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-[#DDE8E5] bg-white shadow-2xl outline-none"
+            className="flex max-h-[88dvh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl outline-none"
             onMouseDown={(event) => event.stopPropagation()}
           >
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#DDE8E5] px-5 py-4 sm:px-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
               <div>
-                <h3 id="sector-stock-dialog-title" className="text-lg font-black text-[#0D2318]">
+                <h3 id="sector-stock-dialog-title" className="text-lg font-black text-navy">
                   {selectedSector.name}
                   <span className={`ml-2 text-sm ${changeColor(selectedSector.changePercent)}`}>{fmtChange(selectedSector.changePercent)}</span>
                 </h3>
-                <p className="mt-0.5 text-[11px] font-semibold text-[#94A8A0]">
+                <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
                   구성 종목 {selectedSector.stocks.length}개 · 기준을 선택해 정렬하세요
                 </p>
               </div>
@@ -510,22 +510,22 @@ export default function SectorScanner() {
                 type="button"
                 onClick={() => setSelectedSectorId(null)}
                 aria-label="관련 종목 팝업 닫기"
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-[#F0F5F4] text-[#4B6358] transition hover:bg-[#E4EEEA] hover:text-[#0D2318]"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200 hover:text-navy"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EDF3F1] px-5 py-3 sm:px-6">
-              <p className="text-xs font-black text-[#4B6358]">관련 종목</p>
-              <div className="flex max-w-full overflow-x-auto rounded-btn bg-[#F0F5F4] p-1">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3 sm:px-6">
+              <p className="text-xs font-black text-slate-600">관련 종목</p>
+              <div className="flex max-w-full overflow-x-auto rounded-btn bg-slate-100 p-1">
                 {SORT_OPTIONS.map((opt) => (
                   <button
                     key={opt.key}
                     type="button"
                     onClick={() => setSortKey(opt.key)}
                     className={`shrink-0 rounded-lg px-3 py-1.5 text-[11px] font-bold transition ${
-                      sortKey === opt.key ? "bg-primary text-white" : "text-[#4B6358] hover:text-primary"
+                      sortKey === opt.key ? "bg-blue-600 text-white" : "text-slate-600 hover:text-blue-600"
                     }`}
                   >
                     {opt.label}
@@ -536,12 +536,12 @@ export default function SectorScanner() {
 
             <div className="min-h-0 flex-1 overflow-auto px-5 py-3 sm:px-6">
               {financialsLoading && (sortKey === "revenue" || sortKey === "opIncome") && (
-                <p className="mb-3 text-xs font-semibold text-primary-400">재무 데이터 로딩 중…</p>
+                <p className="mb-3 text-xs font-semibold text-blue-400">재무 데이터 로딩 중…</p>
               )}
 
               <table className="w-full min-w-[760px] text-sm">
                 <thead className="sticky top-0 z-10 bg-white">
-                  <tr className="border-b border-[#DDE8E5] text-left text-[11px] font-bold text-[#94A8A0]">
+                  <tr className="border-b border-slate-200 text-left text-[11px] font-bold text-slate-400">
                     <th className="py-2 pr-3">순위</th>
                     <th className="py-2 pr-3">종목</th>
                     <th className="py-2 pr-3 text-right">현재가</th>
@@ -557,13 +557,13 @@ export default function SectorScanner() {
                     const fin = financials[finKey]?.[stock.symbol];
                     const finCurrency = fin?.financialCurrency ?? stock.currency;
                     return (
-                      <tr key={stock.symbol} className="border-b border-[#F0F7F4] font-semibold text-[#1C3329] transition hover:bg-[#F6FAF8]">
-                        <td className="py-2.5 pr-3 text-xs font-black text-[#94A8A0]">{i + 1}</td>
+                      <tr key={stock.symbol} className="border-b border-slate-100 font-semibold text-navy transition hover:bg-slate-50">
+                        <td className="py-2.5 pr-3 text-xs font-black text-slate-400">{i + 1}</td>
                         <td className="py-2.5 pr-3">
                           <span className="font-bold">{stock.name}</span>
-                          <span className="ml-1.5 text-[10px] font-semibold text-[#94A8A0]">{stock.symbol}</span>
+                          <span className="ml-1.5 text-[10px] font-semibold text-slate-400">{stock.symbol}</span>
                           {stock.isCustom && (
-                            <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-primary-50 px-1.5 py-0.5 text-[9px] font-black text-primary align-middle">
+                            <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-black text-blue-600 align-middle">
                               <Star size={8} /> 관심
                             </span>
                           )}
@@ -582,7 +582,7 @@ export default function SectorScanner() {
             </div>
 
             {!financials[finKey] && (
-              <p className="border-t border-[#EDF3F1] px-5 py-3 text-[11px] font-semibold text-[#94A8A0] sm:px-6">
+              <p className="border-t border-slate-100 px-5 py-3 text-[11px] font-semibold text-slate-400 sm:px-6">
                 매출액·영업이익은 &lsquo;매출액&rsquo; 또는 &lsquo;영업이익&rsquo; 정렬 선택 시 로드됩니다.
               </p>
             )}
