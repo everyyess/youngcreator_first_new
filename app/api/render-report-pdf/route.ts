@@ -52,9 +52,18 @@ function buildPdfHtml(bodyHtml: string, styles: string) {
     #market-report-pdf table tbody tr {
       break-inside: avoid;
     }
+    #market-report-pdf .portfolio-performance-pdf {
+      display: block !important;
+    }
+    #market-report-pdf .portfolio-performance-pdf > section {
+      display: block !important;
+      margin-bottom: 12px !important;
+    }
     #market-report-pdf .portfolio-health-radar-pdf {
       break-inside: avoid;
       page-break-inside: avoid;
+      display: block !important;
+      margin-top: 12px !important;
     }
     #market-report-pdf svg {
       overflow: visible !important;
@@ -121,25 +130,24 @@ export async function POST(request: NextRequest) {
         const container = svg.closest(".recharts-responsive-container") as HTMLElement | null;
         const wrapper = svg.closest(".recharts-wrapper") as HTMLElement | null;
         const chartSection = svg.closest(".portfolio-health-radar-pdf") as HTMLElement | null;
-        const chartWidth = chartSection?.clientWidth || document.body.clientWidth || 794;
+        const chartFrame = container?.parentElement?.parentElement as HTMLElement | null;
+        const chartFrameStyle = chartFrame ? getComputedStyle(chartFrame) : null;
+        const chartPadding = chartFrameStyle ? parseFloat(chartFrameStyle.paddingLeft) + parseFloat(chartFrameStyle.paddingRight) : 0;
+        const chartWidth = Math.max(0, (chartFrame?.clientWidth || chartSection?.clientWidth || document.body.clientWidth || 794) - chartPadding);
         if (container) {
-          container.style.width = `${chartWidth}px`;
-          container.style.maxWidth = `${chartWidth}px`;
+          container.style.setProperty("width", `${chartWidth}px`, "important");
+          container.style.setProperty("max-width", `${chartWidth}px`, "important");
         }
-        const containerWidth = container?.clientWidth || chartWidth;
+        const containerWidth = chartWidth;
         const containerHeight = container?.clientHeight || 255;
         const viewBox = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
         if (!containerWidth || !containerHeight || viewBox.length !== 4 || viewBox.some(Number.isNaN)) return;
-
         if (wrapper) {
           wrapper.style.width = `${containerWidth}px`;
           wrapper.style.maxWidth = `${containerWidth}px`;
         }
         svg.setAttribute("width", String(containerWidth));
         svg.setAttribute("height", String(containerHeight));
-
-        // Recharts can retain a huge width when ResponsiveContainer is cloned into print HTML.
-        // Keep the chart's center and height, but crop only the invalid horizontal coordinate range.
         const [, viewY, viewWidth, viewHeight] = viewBox;
         if (viewWidth > containerWidth * 2) {
           const center = viewBox[0] + viewWidth / 2;
@@ -151,14 +159,20 @@ export async function POST(request: NextRequest) {
     await page.evaluate(async () => {
       const svgs = Array.from(document.querySelectorAll<SVGElement>("#market-report-pdf .recharts-surface"));
       for (const svg of svgs) {
+        const wrapper = svg.closest(".recharts-wrapper") as HTMLElement | null;
+        const container = svg.closest(".recharts-responsive-container") as HTMLElement | null;
         const viewBox = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
         if (viewBox.length !== 4 || viewBox.some(Number.isNaN)) continue;
-
         const [, viewY, viewWidth, viewHeight] = viewBox;
         const width = Math.max(280, Math.min(320, Math.ceil(viewHeight * 1.25)));
         const height = Math.max(1, Math.ceil(viewHeight));
-        const center = viewBox[0] + viewWidth / 2;
-        const cropViewBox = `${center - width / 2} ${viewY} ${width} ${height}`;
+        const drawableBounds = Array.from(svg.querySelectorAll<SVGGraphicsElement>("path, text, line, circle, polygon, polyline")).map((element) => {
+          try { const bounds = element.getBBox(); return { left: bounds.x, right: bounds.x + bounds.width }; } catch { return null; }
+        }).filter((bounds): bounds is { left: number; right: number } => Boolean(bounds));
+        const visualLeft = drawableBounds.length ? Math.min(...drawableBounds.map((bounds) => bounds.left)) : viewBox[0];
+        const visualRight = drawableBounds.length ? Math.max(...drawableBounds.map((bounds) => bounds.right)) : viewBox[0] + viewWidth;
+        const visualCenter = (visualLeft + visualRight) / 2;
+        const cropViewBox = `${visualCenter - width / 2} ${viewY} ${width} ${height}`;
         const svgClone = svg.cloneNode(true) as SVGElement;
         svgClone.setAttribute("width", String(width));
         svgClone.setAttribute("height", String(height));
@@ -168,17 +182,12 @@ export async function POST(request: NextRequest) {
         const image = new Image();
         const encodedSvg = btoa(unescape(encodeURIComponent(serialized)));
         image.src = "data:image/svg+xml;base64," + encodedSvg;
-        await new Promise<void>((resolve, reject) => {
-          image.onload = () => resolve();
-          image.onerror = () => reject(new Error("PDF 레이더 차트 변환에 실패했습니다."));
-        });
+        await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("PDF radar conversion failed.")); });
         const canvas = document.createElement("canvas");
-        canvas.width = width * 2;
-        canvas.height = height * 2;
+        canvas.width = width * 2; canvas.height = height * 2;
         const context = canvas.getContext("2d");
-        if (!context) throw new Error("PDF 레이더 차트 캔버스를 만들 수 없습니다.");
-        context.fillStyle = "#ffffff";
-        context.fillRect(0, 0, canvas.width, canvas.height);
+        if (!context) throw new Error("PDF radar canvas unavailable.");
+        context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height);
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
         const replacement = document.createElement("img");
         replacement.src = canvas.toDataURL("image/jpeg", 0.95);
@@ -187,20 +196,35 @@ export async function POST(request: NextRequest) {
         replacement.style.width = `${width}px`;
         replacement.style.height = `${height}px`;
         replacement.style.maxWidth = "none";
-        replacement.style.flex = "0 0 auto";
+        replacement.style.position = "relative";
+        replacement.style.left = "auto";
+        replacement.style.top = "auto";
+        replacement.style.transform = "none";
         replacement.style.margin = "0 auto";
-        await new Promise<void>((resolve) => {
-          if (replacement.complete) {
-            resolve();
-            return;
-          }
-          replacement.addEventListener("load", () => resolve(), { once: true });
-          replacement.addEventListener("error", () => resolve(), { once: true });
-        });
+        if (wrapper) {
+          wrapper.style.display = "flex"; wrapper.style.position = "relative"; wrapper.style.justifyContent = "center"; wrapper.style.alignItems = "flex-start"; wrapper.style.width = "100%"; wrapper.style.height = `${height}px`;
+        }
+        await new Promise<void>((resolve) => { if (replacement.complete) { resolve(); return; } replacement.addEventListener("load", () => resolve(), { once: true }); replacement.addEventListener("error", () => resolve(), { once: true }); });
         svg.replaceWith(replacement);
       }
     });
-
+    await page.evaluate(() => {
+      document.querySelectorAll<HTMLImageElement>("#market-report-pdf .portfolio-health-radar-pdf img[alt=\"포트폴리오 위험·분산 진단 레이더 차트\"]").forEach((radar) => {
+        const wrapper = radar.closest<HTMLElement>(".recharts-wrapper");
+        const container = radar.closest<HTMLElement>(".recharts-responsive-container");
+        const chartSection = radar.closest<HTMLElement>(".portfolio-health-radar-pdf");
+        const chartFrame = container?.parentElement?.parentElement as HTMLElement | null;
+        const chartFrameStyle = chartFrame ? getComputedStyle(chartFrame) : null;
+        const chartPadding = chartFrameStyle ? parseFloat(chartFrameStyle.paddingLeft) + parseFloat(chartFrameStyle.paddingRight) : 0;
+        if (!wrapper || !container) return;
+        const width = Math.max(0, (chartFrame?.clientWidth || chartSection?.getBoundingClientRect().width || container.getBoundingClientRect().width || document.body.clientWidth) - chartPadding);
+        wrapper.style.setProperty("width", `${width}px`, "important");
+        wrapper.style.setProperty("max-width", `${width}px`, "important");
+        wrapper.style.height = `${radar.getBoundingClientRect().height}px`;
+        wrapper.style.position = "relative"; wrapper.style.display = "flex"; wrapper.style.justifyContent = "center"; wrapper.style.alignItems = "flex-start";
+        radar.style.position = "relative"; radar.style.left = "auto"; radar.style.transform = "none"; radar.style.margin = "0 auto";
+      });
+    });
     const pdfBytes = await page.pdf({
       format: "A4",
       printBackground: true,
@@ -212,6 +236,7 @@ export async function POST(request: NextRequest) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": "attachment; filename=market-report.pdf",
+
         "Cache-Control": "no-store",
       },
     });

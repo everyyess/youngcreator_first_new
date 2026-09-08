@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+
 import { Download, FileText, Mail, RefreshCw, ChevronDown} from "lucide-react";
 import type { MarketIndexItem } from "@/lib/marketData";
 import type { AppState, CustomerProfile, PortfolioAsset, RebalancingHistoryRecord, RebalancingPortfolioSnapshot } from "@/app/maintab/CustomerContext";
@@ -1584,6 +1585,25 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
       setActionMessage("PDF 다운로드 준비 중...");
       await document.fonts.ready;
 
+      // Recharts writes the animated radar polygon directly into the SVG path.
+      // Wait for the final path before cloning the preview for server-side PDF rendering.
+      const radarPolygon = element.querySelector<SVGPathElement>(
+        '.portfolio-health-radar-pdf path[fill="#f3b64f"]',
+      );
+      if (radarPolygon) {
+        const deadline = Date.now() + 3000;
+        let previousPath = "";
+        let stableFrames = 0;
+        while (Date.now() < deadline) {
+          const currentPath = radarPolygon.getAttribute("d") ?? "";
+          if (currentPath && currentPath === previousPath) stableFrames += 1;
+          else stableFrames = 0;
+          previousPath = currentPath;
+          if (stableFrames >= 3) break;
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+
       const customerName = pdfCustomer?.name || pdfCustomer?.fallbackName || "고객";
       const clonedElement = element.cloneNode(true) as HTMLElement;
       const originalTextareas = element.querySelectorAll<HTMLTextAreaElement>("textarea");
@@ -1754,17 +1774,29 @@ async function handleSendPdfToCustomer() {
 
     const originalCustomerId = pdfCustomerId;
 
+    const isMarketIncludedInPdf = (reportType: "us" | "kr") => {
+      const section = pdfSections.find((item) => item.id === `${reportType}Market`);
+      return Boolean(
+        activeIncluded[`${reportType}Market`] &&
+          section?.lines.some(
+            (line) =>
+              !pdfSelectionInitialized ||
+              pdfLineIncluded[line.id] !== false,
+          ),
+      );
+    };
+
     const reportTypesBeingSent: Array<"us" | "kr"> = [];
 
     if (
-      activeIncluded.usMarket &&
+      isMarketIncludedInPdf("us") &&
       reports.us?.generationStatus === "success"
     ) {
       reportTypesBeingSent.push("us");
     }
 
     if (
-      activeIncluded.krMarket &&
+      isMarketIncludedInPdf("kr") &&
       reports.kr?.generationStatus === "success"
     ) {
       reportTypesBeingSent.push("kr");
@@ -1883,12 +1915,9 @@ async function handleSendPdfToCustomer() {
           failedCustomers.push(customerName);
         }
       }
-      const allCustomersSentSuccessfully =
-        successCount > 0 &&
-        failedCustomers.length === 0 &&
-        skippedCustomers.length === 0;
-
-      if (allCustomersSentSuccessfully && reportTypesBeingSent.length > 0) {
+      // The UI send workflow is complete after the customer loop finishes.
+      // Persist only checked reports that were already generated.
+      if (reportTypesBeingSent.length > 0) {
         try {
           const savedStatuses = await Promise.all(
             reportTypesBeingSent.map(async (reportType) => {
@@ -3370,7 +3399,6 @@ async function handleSendPdfToCustomer() {
 
                     </div>
                   </div>
-
                 </div>
               </main>
 
