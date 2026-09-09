@@ -813,7 +813,7 @@ export default function BuySimulatorTab() {
     return {
       totalAllocated: total,
       remaining: avail - pbTotalAmount,
-      isOverBudget: avail > 0 && pbTotalAmount > avail,
+      isOverBudget: availableInvestmentFunds !== null && pbTotalAmount > Math.max(0, avail),
     };
   }, [availableInvestmentFunds, confirmedPbAmount, pbTotalAmount]);
 
@@ -1163,6 +1163,7 @@ export default function BuySimulatorTab() {
   // 매수 확정 — PB 직접 추가 매수 전용 (ETF 카탈로그 비개입)
   // PB 패널 내부 확정 — rebalancingSellAssets만 업데이트 (Tab 4 미반영)
   const handlePbConfirm = useCallback(() => {
+    if (isOverBudget) return;
     const validPbRows = pbOrderRowsRef.current.filter((r) => {
       if (isBondProductType(r.productType)) {
         return computeKrwAmount(r, usdKrwRateRef.current) > 0;
@@ -1181,7 +1182,7 @@ export default function BuySimulatorTab() {
     if (totalCost > 0) addBuyCost(totalCost);
 
     setPbOrderRows([]);
-  }, [setRebalancingSellAssets, setPbOrderRows, addBuyCost]);
+  }, [addBuyCost, isOverBudget, setPbOrderRows, setRebalancingSellAssets]);
 
   // "리밸런싱 확정" 버튼 제거 — 시세 재분석·세금 계산은 이제 상위(Tab3Page)에서 rebalancingSellAssets
   // 변경을 실시간으로 감지해 자동 처리한다(handlePbConfirm·드래그앤드롭·인라인 매도가 이미 그 배열을
@@ -1435,9 +1436,12 @@ export default function BuySimulatorTab() {
         const dropQty = parseFloat(dropModal.qtyStr) || 0;
         const dropCost = krwPrice !== null && dropQty > 0 ? dropQty * krwPrice : 0;
         const avail = availableInvestmentFunds ?? 0;
-        const dropOverBudget = dropModal.mode === "buy" && avail > 0 && dropCost > avail;
-        const maxDropQty = dropModal.mode === "buy" && krwPrice && krwPrice > 0 && avail > 0
-          ? Math.floor(avail / krwPrice)
+        const dropOverBudget =
+          dropModal.mode === "buy" &&
+          availableInvestmentFunds !== null &&
+          dropCost > Math.max(0, avail);
+        const maxDropQty = dropModal.mode === "buy" && krwPrice && krwPrice > 0 && availableInvestmentFunds !== null
+          ? Math.floor(Math.max(0, avail) / krwPrice)
           : null;
         // 포트폴리오에 이미 있으면 매도도 가능
         // rebalancingSellAssets가 비어 있으면 baseAssets(원본 포트폴리오)에서 검색
@@ -1944,7 +1948,7 @@ export default function BuySimulatorTab() {
                 </span>
                 <button
                   type="button"
-                  disabled={!hasPbItems}
+                  disabled={!hasPbItems || isOverBudget}
                   onClick={handlePbConfirm}
                   className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
                 >
@@ -1953,6 +1957,15 @@ export default function BuySimulatorTab() {
                 </button>
               </div>
             </div>
+            {isOverBudget && (
+              <div
+                className="flex items-center gap-2 border-t border-red-200 bg-red-50 px-4 py-2.5 text-xs font-bold text-red-700"
+                role="alert"
+              >
+                <AlertTriangle size={14} />
+                추가 투자 가능 금액을 {fmtKrwMan(Math.abs(remaining))} 초과했습니다. 금액을 줄여야 매수를 확정할 수 있습니다.
+              </div>
+            )}
           </>
         )}
       </div>

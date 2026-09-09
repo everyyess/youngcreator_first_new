@@ -368,6 +368,9 @@ export type Tab3AnalysisState = {
 };
 
 export type SharedMaintabUiState = {
+  workspace?: {
+    activeTab?: "profile" | "existing" | "create" | "compare";
+  };
   tab2?: {
     activeInnerTab?: string;
     selectedTheme?: string | null;
