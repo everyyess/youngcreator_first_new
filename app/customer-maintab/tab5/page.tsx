@@ -1,3 +1,5 @@
-import Tab5Page from "../../maintab/tab5/page";
+import { redirect } from "next/navigation";
 
-export default Tab5Page;
+export default function LegacyCustomerTab5Page() {
+  redirect("/customer-maintab/tab3?innerTab=product-rebalancing");
+}
