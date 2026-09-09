@@ -273,7 +273,7 @@ export default function Tab4Page() {
       */}
 
 <ProposalGenerator
-        open={showProposalGenerator}
+        open={showProposalGenerator && !isCustomerView}
         onClose={() => setShowProposalGenerator(false)}
         onApproved={(sections) => {
           setConsultationProposal(sections);
@@ -289,7 +289,7 @@ export default function Tab4Page() {
         rightMetrics={rightMetrics}
       />
 
-      {showReportOptions && (
+      {showReportOptions && !isCustomerView && (
         <ReportOptionsModal
           sections={reportSections}
           setSections={setReportSections}
@@ -323,15 +323,18 @@ export default function Tab4Page() {
             <h1 className="text-lg font-bold text-navy">기존 포트폴리오 vs 신규 포트폴리오</h1>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowProposalGenerator(true)}
-          disabled={!leftData && !rightData}
-          className="inline-flex items-center gap-2 rounded-lg border border-samsung bg-white px-4 py-2.5 text-sm font-bold text-samsung shadow-soft transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Download size={16} />
-          포트폴리오 제안서 PDF 생성
-        </button>
+        {/* 제안서 PDF는 열람·출력 모두 PB 전용 — 고객 화면에는 진입 버튼을 두지 않는다 */}
+        {!isCustomerView && (
+          <button
+            type="button"
+            onClick={() => setShowProposalGenerator(true)}
+            disabled={!leftData && !rightData}
+            className="inline-flex items-center gap-2 rounded-lg border border-samsung bg-white px-4 py-2.5 text-sm font-bold text-samsung shadow-soft transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Download size={16} />
+            포트폴리오 제안서 PDF 생성
+          </button>
+        )}
        
       </div>
 
