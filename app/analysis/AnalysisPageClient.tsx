@@ -153,9 +153,12 @@ function AnalysisTabs({
     setMountedStockTabs((prev) => new Set([...prev, tab]));
   };
 
-  const hasReturnTarget = Boolean(urlReturnTab || (typeof window !== "undefined" && sessionStorage.getItem("analysisReturnTab")));
+  const [storedReturnTab] = useState(() =>
+    typeof window !== "undefined" ? sessionStorage.getItem("analysisReturnTab") : null
+  );
+  const hasReturnTarget = Boolean(urlReturnTab || storedReturnTab);
   const returnToConsultation = () => {
-    const target = urlReturnTab || sessionStorage.getItem("analysisReturnTab") || "tab1";
+    const target = urlReturnTab || storedReturnTab || "tab1";
     sessionStorage.removeItem("analysisReturnTab");
     router.push(`/consultation/${target}`);
   };
