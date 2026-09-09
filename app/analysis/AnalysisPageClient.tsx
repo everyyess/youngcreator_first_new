@@ -166,7 +166,7 @@ function AnalysisTabs({
     <button
       type="button"
       onClick={returnToConsultation}
-      className="flex min-h-10 shrink-0 items-center justify-center rounded-md border border-samsung/30 bg-samsung/5 px-3 py-2 text-xs font-bold text-samsung transition hover:bg-samsung/10"
+      className="flex min-h-10 shrink-0 items-center justify-center rounded-md border border-blue-600/30 bg-blue-600/5 px-3 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-600/10"
     >
       ← 상담으로 돌아가기
     </button>
@@ -188,7 +188,7 @@ function AnalysisTabs({
               onClick={() => router.push(tab.path)}
               className={[
                 "flex min-h-11 shrink-0 flex-1 items-center justify-center rounded-md px-4 py-2.5 text-sm font-bold transition",
-                activeTopTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
+                activeTopTab === tab.id ? "bg-[#2563eb] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
               ].join(" ")}
             >
               {tab.label}
@@ -207,7 +207,7 @@ function AnalysisTabs({
                   <select
                     value={contextValue.selectedCustomer}
                     onChange={(event) => onCustomerChange(event.target.value)}
-                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition focus:border-[#2f2f9d] focus:ring-2 focus:ring-[#2f2f9d]/15"
+                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition focus:border-[#2563eb] focus:ring-2 focus:ring-[#2563eb]/15"
                   >
                     {contextValue.customerProfiles.length === 0 ? <option value="">등록된 고객 없음</option> : null}
                     {contextValue.customerProfiles.map((customer) => (
@@ -228,7 +228,7 @@ function AnalysisTabs({
                   onClick={() => selectStockTab(tab.id)}
                   className={[
                     "flex min-h-10 shrink-0 flex-1 items-center justify-center rounded-md px-4 py-2 text-sm font-bold transition",
-                    activeStockTab === tab.id ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
+                    activeStockTab === tab.id ? "bg-[#2563eb] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
                   ].join(" ")}
                 >
                   {tab.label}

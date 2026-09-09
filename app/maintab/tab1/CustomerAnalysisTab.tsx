@@ -1678,6 +1678,14 @@ export default function CustomerAnalysisTab() {
         ))}
       </div>
 
+      {/* 고객 화면은 읽기 전용 — 네비게이션(위 서브탭)만 남기고 아래 입력은 모두 잠근다.
+          fieldset[disabled]가 하위 폼 컨트롤을 일괄 비활성화하고, display:contents라
+          기존 레이아웃은 그대로 유지된다. */}
+      <fieldset
+        disabled={appMode === "customer"}
+        style={{ display: "contents" }}
+        className="min-w-0 border-0 p-0 m-0"
+      >
       {activeSubTab === "input" ? (
         <>
       {appMode === "pb" ? <SmartInputCard /> : null}
@@ -1847,6 +1855,7 @@ export default function CustomerAnalysisTab() {
         </>
         )
       )}
+      </fieldset>
     </div>
   );
 }

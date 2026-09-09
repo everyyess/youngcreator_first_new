@@ -14,6 +14,7 @@ import {
   type RebalancingHistoryItem,
   type RebalancingPortfolioSnapshot,
 } from "./CustomerContext";
+import { useCustomerView } from "./CustomerViewContext";
 
 function formatDateTime(value: string) {
   const date = new Date(value);
@@ -602,6 +603,7 @@ export default function RebalancingHistoryTab() {
     sharedUiState,
     updateSharedUiState,
   } = useCustomerContext();
+  const { isCustomerView } = useCustomerView();
 
   const records = useMemo(
     () =>
@@ -867,17 +869,25 @@ export default function RebalancingHistoryTab() {
                               )}
                             </td>
                             <td className="px-3 py-2">
+                              {/* 고객 화면은 PB 화면을 비추는 쪽이라 근거를 편집할 수 없다.
+                                  (편집하면 공유 상태를 통해 PB 화면의 값까지 바뀐다) */}
                               <input
                                 value={item.reason}
-                                onChange={(event) =>
+                                readOnly={isCustomerView}
+                                onChange={(event) => {
+                                  if (isCustomerView) return;
                                   updateReason(
                                     record.id,
                                     item.id,
                                     event.target.value,
-                                  )
-                                }
-                                placeholder="리밸런싱 근거를 입력하세요."
-                                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition focus:border-[#2f2f9d] focus:ring-2 focus:ring-[#2f2f9d]/10"
+                                  );
+                                }}
+                                placeholder={isCustomerView ? "" : "리밸런싱 근거를 입력하세요."}
+                                className={`w-full rounded-lg border px-3 py-2 text-xs text-slate-700 outline-none transition ${
+                                  isCustomerView
+                                    ? "cursor-default border-transparent bg-transparent"
+                                    : "border-slate-200 bg-white focus:border-[#2563eb] focus:ring-2 focus:ring-[#2563eb]/10"
+                                }`}
                               />
                             </td>
                           </tr>
@@ -890,7 +900,7 @@ export default function RebalancingHistoryTab() {
                     <button
                       type="button"
                       onClick={() => setCompareRecord(record)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-[#2f2f9d] bg-white px-4 py-2 text-xs font-bold text-[#2f2f9d] transition hover:bg-indigo-50"
+                      className="inline-flex items-center gap-2 rounded-lg border border-[#2563eb] bg-white px-4 py-2 text-xs font-bold text-[#2563eb] transition hover:bg-blue-50"
                     >
                       <GitCompareArrows size={15} />
                       포트폴리오 전후 비교

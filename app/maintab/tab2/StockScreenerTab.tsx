@@ -261,7 +261,7 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
               type="checkbox"
               checked={autoRefresh}
               onChange={(e) => setAutoRefresh(e.target.checked)}
-              className="h-3.5 w-3.5 accent-[#2f2f9d]"
+              className="h-3.5 w-3.5 accent-[#2563eb]"
             />
             30초 자동 갱신
           </label>
@@ -274,14 +274,14 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
               <div
                 key={c.id}
                 className={`flex items-center gap-2 rounded-lg border px-3 py-2.5 transition ${
-                  isActive ? "border-[#2f2f9d] bg-[#2f2f9d]/5" : "border-slate-200 bg-white"
+                  isActive ? "border-[#2563eb] bg-[#2563eb]/5" : "border-slate-200 bg-white"
                 }`}
               >
                 <input
                   type="checkbox"
                   checked={isActive}
                   onChange={() => toggleCondition(c.id)}
-                  className="h-4 w-4 accent-[#2f2f9d]"
+                  className="h-4 w-4 accent-[#2563eb]"
                 />
                 <span className="flex-1 text-[13px] font-semibold text-slate-700">{c.label}</span>
                 {isActive && activeConditions.length > 1 && (
@@ -291,7 +291,7 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
                       name="baseCondition"
                       checked={isBase}
                       onChange={() => { setBaseCondition(c.id); setSortOverride(null); }}
-                      className="h-3 w-3 accent-[#2f2f9d]"
+                      className="h-3 w-3 accent-[#2563eb]"
                     />
                     기준
                   </label>
@@ -311,7 +311,7 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded-full bg-[#2f2f9d] px-2.5 py-1 text-[11px] font-semibold text-white">
+              <span className="rounded-full bg-[#2563eb] px-2.5 py-1 text-[11px] font-semibold text-white">
                 기준: {baseDef.label}
               </span>
               {otherConditions.map((c) => (
@@ -371,7 +371,7 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
                       .map((c) => (
                         <th key={c.id} className="px-3 py-2 text-left font-medium">
                           {c.columnLabel}
-                          {c.id === baseCondition && <span className="ml-1 text-[10px] text-[#2f2f9d]">●기준</span>}
+                          {c.id === baseCondition && <span className="ml-1 text-[10px] text-[#2563eb]">●기준</span>}
                         </th>
                       ))}
                   </tr>

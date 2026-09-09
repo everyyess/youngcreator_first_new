@@ -73,7 +73,6 @@ const customerTabPaths: Record<string, string> = {
   existing:  "/customer-maintab/tab2",
   create:    "/customer-maintab/tab3",
   compare:   "/customer-maintab/tab4",
-  recommend: "/customer-maintab/tab5",
 };
 
 function toFiniteNumber(value: unknown) {
@@ -271,9 +270,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const activeConsultationForSelected = activeConsultation?.customerId === selectedCustomer ? activeConsultation : null;
   const isPreRecordMode = !activeConsultationForSelected && preRecordConsultation?.customerId === selectedCustomer;
   const completedConsultationForSelected = completedConsultation?.customerId === selectedCustomer ? completedConsultation : null;
-  const isConsultationReadOnly = !isPreRecordMode && !activeConsultationForSelected && (
-    latestConsultationSession?.status === "completed" ||
-    Boolean(completedConsultationForSelected)
+  const isConsultationReadOnly = isCustomerView || (
+    !isPreRecordMode && !activeConsultationForSelected && (
+      latestConsultationSession?.status === "completed" ||
+      Boolean(completedConsultationForSelected)
+    )
   );
   const displayedConsultationElapsedSeconds = activeConsultation
     ? activeConsultationElapsedSeconds
@@ -883,6 +884,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   // 고객별 Supabase portfolio_assets에 즉시 저장한다.
   // 최초 DB 로드가 끝난 뒤에만 실행하여 빈 초기값 덮어쓰기를 방지한다.
   useEffect(() => {
+    if (appMode !== "pb") return;
     const customerId = selectedCustomer;
 
     if (!customerId) return;
@@ -902,6 +904,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
     return () => window.clearTimeout(timer);
   }, [
+    appMode,
     selectedCustomer,
     portfolioAssetsMap,
     portfolioLoadedMap,
@@ -909,6 +912,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   // ── 리밸런싱 상태 변경 즉시 저장 (매도→rebalancing_state, 매수→new_analysis_results 분리 저장)
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!rebalancingLoadedMap[selectedCustomer]) return;
     if (!rebalancingDirtyMap[selectedCustomer]) return;
 
@@ -921,10 +925,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     ]).then(() => {
       setRebalancingDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
-  }, [rebalancingSellMap, rebalancingBuyMap, rebalancingLoadedMap, rebalancingDirtyMap, selectedCustomer]);
+  }, [appMode, rebalancingSellMap, rebalancingBuyMap, rebalancingLoadedMap, rebalancingDirtyMap, selectedCustomer]);
 
   // ── Tab 5 상품 선택 변경 즉시 저장 ─────────────────────────────────────────
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!productSelectionsLoadedMap[selectedCustomer]) return;
     if (!productSelectionsDirtyMap[selectedCustomer]) return;
 
@@ -936,10 +941,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     ]).then(() => {
       setProductSelectionsDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
-  }, [productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
+  }, [appMode, productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
 
   // ── TAB2-5 매도 이력 변경 즉시 저장 → rebalancing_state.sell_history ────────
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!rebalancingLoadedMap[selectedCustomer]) return; // 로드 완료 후에만 저장
     if (!sellHistoryDirtyMap[selectedCustomer]) return;
 
@@ -948,11 +954,12 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     void saveSellHistory(customerId, history).then(() => {
       setSellHistoryDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
-  }, [sellHistoryMap, sellHistoryDirtyMap, rebalancingLoadedMap, selectedCustomer]);
+  }, [appMode, sellHistoryMap, sellHistoryDirtyMap, rebalancingLoadedMap, selectedCustomer]);
 
   // ── 자산 변경 즉시 저장 — Tab 1의 saveCustomerDataJsonOnly 패턴과 완전히 동일
   // debounce 없음: 변경 즉시 저장하여 고객 전환 전에 항상 DB 반영 완료
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!portfolioLoadedMap[selectedCustomer]) return;
     if (!dirtyPortfolioMap[selectedCustomer]) return;
 
@@ -978,7 +985,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
           error: detail,
         });
       });
-  }, [portfolioAssetsMap, portfolioLoadedMap, dirtyPortfolioMap, selectedCustomer]);
+  }, [appMode, portfolioAssetsMap, portfolioLoadedMap, dirtyPortfolioMap, selectedCustomer]);
 
   // ── 포트폴리오 행 조작 함수 — Tab 1의 setFinancial/setRrttllu 패턴과 동일 ──
   const addPortfolioRow = () => {
@@ -990,6 +997,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
   };
   const bulkAddPortfolioRows = (rows: Partial<PortfolioAsset>[]) => {
+    if (!canEditConsultation()) return;
     setPortfolioAssetsMap(prev => ({
       ...prev,
       [selectedCustomer]: [
@@ -1198,12 +1206,13 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   }, []); // stable
 
   const updateTab3AnalysisState = useCallback((patch: Partial<Tab3AnalysisState>, options?: { allowReadOnlyViewState?: boolean }) => {
+    if (appMode !== "pb") return;
     if (isConsultationReadOnlyRef.current && !options?.allowReadOnlyViewState) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
     const nextState = { ...(tab3AnalysisStateMapRef.current[cid] ?? {}), ...patch };
     setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: nextState }));
     void saveTab3AnalysisState(cid, nextState);
-  }, []); // stable
+  }, [appMode]);
 
   const updateSharedUiState = useCallback((patch: SharedMaintabUiState) => {
     const cid = selectedCustomerRef.current;
@@ -1439,6 +1448,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   );
 
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!storageReady || isSeeding || !persistedCustomerIds.includes(selectedCustomer)) return;
     if (!dirtyCustomerData[selectedCustomer]) return;
     void saveCustomerDataJsonOnly(selectedCustomer, customerDataJsonPayload).then((r) => {
@@ -1448,7 +1458,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
         setStorageErrorMessage("");
       }
     });
-  }, [customerDataJsonPayload, dirtyCustomerData, isSeeding, persistedCustomerIds, selectedCustomer, storageReady]);
+  }, [appMode, customerDataJsonPayload, dirtyCustomerData, isSeeding, persistedCustomerIds, selectedCustomer, storageReady]);
 
   const markUpdated = (id: CustomerId, ts = Date.now()) => setCustomerUpdatedAt((prev) => ({ ...prev, [id]: ts }));
 
@@ -1828,7 +1838,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
               onResume={resumeLatestConsultation}
             />
             <div className="flex flex-col gap-5 xl:min-h-[calc(100vh-9rem)] xl:flex-row">
-              <TabStrip appMode={appMode} onNavigate={(id) => router.push(tabPaths[id])} />
+              <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
               <section
                 className="min-w-0 flex-1"
                 onClickCapture={handleLockedInteraction}
@@ -1993,10 +2003,12 @@ export function HeaderSummary({
   );
 }
 
-function TabStrip({ onNavigate, appMode }: { onNavigate: (id: string) => void; appMode: "pb" | "customer" }) {
+function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const segment = useSelectedLayoutSegment();
   const activeTab = (segment ? segmentToTab[segment] : null) ?? "profile";
-  const visibleTabs = appMode === "pb" ? workspaceTabs.filter((tab) => tab.id !== "recommend") : workspaceTabs;
+  // 신형 상담실은 PB·고객 모두 4개 상위 탭을 사용한다.
+  // 기존 TAB5의 상품 매칭 기능은 TAB3의 "리밸런싱(상품)" 내부 탭으로 통합되어 있다.
+  const visibleTabs = workspaceTabs.filter((tab) => tab.id !== "recommend");
 
   return (
     <nav data-consultation-lock-exempt="true" className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-56 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
@@ -2005,9 +2017,9 @@ function TabStrip({ onNavigate, appMode }: { onNavigate: (id: string) => void; a
         return (
           <button
             key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
-            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#2f2f9d] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
+            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#2563eb] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
           >
-            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#5656c7] text-white" : "bg-[#eef0ff] text-[#2f2f9d]"}`}>
+            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#3b82f6] text-white" : "bg-[#eff6ff] text-[#2563eb]"}`}>
               {String(index + 1).padStart(2, "0")}
             </span>
             <span className="min-w-0 whitespace-nowrap text-sm font-bold leading-tight tracking-normal">{tab.label}</span>
@@ -2037,8 +2049,8 @@ function CustomerSelector({
     <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-soft">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div className="flex min-w-0 flex-wrap gap-2">
-          <button type="button" onClick={onToggleSearch} className={`min-h-11 rounded-lg px-4 py-2 text-left text-sm font-bold transition ${showCustomers ? "bg-[#2f2f9d] text-white" : "bg-slate-50 text-navy hover:bg-slate-100"}`}>고객명 검색</button>
-          <button type="button" onClick={onAddCustomer} className="min-h-11 rounded-lg bg-samsung px-4 py-2 text-left text-sm font-bold text-white transition hover:bg-[#1b35bd]">고객 추가</button>
+          <button type="button" onClick={onToggleSearch} className={`min-h-11 rounded-lg px-4 py-2 text-left text-sm font-bold transition ${showCustomers ? "bg-[#2563eb] text-white" : "bg-slate-50 text-navy hover:bg-slate-100"}`}>고객명 검색</button>
+          <button type="button" onClick={onAddCustomer} className="min-h-11 rounded-lg bg-samsung px-4 py-2 text-left text-sm font-bold text-white transition hover:bg-blue-700">고객 추가</button>
         </div>
         <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-start items-center justify-end gap-x-2 gap-y-1 self-start text-right">
           <p className="text-sm font-bold text-slate-600">현재 상담 고객: <span className="text-samsung">{currentCustomer ? customerTabLabel(currentCustomer) : "선택 대기"}</span></p>

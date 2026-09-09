@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Camera, FileSpreadsheet, FileUp, Loader2, Plus, RefreshCw, Sparkles, Trash2, X } from "lucide-react";
 import {
   useCustomerContext,
@@ -137,7 +137,12 @@ interface PortfolioAssetEnriched extends PortfolioAsset {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function ExistingPortfolioTab() {
+interface ExistingPortfolioTabProps {
+  // "자산 입력 및 분석 실행" 액션 버튼 줄의 맨 오른쪽에 끼워 넣을 요소(예: 상담실 TAB2의 "분석실 이동" 버튼).
+  rightSlot?: ReactNode;
+}
+
+export default function ExistingPortfolioTab({ rightSlot }: ExistingPortfolioTabProps = {}) {
   const {
     formData, selectedCustomer,
     portfolioAssets, isPortfolioLoaded,
@@ -733,7 +738,7 @@ export default function ExistingPortfolioTab() {
             type="button"
             disabled={portfolioIsRunning || !portfolioAssets.length}
             onClick={() => triggerAnalysis(portfolioAssets)}
-            className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#1b35bd] disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:opacity-50"
           >
             {portfolioIsRunning ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             분석 실행
@@ -801,6 +806,7 @@ export default function ExistingPortfolioTab() {
               </button>
             )
           )}
+          {rightSlot ? <div className="ml-auto">{rightSlot}</div> : null}
         </div>
 
         {/* 상태 메시지 */}
@@ -863,7 +869,7 @@ export default function ExistingPortfolioTab() {
                 <button
                   type="button"
                   onClick={applyImport}
-                  className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2 text-sm font-bold text-white transition hover:bg-[#1b35bd]"
+                  className="flex items-center gap-2 rounded-lg bg-samsung px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
                 >
                   <FileSpreadsheet size={14} />
                   확정

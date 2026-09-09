@@ -191,7 +191,7 @@ function highlightBriefAnchors(ids: string[]) {
 const MARKER_RE = /(\[(?:Fact|팩트|인용)\](?:\s?\[#\d+\])*|\[(?:판단|판판|판)\(?\d+\)?\]|\[추정\])/g;
 
 function StaticBadge({ label, tone }: { label: string; tone: "blue" | "amber" }) {
-  const cls = tone === "blue" ? "bg-primary-100 text-primary" : "bg-amber-100 text-amber-700";
+  const cls = tone === "blue" ? "bg-indigo-100 text-[#2f2f9d]" : "bg-amber-100 text-amber-700";
   return (
     <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold mx-0.5 align-middle ${cls}`}>
       {label}
@@ -202,10 +202,10 @@ function StaticBadge({ label, tone }: { label: string; tone: "blue" | "amber" })
 // 각주 없는 태그의 호버 표시 — 문장에 점선 밑줄, 마우스 오버 시 태그 툴팁 (TAB4 스타일, 클릭 없음)
 function HoverTag({ label, tone, children }: { label: string; tone: "fact" | "quote" | "judgment"; children: React.ReactNode }) {
   const underline =
-    tone === "fact" ? "border-primary/40 group-hover:bg-primary/10"
+    tone === "fact" ? "border-indigo-400/50 group-hover:bg-indigo-50"
       : tone === "quote" ? "border-amber-400 group-hover:bg-amber-50"
         : "border-sky-400 group-hover:bg-sky-100";
-  const tip = tone === "fact" ? "bg-primary" : tone === "quote" ? "bg-amber-500" : "bg-sky-600";
+  const tip = tone === "fact" ? "bg-[#2f2f9d]" : tone === "quote" ? "bg-amber-500" : "bg-sky-600";
   return (
     <span className="group relative mr-1 inline">
       <span className={`tag-underline rounded-sm border-b border-dashed transition-colors duration-150 ${underline}`}>
@@ -245,7 +245,7 @@ function TextWithStockLinks({ text, bold = false }: { text: string; bold?: boole
           key={`s-${i}`}
           type="button"
           onClick={() => onStockClick(name, ticker)}
-          className="mx-0.5 inline-flex items-center font-black text-primary transition-colors duration-150 hover:text-primary-dark hover:underline cursor-pointer"
+          className="mx-0.5 inline-flex items-center font-black text-[#2f2f9d] transition-colors duration-150 hover:text-[#24247c] hover:underline cursor-pointer"
         >
           <strong>{name}({ticker})</strong>
         </button>,
@@ -343,13 +343,13 @@ function InlineText({ text }: { text: string }) {
 
         return (
           <span key={idx} onClick={handleClick} className="group relative mr-1 inline cursor-pointer">
-            <span className={`tag-underline rounded-sm border-b border-dashed transition-colors duration-150 ${isFact ? "border-primary/40 group-hover:bg-primary/10"
+            <span className={`tag-underline rounded-sm border-b border-dashed transition-colors duration-150 ${isFact ? "border-indigo-400/50 group-hover:bg-indigo-50"
                 : isQuote ? "border-amber-400 group-hover:bg-amber-50"
                   : "border-sky-400 group-hover:bg-sky-100"
               }`}>
               {renderedText}
             </span>
-            <span className={`pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md px-3 py-1 text-center text-[11px] font-black leading-snug text-white shadow-md group-hover:block ${isFact ? "bg-primary" : isQuote ? "bg-amber-500" : "bg-sky-600"
+            <span className={`pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md px-3 py-1 text-center text-[11px] font-black leading-snug text-white shadow-md group-hover:block ${isFact ? "bg-[#2f2f9d]" : isQuote ? "bg-amber-500" : "bg-sky-600"
               }`}>
               {tooltip}
             </span>
@@ -378,22 +378,13 @@ function DirectionCell({ text }: { text: string }) {
 
 function ReportHeader({ date, kicker, subtitle }: { date: string; kicker: string; subtitle: string }) {
   return (
-    <div className="bg-primary text-white px-8 py-7 flex items-center justify-between">
+    <div className="bg-[#2f2f9d] text-white px-8 py-7">
       <div>
-        <p className="text-[10px] font-bold tracking-[0.25em] text-primary-200 uppercase mb-2">
+        <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-200 uppercase mb-2">
           {kicker}
         </p>
         <h1 className="text-2xl font-black tracking-tight leading-none">{date}</h1>
-        <p className="text-xs text-primary-100 mt-2 leading-relaxed">{subtitle}</p>
-      </div>
-      <div className="flex flex-col items-end gap-2">
-        {/* eslint-disable-next-line @next/next/no-img-element -- html2canvas 캡처 호환용 정적 img */}
-        <img
-          src="/profile_image.png"
-          alt="Hoons_Platform"
-          className="w-12 h-12 rounded-full border border-white/20 object-cover"
-        />
-        <p className="text-[9px] font-bold tracking-[0.2em] text-primary-200 uppercase">Hoons_Platform</p>
+        <p className="text-xs text-indigo-100 mt-2 leading-relaxed">{subtitle}</p>
       </div>
     </div>
   );
@@ -401,11 +392,11 @@ function ReportHeader({ date, kicker, subtitle }: { date: string; kicker: string
 
 function SummaryBlock({ text }: { text: string }) {
   return (
-    <div className="mx-6 mt-6 rounded-xl bg-primary-50 border border-primary-100 px-6 py-5">
-      <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-primary-400 mb-2">
+    <div className="mx-6 mt-6 rounded-xl bg-indigo-50 border border-indigo-100 px-6 py-5">
+      <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-indigo-500 mb-2">
         한 줄 평
       </p>
-      <p className="text-[17px] font-normal text-primary-600 leading-relaxed">
+      <p className="text-[17px] font-normal text-indigo-900 leading-relaxed">
         <InlineText text={text} />
       </p>
     </div>
@@ -425,7 +416,7 @@ function H2Block({ text }: { text: string }) {
 function HeadingBlock({ text }: { text: string }) {
   return (
     <div className="mx-6 mt-8 mb-2 border-b border-slate-200 pb-1.5">
-      <h3 className="text-[15px] font-black text-primary">{text}</h3>
+      <h3 className="text-[15px] font-black text-[#2f2f9d]">{text}</h3>
     </div>
   );
 }
@@ -433,8 +424,8 @@ function HeadingBlock({ text }: { text: string }) {
 function IssueBlock({ title, lines }: { title: string; lines: string[] }) {
   return (
     <div className="mx-6 mt-5">
-      <div className="border-l-4 border-primary pl-4 mb-2.5">
-        <h3 className="text-[17px] font-black text-primary leading-snug">
+      <div className="border-l-4 border-[#2f2f9d] pl-4 mb-2.5">
+        <h3 className="text-[17px] font-black text-[#2f2f9d] leading-snug">
           {title}
         </h3>
       </div>
@@ -469,7 +460,7 @@ function TableBlock({ headers, rows }: { headers: string[]; rows: string[][] }) 
             {headers.map((h, idx) => (
               <th
                 key={idx}
-                className="bg-primary text-white text-xs font-bold px-4 py-3 text-left whitespace-nowrap"
+                className="bg-[#2f2f9d] text-white text-xs font-bold px-4 py-3 text-left whitespace-nowrap"
               >
                 {h}
               </th>
@@ -503,7 +494,7 @@ function SourceBlock({ id, text }: { id: string; text: string }) {
       id={`brief-src-${id}`}
       className="mx-6 my-1 scroll-mt-4 rounded px-1 text-[12px] leading-relaxed text-slate-500 transition-colors duration-300"
     >
-      <span className="mr-1.5 font-black text-primary">#{id}</span>{text}
+      <span className="mr-1.5 font-black text-[#2f2f9d]">#{id}</span>{text}
     </p>
   );
 }
@@ -549,8 +540,8 @@ function ParaBlock({ lines }: { lines: string[] }) {
 // 관전 포인트 목차 — 이슈 헤더와 동일하게 세로 구분선은 목차 제목에만 단다
 function WatchPointHeadingBlock({ text }: { text: string }) {
   return (
-    <div className="mx-6 mt-8 mb-2.5 border-l-4 border-primary pl-4">
-      <h3 className="text-[17px] font-black text-primary leading-snug">{text}</h3>
+    <div className="mx-6 mt-8 mb-2.5 border-l-4 border-[#2f2f9d] pl-4">
+      <h3 className="text-[17px] font-black text-[#2f2f9d] leading-snug">{text}</h3>
     </div>
   );
 }
@@ -579,7 +570,7 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
       <div className="mb-3 flex items-end justify-between border-b border-slate-200 pb-2">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Economic Indicators</p>
-          <h3 className="text-[15px] font-black text-primary">핵심 지표 그래프</h3>
+          <h3 className="text-[15px] font-black text-[#2f2f9d]">핵심 지표 그래프</h3>
         </div>
         <span className="text-[10px] font-semibold text-slate-400">FRED · ECOS 실제 관측치</span>
       </div>
@@ -603,7 +594,7 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
             <div key={chart.source + chart.title} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <p className="line-clamp-2 text-[11px] font-black leading-snug text-slate-700">{chart.title}</p>
-                <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-black text-primary">{chart.source}</span>
+                <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-black text-[#2f2f9d]">{chart.source}</span>
               </div>
               <p className="mb-1 text-[10px] font-bold text-slate-400">
                 최근 {latest.value.toLocaleString("ko-KR")} {chart.unit}
@@ -611,23 +602,23 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
               <svg viewBox={`0 0 ${width} ${height}`} className="h-36 w-full" role="img" aria-label={chart.title + " 시계열 그래프"}>
                 {[0, 0.5, 1].map((ratio) => {
                   const y = padY + ratio * (height - padY * 2);
-                  return <line key={ratio} x1={padX} y1={y} x2={width - padX} y2={y} stroke="#DDE8E5" strokeWidth="1" />;
+                  return <line key={ratio} x1={padX} y1={y} x2={width - padX} y2={y} stroke="#D9DCF7" strokeWidth="1" />;
                 })}
                 <polyline
                   fill="none"
-                  stroke="#005B52"
+                  stroke="#2f2f9d"
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   points={coords.map((point) => `${point.x},${point.y}`).join(" ")}
                 />
                 {coords.map((point, index) => (
-                  <circle key={point.date} cx={point.x} cy={point.y} r={index === coords.length - 1 ? 4 : 2.5} fill="#005B52">
-                    <title>{point.date}: {point.value} {chart.unit}</title>
+                  <circle key={point.date} cx={point.x} cy={point.y} r={index === coords.length - 1 ? 4 : 2.5} fill="#2f2f9d">
+                    <title>{`${point.date}: ${point.value} ${chart.unit}`}</title>
                   </circle>
                 ))}
-                <text x={padX} y={height - 4} fontSize="11" fill="#7A9488">{chart.points[0]?.date}</text>
-                <text x={width - padX} y={height - 4} textAnchor="end" fontSize="11" fill="#7A9488">{latest.date}</text>
+                <text x={padX} y={height - 4} fontSize="11" fill="#64748B">{chart.points[0]?.date}</text>
+                <text x={width - padX} y={height - 4} textAnchor="end" fontSize="11" fill="#64748B">{latest.date}</text>
               </svg>
             </div>
           );
@@ -721,7 +712,9 @@ export function BriefingReportViewer({
       const pdfW: number = pdf.internal.pageSize.getWidth();
       const pdfH: number = pdf.internal.pageSize.getHeight();
       const ratio = canvas.width / containerRect.width;   // DOM px → 캔버스 px
-      const pageHpx = (pdfH / pdfW) * canvas.width;       // A4 한 페이지 높이 (캔버스 px)
+      const firstPageHpx = (pdfH / pdfW) * canvas.width;
+      const continuationTopMm = 14;
+      const continuationPageHpx = ((pdfH - continuationTopMm) / pdfW) * canvas.width;
 
       // 블록 → 섹션 그루핑 (heading에서 새 섹션 시작)
       type Span = { top: number; bottom: number };
@@ -739,30 +732,46 @@ export function BriefingReportViewer({
 
       // 분할 불가 단위 산출 — 한 페이지에 들어가는 섹션은 통째로, 넘치는 섹션은 블록 단위로
       const units: Span[] = sections.flatMap((s) =>
-        s.bottom - s.top <= pageHpx ? [{ top: s.top, bottom: s.bottom }] : s.blocks,
+        s.bottom - s.top <= continuationPageHpx ? [{ top: s.top, bottom: s.bottom }] : s.blocks,
       );
 
       // 페이지 시작 위치 계산
       const breaks: number[] = [0];
       let pageStart = 0;
+      let pageCapacity = firstPageHpx;
       for (const u of units) {
-        if (u.bottom - pageStart <= pageHpx) continue;
-        if (u.bottom - u.top <= pageHpx) {
+        if (u.bottom - pageStart <= pageCapacity) continue;
+        if (u.bottom - u.top <= continuationPageHpx) {
           pageStart = u.top;
           breaks.push(pageStart);
+          pageCapacity = continuationPageHpx;
         } else {
           // 단일 블록이 한 페이지보다 긴 극단 케이스 — 새 페이지에서 시작 후 강제 분할
-          if (u.top > pageStart) { pageStart = u.top; breaks.push(pageStart); }
-          while (u.bottom - pageStart > pageHpx) { pageStart += pageHpx; breaks.push(pageStart); }
+          if (u.top > pageStart) {
+            pageStart = u.top;
+            breaks.push(pageStart);
+            pageCapacity = continuationPageHpx;
+          }
+          while (u.bottom - pageStart > pageCapacity) {
+            pageStart += pageCapacity;
+            breaks.push(pageStart);
+            pageCapacity = continuationPageHpx;
+          }
         }
       }
       // 마지막 단위 이후 꼬리(푸터 등) 잔여 오버플로 처리
-      while (canvas.height - pageStart > pageHpx) { pageStart += pageHpx; breaks.push(pageStart); }
+      while (canvas.height - pageStart > pageCapacity) {
+        pageStart += pageCapacity;
+        breaks.push(pageStart);
+        pageCapacity = continuationPageHpx;
+      }
 
       // 페이지별로 캔버스를 잘라 출력 (잘린 지점~다음 페이지 시작 사이는 공란으로 남는다)
       breaks.forEach((startY, i) => {
         const contentEnd = i + 1 < breaks.length ? breaks[i + 1] : canvas.height;
-        const sliceH = Math.min(pageHpx, contentEnd - startY);
+        const maxSliceH = i === 0 ? firstPageHpx : continuationPageHpx;
+        const sliceH = Math.min(maxSliceH, contentEnd - startY);
+        const topMarginMm = i === 0 ? 0 : continuationTopMm;
         if (sliceH <= 0) return;
         const pageCanvas = document.createElement("canvas");
         pageCanvas.width = canvas.width;
@@ -773,7 +782,7 @@ export function BriefingReportViewer({
         ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
         ctx.drawImage(canvas, 0, startY, canvas.width, sliceH, 0, 0, canvas.width, sliceH);
         if (i > 0) pdf.addPage();
-        pdf.addImage(pageCanvas.toDataURL("image/png"), "PNG", 0, 0, pdfW, (sliceH * pdfW) / canvas.width);
+        pdf.addImage(pageCanvas.toDataURL("image/png"), "PNG", 0, topMarginMm, pdfW, (sliceH * pdfW) / canvas.width);
       });
 
       pdf.save(`${pdfFilePrefix}_${dateStr.replace(/\./g, "")}.pdf`);
@@ -808,14 +817,14 @@ export function BriefingReportViewer({
         <div className="print-toolbar print:hidden flex items-center justify-end gap-2 mb-3">
           <button
             onClick={handleCopy}
-            className="rounded border border-[#DDE8E5] bg-white px-3 py-1.5 text-[11px] font-semibold text-[#7A9488] hover:bg-[#EBF0EE] transition"
+            className="rounded border border-indigo-100 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-500 hover:bg-indigo-50 transition"
           >
             {copied ? "✓ 복사 완료" : "Markdown 복사"}
           </button>
           <button
             onClick={handlePdf}
             disabled={exporting}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-[11px] font-bold text-white shadow hover:bg-primary-light disabled:opacity-60 transition"
+            className="flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-4 py-1.5 text-[11px] font-bold text-white shadow hover:bg-[#24247c] disabled:opacity-60 transition"
           >
             <Printer size={13} />
             {exporting ? "출력 중..." : "PDF 다운로드"}
@@ -824,7 +833,7 @@ export function BriefingReportViewer({
             <button
               onClick={onClose}
               aria-label="닫기"
-              className="flex items-center justify-center rounded-lg border border-[#DDE8E5] bg-white p-1.5 text-[#7A9488] hover:bg-[#EBF0EE] transition"
+              className="flex items-center justify-center rounded-lg border border-indigo-100 bg-white p-1.5 text-slate-500 hover:bg-indigo-50 transition"
             >
               <X size={14} />
             </button>
@@ -888,7 +897,7 @@ export function BriefingReportViewer({
             <p className="text-[10px] text-slate-400">
               AI 생성 보고서 · 투자 참고용으로만 활용하세요
             </p>
-            <p className="text-[10px] text-slate-400">Hoons_Platform · {dateStr}</p>
+            <p className="text-[10px] text-slate-400">{dateStr}</p>
           </div>
         </div>
       </div>
