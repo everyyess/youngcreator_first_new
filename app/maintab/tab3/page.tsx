@@ -30,6 +30,12 @@ export default function Tab3Page() {
   } = useCustomerContext();
   const syncedActiveInnerTab = tab3AnalysisState.activeInnerTab;
 
+  // 구버전 고객 TAB5 북마크는 신형 TAB3의 상품 리밸런싱 화면으로 이어 준다.
+  useEffect(() => {
+    const requestedInnerTab = new URLSearchParams(window.location.search).get("innerTab");
+    if (isVisibleInnerTab(requestedInnerTab)) setActiveInnerTab(requestedInnerTab);
+  }, []);
+
   // PB가 탭을 옮겼을 때만 따라간다.
   // deps에 activeInnerTab을 넣고 매번 비교하면, 고객이 스스로 고른 탭이 곧바로
   // PB 값으로 되돌아가 자유 열람이 불가능해진다. 그래서 "동기화 값이 실제로 바뀐 순간"만
@@ -62,6 +68,10 @@ export default function Tab3Page() {
   selectedCustomerRef.current = selectedCustomer;
 
   useEffect(() => {
+    if (appMode === "customer") {
+      setIsNewPortfolioAnalyzing(false);
+      return;
+    }
     if (rebalancingSellAssets.length === 0) {
       setIsNewPortfolioAnalyzing(false); // 포트폴리오가 비면 분석할 게 없으니 로딩 상태도 해제(끼임 방지)
       return;
@@ -144,7 +154,7 @@ export default function Tab3Page() {
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rebalancingSellAssets]);
+  }, [appMode, rebalancingSellAssets]);
 
   // 고객 화면도 PB 상담실과 완전히 같은 내부 탭 구조를 쓴다.
   // 리밸런싱 히스토리는 고객도 볼 수 있고(근거 입력란만 읽기 전용),
