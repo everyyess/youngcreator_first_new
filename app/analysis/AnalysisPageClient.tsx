@@ -153,24 +153,20 @@ function AnalysisTabs({
     setMountedStockTabs((prev) => new Set([...prev, tab]));
   };
 
-  const [storedReturnTab] = useState(() =>
-    typeof window !== "undefined" ? sessionStorage.getItem("analysisReturnTab") : null
-  );
-  const hasReturnTarget = Boolean(urlReturnTab || storedReturnTab);
   const returnToConsultation = () => {
-    const target = urlReturnTab || storedReturnTab || "tab1";
-    sessionStorage.removeItem("analysisReturnTab");
+    const stored = typeof window !== "undefined" ? sessionStorage.getItem("analysisReturnTab") : null;
+    const target = urlReturnTab || stored || "tab1";
     router.push(`/consultation/${target}`);
   };
-  const returnButton = hasReturnTarget ? (
+  const returnButton = (
     <button
       type="button"
       onClick={returnToConsultation}
-      className="flex min-h-10 shrink-0 items-center justify-center rounded-md border border-blue-600/30 bg-blue-600/5 px-3 py-2 text-xs font-bold text-blue-600 transition hover:bg-blue-600/10"
+      className="flex min-h-10 shrink-0 items-center justify-center rounded-md border border-samsung/30 bg-samsung/5 px-3 py-2 text-xs font-bold text-samsung transition hover:bg-samsung/10"
     >
-      ← 상담으로 돌아가기
+      상담으로 돌아가기
     </button>
-  ) : null;
+  );
 
   return (
     <CustomerContext.Provider value={contextValue}>
