@@ -1489,6 +1489,9 @@ const additionalInvestmentAmount = (() => {
   // 상품을 새로 담을 때 "얼마 담을지" 먼저 입력받는 단계 — 주식 리밸런싱 탭의 매수 모달과 같은 느낌.
   // 자동분배 기준 금액을 기본값으로 채워주고, 최대 한도(=버킷 잔여 배분 가능액)를 같이 보여준다.
   const openPendingAdd = (p: Product) => {
+    // 고객 화면은 읽기 전용 — 상품 편입 경로의 공통 길목을 여기서 막는다
+    // (체크박스·부적합 경고 확인·자동분배 금액 버튼 세 경로 모두 이 함수를 거친다)
+    if (isCustomerView) return;
     if (!weights) { tryAddProduct(p); return; } // 투자가능자산 계산 전이면 예전처럼 바로 담기 시도(실패 시 자체 처리됨)
     const bucketAmt = client.investableAssets * getBucketWeight(p.bucket);
     const bucketProducts = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
@@ -1533,8 +1536,8 @@ const additionalInvestmentAmount = (() => {
   };
 
   const handleSelect = (p: Product) => {
+    if (isCustomerView) return; // 고객 화면은 읽기 전용 (선택·해제 모두 불가)
     if (selectedIds.includes(p.id)) {
-      if (isCustomerView) return;
       setSelectedIdsRaw(selectedIds.filter(x=>x!==p.id));
       resetProductAmount(p.id);
       return;
@@ -2033,8 +2036,8 @@ const additionalInvestmentAmount = (() => {
                             )}
                             <button type="button"
                               onClick={e=>{e.stopPropagation();handleSelect(p);}}
-                              disabled={isCustomerView && sel}
-                              className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${sel?"border-samsung bg-samsung text-white":unsuitable?"border-red-300 bg-white hover:border-red-400":"border-slate-300 bg-white hover:border-samsung"} ${isCustomerView&&sel?"cursor-not-allowed opacity-50":""}`}>
+                              disabled={isCustomerView}
+                              className={`absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border-2 transition ${sel?"border-samsung bg-samsung text-white":unsuitable?"border-red-300 bg-white hover:border-red-400":"border-slate-300 bg-white hover:border-samsung"} ${isCustomerView?"cursor-not-allowed opacity-50":""}`}>
                               {sel&&<CheckCircle2 size={14}/>}
                             </button>
                             <div className={`mb-2 flex items-center gap-1.5 pr-8 ${unsuitable?"mt-5":""}`}>

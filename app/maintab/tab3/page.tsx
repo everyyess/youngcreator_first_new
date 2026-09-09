@@ -30,16 +30,21 @@ export default function Tab3Page() {
   } = useCustomerContext();
   const syncedActiveInnerTab = tab3AnalysisState.activeInnerTab;
 
+  // PB가 탭을 옮겼을 때만 따라간다.
+  // deps에 activeInnerTab을 넣고 매번 비교하면, 고객이 스스로 고른 탭이 곧바로
+  // PB 값으로 되돌아가 자유 열람이 불가능해진다. 그래서 "동기화 값이 실제로 바뀐 순간"만
+  // ref로 판별해 반영한다 — 그 사이 고객의 로컬 선택은 그대로 유지된다.
+  const lastSyncedInnerTabRef = useRef<string | undefined>(syncedActiveInnerTab);
   useEffect(() => {
-    if (isVisibleInnerTab(syncedActiveInnerTab) && syncedActiveInnerTab !== activeInnerTab) {
-      setActiveInnerTab(syncedActiveInnerTab);
-    }
-  }, [syncedActiveInnerTab, activeInnerTab]);
+    if (syncedActiveInnerTab === lastSyncedInnerTabRef.current) return;
+    lastSyncedInnerTabRef.current = syncedActiveInnerTab;
+    if (isVisibleInnerTab(syncedActiveInnerTab)) setActiveInnerTab(syncedActiveInnerTab);
+  }, [syncedActiveInnerTab]);
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
-    // 고객 화면은 PB 화면을 비추는 쪽이다. 고객이 탭을 눌러도 공유 상태에 쓰지 않아야
-    // PB 화면이 고객 조작으로 바뀌지 않는다 (PB가 탭을 옮기면 아래 동기화 effect로 따라간다).
+    // 고객 화면은 읽기 전용이다. 탭 전환은 자유롭게 하되 공유 상태에는 쓰지 않는다
+    // (쓰면 고객 조작이 PB 화면까지 바꾼다).
     if (appMode === "customer") return;
     updateTab3AnalysisState({ activeInnerTab: tab }, { allowReadOnlyViewState: true });
   };
