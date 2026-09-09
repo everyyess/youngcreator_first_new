@@ -438,7 +438,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       sessionId: target.id,
       customerId: selectedCustomer,
       startedAt: new Date(Date.now() - resumedElapsedSeconds * 1000).toISOString(),
-      returnPath: `/consultation/${currentSegment ?? "tab1"}`,
+      // MainTabShell은 PB(/consultation/*)·고객(/customer-maintab/*) 양쪽에서 공유하는 컴포넌트라,
+      // returnPath를 appMode에 맞게 만들어야 한다 — 예전엔 항상 /consultation/*로 고정돼 있어서,
+      // 고객 화면에서 재개하면 PB용 Home의 "돌아가기"가 고객 화면으로 튀는 문제와 짝을 이루는
+      // 반대 방향 버그였다(2026-09 발견·수정).
+      returnPath: `${appMode === "customer" ? "/customer-maintab" : "/consultation"}/${currentSegment ?? "tab1"}`,
     };
     window.localStorage.removeItem(CONSULTATION_ENDED_STORAGE_KEY);
     setConsultationEnded(false);
@@ -449,7 +453,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     writeActiveConsultation(resumedActive);
     setActiveConsultation(resumedActive);
     setActiveConsultationElapsedSeconds(resumedElapsedSeconds);
-  }, [customerData, currentSegment, selectedCustomer]);
+  }, [customerData, currentSegment, selectedCustomer, appMode]);
 
   const requestConsultationResume = useCallback(() => {
     setEditLockDialogOpen(true);
@@ -1397,25 +1401,39 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   const riskResult = useMemo(() => calculateRiskResult(formData.rrttllu), [formData.rrttllu]);
 
-  // Buying Power = b + cashFromSales - confirmedBuyAmount (기획서 표준 수식)
+  // Buying Power = b + cashFromSales - buySpent (기획서 표준 수식)
   // b = TAB1 investableAssets | cashFromSales = a - c (매도 대금)
   // a = 최초 포트폴리오 평가총액 | c = 매도 확정 후 잔여자산 총액
+  //
+  // buySpent는 rebalancingSellAssets(TAB3-1 주식·TAB3-2 상품 어느 쪽에서 담든 실시간으로 갱신되는,
+  // 디바운스 없는 값)의 "지금 현재" 총액에서 baseline을 뺀 값으로 직접 계산한다(2026-09 재수정).
+  // 예전엔 confirmedBuyAmount(TAB3-1 "매수 확정"에서만 쌓이는 수동 누적값)를 썼는데 TAB3-2 상품
+  // 편입이 전혀 반영이 안 됐고, 그다음엔 confirmedOperatingAssetsAfterBuy(tab3/page.tsx의 800ms
+  // 디바운스 재분석 effect가 갱신)로 바꿨는데, addSellRecord(매도)가 매도할 때마다 이 필드를 null로
+  // 초기화해버려서 — 디바운스가 따라잡기 전 잠깐 "직전 매수분을 깜빡 잊는" 순간이 생겨 매도 직후
+  // 오히려 추가 투자 의향이 줄어드는 것처럼 보이는 문제가 있었다. rebalancingSellAssets는 매수·매도
+  // 어느 액션이든 그 즉시(디바운스 전에) 갱신되므로 이런 레이스가 없다.
   const availableInvestmentFunds = useMemo(() => {
     const b = parseKrwAmount(formData.financial.investableAssets) ?? 0;
     const c = formData.headerAssetSummary?.confirmedOperatingAssetsAfterSell ?? null;
-    const buySpent = formData.headerAssetSummary?.confirmedBuyAmount ?? 0;
 
-    // 매도 시뮬레이션 미진행: cashFromSales = 0 → Buying Power = b - buySpent
-    if (c === null) return b > 0 ? b - buySpent : null;
-
-    // 매도 시뮬레이션 완료: Buying Power = b + (a - c) - buySpent
-    // 포트폴리오 미로드 시 a = 0 → cashFromSales 음수 오염 방지 — b - buySpent만 반환
-    if (!isPortfolioLoaded) return b > 0 ? b - buySpent : null;
+    if (!isPortfolioLoaded) return b > 0 ? b : null;
     const a = sumPortfolioCurrentValue(portfolioAssets);
-    if (!Number.isFinite(a) || a <= 0) return b > 0 ? b - buySpent : null;
-    const d = b + (a - c) - buySpent;
+    // 포트폴리오 미로드 시 a = 0 → cashFromSales/buySpent 음수 오염 방지 — b만 반환
+    if (!Number.isFinite(a) || a <= 0) return b > 0 ? b : null;
+
+    // 매도 확정 안 했으면 원본 포트폴리오 총액(a)이 매수 전 기준선
+    const baseline = c ?? a;
+    const cashFromSales = c !== null ? a - c : 0;
+    // 리밸런싱 작업 전(빈 배열)엔 baseline과 동일하게 취급 — "매수 없음"으로 처리
+    const currentRebalancingTotal = rebalancingSellAssets.length > 0
+      ? sumPortfolioCurrentValue(rebalancingSellAssets)
+      : baseline;
+    const buySpent = Math.max(0, currentRebalancingTotal - baseline);
+
+    const d = b + cashFromSales - buySpent;
     return Number.isFinite(d) ? d : null;
-  }, [formData.headerAssetSummary, formData.financial.investableAssets, portfolioAssets, isPortfolioLoaded]);
+  }, [formData.headerAssetSummary, formData.financial.investableAssets, portfolioAssets, isPortfolioLoaded, rebalancingSellAssets]);
 
   const financialCompletion = useMemo(() => completion([
     formData.financial.existingInvestmentAssets, formData.financial.cashAssets, formData.financial.realEstate,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronLeft, ChevronRight, Home, LogOut, PanelLeftClose, PanelRightClose, Search, Trash2 } from "lucide-react";
 import MarketDashboard from "@/components/MarketDashboard";
@@ -320,6 +320,29 @@ export default function HomePage() {
   const [pbSession, setPbSession] = useState<PbSession | null>(null);
   const [marketCalendarEvents, setMarketCalendarEvents] = useState<MarketCalendarEvent[]>([]);
 
+  // 좌·우 패널 높이를 중앙 패널(시황 보고서) 실제 렌더 높이에 정확히 맞춘다 — CSS grid의
+  // align-items:stretch + min-h-0만으로는 좌우 패널 중 하나가 중앙보다 콘텐츠가 많을 때 그 행 자체가
+  // 딸려서 늘어나는 경우가 있어(2026-09, "노란 박스" 여백 버그), 중앙 패널 높이를 직접 측정해서
+  // 좌우 패널에 그 값을 그대로 강제한다 — 더 확실하고 항상 정확하다.
+  const centerPanelRef = useRef<HTMLElement>(null);
+  const [centerPanelHeight, setCenterPanelHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    const node = centerPanelRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    // ResizeObserver의 entries[0].contentRect는 padding·border를 뺀 content-box 높이를 준다 —
+    // 이 앱은 전역으로 box-sizing:border-box를 쓰는데, 좌우 aside에 style={{height}}로 넣는 값은
+    // border-box 기준(전체 높이)으로 해석된다. 그래서 contentRect를 그대로 쓰면 중앙 패널의 padding+
+    // border만큼(대략 30px대) 항상 짧게 측정돼서, 좌우 패널이 중앙보다 계속 그만큼 높이 끝나는
+    // 문제가 있었다(2026-09 발견 — "끝이 안 맞는다" 반복 피드백의 원인). getBoundingClientRect()는
+    // 항상 border-box 기준 실제 렌더 높이를 주므로 이걸로 측정한다.
+    const measure = () => setCenterPanelHeight(node.getBoundingClientRect().height);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    measure();
+    return () => observer.disconnect();
+  }, []);
+
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
   const selectedState = selectedCustomer ? customerData[selectedCustomer.id] : undefined;
@@ -577,8 +600,21 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(ellipse_85%_65%_at_8%_0%,rgba(99,102,241,0.11),transparent_55%),radial-gradient(ellipse_65%_65%_at_98%_100%,rgba(59,130,246,0.18),transparent_55%),#f8fafc] p-4 text-slate-900">
-      <div className="grid min-h-[calc(100vh-2rem)] gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "336px" : "56px"}` }}>
-        <aside className={`box-border min-w-0 overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}>
+      {/* min-h-[calc(100vh-2rem)]을 뺐다(2026-09) — 뷰포트 높이를 최소값으로 깔아두면, 중앙 패널
+          실제 콘텐츠가 뷰포트보다 짧은 날엔 그 아래로 빈 여백이 남고 좌우 패널 테두리·스크롤바만
+          그 여백까지 늘어져 보였다("중앙 패널 끝에 맞춰서 끝나야 하는데 안 맞음" 피드백). 이제 grid
+          행 높이는 순수하게 중앙 패널(시황 보고서)의 실제 콘텐츠 높이만으로 정해지고, 좌우 패널은
+          min-h-0 + overflow-y-auto로 그 높이에 맞춰 짧아지거나(스크롤) 늘어난다(stretch). */}
+      <div className="grid gap-4 transition-all duration-300" style={{ gridTemplateColumns: `${leftOpen ? "255px" : "56px"} minmax(0, 1fr) ${rightOpen ? "336px" : "56px"}` }}>
+        {/* min-h-0 + overflow-y-auto: 이 패널의 세로 길이는 중앙 패널(시황 보고서, 아래 <section>)의
+            자연스러운 높이가 기준이다. grid align-items:stretch + min-h-0만으로는 이 패널 콘텐츠가
+            중앙보다 많을 때 grid 행 자체가 딸려서 늘어나는 경우가 있어서(2026-09, 중앙 패널 아래에
+            빈 여백이 남던 버그) 중앙 패널의 실제 렌더 높이를 ResizeObserver로 측정해 style로 직접
+            강제한다 — 항상 정확하게 맞는다. 넘치는 내용은 overflow-y-auto로 이 안에서만 스크롤. */}
+        <aside
+          style={centerPanelHeight != null ? { height: centerPanelHeight } : undefined}
+          className={`box-border min-h-0 min-w-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}
+        >
           {/* min-h를 좌/우 패널 헤더에 똑같이 줘서, 아래 첫 줄(로그아웃 vs 분석실·상담실 입장)이
               항상 같은 높이에서 시작하게 맞춘다(2026-09) — 왼쪽은 인사말 3줄이라 원래 더 높고,
               오른쪽은 로고 하나뿐이라 더 낮아서 그대로 두면 두 버튼 줄이 서로 어긋나 보였다. */}
@@ -595,7 +631,7 @@ export default function HomePage() {
             </button>
           </div>
           {leftOpen ? (
-            <div className="grid w-full min-w-0 gap-4 overflow-x-hidden">
+            <div className="flex h-full min-h-0 w-full min-w-0 flex-col gap-4 overflow-x-hidden">
               {storageMessage ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{storageMessage}</p> : null}
               <button type="button" onClick={logout} className={`flex h-11 w-full min-w-0 ${leftPanelInnerWidthClass} items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600`}>
                 <LogOut size={15} /> 로그아웃
@@ -644,8 +680,10 @@ export default function HomePage() {
               {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} /> : null}
               <section className={`${leftPanelInnerWidthClass} min-w-0 overflow-hidden`}>
                 <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">[{selectedCustomerName} 고객] 과거 상담 내역</p>
-                {/* 카드 약 6개 높이만큼만 보여주고, 그 이상은 안 잘라내고 스크롤로 내려서 보게 한다(2026-09). */}
-                <div className="grid max-h-[620px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {/* 카드 약 11개 높이만큼만 보여주고, 12번째부터는 이 안에서만 스크롤(2026-09) —
+                    aside 바깥 틀은 위 ResizeObserver로 중앙 패널에 이미 정확히 고정돼 있으니 그대로
+                    둔다. */}
+                <div className="grid max-h-[1200px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).length ? selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).map((session) => (
                     <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onPreRecord={() => preRecordSession(session)} onStart={() => startSession(session)} />
                   )) : <EmptyBox text="상담 내역이 없습니다." />}
@@ -655,11 +693,19 @@ export default function HomePage() {
           ) : null}
         </aside>
 
-        <section className="flex flex-col min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/70 bg-white/75 p-4 shadow-xl shadow-blue-900/5 backdrop-blur">
+        {/* self-start: 이 열이 grid 행 stretch에 끌려 좌우 패널 콘텐츠 양에 맞춰 늘어나지 않고, 항상
+            자기 콘텐츠(시황 보고서) 높이만큼만 렌더링되게 한다 — 이래야 위 ResizeObserver가 재는 높이가
+            "진짜" 중앙 패널 높이가 된다(2026-09). */}
+        <section ref={centerPanelRef} className="flex flex-col self-start min-w-0 max-w-full overflow-hidden rounded-2xl border border-white/70 bg-white/75 p-4 shadow-xl shadow-blue-900/5 backdrop-blur">
           <MarketDashboard selectedCustomer={selectedCustomer} selectedState={selectedState} customers={customers} customerData={customerData} pbName={pbSession?.name || tempPbName} pbId={pbSession?.id} pbEmployeeId={pbSession?.employeeId} />
         </section>
 
-        <aside className={`overflow-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}>
+        {/* 중앙 패널 실제 렌더 높이를 style로 직접 강제 — 왼쪽 패널과 동일한 이유(왼쪽 패널 주석
+            참고, 2026-09). 넘치는 내용은 overflow-y-auto로 이 안에서만 스크롤. */}
+        <aside
+          style={centerPanelHeight != null ? { height: centerPanelHeight } : undefined}
+          className={`min-h-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${rightOpen ? "p-4" : "p-2"}`}
+        >
           {/* 왼쪽 패널 헤더와 동일한 min-h — 그 아래 첫 줄(분석실·상담실 입장)이 왼쪽의 로그아웃 버튼과
               같은 높이에서 시작하도록 맞춘다(왼쪽 헤더 주석 참고). */}
           <div className="mb-4 flex min-h-[70px] items-start justify-between gap-2">
@@ -672,7 +718,21 @@ export default function HomePage() {
             <div className="grid gap-5 [&>p:first-of-type]:hidden">
               <p className="text-sm font-extrabold text-blue-900">상담 일정</p>
               {activeConsultation ? (
-                <button type="button" onClick={() => router.push(activeConsultation.returnPath || "/consultation/tab1")} className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // activeConsultation은 PB용 Home과 고객용 Home(customer-home/page.tsx)이
+                    // 같은 storage를 공유해서 읽는 값이라, returnPath가 고객 화면 경로
+                    // (/customer-maintab/...)로 저장돼 있는 경우가 있다 — 고객 화면이 나중에
+                    // 저장했거나, 여러 화면을 동시에 띄워둔 VVIP 미러링 상황 등(2026-09 발견).
+                    // PB 화면에서는 항상 /consultation/*으로 강제 정규화해서, 저장된 값이 무엇이든
+                    // "돌아가기"를 누르면 고객 화면으로 튀지 않게 한다(customer-home 쪽이 반대
+                    // 방향으로 이미 하고 있는 것과 동일한 방어 로직).
+                    const path = (activeConsultation.returnPath || "/consultation/tab1").replace("/customer-maintab", "/consultation");
+                    router.push(path);
+                  }}
+                  className="grid justify-items-center gap-1 rounded-xl bg-blue-600 px-3 py-3 text-xs font-extrabold text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700"
+                >
                   <span className="inline-flex items-center gap-1"><Home size={15} /> 상담 화면으로 돌아가기</span>
                   <span className="font-mono">{formatTimer(elapsedSeconds)}</span>
                 </button>
@@ -1195,46 +1255,48 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
         </div>
 
         <div className="mt-3 border-t border-slate-100 pt-3">
-          <p className="mb-2 text-xs font-black text-slate-400">{selectedDateKey ? selectedDateKey.replaceAll("-", ".") : "날짜를 선택해주세요"}</p>
+          <p className="mb-2 text-sm font-black text-slate-400">{selectedDateKey ? selectedDateKey.replaceAll("-", ".") : "날짜를 선택해주세요"}</p>
 
           {/* 상담 일정과 주요 일정을 각자 독립된 칸으로 분리 — 예전엔 두 종류를 한 목록에 섞어서
               max-h-[140px] 하나로 스크롤했기 때문에, 상담 일정이 많으면 주요 일정을 보려고 그 안에서
-              또 스크롤해야 하는 번거로움이 있었다(2026-09 리디자인). 이제 각자 자기 칸 안에서만
-              스크롤되고, 서로의 항목 수에 영향받지 않는다. */}
+              또 스크롤해야 하는 번거로움이 있었다(2026-09 리디자인). 각자 자기 칸에서 독립적으로
+              쌓이고, 서로의 항목 수에 영향받지 않는다. 중앙 패널(시황 보고서)이 원래 더 길어서, 개별
+              스크롤 캡(max-h-[210px]) 없이 항목을 전부 그대로 나열해도 전체 높이가 자연스럽게
+              비슷해진다(2026-09). */}
           <div className="grid gap-2">
             <div className="rounded-xl bg-blue-50/60 p-2.5">
-              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black text-blue-700">
+              <p className="mb-1.5 flex items-center gap-1.5 text-sm font-black text-blue-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> 상담 일정
                 {selectedConsultationItems.length > 0 && <span className="text-blue-400">{selectedConsultationItems.length}건</span>}
               </p>
               {!selectedDateKey ? (
-                <p className="px-1 py-1 text-xs font-bold text-slate-400">날짜를 선택하면 표시됩니다.</p>
+                <p className="px-1 py-1 text-sm font-bold text-slate-400">날짜를 선택하면 표시됩니다.</p>
               ) : selectedConsultationItems.length ? (
-                <div className="grid max-h-[210px] gap-1 overflow-y-auto pr-1">
+                <div className="grid gap-1">
                   {selectedConsultationItems.map((item) => (
-                    <p key={item.id} className="break-keep rounded-lg bg-white px-2.5 py-1.5 text-xs font-extrabold leading-5 text-blue-900 shadow-sm">
+                    <p key={item.id} className="break-keep rounded-lg bg-white px-2.5 py-2 text-sm font-extrabold leading-6 text-blue-900 shadow-sm">
                       <span className="text-blue-400">{item.time}</span> {item.text}
                     </p>
                   ))}
                 </div>
               ) : (
-                <p className="px-1 py-1 text-xs font-bold text-slate-400">일정이 없습니다.</p>
+                <p className="px-1 py-1 text-sm font-bold text-slate-400">일정이 없습니다.</p>
               )}
             </div>
 
             <div className="rounded-xl bg-amber-50/60 p-2.5">
-              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black text-amber-700">
+              <p className="mb-1.5 flex items-center gap-1.5 text-sm font-black text-amber-700">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> 주요 일정
                 {selectedMarketItems.length > 0 && <span className="text-amber-500">{selectedMarketItems.length}건</span>}
               </p>
               {!selectedDateKey ? (
-                <p className="px-1 py-1 text-xs font-bold text-slate-400">날짜를 선택하면 표시됩니다.</p>
+                <p className="px-1 py-1 text-sm font-bold text-slate-400">날짜를 선택하면 표시됩니다.</p>
               ) : selectedMarketItems.length ? (
-                <div className="grid max-h-[210px] gap-1 overflow-y-auto pr-1">
+                <div className="grid gap-1">
                   {selectedMarketItems.map((item) => (
                     <p
                       key={item.id}
-                      className={`break-keep rounded-lg bg-white px-2.5 py-1.5 text-xs leading-5 shadow-sm ${item.importance === "high" ? "font-extrabold text-amber-900" : "font-bold text-amber-800"}`}
+                      className={`break-keep rounded-lg bg-white px-2.5 py-2 text-sm leading-6 shadow-sm ${item.importance === "high" ? "font-extrabold text-amber-900" : "font-bold text-amber-800"}`}
                     >
                       <MarketFlag market={item.market} />
                       <span className="text-amber-500">{item.time}</span> {item.title}
@@ -1242,7 +1304,7 @@ function RightPanelCalendar({ sessions, customers, marketEvents }: { sessions: C
                   ))}
                 </div>
               ) : (
-                <p className="px-1 py-1 text-xs font-bold text-slate-400">일정이 없습니다.</p>
+                <p className="px-1 py-1 text-sm font-bold text-slate-400">일정이 없습니다.</p>
               )}
             </div>
           </div>

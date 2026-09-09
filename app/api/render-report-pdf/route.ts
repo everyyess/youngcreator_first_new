@@ -149,6 +149,12 @@ export async function POST(request: NextRequest) {
     await new Promise((resolve) => setTimeout(resolve, 700));
     await page.evaluate(() => window.dispatchEvent(new Event("resize")));
     await new Promise((resolve) => setTimeout(resolve, 300));
+    // 레이더 차트 크롭·중앙정렬 — 세션 내내 이 부분을 "더 정확한 중앙정렬"로 여러 번 고쳐봤는데
+    // (getBoundingClientRect 기반 자리 이어받기, Puppeteer elementHandle.screenshot(), getBBox 기반
+    // 비대칭 크롭 등) 전부 다운로드한 실제 PDF에서 차트가 더 심하게 잘리거나 안 보이는 결과였다.
+    // "정중앙은 완벽하지 않아도 됐으니 최소한 전체가 보이기라도 했던" 세션 시작 시점의 원래 로직으로
+    // 되돌린다(2026-09) — 조상 요소 너비를 강제한 뒤 viewBox를 기하학적 중심 기준으로 크롭해서
+    // canvas로 래스터화하는 방식. 이 부분은 더 이상 손대지 않는다.
     await page.evaluate(() => {
       document.querySelectorAll<SVGElement>("#market-report-pdf .recharts-surface").forEach((svg) => {
         const container = svg.closest(".recharts-responsive-container") as HTMLElement | null;
@@ -184,17 +190,11 @@ export async function POST(request: NextRequest) {
       const svgs = Array.from(document.querySelectorAll<SVGElement>("#market-report-pdf .recharts-surface"));
       for (const svg of svgs) {
         const wrapper = svg.closest(".recharts-wrapper") as HTMLElement | null;
-        const container = svg.closest(".recharts-responsive-container") as HTMLElement | null;
         const viewBox = (svg.getAttribute("viewBox") ?? "").split(/\s+/).map(Number);
         if (viewBox.length !== 4 || viewBox.some(Number.isNaN)) continue;
         const [, viewY, viewWidth, viewHeight] = viewBox;
         const width = Math.max(280, Math.min(320, Math.ceil(viewHeight * 1.25)));
         const height = Math.max(1, Math.ceil(viewHeight));
-        // Recharts는 극좌표 차트(RadarChart)를 항상 자신의 viewBox 정중앙(cx=50%, cy=50%)에 그린다.
-        // 예전엔 "실제로 그려진 요소들의 bounding box"(getBBox) 중심으로 크롭했는데, 축 라벨 텍스트
-        // (예: "세금 효율성"처럼 긴 글자)가 좌우로 비대칭하게 뻗어 있으면 그 중심이 진짜 도형 중심과
-        // 어긋나서 PDF에서 레이더 차트가 한쪽으로 치우쳐 보이는 문제가 있었다(2026-09 발견·수정).
-        // 라벨 범위가 아니라 viewBox 자체의 기하학적 중심을 기준으로 크롭하면 항상 정중앙에 온다.
         const visualCenter = viewBox[0] + viewWidth / 2;
         const cropViewBox = `${visualCenter - width / 2} ${viewY} ${width} ${height}`;
         const svgClone = svg.cloneNode(true) as SVGElement;

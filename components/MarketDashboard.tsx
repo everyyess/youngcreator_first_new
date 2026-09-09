@@ -7,7 +7,7 @@ import { Download, FileText, Mail, RefreshCw, ChevronDown} from "lucide-react";
 import type { MarketIndexItem } from "@/lib/marketData";
 import type { AppState, CustomerProfile, PortfolioAsset, RebalancingHistoryRecord, RebalancingPortfolioSnapshot } from "@/app/maintab/CustomerContext";
 import { loadAnalysisResult, loadPortfolioAssets, loadRebalancingState, loadSharedMaintabUiState } from "@/app/maintab/CustomerContext";
-import { HealthRadarChart } from "@/app/maintab/PortfolioResultComponents";
+import { HealthRadarChart, isProductHolding } from "@/app/maintab/PortfolioResultComponents";
 import { getCustomerSessions } from "@/app/consultationStore";
 import { buildCustomerReportSections } from "@/services/customerService";
 import { MacroChartViewer } from "@/components/MacroChartViewer";
@@ -390,6 +390,35 @@ function getPdfTodayTitle() {
     parts.find((part) => part.type === type)?.value ?? "";
 
   return `${get("year")}-${get("month")}-${get("day")} 오늘의 시황 보고서`;
+}
+
+// Recharts는 레이더 차트 폴리곤을 800ms 애니메이션으로 그린다 — 다 그려지기 전에 DOM을 복제해서
+// 서버로 보내면 폴리곤 좌표가 0에 가까운 상태(거의 안 보이는 점)로 스냅샷이 찍혀서, 서버에서
+// 뭘 해도 차트가 안 보인다(2026-09 발견 — PDF 다운로드/메일전송 공통 원인). 애니메이션 중엔
+// Recharts가 매 프레임 path의 "d" 속성을 갱신하므로, 그 값이 3프레임 연속 안 바뀔 때까지(최대
+// 3초) 기다린 뒤에 캡처한다.
+//
+// 셀렉터 주의: recharts-radar-polygon 클래스는 <g> 래퍼(Radar.js의 Layer)에 붙는 것이고, 실제
+// 좌표(d 속성)를 가진 <path>는 그 안에 중첩된 별도 엘리먼트로 recharts-polygon 클래스를 쓴다
+// (node_modules/recharts/lib/shape/Polygon.js 확인). <g>는 d 속성이 아예 없어서
+// getAttribute("d")가 항상 null(빈 문자열로 폴백)이었고, 그러면 "" === "" 비교가 첫 프레임부터
+// 항상 참이 돼서 대기 로직이 있으나 마나였다 — 이게 지난 수정에서도 여전히 안 보였던 진짜 원인.
+async function waitForRadarAnimation(element: HTMLElement) {
+  const radarPolygon = element.querySelector<SVGPathElement>(
+    ".portfolio-health-radar-pdf .recharts-radar-polygon path.recharts-polygon",
+  );
+  if (!radarPolygon) return;
+  const deadline = Date.now() + 3000;
+  let previousPath = "";
+  let stableFrames = 0;
+  while (Date.now() < deadline) {
+    const currentPath = radarPolygon.getAttribute("d") ?? "";
+    if (currentPath && currentPath === previousPath) stableFrames += 1;
+    else stableFrames = 0;
+    previousPath = currentPath;
+    if (stableFrames >= 3) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 function getMonthlyPerformanceSchedule(baseDate = new Date()) {
@@ -1158,6 +1187,15 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
         })
       : "-";
   }
+  // "월별 포트폴리오 성과" 카드의 ‹/› 탐색은 pdfCustomerId를 특정 고객으로 고정시킨다(handlePdfPreview·
+  // movePdfCustomer 참고). 그 뒤로 Home 왼쪽 패널에서 다른 고객을 선택해도 pdfCustomerId가 그대로
+  // 남아있어서, pdfCustomer(= customers.find(pdfCustomerId) ?? selectedCustomer)가 계속 예전 고객으로
+  // 고정되고 — 이 카드만 "모든 고객이 같은 내용"으로 보이는 버그였다(2026-09 발견·수정). 전역 선택
+  // 고객이 바뀌면 이 카드의 탐색 상태도 같이 리셋해서 새로 선택된 고객을 따라가게 한다.
+  useEffect(() => {
+    setPdfCustomerId("");
+  }, [selectedCustomer?.id]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1218,8 +1256,18 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
 
       setPerformanceProductAssets(finalProducts);
 
+      // 주식·ETF 성과 표는 원본 보유자산(assets, portfolio_assets 컬럼)이 아니라 TAB3 리밸런싱의
+      // 최신 작업 스냅샷(rebalancing.sellAssets, rebalancing_state.sell_assets 컬럼)을 우선 쓴다
+      // (2026-09 발견·수정) — rebalancing은 이미 fetch만 해두고 실제로는 안 쓰고 있어서, 리밸런싱을
+      // 아무리 반영해도 이 표는 항상 원래 보유자산 그대로 보였다. sellAssets는 TAB3-1(주식)·TAB3-2
+      // (상품) 어느 쪽에서 담든 실시간으로 갱신되는 "지금 이 순간의 포트폴리오" 이므로, 상품 항목은
+      // 아래 표(performanceProductAssets)와 중복되지 않도록 걸러내고 주식·ETF만 남긴다. 아직 리밸런싱을
+      // 한 번도 안 했으면(빈 배열) 예전처럼 원본 보유자산으로 폴백한다.
+      const rebalancedStockAssets = rebalancing.sellAssets.filter((a) => !isProductHolding(a));
+      const baseStockAssets = rebalancedStockAssets.length > 0 ? rebalancedStockAssets : assets;
+
       const pricedAssets = await Promise.all(
-        assets.map(async (asset) => {
+        baseStockAssets.map(async (asset) => {
           const ticker = asset.ticker?.trim();
 
           if (!ticker) {
@@ -1587,25 +1635,7 @@ function MarketReportMailingPanel({ selectedCustomer, selectedState, customers =
       setDownloadingPdf(true);
       setActionMessage("PDF 다운로드 준비 중...");
       await document.fonts.ready;
-
-      // Recharts writes the animated radar polygon directly into the SVG path.
-      // Wait for the final path before cloning the preview for server-side PDF rendering.
-      const radarPolygon = element.querySelector<SVGPathElement>(
-        '.portfolio-health-radar-pdf path[fill="#f3b64f"]',
-      );
-      if (radarPolygon) {
-        const deadline = Date.now() + 3000;
-        let previousPath = "";
-        let stableFrames = 0;
-        while (Date.now() < deadline) {
-          const currentPath = radarPolygon.getAttribute("d") ?? "";
-          if (currentPath && currentPath === previousPath) stableFrames += 1;
-          else stableFrames = 0;
-          previousPath = currentPath;
-          if (stableFrames >= 3) break;
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-      }
+      await waitForRadarAnimation(element);
 
       const customerName = pdfCustomer?.name || pdfCustomer?.fallbackName || "고객";
       const clonedElement = element.cloneNode(true) as HTMLElement;
@@ -1685,6 +1715,11 @@ async function handleSendPdfToCustomer() {
       setActionMessage("PDF 생성 중...");
 
       await document.fonts.ready;
+
+      // 레이더 차트 애니메이션(800ms)이 다 그려지기 전에 캡처하면 폴리곤이 거의 0에 가까운
+      // 좌표로 찍혀서 서버에서 아무리 처리해도 차트가 안 보인다 — handleDownloadPdf와 동일한
+      // 대기 로직(2026-09 추가, handleDownloadPdf 주석 참고).
+      await waitForRadarAnimation(element);
 
       const customerName =
         pdfCustomer.name || pdfCustomer.fallbackName || "고객";
@@ -1844,6 +1879,7 @@ async function handleSendPdfToCustomer() {
 
         try {
           await document.fonts.ready;
+          await waitForRadarAnimation(element);
 
           const fileName = `${customerName}_시황보고서.pdf`;
 
