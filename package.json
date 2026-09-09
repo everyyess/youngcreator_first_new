@@ -5,6 +5,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "verify:customer-consultation-isolation": "node scripts/verify-customer-consultation-isolation.mjs",
     "verify:leveraged-etf-dividends": "node scripts/verify-leveraged-etf-dividends.mjs"
   },
   "dependencies": {

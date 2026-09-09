@@ -30,14 +30,28 @@ export default function Tab3Page() {
   } = useCustomerContext();
   const syncedActiveInnerTab = tab3AnalysisState.activeInnerTab;
 
+  // 구버전 고객 TAB5 북마크는 신형 TAB3의 상품 리밸런싱 화면으로 이어 준다.
   useEffect(() => {
-    if (isVisibleInnerTab(syncedActiveInnerTab) && syncedActiveInnerTab !== activeInnerTab) {
-      setActiveInnerTab(syncedActiveInnerTab);
-    }
-  }, [syncedActiveInnerTab, activeInnerTab]);
+    const requestedInnerTab = new URLSearchParams(window.location.search).get("innerTab");
+    if (isVisibleInnerTab(requestedInnerTab)) setActiveInnerTab(requestedInnerTab);
+  }, []);
+
+  // PB가 탭을 옮겼을 때만 따라간다.
+  // deps에 activeInnerTab을 넣고 매번 비교하면, 고객이 스스로 고른 탭이 곧바로
+  // PB 값으로 되돌아가 자유 열람이 불가능해진다. 그래서 "동기화 값이 실제로 바뀐 순간"만
+  // ref로 판별해 반영한다 — 그 사이 고객의 로컬 선택은 그대로 유지된다.
+  const lastSyncedInnerTabRef = useRef<string | undefined>(syncedActiveInnerTab);
+  useEffect(() => {
+    if (syncedActiveInnerTab === lastSyncedInnerTabRef.current) return;
+    lastSyncedInnerTabRef.current = syncedActiveInnerTab;
+    if (isVisibleInnerTab(syncedActiveInnerTab)) setActiveInnerTab(syncedActiveInnerTab);
+  }, [syncedActiveInnerTab]);
 
   const selectInnerTab = (tab: InnerTab) => {
     setActiveInnerTab(tab);
+    // 고객 화면은 읽기 전용이다. 탭 전환은 자유롭게 하되 공유 상태에는 쓰지 않는다
+    // (쓰면 고객 조작이 PB 화면까지 바꾼다).
+    if (appMode === "customer") return;
     updateTab3AnalysisState({ activeInnerTab: tab }, { allowReadOnlyViewState: true });
   };
 
@@ -54,6 +68,10 @@ export default function Tab3Page() {
   selectedCustomerRef.current = selectedCustomer;
 
   useEffect(() => {
+    if (appMode === "customer") {
+      setIsNewPortfolioAnalyzing(false);
+      return;
+    }
     if (rebalancingSellAssets.length === 0) {
       setIsNewPortfolioAnalyzing(false); // 포트폴리오가 비면 분석할 게 없으니 로딩 상태도 해제(끼임 방지)
       return;
@@ -136,11 +154,12 @@ export default function Tab3Page() {
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rebalancingSellAssets]);
+  }, [appMode, rebalancingSellAssets]);
 
-  if (appMode === "customer") {
-    return <BuySimulatorTab />;
-  }
+  // 고객 화면도 PB 상담실과 완전히 같은 내부 탭 구조를 쓴다.
+  // 리밸런싱 히스토리는 고객도 볼 수 있고(근거 입력란만 읽기 전용),
+  // 「분석실로 이동」만 PB 분석실 진입 경로라 고객에게 노출하지 않는다.
+  const isCustomer = appMode === "customer";
 
   return (
     <>
@@ -157,21 +176,24 @@ export default function Tab3Page() {
             {tab.label}
           </button>
         ))}
-        <button
-          type="button"
-          data-consultation-lock-exempt="true"
-          onClick={() => {
-            // "/analysis/screener"는 실제로 존재하는 라우트가 아니라 [tab]/page.tsx에서 매핑 실패로
-            // "/analysis/tab1"로 서버 리다이렉트되는데, 그 과정에서 쿼리스트링이 버려진다 — 그래서
-            // returnTab을 sessionStorage에만 의존하면 새 탭에서 유실될 수 있다. 처음부터 실제
-            // 목적지(tab1=종목분석)로 직접 이동하고 returnTab을 쿼리로 실어 보낸다.
-            sessionStorage.setItem("analysisReturnTab", "tab3");
-            window.open("/analysis/tab1?returnTab=tab3", "_blank", "noopener,noreferrer");
-          }}
-          className="shrink-0 rounded-md border border-samsung/30 bg-samsung/5 px-3 py-2.5 text-xs font-bold text-samsung transition hover:bg-samsung/10"
-        >
-          분석실로 이동
-        </button>
+        {/* 분석실은 PB 전용 화면이라 고객 화면에서는 진입 버튼을 노출하지 않는다 */}
+        {!isCustomer && (
+          <button
+            type="button"
+            data-consultation-lock-exempt="true"
+            onClick={() => {
+              // "/analysis/screener"는 실제로 존재하는 라우트가 아니라 [tab]/page.tsx에서 매핑 실패로
+              // "/analysis/tab1"로 서버 리다이렉트되는데, 그 과정에서 쿼리스트링이 버려진다 — 그래서
+              // returnTab을 sessionStorage에만 의존하면 새 탭에서 유실될 수 있다. 처음부터 실제
+              // 목적지(tab1=종목분석)로 직접 이동하고 returnTab을 쿼리로 실어 보낸다.
+              sessionStorage.setItem("analysisReturnTab", "tab3");
+              window.open("/analysis/tab1?returnTab=tab3", "_blank", "noopener,noreferrer");
+            }}
+            className="shrink-0 rounded-md border border-samsung/30 bg-samsung/5 px-3 py-2.5 text-xs font-bold text-samsung transition hover:bg-samsung/10"
+          >
+            분석실로 이동
+          </button>
+        )}
       </div>
 
       {activeInnerTab === "stock-rebalancing" && <BuySimulatorTab />}

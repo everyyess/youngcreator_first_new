@@ -156,14 +156,19 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
       setLoading(true);
       setError(null);
 
-      Promise.all(
-        types.map(async (type) => {
+      (async () => {
+        const results: { type: string; rows: StockRow[] }[] = [];
+        for (const type of types) {
           const res = await fetch(`/api/screener?type=${type}`, { cache: "no-store" });
           const json = await res.json();
           if (!json.ok) throw new Error(`${type}: ${json.error}`);
-          return { type, rows: json.data as StockRow[] };
-        }),
-      )
+          results.push({ type, rows: json.data as StockRow[] });
+          if (types.indexOf(type) < types.length - 1) {
+            await new Promise((r) => setTimeout(r, 400));
+          }
+        }
+        return results;
+      })()
         .then((results) => {
           setApiData((prev) => {
             const next = { ...prev };

@@ -73,7 +73,6 @@ const customerTabPaths: Record<string, string> = {
   existing:  "/customer-maintab/tab2",
   create:    "/customer-maintab/tab3",
   compare:   "/customer-maintab/tab4",
-  recommend: "/customer-maintab/tab5",
 };
 
 function toFiniteNumber(value: unknown) {
@@ -221,8 +220,10 @@ function mergeSharedUiState(current: SharedMaintabUiState, patch: SharedMaintabU
   return {
     ...current,
     ...patch,
+    workspace: patch.workspace ? { ...(current.workspace ?? {}), ...patch.workspace } : current.workspace,
     tab2: patch.tab2 ? { ...(current.tab2 ?? {}), ...patch.tab2 } : current.tab2,
     tab3: patch.tab3 ? { ...(current.tab3 ?? {}), ...patch.tab3 } : current.tab3,
+    tab4: patch.tab4 ? { ...(current.tab4 ?? {}), ...patch.tab4 } : current.tab4,
     tab5: patch.tab5 ? { ...(current.tab5 ?? {}), ...patch.tab5 } : current.tab5,
   };
 }
@@ -258,6 +259,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const [customerUpdatedAt, setCustomerUpdatedAt] = useState<CustomerUpdatedMap>({});
   const [dirtyCustomerData, setDirtyCustomerData] = useState<Record<CustomerId, boolean>>({});
   const [storageErrorMessage, setStorageErrorMessage] = useState("");
+  const [isTextComposing, setIsTextComposing] = useState(false);
   const [analysisRequested, setAnalysisRequested] = useState(false);
   const [confirmedRiskResult, setConfirmedRiskResult] = useState<RiskResult | null>(null);
   const [lastAnalysisSnapshot, setLastAnalysisSnapshot] = useState<ReturnType<typeof buildStructuredJsonPayload> | null>(null);
@@ -271,9 +273,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const activeConsultationForSelected = activeConsultation?.customerId === selectedCustomer ? activeConsultation : null;
   const isPreRecordMode = !activeConsultationForSelected && preRecordConsultation?.customerId === selectedCustomer;
   const completedConsultationForSelected = completedConsultation?.customerId === selectedCustomer ? completedConsultation : null;
-  const isConsultationReadOnly = !isPreRecordMode && !activeConsultationForSelected && (
-    latestConsultationSession?.status === "completed" ||
-    Boolean(completedConsultationForSelected)
+  const isConsultationReadOnly = isCustomerView || (
+    !isPreRecordMode && !activeConsultationForSelected && (
+      latestConsultationSession?.status === "completed" ||
+      Boolean(completedConsultationForSelected)
+    )
   );
   const displayedConsultationElapsedSeconds = activeConsultation
     ? activeConsultationElapsedSeconds
@@ -335,6 +339,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const rebalancingBuyMapRef = useRef<Record<CustomerId, PortfolioAsset[]>>({});
   const tab3AnalysisStateMapRef = useRef<Record<CustomerId, Tab3AnalysisState>>({});
   const sharedUiStateMapRef = useRef<Record<CustomerId, SharedMaintabUiState>>({});
+  const sharedUiSaveInFlightRef = useRef<Record<CustomerId, boolean>>({});
+  const sharedUiSaveQueuedRef = useRef<Record<CustomerId, SharedMaintabUiState>>({});
+  const customerSaveGenerationRef = useRef<Record<CustomerId, number>>({});
+  const customerSaveInFlightRef = useRef<Record<CustomerId, boolean>>({});
+  const customerSaveQueuedRef = useRef<Record<CustomerId, { payload: unknown; generation: number }>>({});
   const sellHistoryMapRef = useRef<Record<CustomerId, SellRecord[]>>({});
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
   const isConsultationReadOnlyRef = useRef(false);
@@ -887,6 +896,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   // 고객별 Supabase portfolio_assets에 즉시 저장한다.
   // 최초 DB 로드가 끝난 뒤에만 실행하여 빈 초기값 덮어쓰기를 방지한다.
   useEffect(() => {
+    if (appMode !== "pb") return;
     const customerId = selectedCustomer;
 
     if (!customerId) return;
@@ -906,6 +916,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
     return () => window.clearTimeout(timer);
   }, [
+    appMode,
     selectedCustomer,
     portfolioAssetsMap,
     portfolioLoadedMap,
@@ -913,6 +924,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
   // ── 리밸런싱 상태 변경 즉시 저장 (매도→rebalancing_state, 매수→new_analysis_results 분리 저장)
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!rebalancingLoadedMap[selectedCustomer]) return;
     if (!rebalancingDirtyMap[selectedCustomer]) return;
 
@@ -925,10 +937,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     ]).then(() => {
       setRebalancingDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
-  }, [rebalancingSellMap, rebalancingBuyMap, rebalancingLoadedMap, rebalancingDirtyMap, selectedCustomer]);
+  }, [appMode, rebalancingSellMap, rebalancingBuyMap, rebalancingLoadedMap, rebalancingDirtyMap, selectedCustomer]);
 
   // ── Tab 5 상품 선택 변경 즉시 저장 ─────────────────────────────────────────
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!productSelectionsLoadedMap[selectedCustomer]) return;
     if (!productSelectionsDirtyMap[selectedCustomer]) return;
 
@@ -940,10 +953,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     ]).then(() => {
       setProductSelectionsDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
-  }, [productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
+  }, [appMode, productSelectionsMap, productSelectionsLoadedMap, productSelectionsDirtyMap, selectedCustomer]);
 
   // ── TAB2-5 매도 이력 변경 즉시 저장 → rebalancing_state.sell_history ────────
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!rebalancingLoadedMap[selectedCustomer]) return; // 로드 완료 후에만 저장
     if (!sellHistoryDirtyMap[selectedCustomer]) return;
 
@@ -952,11 +966,12 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     void saveSellHistory(customerId, history).then(() => {
       setSellHistoryDirtyMap(prev => ({ ...prev, [customerId]: false }));
     });
-  }, [sellHistoryMap, sellHistoryDirtyMap, rebalancingLoadedMap, selectedCustomer]);
+  }, [appMode, sellHistoryMap, sellHistoryDirtyMap, rebalancingLoadedMap, selectedCustomer]);
 
   // ── 자산 변경 즉시 저장 — Tab 1의 saveCustomerDataJsonOnly 패턴과 완전히 동일
   // debounce 없음: 변경 즉시 저장하여 고객 전환 전에 항상 DB 반영 완료
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!portfolioLoadedMap[selectedCustomer]) return;
     if (!dirtyPortfolioMap[selectedCustomer]) return;
 
@@ -982,7 +997,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
           error: detail,
         });
       });
-  }, [portfolioAssetsMap, portfolioLoadedMap, dirtyPortfolioMap, selectedCustomer]);
+  }, [appMode, portfolioAssetsMap, portfolioLoadedMap, dirtyPortfolioMap, selectedCustomer]);
 
   // ── 포트폴리오 행 조작 함수 — Tab 1의 setFinancial/setRrttllu 패턴과 동일 ──
   const addPortfolioRow = () => {
@@ -994,6 +1009,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setDirtyPortfolioMap(prev => ({ ...prev, [selectedCustomer]: true }));
   };
   const bulkAddPortfolioRows = (rows: Partial<PortfolioAsset>[]) => {
+    if (!canEditConsultation()) return;
     setPortfolioAssetsMap(prev => ({
       ...prev,
       [selectedCustomer]: [
@@ -1202,12 +1218,26 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   }, []); // stable
 
   const updateTab3AnalysisState = useCallback((patch: Partial<Tab3AnalysisState>, options?: { allowReadOnlyViewState?: boolean }) => {
+    if (appMode !== "pb") return;
     if (isConsultationReadOnlyRef.current && !options?.allowReadOnlyViewState) { setEditLockDialogOpen(true); return; }
     const cid = selectedCustomerRef.current;
     const nextState = { ...(tab3AnalysisStateMapRef.current[cid] ?? {}), ...patch };
     setTab3AnalysisStateMap(prev => ({ ...prev, [cid]: nextState }));
     void saveTab3AnalysisState(cid, nextState);
-  }, []); // stable
+  }, [appMode]);
+
+  const flushSharedUiStateSave = useCallback(async function flush(customerId: CustomerId) {
+    if (sharedUiSaveInFlightRef.current[customerId]) return;
+    const queued = sharedUiSaveQueuedRef.current[customerId];
+    if (!queued) return;
+
+    delete sharedUiSaveQueuedRef.current[customerId];
+    sharedUiSaveInFlightRef.current[customerId] = true;
+    await saveSharedMaintabUiState(customerId, queued);
+    sharedUiSaveInFlightRef.current[customerId] = false;
+
+    if (sharedUiSaveQueuedRef.current[customerId]) void flush(customerId);
+  }, []);
 
   const updateSharedUiState = useCallback((patch: SharedMaintabUiState) => {
     const cid = selectedCustomerRef.current;
@@ -1215,15 +1245,31 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     sharedUiStateMapRef.current = { ...sharedUiStateMapRef.current, [cid]: nextState };
     setSharedUiStateMap(prev => ({ ...prev, [cid]: nextState }));
     if (appMode === "pb") {
-      void saveSharedMaintabUiState(cid, nextState).catch((error) => {
-        console.error("Supabase rebalancing_state.sharedUiState save failed", {
-          customerId: cid,
-          stateKey: Object.keys(patch).join(",") || "sharedUiState",
-          error,
-        });
-      });
+      sharedUiSaveQueuedRef.current[cid] = nextState;
+      void flushSharedUiStateSave(cid);
     }
-  }, [appMode]);
+  }, [appMode, flushSharedUiStateSave]);
+
+  // PB의 상위 탭 이동은 고객 화면에 단방향으로 전달한다. 고객이 직접 둘러본 탭은
+  // PB 상태에 쓰지 않고, PB가 다음 탭으로 이동한 순간에만 고객 화면이 다시 따라간다.
+  const activeWorkspaceTab = currentSegment ? segmentToTab[currentSegment] : undefined;
+  useEffect(() => {
+    if (appMode !== "pb" || !selectedCustomer || !rebalancingLoadedMap[selectedCustomer] || !activeWorkspaceTab || activeWorkspaceTab === "recommend") return;
+    if (sharedUiState.workspace?.activeTab === activeWorkspaceTab) return;
+    updateSharedUiState({
+      workspace: { activeTab: activeWorkspaceTab as "profile" | "existing" | "create" | "compare" },
+    });
+  }, [activeWorkspaceTab, appMode, rebalancingLoadedMap, selectedCustomer, sharedUiState.workspace?.activeTab, updateSharedUiState]);
+
+  const lastCustomerSyncedWorkspaceTabRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (appMode !== "customer") return;
+    const syncedTab = sharedUiState.workspace?.activeTab;
+    if (!syncedTab || syncedTab === lastCustomerSyncedWorkspaceTabRef.current) return;
+    lastCustomerSyncedWorkspaceTabRef.current = syncedTab;
+    const targetPath = customerTabPaths[syncedTab];
+    if (targetPath && segmentToTab[currentSegment ?? "tab1"] !== syncedTab) router.push(targetPath);
+  }, [appMode, currentSegment, router, sharedUiState.workspace?.activeTab]);
 
   const setProductSelectedIds = useCallback((ids: string[]) => {
     if (isConsultationReadOnlyRef.current) { setEditLockDialogOpen(true); return; }
@@ -1414,13 +1460,16 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   // 오히려 추가 투자 의향이 줄어드는 것처럼 보이는 문제가 있었다. rebalancingSellAssets는 매수·매도
   // 어느 액션이든 그 즉시(디바운스 전에) 갱신되므로 이런 레이스가 없다.
   const availableInvestmentFunds = useMemo(() => {
-    const b = parseKrwAmount(formData.financial.investableAssets) ?? 0;
+    const parsedAdditionalFunds = parseKrwAmount(formData.financial.investableAssets);
+    const b = parsedAdditionalFunds ?? 0;
     const c = formData.headerAssetSummary?.confirmedOperatingAssetsAfterSell ?? null;
 
-    if (!isPortfolioLoaded) return b > 0 ? b : null;
+    // "0원 명시 입력"과 "아예 미입력"을 구분한다(parsedAdditionalFunds !== null) — b > 0만 보면 0을
+    // 명시적으로 입력한 경우도 미입력과 똑같이 취급돼버리는 문제가 있었다(팀원 수정, 2026-09 merge).
+    if (!isPortfolioLoaded) return parsedAdditionalFunds !== null ? b : null;
     const a = sumPortfolioCurrentValue(portfolioAssets);
     // 포트폴리오 미로드 시 a = 0 → cashFromSales/buySpent 음수 오염 방지 — b만 반환
-    if (!Number.isFinite(a) || a <= 0) return b > 0 ? b : null;
+    if (!Number.isFinite(a) || a <= 0) return parsedAdditionalFunds !== null ? b : null;
 
     // 매도 확정 안 했으면 원본 포트폴리오 총액(a)이 매수 전 기준선
     const baseline = c ?? a;
@@ -1456,17 +1505,46 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     [formData.financial, formData.headerAssetSummary, portfolioAssets, availableInvestmentFunds],
   );
 
+  const flushQueuedCustomerSave = useCallback(async function flush(customerId: CustomerId) {
+    if (customerSaveInFlightRef.current[customerId]) return;
+    const queued = customerSaveQueuedRef.current[customerId];
+    if (!queued) return;
+
+    delete customerSaveQueuedRef.current[customerId];
+    customerSaveInFlightRef.current[customerId] = true;
+    const result = await saveCustomerDataJsonOnly(customerId, queued.payload);
+    customerSaveInFlightRef.current[customerId] = false;
+
+    if (!result.ok) {
+      setStorageErrorMessage(result.message);
+    } else if (
+      customerSaveGenerationRef.current[customerId] === queued.generation &&
+      !customerSaveQueuedRef.current[customerId]
+    ) {
+      setDirtyCustomerData((prev) => ({ ...prev, [customerId]: false }));
+      setStorageErrorMessage("");
+    }
+
+    if (customerSaveQueuedRef.current[customerId]) void flush(customerId);
+  }, []);
+
   useEffect(() => {
+    if (appMode !== "pb") return;
     if (!storageReady || isSeeding || !persistedCustomerIds.includes(selectedCustomer)) return;
     if (!dirtyCustomerData[selectedCustomer]) return;
-    void saveCustomerDataJsonOnly(selectedCustomer, customerDataJsonPayload).then((r) => {
-      if (!r.ok) setStorageErrorMessage(r.message);
-      else {
-        setDirtyCustomerData((prev) => ({ ...prev, [selectedCustomer]: false }));
-        setStorageErrorMessage("");
-      }
-    });
-  }, [customerDataJsonPayload, dirtyCustomerData, isSeeding, persistedCustomerIds, selectedCustomer, storageReady]);
+
+    const customerId = selectedCustomer;
+    const generation = (customerSaveGenerationRef.current[customerId] ?? 0) + 1;
+    customerSaveGenerationRef.current[customerId] = generation;
+    // 한글 IME 조합 중에는 세대만 갱신해 이전 요청이 더티 상태를 해제하지 못하게 하고,
+    // compositionend 이후 완성된 문자열만 저장 큐에 넣는다.
+    if (isTextComposing) return;
+    const timer = window.setTimeout(() => {
+      customerSaveQueuedRef.current[customerId] = { payload: customerDataJsonPayload, generation };
+      void flushQueuedCustomerSave(customerId);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [appMode, customerDataJsonPayload, dirtyCustomerData, flushQueuedCustomerSave, isSeeding, isTextComposing, persistedCustomerIds, selectedCustomer, storageReady]);
 
   const markUpdated = (id: CustomerId, ts = Date.now()) => setCustomerUpdatedAt((prev) => ({ ...prev, [id]: ts }));
 
@@ -1846,9 +1924,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
               onResume={resumeLatestConsultation}
             />
             <div className="flex flex-col gap-5 xl:min-h-[calc(100vh-9rem)] xl:flex-row">
-              <TabStrip appMode={appMode} onNavigate={(id) => router.push(tabPaths[id])} />
+              <TabStrip onNavigate={(id) => router.push(tabPaths[id])} />
               <section
                 className="min-w-0 flex-1"
+                onCompositionStartCapture={() => setIsTextComposing(true)}
+                onCompositionEndCapture={() => setIsTextComposing(false)}
                 onClickCapture={handleLockedInteraction}
                 onPointerDownCapture={handleLockedInteraction}
                 onKeyDownCapture={handleLockedInteraction}
@@ -2011,10 +2091,12 @@ export function HeaderSummary({
   );
 }
 
-function TabStrip({ onNavigate, appMode }: { onNavigate: (id: string) => void; appMode: "pb" | "customer" }) {
+function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
   const segment = useSelectedLayoutSegment();
   const activeTab = (segment ? segmentToTab[segment] : null) ?? "profile";
-  const visibleTabs = appMode === "pb" ? workspaceTabs.filter((tab) => tab.id !== "recommend") : workspaceTabs;
+  // 신형 상담실은 PB·고객 모두 4개 상위 탭을 사용한다.
+  // 기존 TAB5의 상품 매칭 기능은 TAB3의 "리밸런싱(상품)" 내부 탭으로 통합되어 있다.
+  const visibleTabs = workspaceTabs.filter((tab) => tab.id !== "recommend");
 
   return (
     <nav data-consultation-lock-exempt="true" className="grid shrink-0 gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-soft sm:grid-cols-2 xl:w-56 xl:grid-cols-1 xl:self-start xl:sticky xl:top-6">
@@ -2121,9 +2203,9 @@ function ConsultationEditLockDialog({ mode, onCancel, onResume }: { mode: "pb" |
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
         <section className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-soft">
-          <h2 className="text-lg font-extrabold text-navy">상담 종료</h2>
+          <h2 className="text-lg font-extrabold text-navy">고객 화면 안내</h2>
           <p className="mt-3 text-sm font-bold leading-6 text-slate-600">
-            상담이 종료되었습니다. 담당 PB에게 상담 재개를 요청해주세요.
+            상담 내용 수정은 PB용 화면에서 가능합니다.
           </p>
           <div className="mt-6">
             <button type="button" onClick={onCancel} className="min-h-11 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700">확인</button>
