@@ -118,6 +118,8 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // KIS Open API 키 미설정 — 원본 에러 대신 안내 화면을 띄운다
+  const [kisNotConfigured, setKisNotConfigured] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   const toggleCondition = (id: ConditionId) => {
@@ -161,7 +163,14 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
         for (const type of types) {
           const res = await fetch(`/api/screener?type=${type}`, { cache: "no-store" });
           const json = await res.json();
-          if (!json.ok) throw new Error(`${type}: ${json.error}`);
+          if (!json.ok) {
+            if (json.code === "kis-not-configured") {
+              const err = new Error(json.error as string);
+              err.name = "KisNotConfigured";
+              throw err;
+            }
+            throw new Error(`${type}: ${json.error}`);
+          }
           results.push({ type, rows: json.data as StockRow[] });
           if (types.indexOf(type) < types.length - 1) {
             await new Promise((r) => setTimeout(r, 400));
@@ -178,7 +187,13 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
           setLastUpdatedAt(Date.now());
         })
         .catch((err) => {
-          setError(err instanceof Error ? err.message : String(err));
+          if (err instanceof Error && err.name === "KisNotConfigured") {
+            setKisNotConfigured(true);
+            setError(null);
+          } else {
+            setKisNotConfigured(false);
+            setError(err instanceof Error ? err.message : String(err));
+          }
         })
         .finally(() => {
           setLoading(false);
@@ -350,6 +365,18 @@ export default function StockScreenerTab({ onSelectStock }: StockScreenerTabProp
 
           {isLoadingNeeded ? (
             <div className="p-8 text-center text-[13px] text-slate-400">데이터 불러오는 중...</div>
+          ) : kisNotConfigured ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-[13px] leading-6 text-amber-800">
+              <p className="font-bold">종목 지표 스크리너를 사용할 수 없습니다</p>
+              <p className="mt-1 text-amber-700">
+                실시간 등락률·거래량·이격도 순위는 한국투자증권 Open API가 필요합니다.
+                서버 환경변수 <code className="rounded bg-amber-100 px-1">KIS_APP_KEY</code> ·{" "}
+                <code className="rounded bg-amber-100 px-1">KIS_APP_SECRET</code> 를 설정하면 이용할 수 있습니다.
+              </p>
+              <p className="mt-1 text-[12px] text-amber-600">
+                한국투자증권 Open API 신청: https://apiportal.koreainvestment.com → 로컬은 .env.local, 배포는 Vercel 환경변수에 추가 후 재시작/재배포
+              </p>
+            </div>
           ) : error ? (
             <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-[13px] text-red-600">
               데이터 조회 실패: {error}

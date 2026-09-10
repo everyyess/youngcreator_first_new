@@ -103,3 +103,12 @@ export async function buildKisHeaders(trId: string): Promise<Record<string, stri
 }
 
 export const KIS_BASE_URL = KIS_DOMAIN;
+
+/** 한국투자증권 Open API 키가 서버 환경변수에 설정돼 있는지 */
+export function isKisConfigured(): boolean {
+  return Boolean(process.env.KIS_APP_KEY?.trim() && process.env.KIS_APP_SECRET?.trim());
+}
+
+/** 라우트에서 "KIS 미설정" 여부를 판별하기 위한 메시지 마커 */
+export const KIS_NOT_CONFIGURED_MESSAGE =
+  "KIS_APP_KEY / KIS_APP_SECRET 환경 변수가 설정되지 않았습니다.";

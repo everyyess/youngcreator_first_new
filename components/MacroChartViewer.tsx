@@ -12,17 +12,17 @@ type Obs = { time: string; value: string };
 // ── 지수 (Yahoo Finance) 시리즈 ───────────────────────────────────────────────
 
 const IDX_SERIES = [
-  { id: "^KS11",    label: "KOSPI",             color: "#005B52", unit: "pt" },
-  { id: "^KQ11",    label: "KOSDAQ",            color: "#1B5E20", unit: "pt" },
-  { id: "^IXIC",    label: "NASDAQ",            color: "#1565C0", unit: "pt" },
-  { id: "NQ=F",     label: "NASDAQ 선물",       color: "#1976D2", unit: "pt" },
-  { id: "^GSPC",    label: "S&P500",            color: "#6A1B9A", unit: "pt" },
-  { id: "ES=F",     label: "S&P500 선물",       color: "#8E24AA", unit: "pt" },
-  { id: "RTY=F",    label: "러셀 2000 선물",    color: "#AD1457", unit: "pt" },
-  { id: "^DJI",     label: "다우존스",          color: "#C62828", unit: "pt" },
-  { id: "^SOX",     label: "필라델피아 반도체", color: "#E65100", unit: "pt" },
-  { id: "DX-Y.NYB", label: "달러 인덱스",       color: "#00695C", unit: "pt" },
-  { id: "^VIX",     label: "VIX",               color: "#37474F", unit: "pt" },
+  { id: "^KS11",    label: "KOSPI",             color: "#003CDC", unit: "pt" },
+  { id: "^KQ11",    label: "KOSDAQ",            color: "#EC3B67", unit: "pt" },
+  { id: "^IXIC",    label: "NASDAQ",            color: "#00B5CD", unit: "pt" },
+  { id: "NQ=F",     label: "NASDAQ 선물",       color: "#F25536", unit: "pt" },
+  { id: "^GSPC",    label: "S&P500",            color: "#A514D7", unit: "pt" },
+  { id: "ES=F",     label: "S&P500 선물",       color: "#0A78F5", unit: "pt" },
+  { id: "RTY=F",    label: "러셀 2000 선물",    color: "#E0A400", unit: "pt" },
+  { id: "^DJI",     label: "다우존스",          color: "#141E78", unit: "pt" },
+  { id: "^SOX",     label: "필라델피아 반도체", color: "#CF244E", unit: "pt" },
+  { id: "DX-Y.NYB", label: "달러 인덱스",       color: "#1EB4F0", unit: "pt" },
+  { id: "^VIX",     label: "VIX",               color: "#3363E3", unit: "pt" },
 ] as const;
 
 type IdxSeriesId = (typeof IDX_SERIES)[number]["id"];
@@ -48,20 +48,20 @@ type FredSeriesResult = { title: string; unit: string; observations: FredObs[] }
 type FredResponse = { data: Record<string, FredSeriesResult> };
 
 const US_SERIES = [
-  { id: "DGS10",      label: "미 10년 국채금리",      color: "#005B52", unit: "%" },
-  { id: "DGS2",       label: "미 2년 국채금리",       color: "#1B5E20", unit: "%" },
-  { id: "FEDFUNDS",   label: "미국 기준금리",         color: "#2E7D32", unit: "%" },
-  { id: "T10Y2Y",     label: "장단기 스프레드",       color: "#558B2F", unit: "%" },
-  { id: "DEXKOUS",    label: "원/달러 환율",          color: "#1565C0", unit: "KRW" },
-  { id: "DEXJPUS",    label: "엔/달러 환율",          color: "#1976D2", unit: "JPY" },
-  { id: "VIXCLS",     label: "VIX 공포지수",         color: "#6A1B9A", unit: "pt" },
-  { id: "PCEPI",      label: "PCE 물가지수",         color: "#AD1457", unit: "pt" },
-  { id: "CPIAUCSL",   label: "미국 CPI",             color: "#C62828", unit: "pt" },
-  { id: "UNRATE",     label: "미국 실업률",           color: "#00695C", unit: "%" },
-  { id: "PAYEMS",     label: "비농업고용 (NFP)",      color: "#00838F", unit: "천명" },
-  { id: "ICSA",       label: "신규 실업수당 청구",    color: "#37474F", unit: "천건" },
-  { id: "DCOILWTICO", label: "WTI 유가",             color: "#E65100", unit: "USD" },
-  { id: "RSAFS",      label: "소매판매",             color: "#F57F17", unit: "백만$" },
+  { id: "DGS10",      label: "미 10년 국채금리",      color: "#003CDC", unit: "%" },
+  { id: "DGS2",       label: "미 2년 국채금리",       color: "#EC3B67", unit: "%" },
+  { id: "FEDFUNDS",   label: "미국 기준금리",         color: "#7A1FC0", unit: "%" },
+  { id: "T10Y2Y",     label: "장단기 스프레드",       color: "#008C9E", unit: "%" },
+  { id: "DEXKOUS",    label: "원/달러 환율",          color: "#00B5CD", unit: "KRW" },
+  { id: "DEXJPUS",    label: "엔/달러 환율",          color: "#F25536", unit: "JPY" },
+  { id: "VIXCLS",     label: "VIX 공포지수",         color: "#A514D7", unit: "pt" },
+  { id: "PCEPI",      label: "PCE 물가지수",         color: "#E0A400", unit: "pt" },
+  { id: "CPIAUCSL",   label: "미국 CPI",             color: "#141E78", unit: "pt" },
+  { id: "UNRATE",     label: "미국 실업률",           color: "#1EB4F0", unit: "%" },
+  { id: "PAYEMS",     label: "비농업고용 (NFP)",      color: "#B23A1F", unit: "천명" },
+  { id: "ICSA",       label: "신규 실업수당 청구",    color: "#3363E3", unit: "천건" },
+  { id: "DCOILWTICO", label: "WTI 유가",             color: "#CF244E", unit: "USD" },
+  { id: "RSAFS",      label: "소매판매",             color: "#EC6D8C", unit: "백만$" },
 ] as const;
 
 type UsSeriesId = (typeof US_SERIES)[number]["id"];
@@ -82,36 +82,36 @@ type KrSeriesConfig = {
 
 const KR_SERIES: KrSeriesConfig[] = [
   // ── 금리 (일별) ───────────────────────────────────────────────────────────
-  { id: "kr:722Y001:D",   label: "기준금리",           color: "#005B52", unit: "%",        timeCycle: "D",
+  { id: "kr:722Y001:D",   label: "기준금리",           color: "#003CDC", unit: "%",        timeCycle: "D",
     source: "ECOS", statCode: "722Y001", cycle: "D", itemCode: "0101000" },
-  { id: "kr:817Y002:3Y",  label: "국고채 3년",         color: "#1B5E20", unit: "%",        timeCycle: "D",
+  { id: "kr:817Y002:3Y",  label: "국고채 3년",         color: "#EC3B67", unit: "%",        timeCycle: "D",
     source: "ECOS", statCode: "817Y002", cycle: "D", itemCode: "010200000" },
-  { id: "kr:817Y002:10Y", label: "국고채 10년",        color: "#558B2F", unit: "%",        timeCycle: "D",
+  { id: "kr:817Y002:10Y", label: "국고채 10년",        color: "#008C9E", unit: "%",        timeCycle: "D",
     source: "ECOS", statCode: "817Y002", cycle: "D", itemCode: "010210000" },
   // ── 환율/주식 (일별) ─────────────────────────────────────────────────────
-  { id: "kr:731Y001",     label: "원/달러 환율",       color: "#1565C0", unit: "KRW",      timeCycle: "D",
+  { id: "kr:731Y001",     label: "원/달러 환율",       color: "#00B5CD", unit: "KRW",      timeCycle: "D",
     source: "ECOS", statCode: "731Y001", cycle: "D", itemCode: "0000001" },
-  { id: "kr:802Y001",     label: "KOSPI",             color: "#6A1B9A", unit: "pt",       timeCycle: "D",
+  { id: "kr:802Y001",     label: "KOSPI",             color: "#A514D7", unit: "pt",       timeCycle: "D",
     source: "ECOS", statCode: "802Y001", cycle: "D", itemCode: "0001000" },
-  { id: "kr:KRVKOSPI",    label: "코스피 변동지수",   color: "#7C3AED", unit: "%",        timeCycle: "D",
+  { id: "kr:KRVKOSPI",    label: "코스피 변동지수",   color: "#668AE0", unit: "%",        timeCycle: "D",
     source: "KRED" },
   // ── 물가 ──────────────────────────────────────────────────────────────────
-  { id: "kr:901Y009",     label: "소비자물가 (CPI)",   color: "#C62828", unit: "2020=100", timeCycle: "M",
+  { id: "kr:901Y009",     label: "소비자물가 (CPI)",   color: "#141E78", unit: "2020=100", timeCycle: "M",
     source: "ECOS", statCode: "901Y009", cycle: "M", itemCode: "0" },
-  { id: "kr:404Y014",     label: "생산자물가 (PPI)",   color: "#E65100", unit: "2020=100", timeCycle: "M",
+  { id: "kr:404Y014",     label: "생산자물가 (PPI)",   color: "#CF244E", unit: "2020=100", timeCycle: "M",
     source: "ECOS", statCode: "404Y014", cycle: "M", itemCode: "*AA" },
   // ── 고용 ──────────────────────────────────────────────────────────────────
-  { id: "kr:901Y027:UR",  label: "실업률",             color: "#00695C", unit: "%",        timeCycle: "M",
+  { id: "kr:901Y027:UR",  label: "실업률",             color: "#1EB4F0", unit: "%",        timeCycle: "M",
     source: "ECOS", statCode: "901Y027", cycle: "M", itemCode: "I61BC" },
-  { id: "kr:901Y027:ER",  label: "고용률",             color: "#00838F", unit: "%",        timeCycle: "M",
+  { id: "kr:901Y027:ER",  label: "고용률",             color: "#B23A1F", unit: "%",        timeCycle: "M",
     source: "ECOS", statCode: "901Y027", cycle: "M", itemCode: "I61E" },
   // ── 무역 ──────────────────────────────────────────────────────────────────
-  { id: "kr:901Y118:EX",  label: "수출금액",           color: "#37474F", unit: "천불",     timeCycle: "M",
+  { id: "kr:901Y118:EX",  label: "수출금액",           color: "#3363E3", unit: "천불",     timeCycle: "M",
     source: "ECOS", statCode: "901Y118", cycle: "M", itemCode: "T002" },
-  { id: "kr:901Y118:IM",  label: "수입금액",           color: "#546E7A", unit: "천불",     timeCycle: "M",
+  { id: "kr:901Y118:IM",  label: "수입금액",           color: "#5B6270", unit: "천불",     timeCycle: "M",
     source: "ECOS", statCode: "901Y118", cycle: "M", itemCode: "T004" },
   // ── 경기 ──────────────────────────────────────────────────────────────────
-  { id: "kr:901Y067",     label: "선행지수순환변동치", color: "#AD1457", unit: "2020=100", timeCycle: "M",
+  { id: "kr:901Y067",     label: "선행지수순환변동치", color: "#E0A400", unit: "2020=100", timeCycle: "M",
     source: "ECOS", statCode: "901Y067", cycle: "M", itemCode: "I16E" },
 ];
 
@@ -159,7 +159,7 @@ function ChartPanel({ label, unit, color, decimals, chartData, loading, error }:
 
   if (loading) {
     return (
-      <div className="flex h-56 items-center justify-center gap-2 text-xs text-[#7A9488]">
+      <div className="flex h-56 items-center justify-center gap-2 text-xs text-[#94A3B8]">
         <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         불러오는 중
       </div>
@@ -170,29 +170,29 @@ function ChartPanel({ label, unit, color, decimals, chartData, loading, error }:
     <>
       {error && <p className="rounded-lg bg-red-50 px-4 py-3 text-xs text-red-600">{error}</p>}
       {!error && chartData.length === 0 && (
-        <p className="py-8 text-center text-xs text-[#7A9488]">데이터 없음</p>
+        <p className="py-8 text-center text-xs text-[#94A3B8]">데이터 없음</p>
       )}
       {chartData.length > 0 && (
         <div className="h-56">
           <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
             <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#EEF4F1" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
               <XAxis
                 dataKey="date"
-                tick={{ fontSize: 10, fill: "#7A9488" }}
+                tick={{ fontSize: 10, fill: "#94A3B8" }}
                 tickLine={false}
                 interval={Math.max(0, Math.floor(chartData.length / 6) - 1)}
               />
               <YAxis
                 domain={[yMin ?? "auto", yMax ?? "auto"]}
-                tick={{ fontSize: 10, fill: "#7A9488" }}
+                tick={{ fontSize: 10, fill: "#94A3B8" }}
                 tickLine={false}
                 axisLine={false}
                 width={decimals === 0 ? 58 : 48}
                 tickFormatter={(v: number) => v.toFixed(decimals)}
               />
               <Tooltip
-                contentStyle={{ fontSize: 11, border: "1px solid #DDE8E5", borderRadius: 8 }}
+                contentStyle={{ fontSize: 11, border: "1px solid #E2E8F0", borderRadius: 8 }}
                 formatter={(value) => {
                   const v = Number(value);
                   return [`${v.toLocaleString("ko-KR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} ${unit}`, label];
@@ -233,7 +233,7 @@ function SeriesTabs({ series, active, onSelect }: SeriesTabsProps) {
           className={`shrink-0 rounded-full border px-3 py-1 text-xs font-bold transition ${
             active === s.id
               ? "border-blue-600 bg-blue-600 text-white"
-              : "border-[#DDE8E5] text-[#5F7A70] hover:border-blue-600 hover:text-blue-700"
+              : "border-[#E2E8F0] text-[#64748B] hover:border-blue-600 hover:text-blue-700"
           }`}
         >
           {s.label}
@@ -386,10 +386,10 @@ export function MacroChartViewer() {
 
   // 지수 현재가 배지 — 한국식 등락 색상 (상승 빨강 / 하락 파랑)
   const idxChangeClass =
-    idxEntry?.changePercent == null ? "text-[#94A8A0]"
+    idxEntry?.changePercent == null ? "text-[#94A3B8]"
       : idxEntry.changePercent > 0 ? "text-red-500"
       : idxEntry.changePercent < 0 ? "text-blue-600"
-      : "text-[#5F7A70]";
+      : "text-[#64748B]";
 
   // KR/US 최신값 배지 — 마지막 관측치 + 직전 관측 대비 변화
   const latest = chartData.length > 0 ? chartData[chartData.length - 1].value : null;
@@ -408,18 +408,18 @@ export function MacroChartViewer() {
       : prevVal !== 0 && prevVal != null ? `${delta > 0 ? "+" : ""}${((latest! / prevVal - 1) * 100).toFixed(2)}%`
       : null;
   const macroChangeClass =
-    delta == null ? "text-[#94A8A0]"
+    delta == null ? "text-[#94A3B8]"
       : delta > 0 ? "text-red-500"
       : delta < 0 ? "text-blue-600"
-      : "text-[#5F7A70]";
+      : "text-[#64748B]";
 
   return (
     <div className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm">
       {/* 헤더 */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-black text-[#0D2318]">글로벌 매크로 지표</h3>
-          <p className="text-xs font-semibold text-[#7A9488]">{MODE_SUBTITLES[market]}</p>
+          <h3 className="text-base font-black text-[#111C2E]">글로벌 매크로 지표</h3>
+          <p className="text-xs font-semibold text-[#94A3B8]">{MODE_SUBTITLES[market]}</p>
         </div>
         <div className="flex items-center gap-2">
           {/* 지수/한국/미국 토글 */}
@@ -431,7 +431,7 @@ export function MacroChartViewer() {
                 className={`rounded-lg px-3 py-1.5 text-sm font-bold transition ${
                   market === m
                     ? "bg-blue-600 text-white shadow-sm"
-                    : "text-[#4B6358] hover:text-blue-700"
+                    : "text-[#475569] hover:text-blue-700"
                 }`}
               >
                 {MODE_LABELS[m]}
@@ -467,7 +467,7 @@ export function MacroChartViewer() {
       {/* 지수 모드 — 선택 지수의 현재가·등락률 */}
       {market === "IDX" && !isLoading && idxEntry?.current != null && (
         <div className="mb-2 flex items-baseline gap-2">
-          <span className="text-lg font-black tracking-tight text-[#0D2318]">
+          <span className="text-lg font-black tracking-tight text-[#111C2E]">
             {idxEntry.current.toLocaleString("ko-KR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
           {idxEntry.changePercent != null && (
@@ -481,15 +481,15 @@ export function MacroChartViewer() {
       {/* 한국/미국 모드 — 선택 지표의 최신값·직전 대비 변화·기준일 */}
       {market !== "IDX" && !isLoading && latest != null && (
         <div className="mb-2 flex items-baseline gap-2">
-          <span className="text-lg font-black tracking-tight text-[#0D2318]">
+          <span className="text-lg font-black tracking-tight text-[#111C2E]">
             {latest.toLocaleString("ko-KR", { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}
-            <span className="ml-1 text-[11px] font-bold text-[#7A9488]">{meta.unit}</span>
+            <span className="ml-1 text-[11px] font-bold text-[#94A3B8]">{meta.unit}</span>
           </span>
           {changeText != null && (
             <span className={`text-xs font-black ${macroChangeClass}`}>{changeText}</span>
           )}
           {latestObsDate != null && (
-            <span className="text-[10px] font-medium text-[#AAC2BB]">{formatObsDate(latestObsDate)} 기준</span>
+            <span className="text-[10px] font-medium text-[#CBD5E1]">{formatObsDate(latestObsDate)} 기준</span>
           )}
         </div>
       )}
@@ -506,7 +506,7 @@ export function MacroChartViewer() {
       />
 
       {chartData.length > 0 && (
-        <p className="mt-2 text-right text-[10px] text-[#AAC2BB]">
+        <p className="mt-2 text-right text-[10px] text-[#CBD5E1]">
           {market === "IDX"
             ? `${idxMeta.label} · ${idxMeta.unit} · Yahoo Finance 일봉`
             : market === "US"

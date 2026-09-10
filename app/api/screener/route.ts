@@ -1,6 +1,6 @@
 // app/api/screener/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { buildKisHeaders, KIS_BASE_URL } from "@/lib/kis/auth";
+import { buildKisHeaders, KIS_BASE_URL, isKisConfigured } from "@/lib/kis/auth";
 
 const ETF_NAME_PATTERN = /(액티브|ETF|ETN|KODEX|TIGER|KBSTAR|ARIRANG|HANARO|SOL |RISE |WON |1Q |MIDAS |PLUS |ACE |KIWOOM |채권|국채|회사채|금융채|스팩|레버리지|인버스)/;
 
@@ -252,6 +252,20 @@ async function fetchDividendTop() {
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const type = sp.get("type") ?? "volume";
+
+  // 실시간 순위 데이터는 한국투자증권 Open API가 필수다. 키가 없으면 KIS를 호출하지 않고
+  // 명확한 코드와 함께 503을 돌려줘, 클라이언트가 "원본 에러 문자열"이 아니라 안내 화면을 띄우게 한다.
+  if (!isKisConfigured()) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "kis-not-configured",
+        error:
+          "종목 지표 스크리너는 한국투자증권 Open API 키(KIS_APP_KEY / KIS_APP_SECRET)가 필요합니다. 서버 환경변수 설정 후 이용할 수 있습니다.",
+      },
+      { status: 503 },
+    );
+  }
 
   try {
     if (type === "rise" || type === "fall") {
