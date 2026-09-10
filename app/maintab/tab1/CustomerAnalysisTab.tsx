@@ -1614,7 +1614,8 @@ export default function CustomerAnalysisTab() {
     if (advisoryGuideLoading) return;
     if (formData.aiAdvisoryGuide && formData.aiGuidePayloadSignature === advisoryGuidePayloadSignature) {
       setAdvisoryGuideError("");
-      setAdvisoryGuideNotice("입력값 변경이 없어 기존 AI 상담 가이드를 불러왔습니다.");
+      // 입력값이 그대로면 API를 다시 부르지 않고 저장된 결과를 그대로 쓴다
+      setAdvisoryGuideNotice("입력값 변경이 없어 기존 AI 상담 가이드를 그대로 사용합니다. Tab1-3에서 확인해주세요.");
       return;
     }
     setAdvisoryGuideLoading(true);

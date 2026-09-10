@@ -14,7 +14,7 @@ import {
   customerStorage,
   getStoredSelectedCustomerId,
   loadSharedMaintabUiState,
-  saveCustomerDataJsonOnly,
+  updateConsultationSessionsOnly,
   saveCustomerProfileColumns,
   storeSelectedCustomerId,
   type AppState,
@@ -441,37 +441,49 @@ export default function HomePage() {
     };
   }, [customerData]);
 
-  const persistCustomerState = useCallback((customerId: CustomerId, nextState: AppState) => {
-    setCustomerData((prev) => ({ ...prev, [customerId]: nextState }));
-    saveCustomerDataJsonOnly(customerId, nextState).catch((error) => console.error("Failed to save customer data", error));
+  // 세션 목록만 저장한다 — 홈이 들고 있는 옛 AppState 사본을 통째로 저장하면, 그 사이
+  // 상담실(새 탭)에서 저장한 AI 상담 가이드·음성 대화록이 덮여 사라진다.
+  // 화면은 즉시 반영하고, DB에는 최신 행 기준으로 세션만 바꿔 넣은 뒤 그 최신 상태로
+  // 홈 사본도 교체해 이후 저장이 다시 옛 값을 쓰지 않게 한다.
+  const persistConsultationSessions = useCallback((
+    customerId: CustomerId,
+    update: (state: AppState) => AppState["consultationSessions"],
+  ) => {
+    setCustomerData((prev) => {
+      const current = prev[customerId] ?? createInitialState();
+      return { ...prev, [customerId]: { ...current, consultationSessions: update(current) } };
+    });
+    void updateConsultationSessionsOnly(customerId, update).then((result) => {
+      if (!result.ok || !result.state) {
+        console.error("Failed to save consultation sessions", result.message);
+        return;
+      }
+      const latestState = result.state;
+      setCustomerData((prev) => ({ ...prev, [customerId]: latestState }));
+    });
   }, []);
 
   const upsertSession = useCallback((session: ConsultationSession) => {
-    const state = customerData[session.customerId] ?? createInitialState();
-    const sessionsForCustomer = getCustomerSessions(state);
     const nextSession = {
       ...session,
       updatedAt: new Date().toISOString(),
     };
-    const nextSessions = sessionsForCustomer.some((item) => item.id === nextSession.id)
-      ? sessionsForCustomer.map((item) => item.id === nextSession.id ? nextSession : item)
-      : [nextSession, ...sessionsForCustomer];
-    persistCustomerState(session.customerId, { ...state, consultationSessions: nextSessions });
-  }, [customerData, persistCustomerState]);
+    persistConsultationSessions(session.customerId, (state) => {
+      const sessionsForCustomer = getCustomerSessions(state);
+      return sessionsForCustomer.some((item) => item.id === nextSession.id)
+        ? sessionsForCustomer.map((item) => item.id === nextSession.id ? nextSession : item)
+        : [nextSession, ...sessionsForCustomer];
+    });
+  }, [persistConsultationSessions]);
 
   const updateSession = useCallback((sessionId: string, patch: Partial<ConsultationSession>) => {
-    setCustomerData((prev) => {
-      for (const [customerId, state] of Object.entries(prev) as Array<[CustomerId, AppState]>) {
-        const sessionsForCustomer = getCustomerSessions(state);
-        if (!sessionsForCustomer.some((item) => item.id === sessionId)) continue;
-        const nextSessions = sessionsForCustomer.map((item) => item.id === sessionId ? { ...item, ...patch, updatedAt: new Date().toISOString() } : item);
-        const nextState = { ...state, consultationSessions: nextSessions };
-        saveCustomerDataJsonOnly(customerId, nextState).catch((error) => console.error("Failed to save customer data", error));
-        return { ...prev, [customerId]: nextState };
-      }
-      return prev;
-    });
-  }, []);
+    const ownerId = (Object.entries(customerData) as Array<[CustomerId, AppState]>)
+      .find(([, state]) => getCustomerSessions(state).some((item) => item.id === sessionId))?.[0];
+    if (!ownerId) return;
+    const updatedAt = new Date().toISOString();
+    persistConsultationSessions(ownerId, (state) =>
+      getCustomerSessions(state).map((item) => item.id === sessionId ? { ...item, ...patch, updatedAt } : item));
+  }, [customerData, persistConsultationSessions]);
 
   const deleteSession = (session: ConsultationSession) => {
     setSessionDeleteTarget(session);
@@ -480,8 +492,7 @@ export default function HomePage() {
   const confirmDeleteSession = () => {
     const session = sessionDeleteTarget;
     if (!session) return;
-    const state = customerData[session.customerId] ?? createInitialState();
-    persistCustomerState(session.customerId, { ...state, consultationSessions: getCustomerSessions(state).filter((item) => item.id !== session.id) });
+    persistConsultationSessions(session.customerId, (state) => getCustomerSessions(state).filter((item) => item.id !== session.id));
     if (expandedSessionId === session.id) setExpandedSessionId(null);
     setSessionDeleteTarget(null);
   };
@@ -533,12 +544,12 @@ export default function HomePage() {
   function finishActiveSession(autoEnded = false) {
     const active = readActiveConsultation();
     if (!active) return;
-    const state = customerData[active.customerId] ?? createInitialState();
-    const sessionsForCustomer = getCustomerSessions(state);
     const seconds = autoEnded ? maxConsultationSeconds : getElapsedSeconds(active);
-    const snapshot = buildSummarySnapshot(state);
-    const nextSessions = sessionsForCustomer.map((session) => session.id === active.sessionId ? { ...finishSession(session, seconds, autoEnded), summarySnapshot: snapshot } : session);
-    persistCustomerState(active.customerId, { ...state, consultationSessions: nextSessions });
+    // 요약 스냅샷도 옛 사본이 아니라 최신 상태(상담실에서 저장한 내용 포함)로 만든다
+    persistConsultationSessions(active.customerId, (state) => {
+      const snapshot = buildSummarySnapshot(state);
+      return getCustomerSessions(state).map((session) => session.id === active.sessionId ? { ...finishSession(session, seconds, autoEnded), summarySnapshot: snapshot } : session);
+    });
     writeActiveConsultation(null);
   }
 

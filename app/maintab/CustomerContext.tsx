@@ -807,6 +807,41 @@ export async function saveCustomerDataJsonOnly(customerId: CustomerId, dataPaylo
   return { ok: true, message: "Customer data saved." };
 }
 
+/**
+ * 상담 세션 목록(consultationSessions)만 갱신한다.
+ *
+ * 홈·분석실은 자기가 열린 시점의 AppState 사본을 메모리에 들고 있다. 상담실은 새 탭에서
+ * 열리므로, 그 사이 상담실이 저장한 AI 상담 가이드·음성 대화록 등을 이 사본은 모른다.
+ * 예전에는 세션 하나를 바꾸려고 이 사본 전체를 저장해서 그 값들이 옛 값(빈 값)으로
+ * 덮여 "재접속하면 사라지는" 문제가 있었다. (상담실 새로고침은 DB를 다시 읽으므로 멀쩡했다)
+ *
+ * 저장 직전에 최신 행을 다시 읽어 세션 목록만 바꿔 끼우고, 나머지 필드와
+ * 저장 형태(상담실의 { appState, analysis } 래핑 여부)는 그대로 둔다.
+ * update는 "최신 상태"를 받아 새 세션 목록을 돌려준다 — 세션 목록 자체도 옛 사본이 아니라
+ * 최신 목록을 기준으로 계산해야 다른 탭에서 바뀐 세션을 지우지 않는다.
+ */
+export async function updateConsultationSessionsOnly(
+  customerId: CustomerId,
+  update: (latest: AppState) => AppState["consultationSessions"],
+): Promise<StorageResult & { state: AppState | null }> {
+  if (!supabase) return { ok: false, message: "Supabase is not configured.", state: null };
+  const { data: rows, error } = await supabase.from("customers").select("*").eq("id", customerId).limit(1);
+  if (error) return { ok: false, message: `Supabase read failed: ${error.message}`, state: null };
+  const row = (rows?.[0] ?? null) as CustomerRow | null;
+  if (!row) return { ok: false, message: "Supabase row not found.", state: null };
+
+  // 앱이 화면에 복원할 때와 똑같은 규칙으로 최신 상태를 읽는다
+  const latest = Object.values(customerRowsToStoredState([row]).customerData)[0] ?? createInitialState();
+  const nextState: AppState = { ...latest, consultationSessions: update(latest) };
+
+  const raw = row.data as unknown;
+  const isWrapped = Boolean(raw) && typeof raw === "object" && !Array.isArray(raw) && "appState" in (raw as Record<string, unknown>);
+  const payload = isWrapped ? { ...(raw as Record<string, unknown>), appState: nextState } : nextState;
+
+  const saved = await saveCustomerDataJsonOnly(customerId, payload);
+  return { ...saved, state: saved.ok ? nextState : null };
+}
+
 async function insertEmptyCustomerRow(customerId: CustomerId, dataPayload: unknown, sortOrder: number, ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
   if (!supabase) return { ok: false, message: "Supabase is not configured." };
   const ownerPayload = customerOwnerPayload(ownerScope, pbId);

@@ -20,7 +20,7 @@ import {
   loadAnalysisResult,
   loadPortfolioAssets,
   loadSharedMaintabUiState,
-  saveCustomerDataJsonOnly,
+  updateConsultationSessionsOnly,
   saveSharedMaintabUiState,
   storeSelectedCustomerId,
   type AppState,
@@ -460,12 +460,14 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
     const target = sessions.find((session) => session.id === active.sessionId);
     if (!target) return;
     const nextSession = finishSession(target, elapsedSeconds, false);
-    const nextState = {
-      ...state,
-      consultationSessions: sessions.map((session) => session.id === nextSession.id ? nextSession : session),
-    };
-    setCustomerData((prev) => ({ ...prev, [active.customerId]: nextState }));
-    saveCustomerDataJsonOnly(active.customerId, nextState).catch((error) => console.error("Failed to save consultation session", error));
+    const applyFinish = (current: AppState) =>
+      getCustomerSessions(current).map((session) => session.id === nextSession.id ? nextSession : session);
+    setCustomerData((prev) => ({ ...prev, [active.customerId]: { ...state, consultationSessions: applyFinish(state) } }));
+    // 분석실이 열린 시점의 사본을 통째로 저장하면 그 사이 상담실에서 저장한 AI 상담 가이드·
+    // 음성 대화록이 덮여 사라진다 — 최신 행 기준으로 세션 목록만 갱신한다.
+    void updateConsultationSessionsOnly(active.customerId, applyFinish).then((result) => {
+      if (!result.ok) console.error("Failed to save consultation session", result.message);
+    });
     writeActiveConsultation(null);
     setActiveConsultation(null);
     setElapsedSeconds(0);
