@@ -166,7 +166,9 @@ export default function DartAnalysisTab({ selectedStock: sharedStock, onStockCha
       return;
     }
     setSummaries((prev) => ({ ...prev, [d.rcpNo]: { loading: true } }));
-    fetch(`/api/dart-summary?rcept_no=${encodeURIComponent(d.rcpNo)}`)
+    // 라우트는 rcpNo(대문자 N) 파라미터를 읽는다. rcept_no로 보내면 빈 값이 돼
+    // "유효한 rcpNo가 필요합니다" 400이 떨어진다. title은 공시 유형 분류(실적/지분/수주 등)에 쓰인다.
+    fetch(`/api/dart-summary?rcpNo=${encodeURIComponent(d.rcpNo)}&title=${encodeURIComponent(d.title)}`)
       .then(async (r) => {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
