@@ -1463,7 +1463,6 @@ interface HealthDiagnosisItem {
 }
 
 export function HealthRadarChart({ items, badge }: { items: HealthDiagnosisItem[]; badge?: string }) {
-  const chartData = items.map((item) => ({ label: item.label, score: item.score, fullMark: 2 }));
   // 색상은 항목 점수 합계(0~14점)로 직접 계산한다 — quantEngine.js의 portfolioHealthCheck()가 쓰는
   // 등급 구간(12점 이상 Hold=초록, 8점 이상 Rebalance=노랑, 그 미만 Sell=빨강)과 동일한 기준이다.
   // badge를 안 넘기는 호출부(시황 보고서 등)는 예전엔 항상 기본값(노랑)으로만 떴었다(2026-09 발견·수정)
@@ -1473,15 +1472,25 @@ export function HealthRadarChart({ items, badge }: { items: HealthDiagnosisItem[
   const scoreBadge = totalScore >= 12 ? "Hold" : totalScore >= 8 ? "Rebalance" : "Sell";
   const effectiveBadge = badge ?? scoreBadge;
   const strokeColor = effectiveBadge === "Sell" ? "#ef4444" : effectiveBadge === "Hold" ? "#10b981" : "#f59e0b";
+  // Recharts 3.8의 PolarAngleAxis는 다시 렌더될 때마다(props 내용이 같아도) 축 설정을 새 객체로 보고
+  // 한 번 null을 렌더한 뒤 축을 등록 해제·재등록한다 — 그 사이 레이블이 통째로 사라졌다 나타난다.
+  // 고객 화면은 PB가 뭔가 할 때마다 realtime으로 같은 분석 결과를 새 객체로 다시 받아 이 차트를
+  // 다시 그리므로 레이블이 계속 깜빡거렸다. 레이블·점수·색이 그대로면 차트 엘리먼트를 재사용해
+  // 축과 다각형이 아예 다시 렌더되지 않게 한다.
+  const chartKey = `${strokeColor}|${items.map((item) => `${item.label}:${item.score}`).join("|")}`;
+  const chart = useMemo(() => (
+    <RadarChart data={items.map((item) => ({ label: item.label, score: item.score, fullMark: 2 }))} outerRadius="75%">
+      <PolarGrid stroke="#e2e8f0" />
+      <PolarAngleAxis dataKey="label" tick={{ fill: "#475569", fontSize: 11, fontWeight: 600 }} />
+      <PolarRadiusAxis angle={90} domain={[0, 2]} tick={{ fill: "#94a3b8", fontSize: 9 }} tickCount={3} />
+      <Radar name="진단 점수" dataKey="score" stroke={strokeColor} fill={strokeColor} fillOpacity={0.25} strokeWidth={2} animationDuration={800} animationEasing="ease-out" />
+    </RadarChart>
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 내용 키가 같으면 items 참조가 바뀌어도 재사용
+  ), [chartKey]);
   return (
     <div className="w-full">
       <ResponsiveContainer width="100%" height={280}>
-        <RadarChart data={chartData} outerRadius="75%">
-          <PolarGrid stroke="#e2e8f0" />
-          <PolarAngleAxis dataKey="label" tick={{ fill: "#475569", fontSize: 11, fontWeight: 600 }} />
-          <PolarRadiusAxis angle={90} domain={[0, 2]} tick={{ fill: "#94a3b8", fontSize: 9 }} tickCount={3} />
-          <Radar name="진단 점수" dataKey="score" stroke={strokeColor} fill={strokeColor} fillOpacity={0.25} strokeWidth={2} animationDuration={800} animationEasing="ease-out" />
-        </RadarChart>
+        {chart}
       </ResponsiveContainer>
       <div className="mt-2 flex flex-wrap justify-center gap-2">
         {/* 초록(2점) → 주황(1점) → 빨강(0점) 순으로 정렬해서 위험도가 한눈에 왼쪽부터 좋은 순으로 읽히게 한다. */}
