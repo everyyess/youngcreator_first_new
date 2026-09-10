@@ -141,7 +141,7 @@ function TeamModal({ onClose }: { onClose: () => void }) {
             <div className="h-px w-full bg-slate-100" />
             <p className="text-sm font-bold text-slate-500">삼성증권 Young Creator 15기</p>
             <p className="text-sm font-extrabold text-slate-700">
-              1조&nbsp;&nbsp;곽준호 · 김나윤 · 박상훈 · 이현규 · 정다예
+              1조&nbsp;&nbsp;곽준호 · 김나윤 · 이현규 · 정다예
             </p>
           </div>
         </div>
