@@ -82,7 +82,7 @@ export function useSimulator(product: ProductSpec | undefined, settings: Simulat
       contextRef.current = context
       const next = simulateProduct(product, context)
       setMarket(raw); setResult(next)
-      const defaults = ['ELB2951', 'ELS31382'] as const
+      const defaults = ['ELB2962', 'ELS31438'] as const
       const comparisons: Partial<Record<ProductSpec['id'], SimulationResult>> = { [product.id]: next }
       for (const id of defaults) comparisons[id] = id === product.id ? next : simulateProduct(getProductSpec(id), context, Math.min(context.simulationCount, COMPARISON_SIMULATION_LIMIT))
       setComparisonResults(comparisons)

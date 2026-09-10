@@ -96,8 +96,8 @@ function ExplanationPanels({ product, result, market }: { product: ProductSpec; 
 }
 
 function StrategyComparison({ investment, results, loading, onSelectProduct, modelLabel }: { investment: number; results: Partial<Record<ProductSpec['id'], SimulationResult>>; loading: boolean; onSelectProduct: (id: ProductSpec['id']) => void; modelLabel: string }) {
-  const [elbId, setElbId] = useState<ProductSpec['id']>('ELB2951')
-  const [elsId, setElsId] = useState<ProductSpec['id']>('ELS31382')
+  const [elbId, setElbId] = useState<ProductSpec['id']>('ELB2962')
+  const [elsId, setElsId] = useState<ProductSpec['id']>('ELS31438')
   const [horizon, setHorizon] = useState<ComparisonHorizonMonth>(12)
   const elbResult = results[elbId]; const elsResult = results[elsId]
   const elbs = productSpecs.filter((item) => item.productType === 'ELB'); const elses = productSpecs.filter((item) => item.productType === 'ELS')
@@ -225,5 +225,5 @@ function miniChartDomain(values: readonly number[]): readonly [number, number] {
   return [low - padding, high + padding]
 }
 function MiniChartRange({ domain }: { domain: readonly [number, number] }) { return <small className="mini-chart-range">정규화 {Math.ceil(domain[1])} ↔ {Math.floor(domain[0])}</small> }
-function PortfolioComparison({ result, investment }: { result: SimulationResult; investment: number }) { const [direct, setDirect] = useState(investment / 2); const [elb, setElb] = useState(investment / 2); const directMean = result.terminalUnderlyingRatios.SK하이닉스.reduce((sum, value) => sum + value, 0) / result.terminalUnderlyingRatios.SK하이닉스.length; const elbMean = result.pathResults.reduce((sum, path) => sum + path.totalPayout / investment, 0) / result.pathResults.length; return <section className="portfolio-panel"><p className="eyebrow">ELB2951 MIX</p><h3>SK하이닉스 직접투자 vs 혼합</h3><div className="form-grid"><label>직접투자 금액<input type="number" value={direct} onChange={(event) => setDirect(Number(event.target.value))} /></label><label>ELB 금액<input type="number" value={elb} onChange={(event) => setElb(Number(event.target.value))} /></label></div><p>직접투자 기대 종료금액 {won(direct * directMean)} · ELB 기대 상환금액 {won(elb * elbMean)} · 합계 {won(direct * directMean + elb * elbMean)}</p></section> }
+function PortfolioComparison({ result, investment }: { result: SimulationResult; investment: number }) { const [direct, setDirect] = useState(investment / 2); const [elb, setElb] = useState(investment / 2); const directMean = result.terminalUnderlyingRatios.SK하이닉스.reduce((sum, value) => sum + value, 0) / result.terminalUnderlyingRatios.SK하이닉스.length; const elbMean = result.pathResults.reduce((sum, path) => sum + path.totalPayout / investment, 0) / result.pathResults.length; return <section className="portfolio-panel"><p className="eyebrow">ELB2962 MIX</p><h3>SK하이닉스 직접투자 vs 혼합</h3><div className="form-grid"><label>직접투자 금액<input type="number" value={direct} onChange={(event) => setDirect(Number(event.target.value))} /></label><label>ELB 금액<input type="number" value={elb} onChange={(event) => setElb(Number(event.target.value))} /></label></div><p>직접투자 기대 종료금액 {won(direct * directMean)} · ELB 기대 상환금액 {won(elb * elbMean)} · 합계 {won(direct * directMean + elb * elbMean)}</p></section> }
 

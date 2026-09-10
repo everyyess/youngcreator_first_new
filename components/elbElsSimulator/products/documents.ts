@@ -12,8 +12,8 @@ const documents = (id: ProductId): readonly ProductDocument[] => [
 ]
 
 export const productDocuments: Readonly<Record<ProductId, readonly ProductDocument[]>> = {
-  ELB2950: documents('ELB2950'),
-  ELB2951: documents('ELB2951'),
-  ELS31381: documents('ELS31381'),
-  ELS31382: documents('ELS31382'),
+  ELB2962: documents('ELB2962'),
+  ELB2963: documents('ELB2963'),
+  ELS31438: documents('ELS31438'),
+  ELS31439: documents('ELS31439'),
 }

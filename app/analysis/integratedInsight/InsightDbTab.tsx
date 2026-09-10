@@ -198,7 +198,7 @@ function risingTags(items: InsightItem[], limit = 6): RisingTag[] {
     .slice(0, limit);
 }
 
-// ── 워드클라우드 (NSTK WordCloud spiral 배치 이식 · 그린 팔레트) ──────────────
+// ── 워드클라우드 (NSTK WordCloud spiral 배치 이식 · 삼성 블루 팔레트) ─────────
 type CloudItem = TagRank & { x: number; y: number; fs: number; color: string; w: number; h: number; fw: string };
 
 const CHAR_W_RATIO = 0.95;
@@ -230,10 +230,10 @@ function attemptLayout(data: TagRank[], vw: number, vh: number, fontFactor: numb
 
   const rawSize = (idx: number) => (idx < 3 ? 76 - idx * 12 : idx < 10 ? 40 - (idx - 3) * 2.5 : 20);
   const styleOf = (rank: number, isPinned?: boolean) =>
-    isPinned ? { color: "#005B52", fw: "900" as const }
-      : rank <= 3 ? { color: "#005B52", fw: "900" as const }
-        : rank <= 10 ? { color: "#3E7A6E", fw: "700" as const }
-          : { color: "#A8C5C0", fw: "500" as const };
+    isPinned ? { color: "#1D4ED8", fw: "900" as const }
+      : rank <= 3 ? { color: "#2563EB", fw: "900" as const }
+        : rank <= 10 ? { color: "#3B82F6", fw: "700" as const }
+          : { color: "#93C5FD", fw: "500" as const };
 
   const overlaps = (lx: number, ty: number, w: number, h: number, fs: number) => {
     const m = Math.max(2, fs * 0.05);
@@ -304,7 +304,7 @@ function TagCloud({ tags, activeTags, onTagClick, pinnedTag }: { tags: TagRank[]
               <text textAnchor="middle" alignmentBaseline="middle"
                 style={{
                   fontSize: `${item.fs}px`,
-                  fill: activeTags.includes(item.name) ? BRAND_ORANGE : item.color,
+                  fill: activeTags.includes(item.name) ? "#1E40AF" : item.color,
                   fontWeight: item.fw as never,
                   fontFamily: "Pretendard, sans-serif",
                   textDecoration: activeTags.includes(item.name) ? "underline" : "none",
@@ -2462,10 +2462,17 @@ export default function InsightDbTab() {
                     items={(unifiedJob.hitl.reviewItems ?? []).map((entry) => {
                       const draft = reviewDraft[entry.id];
                       const content = draft?.content ?? entry.content;
+                      const storedCardIndex = entry.id.match(/^storedCards\.(\d+)\.conclusion$/)?.[1];
+                      const storedCard = storedCardIndex == null
+                        ? null
+                        : unifiedResult?.storedCards[Number(storedCardIndex)] ?? null;
                       return {
                         id: entry.id,
                         title: entry.title,
                         hint: entry.hint,
+                        detailLabel: storedCard?.citedSources.length
+                          ? `자료 ${storedCard.citedSources.length}건 더보기`
+                          : undefined,
                         content,
                         original: entry.original,
                         edited: content.trim() !== entry.original.trim(),
@@ -2474,6 +2481,13 @@ export default function InsightDbTab() {
                       };
                     })}
                     onChange={handleReviewChange}
+                    onViewDetail={(id) => {
+                      const storedCardIndex = id.match(/^storedCards\.(\d+)\.conclusion$/)?.[1];
+                      if (storedCardIndex == null) return;
+                      const card = unifiedResult?.storedCards[Number(storedCardIndex)];
+                      if (!card) return;
+                      setPipelineDetail({ kind: "db", dbId: card.databaseId as UnifiedDatabaseId });
+                    }}
                     onApprove={() => void approveNextStep()}
                     onClose={() => setReviewModalOpen(false)}
                     approveLabel={"승인 · STEP " + unifiedJob.hitl.awaitingStep + " 실행"}

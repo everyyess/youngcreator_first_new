@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, RotateCcw, X } from "lucide-react";
+import { AlertCircle, CheckCheck, CheckCircle2, ChevronRight, Loader2, RotateCcw, X } from "lucide-react";
 
 /**
  * Human-In-The-Loop 검토 패널 — 상담실 제안서 검토(ProposalReviewModal)와 동일한
@@ -17,6 +17,8 @@ export type HitlReviewItemView = {
   id: string;
   title: string;
   hint?: string;
+  /** 해당 산출물의 원문·근거 자료를 여는 버튼 라벨. 없으면 버튼을 표시하지 않는다. */
+  detailLabel?: string;
   content: string;
   original: string;
   edited: boolean;
@@ -31,6 +33,7 @@ interface HitlReviewPanelProps {
   description: string;
   items: HitlReviewItemView[];
   onChange: (id: string, patch: HitlReviewPatch) => void;
+  onViewDetail?: (id: string) => void;
   onApprove: () => void;
   onClose: () => void;
   approveLabel: string;
@@ -48,6 +51,7 @@ export default function HitlReviewPanel({
   description,
   items,
   onChange,
+  onViewDetail,
   onApprove,
   onClose,
   approveLabel,
@@ -150,24 +154,37 @@ export default function HitlReviewPanel({
                   </button>
                 </div>
 
-                {isEditing ? (
-                  <textarea
-                    value={entry.content}
-                    onChange={(event) => onChange(entry.id, { content: event.target.value })}
-                    onBlur={() => setEditingId(null)}
-                    autoFocus
-                    rows={rows}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-[#2563eb]"
-                  />
-                ) : (
-                  <p
-                    onClick={() => setEditingId(entry.id)}
-                    className="max-h-56 cursor-text overflow-y-auto whitespace-pre-wrap rounded-md border border-transparent px-1 py-1 text-[13px] leading-relaxed text-slate-700 hover:border-slate-200 hover:bg-slate-50"
-                    title="클릭해서 수정"
-                  >
-                    {entry.content || <span className="text-slate-300">내용 없음 — 클릭해서 직접 작성</span>}
-                  </p>
-                )}
+                <div className="flex items-start gap-2">
+                  {isEditing ? (
+                    <textarea
+                      value={entry.content}
+                      onChange={(event) => onChange(entry.id, { content: event.target.value })}
+                      onBlur={() => setEditingId(null)}
+                      autoFocus
+                      rows={rows}
+                      className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-[#2563eb]"
+                    />
+                  ) : (
+                    <p
+                      onClick={() => setEditingId(entry.id)}
+                      className="min-w-0 flex-1 max-h-56 cursor-text overflow-y-auto whitespace-pre-wrap rounded-md border border-transparent px-1 py-1 text-[13px] leading-relaxed text-slate-700 hover:border-slate-200 hover:bg-slate-50"
+                      title="클릭해서 수정"
+                    >
+                      {entry.content || <span className="text-slate-300">내용 없음 — 클릭해서 직접 작성</span>}
+                    </p>
+                  )}
+                  {entry.detailLabel && onViewDetail && (
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => onViewDetail(entry.id)}
+                      className="mt-0.5 flex shrink-0 items-center gap-0.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-[#2563eb] transition hover:border-[#2563eb] hover:bg-[#2563eb] hover:text-white"
+                    >
+                      {entry.detailLabel}
+                      <ChevronRight size={12} />
+                    </button>
+                  )}
+                </div>
 
                 <div className="mt-2 flex items-center gap-2">
                   <input
@@ -206,6 +223,23 @@ export default function HitlReviewPanel({
               className="rounded-md border border-slate-200 px-4 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-50"
             >
               나중에 검토
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                for (const entry of items) {
+                  if (!entry.checked) onChange(entry.id, { checked: true });
+                }
+              }}
+              disabled={allChecked || items.length === 0}
+              className={`flex items-center gap-1.5 rounded-md border px-4 py-2 text-[13px] font-bold transition ${
+                allChecked || items.length === 0
+                  ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-300"
+                  : "border-blue-200 bg-blue-50 text-[#2563eb] hover:border-[#2563eb] hover:bg-blue-100"
+              }`}
+            >
+              <CheckCheck size={15} />
+              모두 검토
             </button>
             <button
               type="button"

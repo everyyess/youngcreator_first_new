@@ -1,4 +1,4 @@
-export type ProductId = 'ELB2950' | 'ELB2951' | 'ELS31381' | 'ELS31382'
+export type ProductId = 'ELB2962' | 'ELB2963' | 'ELS31438' | 'ELS31439'
 
 export type Underlying = '삼성전자' | 'SK하이닉스'
 export type UnderlyingTicker = '005930.KS' | '000660.KS'
@@ -36,7 +36,7 @@ export interface ELBProductSpec {
   maturityMonths: 36
   underlyings: readonly Underlying[]
   tickerByUnderlying: Readonly<Partial<Record<Underlying, UnderlyingTicker>>>
-  initialReferenceDate: '2026-08-31'
+  initialReferenceDate: '2026-09-14'
   monthlyCoupon: MonthlyCoupon
   earlyRedemptions: readonly EarlyRedemptionCondition[]
   maturity: {
@@ -63,7 +63,7 @@ export interface ELSProductSpec {
   maturityMonths: 12 | 36
   underlyings: readonly [Underlying, Underlying]
   tickerByUnderlying: Readonly<Record<Underlying, UnderlyingTicker>>
-  initialReferenceDate: '2026-08-31'
+  initialReferenceDate: '2026-09-14'
   earlyRedemptions: readonly EarlyRedemptionCondition[]
   knockIn: KnockInCondition
   maturity: {

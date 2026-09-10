@@ -162,13 +162,13 @@ export function timeWarpOffConfig(base: SimilarRegimeConfig = SIMILAR_REGIME_CON
 }
 
 export function runSensitivityAblation(prices: DailyPriceByUnderlying, simulationCount = 5_000, seed = 42): SensitivityRow[] {
-  const rows = sensitivityConfigs().map(({ label, config }) => runEls31382Probability(prices, config, simulationCount, seed, label))
+  const rows = sensitivityConfigs().map(({ label, config }) => runEls31438Probability(prices, config, simulationCount, seed, label))
   const baseline = rows[0]
   return rows.map((row) => ({ ...row, earlyRedemptionDelta: row.earlyRedemption - baseline.earlyRedemption, knockInDelta: row.knockIn - baseline.knockIn, principalLossDelta: row.principalLoss - baseline.principalLoss }))
 }
 
 export function runPathSeedStability(prices: DailyPriceByUnderlying, counts: readonly number[] = [20_000, 50_000], seeds: readonly number[] = [17, 42, 2026]): ProbabilityRow[] {
-  return counts.flatMap((simulationCount) => seeds.map((seed) => runEls31382Probability(prices, SIMILAR_REGIME_CONFIG, simulationCount, seed, `${simulationCount.toLocaleString()}경로 / seed ${seed}`)))
+  return counts.flatMap((simulationCount) => seeds.map((seed) => runEls31438Probability(prices, SIMILAR_REGIME_CONFIG, simulationCount, seed, `${simulationCount.toLocaleString()}경로 / seed ${seed}`)))
 }
 
 export function analogWeightDiagnostics(matches: readonly SimilarRegimeMatch[]): AnalogWeightDiagnostics {
@@ -178,10 +178,10 @@ export function analogWeightDiagnostics(matches: readonly SimilarRegimeMatch[]):
   return { effectiveSampleSize, herfindahlIndex, maximumWeight: Math.max(...weights), episodes: matches.map((match) => ({ start: match.start, end: match.end, normalizedWeight: match.normalizedWeight, similarityScore: match.similarityScore, timeWarpRatio: match.timeWarpRatio, effectiveEpisodeShare: match.normalizedWeight * effectiveSampleSize })) }
 }
 
-function runEls31382Probability(prices: DailyPriceByUnderlying, config: SimilarRegimeConfig, simulationCount: number, seed: number, label: string): ProbabilityRow {
+function runEls31438Probability(prices: DailyPriceByUnderlying, config: SimilarRegimeConfig, simulationCount: number, seed: number, label: string): ProbabilityRow {
   const analysisDate = commonLatestDate(prices)
   const { model, estimatedParameters } = buildSimilarRegimeModel(prices, config)
-  const result = runStructuredProductSimulation({ product: getProductSpec('ELS31382'), investmentAmount: 1_000_000, analysisDate, analysisSpot: { 삼성전자: closeOn(prices.삼성전자, analysisDate), SK하이닉스: closeOn(prices.SK하이닉스, analysisDate) }, estimatedParameters, regimeBootstrap: model, simulationCount, seed, observedRawHistory: prices })
+  const result = runStructuredProductSimulation({ product: getProductSpec('ELS31438'), investmentAmount: 1_000_000, analysisDate, analysisSpot: { 삼성전자: closeOn(prices.삼성전자, analysisDate), SK하이닉스: closeOn(prices.SK하이닉스, analysisDate) }, estimatedParameters, regimeBootstrap: model, simulationCount, seed, observedRawHistory: prices })
   return { label, simulationCount, seed, earlyRedemption: result.outcomeStats.earlyRedemption.probability, knockIn: result.knockInStats?.touch.probability ?? 0, principalLoss: result.outcomeStats.principalLoss.probability }
 }
 
