@@ -38,8 +38,15 @@
 .elb-els-simulator .underlyings { margin: 12px 0; font-size: .83rem; font-weight: 700; }
 .elb-els-simulator .card-metrics { margin: 0; display: grid; gap: 7px; }
 .elb-els-simulator .card-metrics div { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.elb-els-simulator .card-metrics dt { color: #758195; font-size: .7rem; }
-.elb-els-simulator .card-metrics dd { min-width: 0; margin: 0; text-align: right; font-size: .72rem; font-weight: 750; overflow-wrap: anywhere; }
+/* 한글 레이블이 좁은 카드에서 음절 단위로("배리"+"어") 끊기지 않게 — 공백에서만 줄바꿈 */
+.elb-els-simulator .card-metrics dt { color: #758195; font-size: .7rem; word-break: keep-all; }
+.elb-els-simulator .card-metrics dd { min-width: 0; margin: 0; text-align: right; font-size: .72rem; font-weight: 750; overflow-wrap: anywhere; word-break: keep-all; }
+/* 조기상환 배리어: 라벨은 "조기상환"/"배리어"로, 값은 연도별로 한 줄씩 */
+.elb-els-simulator .card-metrics .metric-barriers { align-items: start; }
+.elb-els-simulator .card-metrics .metric-barriers dt span { display: block; white-space: nowrap; }
+.elb-els-simulator .card-metrics .metric-barriers dd { display: grid; gap: 2px; }
+.elb-els-simulator .card-metrics .barrier-year { white-space: nowrap; }
+.elb-els-simulator .card-metrics .barrier-year b { margin-right: 4px; color: #94a2b3; font-weight: 700; }
 .elb-els-simulator .principal-badge { align-self: flex-start; margin-top: auto; border-radius: 999px; padding: 6px 9px; font-size: .72rem; font-weight: 800; line-height: 1; }
 .elb-els-simulator .principal-badge--protected { color: #087A63; background: #E7F7F1; }
 .elb-els-simulator .principal-badge--unprotected { color: #B42318; background: #FDEDEC; }
