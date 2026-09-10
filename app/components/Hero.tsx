@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X } from "lucide-react";
 import SodaPopLogoImage from "./SodaPopLogoImage";
@@ -18,6 +18,22 @@ const inputClass = "h-11 rounded-xl border border-slate-200 bg-white px-3 text-s
 export default function Hero() {
   const [role, setRole] = useState<AuthRole | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  const [loginReturnTo, setLoginReturnTo] = useState<string | null>(null);
+  const [loginNotice, setLoginNotice] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedRole = params.get("role");
+    const requestedReturnTo = params.get("returnTo");
+    // 외부 URL이나 protocol-relative URL은 로그인 후 이동 대상으로 허용하지 않는다.
+    if (requestedReturnTo?.startsWith("/") && !requestedReturnTo.startsWith("//")) {
+      setLoginReturnTo(requestedReturnTo);
+    }
+    if (requestedRole === "pb" || requestedRole === "customer") setRole(requestedRole);
+    if (params.get("reason") === "session-expired") {
+      setLoginNotice("보안을 위해 PB 인증을 다시 확인해주세요. 로그인 후 기존 화면으로 돌아갑니다.");
+    }
+  }, []);
 
   return (
     <>
@@ -74,7 +90,7 @@ export default function Hero() {
           </div>
         </div>
       </div>
-      {role ? <LoginModal role={role} onClose={() => setRole(null)} /> : null}
+      {role ? <LoginModal role={role} onClose={() => setRole(null)} returnTo={loginReturnTo} notice={loginNotice} /> : null}
       {showTeam ? <TeamModal onClose={() => setShowTeam(false)} /> : null}
     </>
   );
@@ -134,7 +150,7 @@ function TeamModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function LoginModal({ role, onClose }: { role: AuthRole; onClose: () => void }) {
+function LoginModal({ role, onClose, returnTo, notice }: { role: AuthRole; onClose: () => void; returnTo?: string | null; notice?: string }) {
   const router = useRouter();
   const [mode, setMode] = useState<ModalMode>("login");
   const [message, setMessage] = useState("");
@@ -174,10 +190,10 @@ function LoginModal({ role, onClose }: { role: AuthRole; onClose: () => void }) 
   const handleLogin = () => run(async () => {
     if (role === "pb") {
       await pbAuthStore.login(form.employeeId.trim(), form.password);
-      router.push("/home");
+      router.push(returnTo || "/home");
     } else {
       await customerAuthStore.login(form.userId.trim(), form.password);
-      router.push("/customer-home");
+      router.push(returnTo || "/customer-home");
     }
   });
 
@@ -218,6 +234,7 @@ function LoginModal({ role, onClose }: { role: AuthRole; onClose: () => void }) 
           <div>
             <p className="text-sm font-extrabold text-blue-600">{role === "pb" ? "PB 전용" : "고객 전용"}</p>
             <h2 className="mt-1 text-2xl font-black text-slate-950">{title}</h2>
+            {notice ? <p className="mt-2 max-w-sm text-sm font-semibold text-blue-700">{notice}</p> : null}
           </div>
           <button type="button" onClick={onClose} className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
             <X size={18} />

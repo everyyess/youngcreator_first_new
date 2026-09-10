@@ -86,6 +86,7 @@ async function syncInsightServerSession(accessToken?: string) {
   const response = await fetch("/api/auth/insight-session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     body: JSON.stringify({ accessToken }),
   });
   if (!response.ok) throw new Error("서버 분석 세션을 설정하지 못했습니다.");
@@ -220,10 +221,24 @@ export const pbAuthStore = {
   async ensureInsightSession() {
     if (!authSupabase) return false;
     const { data, error } = await authSupabase.auth.getSession();
-    const accessToken = data.session?.access_token;
-    if (error || !accessToken) return false;
-    await syncInsightServerSession(accessToken);
-    return true;
+    if (error || !data.session) return false;
+
+    // 브라우저 세션은 남아 있어도 access token 만료가 임박한 경우가 있다. 만료 토큰을
+    // HttpOnly 분석 세션 쿠키로 복사하면 곧바로 401이 되므로 먼저 명시적으로 갱신한다.
+    let session = data.session;
+    const expiresAtMs = (session.expires_at ?? 0) * 1000;
+    if (expiresAtMs && expiresAtMs <= Date.now() + 60_000) {
+      const refreshed = await authSupabase.auth.refreshSession();
+      if (refreshed.error || !refreshed.data.session) return false;
+      session = refreshed.data.session;
+    }
+
+    try {
+      await syncInsightServerSession(session.access_token);
+      return true;
+    } catch {
+      return false;
+    }
   },
   async register(name: string, employeeId: string, email: string, password: string) {
     await requestAuthRegistration({

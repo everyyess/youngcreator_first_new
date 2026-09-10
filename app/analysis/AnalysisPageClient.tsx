@@ -297,12 +297,23 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   useEffect(() => {
     let cancelled = false;
     pbAuthStore.ensureInsightSession()
-      .catch(() => false)
-      .finally(() => {
-        if (!cancelled) setIsInsightSessionReady(true);
+      .then(async (ready) => {
+        if (cancelled) return;
+        if (ready) {
+          setIsInsightSessionReady(true);
+          return;
+        }
+
+        // PB 프로필(localStorage)만 남고 Supabase Auth 세션이 만료된 경우 API를 렌더하면
+        // 모든 통합 인사이트 요청이 401로 실패한다. 낡은 이중 세션을 정리하고 로그인 후
+        // 현재 분석 화면으로 돌아오도록 한다.
+        await pbAuthStore.logout();
+        if (cancelled) return;
+        const returnTo = window.location.pathname + window.location.search;
+        router.replace(`/?role=pb&reason=session-expired&returnTo=${encodeURIComponent(returnTo)}`);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
