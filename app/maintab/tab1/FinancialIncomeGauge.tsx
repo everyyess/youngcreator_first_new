@@ -119,6 +119,37 @@ function calcForeignDividendWithholding(grossIncomeKRW: number, country?: string
   return { localWithholding, domesticTopUpNational, domesticTopUpLocal, totalTax, net: grossIncomeKRW - totalTax, effectiveRate: grossIncomeKRW > 0 ? totalTax / grossIncomeKRW : localRate };
 }
 
+// ─── 개별 종목 하드코딩 ────────────────────────────────────────────────────────
+// KB금융(105560): 고배당 배당소득 분리과세(밸류업 특례, 조특법 — 2026~2028 한시) 대상. 아래 규칙 적용.
+//  · 고객의 전체 금융소득(KB금융 포함)이 2,000만원 이하 → KB금융도 그냥 종합과세에 같이 합산(어차피 14% 동일)
+//  · 2,000만원 초과 → KB금융 배당은 "분리과세 신청"으로 보고 2,000만원 판정·종합과세 계산에서 제외,
+//    KB금융 배당만 따로 모아 아래 누진 분리과세로 계산(2천만↓ 15.4% / 3억↓ 22% / 50억↓ 27.5% / 초과 33%)
+const KB_FINANCIAL_CODE = "105560";
+
+function bareStockCode(ticker: string): string {
+  return (ticker ?? "").replace(/\.(KS|KQ)$/i, "").trim();
+}
+
+// 고배당 분리과세 대상 배당 "합계"에만 매기는 누진세(다른 배당·이자와 섞지 않음). 지방세 포함.
+// 지급 시 이미 15.4%가 원천징수됐으므로 실제 추가납부는 (누진세 − 기원천징수)의 양수분.
+function separateDividendTaxKRW(amount: number): { tax: number; additionalTax: number } {
+  if (!(amount > 0)) return { tax: 0, additionalTax: 0 };
+  const tiers: Array<[number, number]> = [
+    [20_000_000, 0.154],
+    [300_000_000, 0.22],
+    [5_000_000_000, 0.275],
+    [Number.POSITIVE_INFINITY, 0.33],
+  ];
+  let tax = 0;
+  let prev = 0;
+  for (const [cap, rate] of tiers) {
+    if (amount <= prev) break;
+    tax += (Math.min(amount, cap) - prev) * rate;
+    prev = cap;
+  }
+  return { tax: Math.round(tax), additionalTax: Math.max(0, Math.round(tax - amount * 0.154)) };
+}
+
 // 금융소득종합과세 계산 — rolling(트레일링 365일)·calendarYtd(달력연도 누적) 두 기준에 동일하게 적용하는 공용 로직.
 // (비교과세: 2,000만원까지 14%+초과분 한계세율 vs 전액 14% 중 큰 쪽 — 소득세법 §14③)
 function computeComprehensiveTax(
@@ -187,6 +218,8 @@ export interface IncomeBreakdownItem {
   // 배당 전용 표시 배지 — 배당수익률이 현실적으로 불가능한 수준(100%↑)이면 데이터 정합성 문제로 보고
   // 계산에서 제외한다(레버리지/인버스 ETF 액면병합 등). 임의로 "올바른" 값을 추정하지 않는다.
   dividendNote?: "배당소득 계산 불가(레버리지/인버스 ETF 추정 — 액면병합)";
+  // KB금융 등 고배당 분리과세 대상이면서, 전체 금융소득 2,000만원 초과로 실제 분리과세 처리된 항목.
+  separatelyTaxed?: boolean;
   // 외화표시 채권 전용 표시 배지 — bondNote와 별개(동시에 뜰 수 있음). "미확인"은 진입 시점 환율을
   // 정확히 캡처하지 못해 오늘 환율로 근사한 경우(신규 추가 전 저장된 포지션 등), "만기 시점 환율
   // 미확정"은 만기가 멀어(1년 이후) 그 시점 환율을 알 수 없는데 오늘 환율로 근사 계산한 경우.
@@ -258,6 +291,14 @@ export interface FinancialIncomeSummary {
   majorShareholderItems: { name: string; ticker: string; value: number; estimatedTax: number }[];
   // 조세조약상 비과세인 채권이자(예: 브라질 국채) — 위 interestIncome/종합과세 합산엔 포함 안 됨. 정보 표시 전용.
   bondTaxExemptInterestIncome: number;
+  // KB금융(고배당 분리과세 대상) 배당이 있고 전체 금융소득이 2,000만원을 초과해 실제로 분리과세 처리된 경우.
+  // 이 경우 위 totalFinancialIncome·grossUpAmount·finalTax 등은 KB금융분을 뺀 값이고, dividendIncome(목록·합계용)엔
+  // KB금융이 그대로 포함된다. 대상 없거나 2,000만원 이하여서 그냥 합산한 경우 null.
+  separateElection: {
+    dividendIncome: number; // 분리과세 처리된 KB금융 배당 합계
+    tax: number;            // 분리과세 총세액(지방세 포함 누진)
+    additionalTax: number;  // 추가납부액 = 총세액 − 기원천징수(15.4%)
+  } | null;
   // 복리채 등 만기가 1년 이후인 일시상환형 채권의 미래 일시 인식 예정 이자 목록(정보 표시 전용)
   bondMaturityLumpSums: BondMaturityLumpSum[];
   updatedAt: number;
@@ -342,6 +383,11 @@ function IncomeRow({ item }: { item: IncomeBreakdownItem }) {
             {item.dividendNote && (
               <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-600 shrink-0">
                 {item.dividendNote}
+              </span>
+            )}
+            {item.separatelyTaxed && (
+              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600 shrink-0">
+                고배당 분리과세 (2천만원 판정 제외)
               </span>
             )}
             {tagLabel && (
@@ -645,6 +691,32 @@ export function FinancialIncomeGauge({
                       <span>{fmtWon(summary?.dividendIncome ?? 0)}</span>
                     </div>
                   </div>
+
+                  {summary?.separateElection && (
+                    <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 space-y-0.5">
+                      <p className="text-[11px] font-bold text-emerald-700">
+                        고배당 분리과세 적용 (전체 금융소득 2,000만원 초과)
+                      </p>
+                      <p className="text-[10px] leading-4 text-emerald-700/80">
+                        KB금융 배당은 배당소득 합계엔 포함되지만, 2,000만원 판정·종합과세 계산에서는 빠지고
+                        아래처럼 따로 14~30% 누진 분리과세로 계산해요.
+                      </p>
+                      <div className="flex justify-between text-[11px] text-emerald-700 pt-0.5">
+                        <span>분리과세 배당 (2천만원 판정 제외)</span>
+                        <span className="font-bold">{fmtWon(summary.separateElection.dividendIncome)}</span>
+                      </div>
+                      <div className="flex justify-between text-[11px] text-emerald-700">
+                        <span>분리과세 세액 (누진)</span>
+                        <span className="font-bold">{fmtWon(summary.separateElection.tax)}</span>
+                      </div>
+                      {summary.separateElection.additionalTax > 0 && (
+                        <div className="flex justify-between text-[11px] text-red-600">
+                          <span>└ 추가 납부 (기원천징수 15.4% 초과분)</span>
+                          <span className="font-bold">{fmtWon(summary.separateElection.additionalTax)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <p className="text-xs text-slate-400 text-center py-4">
@@ -1102,6 +1174,12 @@ export function calcFinancialIncomeSummary(
   let calendarYtdWithholdingCollected = 0;
 
   let bondTaxExemptInterestIncome = 0; // 조세조약상 완전 비과세인 채권이자(예: 브라질 국채) — 종합과세 합산 제외
+  // KB금융 배당 — 우선 종합과세에 정상 포함해 두고, 루프 종료 후 전체 금융소득 > 2,000만원이면
+  // 이 종목분을 빼고 별도 분리과세로 재계산한다(KB_FINANCIAL_CODE 주석 참고).
+  let kbDividendIncome = 0;
+  let kbCalendarYtdDividendIncome = 0;
+  let kbWithholding = 0;
+  let kbCalendarYtdWithholding = 0;
   const bondMaturityLumpSums: BondMaturityLumpSum[] = []; // 복리채 등 만기 1년 이후인 일시상환 예정 이자(정보용)
 
   for (const a of assets) {
@@ -1311,10 +1389,19 @@ export function calcFinancialIncomeSummary(
           grossUpTargetDividend += annualGross; // Gross-up (11%) 대상
           calendarYtdGrossUpTargetDividend += calendarYtdGross;
           const w = calcWithholdingKRW(annualGross);
+          const wYtd = calcWithholdingKRW(calendarYtdGross);
           withholdingRate = DOMESTIC_DIV_WITHHOLDING;
           annualNet = w.net;
           totalWithholdingCollected += w.totalTax;
-          calendarYtdWithholdingCollected += calcWithholdingKRW(calendarYtdGross).totalTax;
+          calendarYtdWithholdingCollected += wYtd.totalTax;
+          // KB금융 — 종합과세엔 위처럼 정상 반영해 두고, 루프 종료 후 "전체 금융소득 > 2,000만원"이면
+          // 이 종목분(소득·Gross-up 전액·원천징수)을 빼고 별도 분리과세로 재계산한다.
+          if (bareStockCode(ticker) === KB_FINANCIAL_CODE) {
+            kbDividendIncome += annualGross;
+            kbCalendarYtdDividendIncome += calendarYtdGross;
+            kbWithholding += w.totalTax;
+            kbCalendarYtdWithholding += wYtd.totalTax;
+          }
         } else if (!isDomesticListed && productType === "해외주식") {
           incomeType = "배당(해외직접)";
           const w = calcForeignDividendWithholding(annualGross, a.country);
@@ -1480,18 +1567,42 @@ export function calcFinancialIncomeSummary(
     .reduce((s, b) => s + b.tax, 0);
 
   // ── 금융소득 종합과세 계산 (gross 기준) ─────────────────────────────────────
-  // rolling(트레일링 365일, "향후 1년 예상" 헤드라인용) — 종전과 동일한 기준·필드
-  const rolling = computeComprehensiveTax(dividendIncome, grossUpTargetDividend, interestIncome, totalWithholdingCollected, tMarginal);
+  // 우선 KB금융을 포함해 전부 합산한 결과(All)를 낸 뒤, "전체 금융소득 > 2,000만원"이면 KB금융분을
+  // 빼고 재계산한다(KB_FINANCIAL_CODE 주석 참고). 2,000만원 이하면 그냥 합산본을 그대로 쓴다.
+  const rollingAll = computeComprehensiveTax(dividendIncome, grossUpTargetDividend, interestIncome, totalWithholdingCollected, tMarginal);
   // calendarYtd(달력연도 1/1~오늘 누적, 종합과세 판정 전용)의 이자소득은 0으로 둔다.
   // 채권 이자는 원금×표면이율로 "연간 전체"를 한 번에 계산하는 구조라, 실제 지급 이벤트(날짜)가 없다 —
   // 그래서 오늘 막 편입한 채권도 rolling의 연간 이자 전액이 그대로 여기 들어가버리는 버그가 있었음
   // (실제로는 매수일 이후 경과 기간만큼만 지급됐어야 함). 매입일·지급주기 데이터가 없어 정확한 비례 계산이
   // 불가능하므로, 잘못된 값을 보여주는 것보다 "이 달력연도 누적 지표는 배당소득만 반영"으로 확실히 하는 편을 택함.
-  const calendarYtd = computeComprehensiveTax(calendarYtdDividendIncome, calendarYtdGrossUpTargetDividend, 0, calendarYtdWithholdingCollected, tMarginal);
+  const calendarYtdAll = computeComprehensiveTax(calendarYtdDividendIncome, calendarYtdGrossUpTargetDividend, 0, calendarYtdWithholdingCollected, tMarginal);
+
+  const kbSeparate = kbDividendIncome > 0 && rollingAll.totalFinancialIncome > THRESHOLD;
+  const rolling = kbSeparate
+    ? computeComprehensiveTax(
+        dividendIncome - kbDividendIncome,
+        Math.max(0, grossUpTargetDividend - kbDividendIncome), // KB금융 국내주식 배당은 전액 Gross-up 대상
+        interestIncome,
+        Math.max(0, totalWithholdingCollected - kbWithholding),
+        tMarginal,
+      )
+    : rollingAll;
+  const calendarYtd = kbSeparate
+    ? computeComprehensiveTax(
+        calendarYtdDividendIncome - kbCalendarYtdDividendIncome,
+        Math.max(0, calendarYtdGrossUpTargetDividend - kbCalendarYtdDividendIncome),
+        0,
+        Math.max(0, calendarYtdWithholdingCollected - kbCalendarYtdWithholding),
+        tMarginal,
+      )
+    : calendarYtdAll;
+  const separateElection = kbSeparate
+    ? { dividendIncome: Math.round(kbDividendIncome), ...separateDividendTaxKRW(kbDividendIncome) }
+    : null;
 
   return {
     interestIncome: Math.round(interestIncome),
-    dividendIncome: rolling.dividendIncome,
+    dividendIncome: Math.round(dividendIncome), // KB금융 포함 전체 — 배당 목록·"배당소득 합계"용
     totalCapitalGains: Math.round(totalCapitalGains),
     totalCapitalLosses: Math.round(totalCapitalLosses),
     netCapitalGains: Math.round(netCapitalGains),
@@ -1526,12 +1637,16 @@ export function calcFinancialIncomeSummary(
           map.set(key, { ...item });
         }
       }
-      return Array.from(map.values()).sort((a, b) => b.annualIncome - a.annualIncome);
+      return Array.from(map.values())
+        // KB금융이 실제 분리과세 처리된 경우에만 그 행에 배지를 붙인다(2,000만원 이하면 그냥 합산이라 배지 없음).
+        .map((it) => (kbSeparate && bareStockCode(it.ticker) === KB_FINANCIAL_CODE ? { ...it, separatelyTaxed: true } : it))
+        .sort((a, b) => b.annualIncome - a.annualIncome);
     })(),
     capitalGainsBreakdown,
     majorShareholderWarning: majorShareholderItems.length > 0,
     majorShareholderItems,
     bondTaxExemptInterestIncome: Math.round(bondTaxExemptInterestIncome),
+    separateElection,
     bondMaturityLumpSums,
     updatedAt: Date.now(),
   };
