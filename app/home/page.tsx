@@ -37,6 +37,7 @@ import {
   getElapsedSeconds,
   maxConsultationSeconds,
   readActiveConsultation,
+  readCompletedConsultation,
   sortSessionsNewest,
   todayDate,
   writeActiveConsultation,
@@ -313,6 +314,7 @@ export default function HomePage() {
   const [draftSession, setDraftSession] = useState<ConsultationSession | null>(null);
   const [newCustomer, setNewCustomer] = useState<CustomerProfile>(() => createNewCustomerProfile());
   const [activeConsultation, setActiveConsultation] = useState<ActiveConsultation | null>(null);
+  const [completedConsultationSessionId, setCompletedConsultationSessionId] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [storageMessage, setStorageMessage] = useState("");
   const [customerDeleteTarget, setCustomerDeleteTarget] = useState<CustomerProfile | null>(null);
@@ -344,6 +346,12 @@ export default function HomePage() {
   }, []);
 
   const sessions = useMemo(() => allSessions(customerData), [customerData]);
+  const displaySessions = useMemo(
+    () => completedConsultationSessionId
+      ? sessions.map((session) => session.id === completedConsultationSessionId ? { ...session, status: "completed" as const } : session)
+      : sessions,
+    [completedConsultationSessionId, sessions],
+  );
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) ?? null;
   const selectedState = selectedCustomer ? customerData[selectedCustomer.id] : undefined;
   const selectedCustomerName = customerName(selectedCustomer ?? undefined);
@@ -412,6 +420,7 @@ export default function HomePage() {
     const syncActive = () => {
       const active = readActiveConsultation();
       setActiveConsultation(active);
+      setCompletedConsultationSessionId(readCompletedConsultation()?.sessionId ?? null);
       setElapsedSeconds(getElapsedSeconds(active));
     };
     syncActive();
@@ -420,6 +429,7 @@ export default function HomePage() {
     const id = window.setInterval(() => {
       const active = readActiveConsultation();
       setActiveConsultation(active);
+      setCompletedConsultationSessionId(readCompletedConsultation()?.sessionId ?? null);
       const elapsed = getElapsedSeconds(active);
       setElapsedSeconds(elapsed);
       if (active && elapsed >= maxConsultationSeconds) finishActiveSession(true);
@@ -536,9 +546,9 @@ export default function HomePage() {
     return customers.filter((customer) => `${customerName(customer)} ${customerBirth(customer)}`.toLowerCase().includes(needle));
   }, [customers, query]);
 
-  const selectedSessions = useMemo(() => sessions.filter((session) => session.customerId === selectedCustomerId).sort(sortSessionsNewest), [sessions, selectedCustomerId]);
-  const upcoming = useMemo(() => [...sessions].filter((session) => session.status !== "completed" && isFutureSession(session)).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [sessions]);
-  const expandedSession = sessions.find((session) => session.id === expandedSessionId) ?? null;
+  const selectedSessions = useMemo(() => displaySessions.filter((session) => session.customerId === selectedCustomerId).sort(sortSessionsNewest), [displaySessions, selectedCustomerId]);
+  const upcoming = useMemo(() => [...displaySessions].filter((session) => session.status !== "completed" && isFutureSession(session)).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3), [displaySessions]);
+  const expandedSession = displaySessions.find((session) => session.id === expandedSessionId) ?? null;
 
   const openCreateForm = () => {
     if (!selectedCustomer) return;
@@ -944,11 +954,16 @@ function CreateSessionForm({ customerName, draft, setDraft, onCancel, onReserve,
 function SessionCard({ session, customer, expanded, onExpand, onDelete, onPreRecord, onStart }: { session: ConsultationSession; customer?: CustomerProfile | null; expanded: boolean; onExpand: () => void; onDelete: () => void; onUpdate: (patch: Partial<ConsultationSession>) => void; onPreRecord?: () => void; onStart?: () => void }) {
   const upcomingLabel = upcomingRelativeLabel(session);
   const pastLabel = pastRelativeLabel(session.date);
+  const isCompleted = session.status === "completed";
   return (
     <article className="box-border w-full min-w-0 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
       <div className="flex min-w-0 items-start justify-between gap-2">
         <button type="button" onClick={onExpand} className="min-w-0 flex-1 overflow-hidden text-left">
-          {upcomingLabel ? <p className="mb-1 text-xs font-extrabold text-red-600">{upcomingLabel}</p> : null}
+          {isCompleted ? (
+            <p className="mb-1 text-xs font-extrabold text-blue-600">상담 종료</p>
+          ) : upcomingLabel ? (
+            <p className="mb-1 text-xs font-extrabold text-red-600">{upcomingLabel}</p>
+          ) : null}
           <p className="truncate text-sm font-extrabold text-slate-900">{displaySessionTitle(session.title)}</p>
           <div className="mt-1 grid gap-0.5 text-xs font-bold">
             {displayKoreanDate(session.date)}

@@ -348,6 +348,36 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
   const isConsultationReadOnlyRef = useRef(false);
 
+  const flushQueuedCustomerSave = useCallback(async function flush(customerId: CustomerId) {
+    if (customerSaveInFlightRef.current[customerId]) return;
+    const queued = customerSaveQueuedRef.current[customerId];
+    if (!queued) return;
+
+    delete customerSaveQueuedRef.current[customerId];
+    customerSaveInFlightRef.current[customerId] = true;
+    const result = await saveCustomerDataJsonOnly(customerId, queued.payload);
+    customerSaveInFlightRef.current[customerId] = false;
+
+    if (!result.ok) {
+      setStorageErrorMessage(result.message);
+    } else if (
+      customerSaveGenerationRef.current[customerId] === queued.generation &&
+      !customerSaveQueuedRef.current[customerId]
+    ) {
+      setDirtyCustomerData((prev) => ({ ...prev, [customerId]: false }));
+      setStorageErrorMessage("");
+    }
+
+    if (customerSaveQueuedRef.current[customerId]) void flush(customerId);
+  }, []);
+
+  const queueCustomerDataSave = useCallback((customerId: CustomerId, payload: unknown) => {
+    const generation = (customerSaveGenerationRef.current[customerId] ?? 0) + 1;
+    customerSaveGenerationRef.current[customerId] = generation;
+    customerSaveQueuedRef.current[customerId] = { payload, generation };
+    void flushQueuedCustomerSave(customerId);
+  }, [flushQueuedCustomerSave]);
+
   // 파생값 — 공개 인터페이스는 Tab 1의 formData/riskResult 패턴과 동일
   const portfolioAssets = portfolioAssetsMap[selectedCustomer] ?? [];
   const isPortfolioLoaded = portfolioLoadedMap[selectedCustomer] ?? false;
@@ -413,7 +443,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     const nextSessions = sessions.map((session) => session.id === active.sessionId ? { ...finishSession(session, seconds, autoEnded), summarySnapshot: snapshot } : session);
     const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
     setCustomerData((prev) => ({ ...prev, [active.customerId]: nextState }));
-    saveCustomerDataJsonOnly(active.customerId, nextState).catch((error) => console.error("Failed to save consultation duration", error));
+    // 자동저장 요청이 진행 중이어도 종료 상태가 항상 마지막에 저장되도록 같은 직렬 큐를 사용한다.
+    queueCustomerDataSave(active.customerId, nextState);
     const completed = {
       sessionId: active.sessionId,
       customerId: active.customerId,
@@ -429,7 +460,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     setConsultationEnded(true);
     setActiveConsultation(null);
     setActiveConsultationElapsedSeconds(seconds);
-  }, [activeConsultation, analysisResultMap, customerData, newPortfolioAnalysisResultMap, rebalancingSellMap]);
+  }, [activeConsultation, analysisResultMap, customerData, newPortfolioAnalysisResultMap, queueCustomerDataSave, rebalancingSellMap]);
 
   const resumeLatestConsultation = useCallback(() => {
     const state = customerData[selectedCustomer] ?? createInitialState();
@@ -440,7 +471,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     const nextSessions = sessions.map((session) => session.id === target.id ? resumed : session);
     const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
     setCustomerData((prev) => ({ ...prev, [selectedCustomer]: nextState }));
-    saveCustomerDataJsonOnly(selectedCustomer, nextState).catch((error) => console.error("Failed to resume consultation", error));
+    queueCustomerDataSave(selectedCustomer, nextState);
     storeSelectedCustomerId(selectedCustomer);
     const resumedElapsedSeconds = Math.max(0, Math.min(maxConsultationSeconds, target.durationSeconds ?? 0));
     const resumedActive = {
@@ -462,7 +493,7 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     writeActiveConsultation(resumedActive);
     setActiveConsultation(resumedActive);
     setActiveConsultationElapsedSeconds(resumedElapsedSeconds);
-  }, [customerData, currentSegment, selectedCustomer, appMode]);
+  }, [appMode, currentSegment, customerData, queueCustomerDataSave, selectedCustomer]);
 
   const requestConsultationResume = useCallback(() => {
     setEditLockDialogOpen(true);
@@ -1504,29 +1535,6 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     () => buildHeaderAssetSummary(formData.financial, formData.headerAssetSummary, portfolioAssets, availableInvestmentFunds),
     [formData.financial, formData.headerAssetSummary, portfolioAssets, availableInvestmentFunds],
   );
-
-  const flushQueuedCustomerSave = useCallback(async function flush(customerId: CustomerId) {
-    if (customerSaveInFlightRef.current[customerId]) return;
-    const queued = customerSaveQueuedRef.current[customerId];
-    if (!queued) return;
-
-    delete customerSaveQueuedRef.current[customerId];
-    customerSaveInFlightRef.current[customerId] = true;
-    const result = await saveCustomerDataJsonOnly(customerId, queued.payload);
-    customerSaveInFlightRef.current[customerId] = false;
-
-    if (!result.ok) {
-      setStorageErrorMessage(result.message);
-    } else if (
-      customerSaveGenerationRef.current[customerId] === queued.generation &&
-      !customerSaveQueuedRef.current[customerId]
-    ) {
-      setDirtyCustomerData((prev) => ({ ...prev, [customerId]: false }));
-      setStorageErrorMessage("");
-    }
-
-    if (customerSaveQueuedRef.current[customerId]) void flush(customerId);
-  }, []);
 
   useEffect(() => {
     if (appMode !== "pb") return;
