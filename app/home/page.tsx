@@ -515,8 +515,9 @@ export default function HomePage() {
     upsertSession(activeSession);
     storeSelectedCustomerId(session.customerId);
     writePreRecordConsultation(null);
-    writeActiveConsultation({ sessionId: session.id, customerId: session.customerId, startedAt: new Date().toISOString(), returnPath: "/consultation/tab1" });
-    window.open("/consultation/tab1", "_blank", "noopener,noreferrer");
+    const consultationPath = `/consultation/tab1?customerId=${encodeURIComponent(session.customerId)}`;
+    writeActiveConsultation({ sessionId: session.id, customerId: session.customerId, startedAt: new Date().toISOString(), returnPath: consultationPath });
+    window.open(consultationPath, "_blank", "noopener,noreferrer");
   }
 
   function preRecordSession(session: ConsultationSession) {
@@ -524,8 +525,9 @@ export default function HomePage() {
     upsertSession(draftSession);
     storeSelectedCustomerId(session.customerId);
     writeActiveConsultation(null);
-    writePreRecordConsultation({ sessionId: session.id, customerId: session.customerId, returnPath: "/consultation/tab1" });
-    window.open("/consultation/tab1", "_blank", "noopener,noreferrer");
+    const consultationPath = `/consultation/tab1?customerId=${encodeURIComponent(session.customerId)}`;
+    writePreRecordConsultation({ sessionId: session.id, customerId: session.customerId, returnPath: consultationPath });
+    window.open(consultationPath, "_blank", "noopener,noreferrer");
   }
 
   function finishActiveSession(autoEnded = false) {

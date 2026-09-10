@@ -743,7 +743,12 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       const storedState = rows.length ? customerRowsToStoredState(rows) : null;
       if (storedState) {
         const storedId = getStoredSelectedCustomerId();
-        const nextId = storedId && storedState.customerProfiles.some((p) => p.id === storedId) ? storedId : storedState.selectedCustomer;
+        const requestedId = appMode === "pb" ? new URLSearchParams(window.location.search).get("customerId") : null;
+        const activeCustomerId = appMode === "pb" ? readActiveConsultation()?.customerId : null;
+        const preferredId = requestedId || activeCustomerId || storedId;
+        const nextId = preferredId && storedState.customerProfiles.some((p) => p.id === preferredId)
+          ? preferredId
+          : storedState.selectedCustomer;
         setCustomerProfiles(storedState.customerProfiles);
         setCustomerData(storedState.customerData);
         setSelectedCustomer(nextId);
@@ -768,8 +773,11 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   useEffect(() => {
     setIsMounted(true);
     const storedId = getStoredSelectedCustomerId();
-    if (storedId) setSelectedCustomer(storedId);
-  }, []); // mount only — deps 없음, localStorage는 이 안에서만 접근
+    const requestedId = appMode === "pb" ? new URLSearchParams(window.location.search).get("customerId") : null;
+    const activeCustomerId = appMode === "pb" ? readActiveConsultation()?.customerId : null;
+    const preferredId = requestedId || activeCustomerId || storedId;
+    if (preferredId) setSelectedCustomer(preferredId);
+  }, [appMode]);
 
   // ── 고객 전환 시 포트폴리오 1회 레이지 로드 — Tab 1의 초기 load()와 동일 구조
   // Map에 영구 보관하므로 고객 전환 시 데이터를 절대 삭제하지 않는다

@@ -521,8 +521,8 @@ export function createNewCustomerProfile(): CustomerProfile {
 }
 
 export function customerTabLabel(profile: CustomerProfile) {
-  const name = profile.name.trim() || "신규 고객";
-  const year = (profile.birth_year ?? profile.birthYear).trim() || "xxxx";
+  const name = profile.name.trim() || profile.fallbackName?.trim() || "신규 고객";
+  const year = (profile.birth_year ?? profile.birthYear).trim() || profile.fallbackBirthYear?.trim() || "xxxx";
   return `${name} (${year})`;
 }
 
@@ -696,15 +696,29 @@ function rowToCustomerProfile(row: CustomerRow): CustomerProfile {
   const bundledData = row.customer_data ?? row.data ?? row.app_data ?? row.state;
   const bundledProfile = bundledData && typeof bundledData === "object" && "profile" in bundledData ? (bundledData as { profile?: unknown }).profile : undefined;
   const fallbackProfile = defaultCustomerProfiles.find((p) => p.id === row.id) ?? createNewCustomerProfile();
-  const flatProfile = {
-    id: row.id, name: typeof row.name === "string" ? row.name : "",
-    gender: typeof row.gender === "string" ? row.gender : "",
-    birthYear: typeof row.birth_year === "string" ? row.birth_year : typeof row.birthYear === "string" ? row.birthYear : "",
-    age: typeof row.age === "number" ? String(row.age) : typeof row.age === "string" ? row.age : "",
-    job: typeof row.job === "string" ? row.job : "",
+  const nestedProfile = (
+    row.profile && typeof row.profile === "object"
+      ? row.profile
+      : bundledProfile && typeof bundledProfile === "object"
+        ? bundledProfile
+        : {}
+  ) as Partial<CustomerProfile>;
+  const preferFlatText = (flat: unknown, nested: unknown) => {
+    const flatText = typeof flat === "number" ? String(flat) : typeof flat === "string" ? flat.trim() : "";
+    if (flatText) return flatText;
+    return typeof nested === "number" ? String(nested) : typeof nested === "string" ? nested : "";
   };
-  const hasFlatData = Boolean(flatProfile.name || flatProfile.gender || flatProfile.birthYear || flatProfile.age || flatProfile.job);
-  return normalizeCustomerProfile(hasFlatData ? flatProfile : row.profile ?? bundledProfile ?? flatProfile, fallbackProfile);
+  const mergedProfile: Partial<CustomerProfile> = {
+    ...nestedProfile,
+    id: row.id,
+    name: preferFlatText(row.name, nestedProfile.name),
+    gender: preferFlatText(row.gender, nestedProfile.gender),
+    birthYear: preferFlatText(row.birth_year ?? row.birthYear, nestedProfile.birth_year ?? nestedProfile.birthYear),
+    birth_year: preferFlatText(row.birth_year ?? row.birthYear, nestedProfile.birth_year ?? nestedProfile.birthYear),
+    age: preferFlatText(row.age, nestedProfile.age),
+    job: preferFlatText(row.job, nestedProfile.job),
+  };
+  return normalizeCustomerProfile(mergedProfile, fallbackProfile);
 }
 
 export function customerRowsToStoredState(rows: CustomerRow[]): StoredCustomerState {
