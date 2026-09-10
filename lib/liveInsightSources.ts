@@ -15,7 +15,8 @@ type NewsCategory = "economy" | "financial" | "opinion" | "international" | "rea
 
 const NEWS_FEEDS: ReadonlyArray<readonly [NewsCategory, string]> = [
   ["economy", "https://www.hankyung.com/feed/economy"],
-  ["financial", "https://www.hankyung.com/feed/financial-market"],
+  // 한경이 feed/financial-market 를 폐기(404)해 feed/finance 로 이동했다.
+  ["financial", "https://www.hankyung.com/feed/finance"],
   ["opinion", "https://www.hankyung.com/feed/opinion"],
   ["international", "https://www.hankyung.com/feed/international"],
   ["realestate", "https://www.hankyung.com/feed/realestate"],
@@ -29,23 +30,33 @@ const NEWS_LABEL: Record<NewsCategory, string> = {
   realestate: "부동산",
 };
 
-const NAVER = "https://finance.naver.com";
-const REPORT_LIST_PATH = {
-  company: "company_list.naver",
-  industry: "industry_list.naver",
-  invest: "invest_list.naver",
-  economy: "economy_list.naver",
-} as const;
-const REPORT_LABEL: Record<keyof typeof REPORT_LIST_PATH, string> = {
+// finance.naver.com/research 가 클라이언트 렌더링 SPA로 바뀌어 HTML 표 파싱이 0건이 됐다.
+// m.stock.naver.com 모바일 리서치 JSON API로 교체한다 (api/naver-reports 와 동일 방식).
+const NAVER_MOBILE = "https://m.stock.naver.com";
+const RESEARCH_CATEGORIES = {
   company: "종목분석",
   industry: "산업분석",
-  invest: "투자정보",
+  invest: "투자전략",
   economy: "경제분석",
+  market: "시황정보",
+} as const;
+type ResearchCategory = keyof typeof RESEARCH_CATEGORIES;
+const NAVER_MOBILE_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  Referer: `${NAVER_MOBILE}/`,
+  Accept: "application/json, text/plain, */*",
+  "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
 };
-const NAVER_HEADERS = {
-  "User-Agent": "Mozilla/5.0",
-  "Accept-Language": "ko-KR,ko;q=0.9",
-  Referer: NAVER,
+
+type NaverResearchSummary = {
+  researchId?: number;
+  title?: string;
+  brokerName?: string;
+  writeDate?: string;
+  itemName?: string;
+  category?: string;
+  endUrl?: string;
 };
 
 const decodeXml = (value: string) =>
@@ -57,24 +68,6 @@ const decodeXml = (value: string) =>
     .replace(/&middot;|&#183;|&#xB7;/gi, "·")
     .replace(/&#39;/g, "'")
     .trim();
-
-const stripHtml = (value: string) =>
-  value
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&middot;|&#183;|&#xB7;/gi, "·")
-    .replace(/&#39;/g, "'")
-    .trim();
-
-const absoluteNaverUrl = (value: string) => {
-  try {
-    return new URL(value, NAVER).toString();
-  } catch {
-    return "";
-  }
-};
 
 async function loadNewsFeed(category: NewsCategory, url: string): Promise<LiveInsightCandidate[]> {
   try {
@@ -112,33 +105,34 @@ async function loadNewsFeed(category: NewsCategory, url: string): Promise<LiveIn
   }
 }
 
-async function loadReportCategory(
-  category: keyof typeof REPORT_LIST_PATH,
-): Promise<LiveInsightCandidate[]> {
+async function loadResearchCategory(category: ResearchCategory): Promise<LiveInsightCandidate[]> {
   try {
     const response = await safeRemoteFetch(
-      `${NAVER}/research/${REPORT_LIST_PATH[category]}?page=1`,
-      { headers: NAVER_HEADERS, cache: "no-store", signal: AbortSignal.timeout(10_000) },
+      `${NAVER_MOBILE}/api/research/${category}?page=1&pageSize=30`,
+      { headers: NAVER_MOBILE_HEADERS, cache: "no-store", signal: AbortSignal.timeout(10_000) },
     );
     if (!response.ok) return [];
-    const html = new TextDecoder("euc-kr").decode(await response.arrayBuffer());
+    const raw = (await response.json()) as unknown;
+    const rows = Array.isArray(raw) ? (raw as NaverResearchSummary[]) : [];
     const items: LiveInsightCandidate[] = [];
-    for (const match of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
-      const cells = [...match[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((value) => value[1]);
-      const hasItem = category === "company" || category === "industry";
-      const [item, titleCell, broker, , date] = hasItem
-        ? [cells[0], cells[1], cells[2], cells[3], cells[4]]
-        : ["", cells[0], cells[1], cells[2], cells[3]];
-      const anchor = titleCell?.match(/href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-      const dateText = stripHtml(date ?? "");
-      if (!anchor || !/^\d{2}\.\d{2}\.\d{2}$/.test(dateText)) continue;
+    for (const row of rows) {
+      const title = (row.title ?? "").trim();
+      const url = (
+        row.endUrl?.trim() ||
+        (row.researchId ? `${NAVER_MOBILE}/research/${category}/${row.researchId}` : "")
+      ).trim();
+      const date = (row.writeDate ?? "").trim();
+      if (!title || !url || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const rawItemName = (row.itemName ?? "").trim();
+      const itemName = ["기타", "기타법인", "-"].includes(rawItemName) ? "" : rawItemName;
       items.push({
-        title: stripHtml(anchor[2]),
-        url: absoluteNaverUrl(anchor[1]),
+        title,
+        url,
         category,
-        publishedDate: dateText,
-        meta: [stripHtml(broker ?? ""), REPORT_LABEL[category]].filter(Boolean).join(" · "),
-        itemName: stripHtml(item ?? ""),
+        publishedDate: date,
+        meta: [row.brokerName?.trim(), RESEARCH_CATEGORIES[category]].filter(Boolean).join(" · "),
+        // 종목분석은 종목명, 그 외(산업/시황 등)는 세부 카테고리를 태그 힌트로 넘긴다.
+        itemName: itemName || (row.category ?? "").trim(),
       });
     }
     return items.slice(0, 20);
@@ -165,8 +159,9 @@ export async function loadLiveInsightSources(): Promise<{
   const [newsGroups, reportGroups] = await Promise.all([
     Promise.all(NEWS_FEEDS.map(([category, url]) => loadNewsFeed(category, url))),
     Promise.all(
-      (Object.keys(REPORT_LIST_PATH) as Array<keyof typeof REPORT_LIST_PATH>)
-        .map((category) => loadReportCategory(category)),
+      (Object.keys(RESEARCH_CATEGORIES) as ResearchCategory[]).map((category) =>
+        loadResearchCategory(category),
+      ),
     ),
   ]);
 
@@ -182,7 +177,7 @@ export async function loadLiveInsightSources(): Promise<{
   const news = unique(newsGroups.flat())
     .sort((a, b) => (b.publishedDate ?? "").localeCompare(a.publishedDate ?? ""))
     .slice(0, 120);
-  const reports = unique(reportGroups.flat()).slice(0, 80);
+  const reports = unique(reportGroups.flat()).slice(0, 120);
   cache = { expiresAt: Date.now() + 5 * 60_000, news, reports };
   return { news, reports };
 }
