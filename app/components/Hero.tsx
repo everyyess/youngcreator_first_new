@@ -118,18 +118,18 @@ function TeamModal({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col items-center gap-4 bg-white mx-4 my-4 rounded-xl px-10 py-8 shadow-sm">
             <svg width="80" height="72" viewBox="0 0 80 72" fill="none">
               {/* sparkles */}
-              <path d="M10 10v5M7.5 12.5h5" stroke="#93c5fd" strokeWidth="1.8" strokeLinecap="round"/>
-              <path d="M64 7v4M62 9h4" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round"/>
-              <path d="M73 28v4M71 30h4" stroke="#93c5fd" strokeWidth="1.6" strokeLinecap="round"/>
-              <path d="M4 36v4M2 38h4" stroke="#bfdbfe" strokeWidth="1.6" strokeLinecap="round"/>
-              <path d="M68 50v4M66 52h4" stroke="#93c5fd" strokeWidth="1.4" strokeLinecap="round"/>
-              <path d="M12 60v4M10 62h4" stroke="#bfdbfe" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M10 10v5M7.5 12.5h5" stroke="#99B1F1" strokeWidth="1.8" strokeLinecap="round"/>
+              <path d="M64 7v4M62 9h4" stroke="#668AE0" strokeWidth="1.8" strokeLinecap="round"/>
+              <path d="M73 28v4M71 30h4" stroke="#99B1F1" strokeWidth="1.6" strokeLinecap="round"/>
+              <path d="M4 36v4M2 38h4" stroke="#CBD1E8" strokeWidth="1.6" strokeLinecap="round"/>
+              <path d="M68 50v4M66 52h4" stroke="#99B1F1" strokeWidth="1.4" strokeLinecap="round"/>
+              <path d="M12 60v4M10 62h4" stroke="#CBD1E8" strokeWidth="1.4" strokeLinecap="round"/>
               {/* back/left person */}
-              <circle cx="27" cy="22" r="8" stroke="#60a5fa" strokeWidth="2" fill="none"/>
-              <path d="M13 54c0-7.5 6-12 14-12" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              <circle cx="27" cy="22" r="8" stroke="#668AE0" strokeWidth="2" fill="none"/>
+              <path d="M13 54c0-7.5 6-12 14-12" stroke="#668AE0" strokeWidth="2" strokeLinecap="round" fill="none"/>
               {/* front/right person */}
-              <circle cx="46" cy="20" r="10" stroke="#1e40af" strokeWidth="2.2" fill="none"/>
-              <path d="M30 58c0-8.8 7-15 16-15s16 6.2 16 15" stroke="#1e40af" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+              <circle cx="46" cy="20" r="10" stroke="#141E78" strokeWidth="2.2" fill="none"/>
+              <path d="M30 58c0-8.8 7-15 16-15s16 6.2 16 15" stroke="#141E78" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
             </svg>
             <img
               src="/brand/soda-pop-ver2.png"

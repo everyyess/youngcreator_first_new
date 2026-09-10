@@ -188,7 +188,7 @@ function AnalysisTabs({
               onClick={() => router.push(tab.path)}
               className={[
                 "flex min-h-11 shrink-0 flex-1 items-center justify-center rounded-md px-4 py-2.5 text-sm font-bold transition",
-                activeTopTab === tab.id ? "bg-[#2563eb] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
+                activeTopTab === tab.id ? "bg-[#003CDC] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
               ].join(" ")}
             >
               {tab.label}
@@ -207,7 +207,7 @@ function AnalysisTabs({
                   <select
                     value={contextValue.selectedCustomer}
                     onChange={(event) => onCustomerChange(event.target.value)}
-                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition focus:border-[#2563eb] focus:ring-2 focus:ring-[#2563eb]/15"
+                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 outline-none transition focus:border-[#003CDC] focus:ring-2 focus:ring-[#003CDC]/15"
                   >
                     {contextValue.customerProfiles.length === 0 ? <option value="">등록된 고객 없음</option> : null}
                     {contextValue.customerProfiles.map((customer) => (
@@ -228,7 +228,7 @@ function AnalysisTabs({
                   onClick={() => selectStockTab(tab.id)}
                   className={[
                     "flex min-h-10 shrink-0 flex-1 items-center justify-center rounded-md px-4 py-2 text-sm font-bold transition",
-                    activeStockTab === tab.id ? "bg-[#2563eb] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
+                    activeStockTab === tab.id ? "bg-[#003CDC] text-white shadow-soft" : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
                   ].join(" ")}
                 >
                   {tab.label}
@@ -275,7 +275,7 @@ function AnalysisTabs({
                   <button
                     type="button"
                     onClick={onRetryInsightSession}
-                    className="rounded-lg bg-[#2563eb] px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
+                    className="rounded-lg bg-[#003CDC] px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
                   >
                     다시 시도
                   </button>

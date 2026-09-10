@@ -200,7 +200,7 @@ function PdfInlineLabel({ label, tone }: { label: string; tone: EvidenceTone }) 
 }
 
 function StaticBadge({ label, tone }: { label: string; tone: "blue" | "amber" }) {
-  const cls = tone === "blue" ? "bg-indigo-100 text-[#2f2f9d]" : "bg-amber-100 text-amber-700";
+  const cls = tone === "blue" ? "bg-indigo-100 text-[#003CDC]" : "bg-amber-100 text-amber-700";
   return (
     <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold mx-0.5 align-middle ${cls}`}>
       {label}
@@ -224,7 +224,7 @@ function HoverTag({
     tone === "fact" ? "border-indigo-400/50 group-hover:bg-indigo-50"
       : tone === "quote" ? "border-amber-400 group-hover:bg-amber-50"
         : "border-sky-400 group-hover:bg-sky-100";
-  const tip = tone === "fact" ? "bg-[#2f2f9d]" : tone === "quote" ? "bg-amber-500" : "bg-sky-600";
+  const tip = tone === "fact" ? "bg-[#003CDC]" : tone === "quote" ? "bg-amber-500" : "bg-sky-600";
   const printRef = tone === "fact" ? "legend:fact" : tone === "quote" ? "legend:quote" : "legend:judgment";
   return (
     <span
@@ -270,7 +270,7 @@ function TextWithStockLinks({ text, bold = false }: { text: string; bold?: boole
           key={`s-${i}`}
           type="button"
           onClick={() => onStockClick(name, ticker)}
-          className="mx-0.5 inline-flex items-center font-black text-[#2f2f9d] transition-colors duration-150 hover:text-[#24247c] hover:underline cursor-pointer"
+          className="mx-0.5 inline-flex items-center font-black text-[#003CDC] transition-colors duration-150 hover:text-[#24247c] hover:underline cursor-pointer"
         >
           <strong>{name}({ticker})</strong>
         </button>,
@@ -397,7 +397,7 @@ function InlineText({ text }: { text: string }) {
               label={printLabel}
               tone={isFact ? "fact" : isQuote ? "quote" : "judgment"}
             />
-            <span className={`pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md px-3 py-1 text-center text-[11px] font-black leading-snug text-white shadow-md group-hover:block ${isFact ? "bg-[#2f2f9d]" : isQuote ? "bg-amber-500" : "bg-sky-600"
+            <span className={`pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md px-3 py-1 text-center text-[11px] font-black leading-snug text-white shadow-md group-hover:block ${isFact ? "bg-[#003CDC]" : isQuote ? "bg-amber-500" : "bg-sky-600"
               }`}>
               {tooltip}
             </span>
@@ -426,7 +426,7 @@ function DirectionCell({ text }: { text: string }) {
 
 function ReportHeader({ date, kicker, subtitle }: { date: string; kicker: string; subtitle: string }) {
   return (
-    <div className="bg-[#2f2f9d] text-white px-8 py-7">
+    <div className="bg-[#003CDC] text-white px-8 py-7">
       <div>
         <p className="text-[10px] font-bold tracking-[0.25em] text-indigo-200 uppercase mb-2">
           {kicker}
@@ -464,7 +464,7 @@ function H2Block({ text }: { text: string }) {
 function HeadingBlock({ text }: { text: string }) {
   return (
     <div className="mx-6 mt-8 mb-2 border-b border-slate-200 pb-1.5">
-      <h3 className="text-[15px] font-black text-[#2f2f9d]">{text}</h3>
+      <h3 className="text-[15px] font-black text-[#003CDC]">{text}</h3>
     </div>
   );
 }
@@ -472,8 +472,8 @@ function HeadingBlock({ text }: { text: string }) {
 function IssueBlock({ title, lines }: { title: string; lines: string[] }) {
   return (
     <div className="mx-6 mt-5">
-      <div className="border-l-4 border-[#2f2f9d] pl-4 mb-2.5">
-        <h3 className="text-[17px] font-black text-[#2f2f9d] leading-snug">
+      <div className="border-l-4 border-[#003CDC] pl-4 mb-2.5">
+        <h3 className="text-[17px] font-black text-[#003CDC] leading-snug">
           {title}
         </h3>
       </div>
@@ -508,7 +508,7 @@ function TableBlock({ headers, rows }: { headers: string[]; rows: string[][] }) 
             {headers.map((h, idx) => (
               <th
                 key={idx}
-                className="bg-[#2f2f9d] text-white text-xs font-bold px-4 py-3 text-left whitespace-nowrap"
+                className="bg-[#003CDC] text-white text-xs font-bold px-4 py-3 text-left whitespace-nowrap"
               >
                 {h}
               </th>
@@ -542,7 +542,7 @@ function SourceBlock({ id, text }: { id: string; text: string }) {
       id={`brief-src-${id}`}
       className="mx-6 my-1 scroll-mt-4 rounded px-1 text-[12px] leading-relaxed text-slate-500 transition-colors duration-300"
     >
-      <span className="mr-1.5 font-black text-[#2f2f9d]">#{id}</span>{text}
+      <span className="mr-1.5 font-black text-[#003CDC]">#{id}</span>{text}
     </p>
   );
 }
@@ -588,8 +588,8 @@ function ParaBlock({ lines }: { lines: string[] }) {
 // 관전 포인트 목차 — 이슈 헤더와 동일하게 세로 구분선은 목차 제목에만 단다
 function WatchPointHeadingBlock({ text }: { text: string }) {
   return (
-    <div className="mx-6 mt-8 mb-2.5 border-l-4 border-[#2f2f9d] pl-4">
-      <h3 className="text-[17px] font-black text-[#2f2f9d] leading-snug">{text}</h3>
+    <div className="mx-6 mt-8 mb-2.5 border-l-4 border-[#003CDC] pl-4">
+      <h3 className="text-[17px] font-black text-[#003CDC] leading-snug">{text}</h3>
     </div>
   );
 }
@@ -618,7 +618,7 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
       <div className="mb-3 flex items-end justify-between border-b border-slate-200 pb-2">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Economic Indicators</p>
-          <h3 className="text-[15px] font-black text-[#2f2f9d]">핵심 지표 그래프</h3>
+          <h3 className="text-[15px] font-black text-[#003CDC]">핵심 지표 그래프</h3>
         </div>
         <span className="text-[10px] font-semibold text-slate-400">FRED · ECOS 실제 관측치</span>
       </div>
@@ -726,7 +726,7 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
             <div key={chart.source + chart.title} className="overflow-visible rounded-xl border border-slate-200 bg-slate-50/50 p-3">
               <div className="mb-1 flex items-start justify-between gap-2">
                 <p className="min-w-0 flex-1 break-words pb-0.5 text-[11px] font-black leading-[1.45] text-slate-700">{chart.title}</p>
-                <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-black text-[#2f2f9d]">{chart.source}</span>
+                <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-black text-[#003CDC]">{chart.source}</span>
               </div>
               <p className="mb-1 text-[10px] font-bold text-slate-400">
                 최근 {formatValue(latest.value)} {chart.unit}
@@ -745,7 +745,7 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
                 <line x1={plotLeft} y1={plotBottom} x2={plotRight} y2={plotBottom} stroke="#94A3B8" strokeWidth="1.2" />
                 <polyline
                   fill="none"
-                  stroke="#2f2f9d"
+                  stroke="#003CDC"
                   strokeWidth="3"
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -753,7 +753,7 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
                 />
                 {coords.map((point, index) => (
                   <g key={point.date}>
-                    <circle cx={point.x} cy={point.y} r={index === coords.length - 1 ? 4 : 3} fill="#2f2f9d">
+                    <circle cx={point.x} cy={point.y} r={index === coords.length - 1 ? 4 : 3} fill="#003CDC">
                       <title>{point.date + ": " + formatValue(point.value) + " " + chart.unit}</title>
                     </circle>
                     {labelPlacements.has(index) && (
@@ -763,7 +763,7 @@ function MetricChartGrid({ charts }: { charts: ReportMetricChart[] }) {
                         textAnchor="middle"
                         fontSize="9"
                         fontWeight="700"
-                        fill="#1E3A8A"
+                        fill="#0C1656"
                         stroke="white"
                         strokeWidth="3"
                         paintOrder="stroke"
@@ -1086,7 +1086,7 @@ export function BriefingReportViewer({
         ctx.moveTo(noteSidePadding, top + 8);
         ctx.lineTo(canvas.width - noteSidePadding, top + 8);
         ctx.stroke();
-        ctx.fillStyle = "#1e3a8a";
+        ctx.fillStyle = "#0C1656";
         ctx.font = `800 19px Pretendard, sans-serif`;
         ctx.fillText("주석 - 문장 분류 및 근거", noteSidePadding, top + 32);
         const noteColors: Record<EvidenceTone, string> = {
@@ -1197,7 +1197,7 @@ export function BriefingReportViewer({
           <button
             onClick={handlePdf}
             disabled={exporting}
-            className="flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-4 py-1.5 text-[11px] font-bold text-white shadow hover:bg-[#24247c] disabled:opacity-60 transition"
+            className="flex items-center gap-1.5 rounded-lg bg-[#003CDC] px-4 py-1.5 text-[11px] font-bold text-white shadow hover:bg-[#24247c] disabled:opacity-60 transition"
           >
             <Printer size={13} />
             {exporting ? "출력 중..." : "PDF 다운로드"}

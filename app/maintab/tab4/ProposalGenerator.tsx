@@ -325,9 +325,9 @@ export default function ProposalGenerator({
               <div
                 className={`flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold transition-colors ${
                   isDone
-                    ? "border-[#2563eb] bg-[#2563eb] text-white"
+                    ? "border-[#003CDC] bg-[#003CDC] text-white"
                     : isActive
-                    ? "border-[#2563eb] bg-white text-[#2563eb]"
+                    ? "border-[#003CDC] bg-white text-[#003CDC]"
                     : "border-slate-200 bg-white text-slate-300"
                 }`}
               >
@@ -335,14 +335,14 @@ export default function ProposalGenerator({
               </div>
               <span
                 className={`text-[11px] font-semibold whitespace-nowrap ${
-                  isDone || isActive ? "text-[#2563eb]" : "text-slate-300"
+                  isDone || isActive ? "text-[#003CDC]" : "text-slate-300"
                 }`}
               >
                 {s.label}
               </span>
             </div>
             {i < steps.length - 1 && (
-              <div className={`mt-4 h-0.5 w-8 ${isDone ? "bg-[#2563eb]" : "bg-slate-200"}`} />
+              <div className={`mt-4 h-0.5 w-8 ${isDone ? "bg-[#003CDC]" : "bg-slate-200"}`} />
             )}
           </div>
         );
@@ -373,7 +373,7 @@ export default function ProposalGenerator({
                   </button>
                   <button
                     onClick={runFlow}
-                    className="rounded-md bg-[#2563eb] px-4 py-2 text-[13px] font-bold text-white hover:bg-[#1d4ed8]"
+                    className="rounded-md bg-[#003CDC] px-4 py-2 text-[13px] font-bold text-white hover:bg-[#0A2FA8]"
                   >
                     다시 시도
                   </button>
@@ -406,7 +406,7 @@ export default function ProposalGenerator({
                   </button>
                   <button
                     onClick={handleAiReflect}
-                    className="rounded-md bg-[#2563eb] px-4 py-2 text-[13px] font-bold text-white hover:bg-[#1d4ed8]"
+                    className="rounded-md bg-[#003CDC] px-4 py-2 text-[13px] font-bold text-white hover:bg-[#0A2FA8]"
                   >
                     AI가 반영해서 최종본 생성
                   </button>
@@ -414,7 +414,7 @@ export default function ProposalGenerator({
               </>
             ) : (
                 <>
-                <div className="mb-6 text-center text-[15px] font-bold text-[#2563eb]">AI 멀티에이전트 검증 진행 중</div>
+                <div className="mb-6 text-center text-[15px] font-bold text-[#003CDC]">AI 멀티에이전트 검증 진행 중</div>
                 <StepperRow />
                 <p className="mt-6 text-center text-[12px] text-slate-400">
                   {stage === "draft" && "상담 내용을 종합해 초안을 작성하고 있습니다..."}

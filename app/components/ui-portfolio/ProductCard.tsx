@@ -40,7 +40,7 @@ const allProducts: Product[] = [
 
 const FILTERS = ["전체", "자본증식", "인컴창출", "위험헷지", "절세·유동성", "랩어카운트", "펀드", "ISA"];
 const TYPE_COLORS: Record<string, string> = {
-  "자본증식": "#3B82F6", "인컴창출": GOLD, "위험헷지": "#10B981", "절세·유동성": "#8B5CF6"
+  "자본증식": "#3363E3", "인컴창출": GOLD, "위험헷지": "#10B981", "절세·유동성": "#8B5CF6"
 };
 
 export default function ProductCard() {
@@ -66,7 +66,7 @@ export default function ProductCard() {
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
         <h1 style={{ color: NAVY, fontSize: 22, fontWeight: 700, marginBottom: 8 }}>상품 추천</h1>
         {selectedIds.length > 0 && (
-          <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: NAVY, fontWeight: 600 }}>
+          <div style={{ background: "#EEF2FE", border: "1px solid #CBD1E8", borderRadius: 8, padding: "10px 16px", marginBottom: 16, fontSize: 13, color: NAVY, fontWeight: 600 }}>
             선택된 상품 {selectedIds.length}개 — {allProducts.filter(p => selectedIds.includes(p.id)).map(p => p.name).join(", ")}
           </div>
         )}
@@ -101,7 +101,7 @@ export default function ProductCard() {
                   </div>
                   <div style={{ display: "flex", gap: 4 }}>
                     <span style={{ background: TYPE_COLORS[p.type] + "20", color: TYPE_COLORS[p.type], borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 600 }}>{p.type}</span>
-                    {p.isa && <span style={{ background: "#EFF6FF", color: NAVY, borderRadius: 20, padding: "2px 6px", fontSize: 10, fontWeight: 600 }}>ISA</span>}
+                    {p.isa && <span style={{ background: "#EEF2FE", color: NAVY, borderRadius: 20, padding: "2px 6px", fontSize: 10, fontWeight: 600 }}>ISA</span>}
                   </div>
                 </div>
 

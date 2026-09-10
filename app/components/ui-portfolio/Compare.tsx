@@ -43,7 +43,7 @@ const PERSONAS = [
 ];
 
 const BUCKET_COLORS: Record<string, string> = {
-  growth: "#3B82F6", income: GOLD, hedge: "#10B981", taxLiq: "#8B5CF6"
+  growth: "#3363E3", income: GOLD, hedge: "#10B981", taxLiq: "#8B5CF6"
 };
 const BUCKET_LABELS: Record<string, string> = {
   growth: "자본 증식", income: "인컴 창출", hedge: "위험 헷지", taxLiq: "절세·유동성"
@@ -78,7 +78,7 @@ export default function Compare() {
     const today = new Date().toLocaleDateString("ko-KR");
 
     const makeDonut = (alloc: Record<string, number>, centerLabel: string, centerValue: string, size = 120) => {
-      const colors: Record<string, string> = { growth: "#3B82F6", income: "#C9A84C", hedge: "#10B981", taxLiq: "#8B5CF6" };
+      const colors: Record<string, string> = { growth: "#3363E3", income: "#C9A84C", hedge: "#10B981", taxLiq: "#8B5CF6" };
       const labels: Record<string, string> = { growth: "자본증식", income: "인컴창출", hedge: "위험헷지", taxLiq: "절세·유동성" };
       const cx = size / 2, cy = size / 2;
       const outerR = size / 2 - 4;
@@ -168,7 +168,7 @@ export default function Compare() {
               ${makeDonut(p.existing, "기존", p.metrics.existing.return)}
               <div class="divider"></div>
               <div class="mg">
-                <div class="mc"><div class="ml">기대수익률</div><div class="mv" style="color:#3B82F6">${p.metrics.existing.return}</div></div>
+                <div class="mc"><div class="ml">기대수익률</div><div class="mv" style="color:#3363E3">${p.metrics.existing.return}</div></div>
                 <div class="mc"><div class="ml">변동성</div><div class="mv" style="color:#C9A84C">${p.metrics.existing.vol}</div></div>
                 <div class="mc"><div class="ml">샤프지수</div><div class="mv" style="color:#10B981">${p.metrics.existing.sharpe}</div></div>
                 <div class="mc"><div class="ml">MDD</div><div class="mv" style="color:#EF4444">${p.metrics.existing.mdd}</div></div>
@@ -179,7 +179,7 @@ export default function Compare() {
               ${makeDonut(p.newP, "신규", p.metrics.newP.return)}
               <div class="divider"></div>
               <div class="mg">
-                <div class="mc"><div class="ml">기대수익률</div><div class="mv" style="color:#3B82F6">${p.metrics.newP.return}</div></div>
+                <div class="mc"><div class="ml">기대수익률</div><div class="mv" style="color:#3363E3">${p.metrics.newP.return}</div></div>
                 <div class="mc"><div class="ml">변동성</div><div class="mv" style="color:#C9A84C">${p.metrics.newP.vol}</div></div>
                 <div class="mc"><div class="ml">샤프지수</div><div class="mv" style="color:#10B981">${p.metrics.newP.sharpe}</div></div>
                 <div class="mc"><div class="ml">MDD</div><div class="mv" style="color:#EF4444">${p.metrics.newP.mdd}</div></div>
@@ -210,7 +210,7 @@ export default function Compare() {
       #ppa .hd-sub { color:#C9A84C; font-size:8.5px; margin-top:2px; }
       #ppa .hd-date { color:#b0c4de; font-size:8.5px; }
       #ppa .bd { padding:12px 18px; }
-      #ppa .insight { background:#EFF6FF; border:1px solid #BFDBFE; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:9.5px; color:#1e40af; line-height:1.5; }
+      #ppa .insight { background:#EEF2FE; border:1px solid #CBD1E8; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:9.5px; color:#141E78; line-height:1.5; }
       #ppa .insight b { color:#0D2B5E; }
       #ppa .g2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
       #ppa .card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px; }
@@ -273,9 +273,9 @@ export default function Compare() {
           ))}
         </div>
 
-        <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "14px 18px", marginBottom: 20 }}>
+        <div style={{ background: "#EEF2FE", border: "1px solid #CBD1E8", borderRadius: 10, padding: "14px 18px", marginBottom: 20 }}>
           <span style={{ color: NAVY, fontWeight: 700, fontSize: 12 }}>포트폴리오 전환 핵심: </span>
-          <span style={{ color: "#1e40af", fontSize: 12 }}>{p.insight}</span>
+          <span style={{ color: "#141E78", fontSize: 12 }}>{p.insight}</span>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }} className="compare-grid">
@@ -300,7 +300,7 @@ export default function Compare() {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                 {[
-                  { label: "기대수익률", value: side.metrics.return, color: "#3B82F6" },
+                  { label: "기대수익률", value: side.metrics.return, color: "#3363E3" },
                   { label: "변동성", value: side.metrics.vol, color: GOLD },
                   { label: "샤프지수", value: side.metrics.sharpe, color: "#10B981" },
                   { label: "MDD", value: side.metrics.mdd, color: "#EF4444" },

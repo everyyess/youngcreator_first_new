@@ -2,7 +2,7 @@ import type { Underlying, UnderlyingTicker } from '../products/types'
 
 export const UNDERLYING_COLORS_BY_CODE = {
   '005930': '#0A78F5',
-  '000660': '#ED4770',
+  '000660': '#EC3B67',
 } as const
 
 export const UNDERLYING_COLORS: Readonly<Record<Underlying, string>> = {

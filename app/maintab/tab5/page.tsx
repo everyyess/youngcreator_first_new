@@ -857,7 +857,7 @@ async function fetchLiveFxRate(currency: string): Promise<number | null> {
 // 전혀 없어 자본증식으로 재배정했다 — 판단 기준은 전략의 성격이며, 수익률 수치는 분류
 // 근거로 쓰지 않는다.)
 const BUCKET_CFG: Record<BucketType, { color: string; bg: string; border: string; icon: React.ReactNode; barColor: string; desc: string }> = {
-  "자본증식": { color:"text-blue-700",   bg:"bg-blue-50",   border:"border-blue-200",   icon:<TrendingUp size={14}/>,  barColor:"#3B82F6", desc:"성장 자산 중심 — 랩어카운트, 해외주식형 펀드" },
+  "자본증식": { color:"text-blue-700",   bg:"bg-blue-50",   border:"border-blue-200",   icon:<TrendingUp size={14}/>,  barColor:"#3363E3", desc:"성장 자산 중심 — 랩어카운트, 해외주식형 펀드" },
   "인컴창출": { color:"text-amber-700",  bg:"bg-amber-50",  border:"border-amber-200",  icon:<Landmark size={14}/>,    barColor:"#F59E0B", desc:"배당·이자 수익 중심 — 혼합형 펀드, 채권 이표" },
   "위험헷지": { color:"text-emerald-700",bg:"bg-emerald-50",border:"border-emerald-200",icon:<ShieldCheck size={14}/>, barColor:"#10B981", desc:"하락 방어 — 달러채권, 금 ETF, 채권혼합 펀드" },
   "유동성":   { color:"text-purple-700", bg:"bg-purple-50", border:"border-purple-200", icon:<PiggyBank size={14}/>,   barColor:"#8B5CF6", desc:"즉시 현금화 — MMW 랩, 단기채권 펀드" },

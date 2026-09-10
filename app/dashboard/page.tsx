@@ -41,7 +41,7 @@ export default function DashboardPage() {
             {tabs.map((tab, i) => (
               <button key={tab.id} onClick={() => { setActiveTab(tab.id); setMobileMenuOpen(false); }} style={{
                 padding: "10px 12px", border: "none", cursor: "pointer", textAlign: "left", borderRadius: 8,
-                background: activeTab === tab.id ? "#2f2f9d" : "#f8fafc", fontWeight: 700, fontSize: 13,
+                background: activeTab === tab.id ? "#003CDC" : "#f8fafc", fontWeight: 700, fontSize: 13,
                 color: activeTab === tab.id ? "#fff" : "#475569"
               }}>
                 {i + 1}. {tab.label}
@@ -64,7 +64,7 @@ export default function DashboardPage() {
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
               padding: "10px 12px", border: "none", cursor: "pointer",
               textAlign: "left", borderRadius: 8, minHeight: 44,
-              background: activeTab === tab.id ? "#2f2f9d" : "#f8fafc",
+              background: activeTab === tab.id ? "#003CDC" : "#f8fafc",
               transition: "all 0.15s"
             }}>     
               <span style={{

@@ -230,10 +230,10 @@ function attemptLayout(data: TagRank[], vw: number, vh: number, fontFactor: numb
 
   const rawSize = (idx: number) => (idx < 3 ? 76 - idx * 12 : idx < 10 ? 40 - (idx - 3) * 2.5 : 20);
   const styleOf = (rank: number, isPinned?: boolean) =>
-    isPinned ? { color: "#1D4ED8", fw: "900" as const }
-      : rank <= 3 ? { color: "#2563EB", fw: "900" as const }
-        : rank <= 10 ? { color: "#3B82F6", fw: "700" as const }
-          : { color: "#93C5FD", fw: "500" as const };
+    isPinned ? { color: "#0A2FA8", fw: "900" as const }
+      : rank <= 3 ? { color: "#003CDC", fw: "900" as const }
+        : rank <= 10 ? { color: "#3363E3", fw: "700" as const }
+          : { color: "#99B1F1", fw: "500" as const };
 
   const overlaps = (lx: number, ty: number, w: number, h: number, fs: number) => {
     const m = Math.max(2, fs * 0.05);
@@ -304,7 +304,7 @@ function TagCloud({ tags, activeTags, onTagClick, pinnedTag }: { tags: TagRank[]
               <text textAnchor="middle" alignmentBaseline="middle"
                 style={{
                   fontSize: `${item.fs}px`,
-                  fill: activeTags.includes(item.name) ? "#1E40AF" : item.color,
+                  fill: activeTags.includes(item.name) ? "#141E78" : item.color,
                   fontWeight: item.fw as never,
                   fontFamily: "Pretendard, sans-serif",
                   textDecoration: activeTags.includes(item.name) ? "underline" : "none",

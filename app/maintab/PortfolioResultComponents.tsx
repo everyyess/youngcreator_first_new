@@ -27,8 +27,8 @@ import type { FinancialIncomeSummary } from "./tab1/FinancialIncomeGauge";
 
 
 export const CLASS_COLORS: Record<string, string> = {
-  국내주식: "#3B82F6",
-  국내ETF: "#93C5FD",
+  국내주식: "#3363E3",
+  국내ETF: "#99B1F1",
   해외주식: "#10B981",
   해외ETF: "#6EE7B7",
   국내채권: "#F59E0B",
@@ -104,7 +104,7 @@ const SECTOR_COLORS: Record<string, string> = {
   농업: "#84CC16",
   "2차전지": "#22C55E",
   "우주/항공": "#0EA5E9",
-  채권: "#3B82F6",
+  채권: "#3363E3",
   기타: "#94A3B8",
 };
 

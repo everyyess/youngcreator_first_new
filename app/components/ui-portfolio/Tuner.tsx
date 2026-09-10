@@ -16,7 +16,7 @@ const PERSONAS: Persona[] = [
 ];
 
 const RISK_LABELS = ["", "공격적", "적극적", "중립형", "보수적", "원금보존"];
-const RISK_COLORS = ["", "#EF4444", "#F97316", "#EAB308", "#3B82F6", "#6366F1"];
+const RISK_COLORS = ["", "#EF4444", "#F97316", "#EAB308", "#3363E3", "#6366F1"];
 
 function calcAllocation(totalAum: number, rTarget: number, aRisk: number, tYear: number, tTax: number, lCash: number) {
   const aum = totalAum * 100000000;
@@ -109,7 +109,7 @@ export default function Tuner() {
   const warnRed = alloc.hedge < 10;
 
   const pieData = [
-    { name: "자본 증식", value: alloc.growth, color: "#3B82F6" },
+    { name: "자본 증식", value: alloc.growth, color: "#3363E3" },
     { name: "인컴 창출", value: alloc.income, color: GOLD },
     { name: "위험 헷지", value: alloc.hedge, color: "#10B981" },
     { name: "절세·유동성", value: alloc.taxLiq, color: "#8B5CF6" },
@@ -212,7 +212,7 @@ export default function Tuner() {
           {/* 오른쪽 */}
           <div className="tuner-right" style={{ width: 260, display: "flex", flexDirection: "column", gap: 12 }}>
             {[
-              { label: "자본 증식", value: `${alloc.growth}%`, color: "#3B82F6", sub: "성장형 랩/펀드" },
+              { label: "자본 증식", value: `${alloc.growth}%`, color: "#3363E3", sub: "성장형 랩/펀드" },
               { label: "인컴 창출", value: `${alloc.income}%`, color: GOLD, sub: "배당·채권형" },
               { label: "위험 헷지", value: `${alloc.hedge}%`, color: "#10B981", sub: "대체자산 (최소 10%)" },
               { label: "절세·유동성", value: `${alloc.taxLiq}%`, color: "#8B5CF6", sub: "단기채·ISA" },
@@ -229,7 +229,7 @@ export default function Tuner() {
             ))}
             <div style={{ background: "#fff", borderRadius: 10, padding: "14px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }}>
               {[
-                { label: "기대수익률", value: `${(rTarget * 100).toFixed(1)}%`, color: "#3B82F6" },
+                { label: "기대수익률", value: `${(rTarget * 100).toFixed(1)}%`, color: "#3363E3" },
                 { label: "변동성", value: `${(vol * 100).toFixed(1)}%`, color: GOLD },
                 { label: "샤프지수", value: sharpe, color: "#10B981" },
                 { label: "MDD", value: `${(mdd * 100).toFixed(1)}%`, color: "#EF4444" },

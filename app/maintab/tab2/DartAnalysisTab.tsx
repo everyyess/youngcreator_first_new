@@ -198,7 +198,7 @@ export default function DartAnalysisTab({ selectedStock: sharedStock, onStockCha
                       onClick={() => selectAsset(s)}
                       className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
                         isSelected
-                          ? "border-[#2563eb] bg-[#2563eb] text-white shadow-sm"
+                          ? "border-[#003CDC] bg-[#003CDC] text-white shadow-sm"
                           : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
                       }`}
                     >
@@ -238,7 +238,7 @@ export default function DartAnalysisTab({ selectedStock: sharedStock, onStockCha
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
                 className={`shrink-0 rounded-md px-3.5 py-1.5 text-[13px] font-semibold transition ${
-                  activeTab === t.id ? "bg-white text-[#2563eb] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                  activeTab === t.id ? "bg-white text-[#003CDC] shadow-sm" : "text-slate-500 hover:text-slate-700"
                 }`}
               >
                 {t.label}

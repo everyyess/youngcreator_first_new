@@ -18,7 +18,7 @@ import KeywordLiveSearch from "./KeywordLiveSearch";
 // ── 색상 (validator 통과) ────────────────────────────────────────────────────
 const SOURCE_ORDER: InsightSource[] = ["telegram", "news", "report"];
 const SOURCE_COLORS: Record<InsightSource, string> = {
-  telegram: "#0EA5E9", news: "#1D4ED8", report: "#A21CAF",
+  telegram: "#0EA5E9", news: "#0A2FA8", report: "#A21CAF",
 };
 const SOURCE_LABELS: Record<InsightSource, string> = {
   telegram: "텔레그램", news: "뉴스", report: "리포트",

@@ -154,12 +154,12 @@ function TelegramDetailPanel({ state, stockName, onClose }: { state: TelegramDet
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {/* AI 요약 박스 (Gemini 요약 있을 때만) */}
           {!!state.summary && (
-            <div className="rounded-lg border border-[#2563eb]/20 bg-[#eff6ff] px-4 py-3">
+            <div className="rounded-lg border border-[#003CDC]/20 bg-[#EEF2FE] px-4 py-3">
               <div className="flex items-center gap-1.5 mb-1.5">
-                <Sparkles size={12} className="text-[#2563eb]" />
-                <span className="text-[10px] font-bold uppercase tracking-wide text-[#2563eb]">Gemini AI 요약</span>
+                <Sparkles size={12} className="text-[#003CDC]" />
+                <span className="text-[10px] font-bold uppercase tracking-wide text-[#003CDC]">Gemini AI 요약</span>
               </div>
-              <p className="text-[13px] leading-relaxed text-[#2563eb]/90">{state.summary}</p>
+              <p className="text-[13px] leading-relaxed text-[#003CDC]/90">{state.summary}</p>
             </div>
           )}
           {/* 원문 */}
@@ -182,7 +182,7 @@ function TelegramDetailPanel({ state, stockName, onClose }: { state: TelegramDet
           </a>
           <button
             onClick={onClose}
-            className="rounded-lg bg-[#2563eb] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1d4ed8] transition"
+            className="rounded-lg bg-[#003CDC] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#0A2FA8] transition"
           >
             닫기
           </button>
@@ -385,7 +385,7 @@ function TelegramSearchPanel({
                       <ImportanceBadge label={msg.importance} />
                       <span className="text-[12px] font-semibold text-slate-700">{msg.channel}</span>
                       <span className="text-[11px] text-slate-400">{msg.date}</span>
-                      <span className="ml-auto text-[11px] text-slate-300 group-hover:text-[#2563eb] transition">
+                      <span className="ml-auto text-[11px] text-slate-300 group-hover:text-[#003CDC] transition">
                         상세 보기 →
                       </span>
                     </div>
@@ -571,7 +571,7 @@ function SummaryPanel({
           )}
           <button
             onClick={onClose}
-            className="rounded-lg bg-[#2563eb] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1d4ed8] transition"
+            className="rounded-lg bg-[#003CDC] px-4 py-2.5 text-[13px] font-semibold text-white hover:bg-[#0A2FA8] transition"
           >
             닫기
           </button>
@@ -606,13 +606,13 @@ function ReportCard({
       className="group w-full flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3.5 text-left transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm"
     >
       {/* 순번 */}
-      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 group-hover:bg-[#2563eb] group-hover:text-white transition">
+      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500 group-hover:bg-[#003CDC] group-hover:text-white transition">
         {index + 1}
       </span>
 
       {/* 내용 */}
       <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-slate-800 group-hover:text-[#2563eb] leading-snug truncate">
+        <p className="text-[13px] font-semibold text-slate-800 group-hover:text-[#003CDC] leading-snug truncate">
           {report.title}
         </p>
 
@@ -841,7 +841,7 @@ export default function FundamentalAnalysisTab({ selectedStock, onStockChange }:
       onClick={() => selectAsset(a)}
       className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
         selectedTicker === a.ticker
-          ? "border-[#2563eb] bg-[#2563eb] text-white shadow-sm"
+          ? "border-[#003CDC] bg-[#003CDC] text-white shadow-sm"
           : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
       }`}
     >
@@ -921,13 +921,13 @@ export default function FundamentalAnalysisTab({ selectedStock, onStockChange }:
               type="button"
               onClick={() => setActiveTab("naver")}
               className={`relative shrink-0 flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold transition ${
-                activeTab === "naver" ? "bg-white text-[#2563eb] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === "naver" ? "bg-white text-[#003CDC] shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}
             >
               <BookOpen size={13} />
               네이버 리포트
               {reports.length > 0 && (
-                <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${activeTab === "naver" ? "bg-[#eff6ff] text-[#2563eb]" : "bg-slate-200 text-slate-500"}`}>
+                <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${activeTab === "naver" ? "bg-[#EEF2FE] text-[#003CDC]" : "bg-slate-200 text-slate-500"}`}>
                   {reports.length}
                 </span>
               )}
@@ -936,7 +936,7 @@ export default function FundamentalAnalysisTab({ selectedStock, onStockChange }:
               type="button"
               onClick={() => { setActiveTab("telegram"); setMountedSubTabs((prev) => new Set([...prev, "telegram"])); }}
               className={`relative shrink-0 flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold transition ${
-                activeTab === "telegram" ? "bg-white text-[#2563eb] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                activeTab === "telegram" ? "bg-white text-[#003CDC] shadow-sm" : "text-slate-500 hover:text-slate-700"
               }`}
             >
               <Send size={13} />
@@ -954,12 +954,12 @@ export default function FundamentalAnalysisTab({ selectedStock, onStockChange }:
                   <p className="text-[15px] font-semibold text-slate-600">국내 종목 전용 서비스</p>
                   <p className="mt-2 text-[13px] text-slate-400">
                     네이버 리포트는 KOSPI·KOSDAQ 국내 상장 종목만 지원합니다.<br />
-                    해외 종목 정보는 <span className="font-semibold text-[#2563eb]">텔레그램 인사이트</span> 탭을 이용해 주세요.
+                    해외 종목 정보는 <span className="font-semibold text-[#003CDC]">텔레그램 인사이트</span> 탭을 이용해 주세요.
                   </p>
                   <button
                     type="button"
                     onClick={() => { setActiveTab("telegram"); setMountedSubTabs((prev) => new Set([...prev, "telegram"])); }}
-                    className="mt-4 flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#1d4ed8] transition"
+                    className="mt-4 flex items-center gap-1.5 rounded-lg bg-[#003CDC] px-5 py-2.5 text-[13px] font-semibold text-white hover:bg-[#0A2FA8] transition"
                   >
                     <Send size={14} />
                     텔레그램 인사이트로 이동

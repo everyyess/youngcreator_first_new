@@ -67,7 +67,7 @@ export default function IntegratedInsight() {
             className={[
               "flex min-h-10 shrink-0 flex-1 items-center justify-center rounded-md px-4 py-2 text-sm font-bold transition",
               activeTab === tab.id
-                ? "bg-[#2563eb] text-white shadow-soft"
+                ? "bg-[#003CDC] text-white shadow-soft"
                 : "bg-[#F3F5F9] text-slate-600 hover:bg-slate-100 hover:text-navy",
             ].join(" ")}
           >

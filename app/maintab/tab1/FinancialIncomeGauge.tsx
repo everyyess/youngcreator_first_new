@@ -500,7 +500,7 @@ export function FinancialIncomeGauge({
   const gaugeColor =
     totalPct >= 100 ? "#dc2626" :
     totalPct >= 80  ? "#f59e0b" :
-    totalPct >= 50  ? "#2563eb" : "#10b981";
+    totalPct >= 50  ? "#003CDC" : "#10b981";
 
   const statusLabel =
     totalPct >= 100 ? "종합과세 해당" :

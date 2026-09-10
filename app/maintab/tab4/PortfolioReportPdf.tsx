@@ -83,15 +83,15 @@ function makeMarkerTracker(terms: { term: string; desc: string; marker: string }
   }
   return { withMarker, getUsedTerms: () => usedList };
 }
-const NAVY = "#1428A0"; const BLUE = "#3457B2"; const GOLD = "#B8975A";
+const NAVY = "#003CDC"; const BLUE = "#3457B2"; const GOLD = "#B8975A";
 const GRAY = "#64748B"; const LIGHT = "#F1F5F9"; const BLACK = "#1E293B";
-const RED = "#DC2626"; const AMBER = "#D97706"; const GREENC = "#0F766E"; const BLUE_DOWN = "#2563EB";
+const RED = "#DC2626"; const AMBER = "#D97706"; const GREENC = "#0F766E"; const BLUE_DOWN = "#003CDC";
 const BORDER = "#E2E8F0";
 const ASSET_CLASS_COLOR_MAP: Record<string, string> = {
   국내주식: NAVY, 해외주식: "#3457B2", 국내채권: "#7C93D6", 해외채권: "#0F766E",
   금: GOLD, 리츠: "#8C8C8C", 현금: "#94A3B8", 달러: "#6B8CD6", 암호화폐: "#A9B4E3",
 };
-const DONUT_FALLBACK = ["#1428A0", "#3457B2", "#7C93D6", "#0F766E", GOLD, "#94A3B8"];
+const DONUT_FALLBACK = ["#003CDC", "#3457B2", "#7C93D6", "#0F766E", GOLD, "#94A3B8"];
 function getAssetColor(cls: string, idx: number) {
   return ASSET_CLASS_COLOR_MAP[cls] ?? DONUT_FALLBACK[idx % DONUT_FALLBACK.length];
 }

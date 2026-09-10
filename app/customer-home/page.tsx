@@ -330,7 +330,7 @@ export default function CustomerHomePage() {
         <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-xl shadow-blue-900/5 backdrop-blur">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-black text-[#1428A0]">
+              <h1 className="text-3xl font-black text-[#003CDC]">
                 {customerName(profile, session)} 고객님, 환영합니다!
                 <span className="ml-2 text-base font-extrabold text-slate-500">(담당 PB: {session.pbName || "담당 PB"})</span>
               </h1>

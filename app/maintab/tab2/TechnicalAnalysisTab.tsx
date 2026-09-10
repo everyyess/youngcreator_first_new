@@ -60,7 +60,7 @@ const INDICATOR_DEFS: IndicatorDef[] = [
   { id: "ichimoku",  label: "일목균형표", group: "overlay",    scoreKeys: ["일목균형표"],  color: "#14b8a6" },
   { id: "supportResistance", label: "지지/저항선", group: "overlay", scoreKeys: [], color: "#64748b" },
   { id: "rsi",       label: "RSI",       group: "oscillator", scoreKeys: ["RSI"],         color: "#8b5cf6" },
-  { id: "macd",      label: "MACD",      group: "oscillator", scoreKeys: ["MACD"],        color: "#3b82f6" },
+  { id: "macd",      label: "MACD",      group: "oscillator", scoreKeys: ["MACD"],        color: "#3363E3" },
   { id: "roc",       label: "ROC",       group: "oscillator", scoreKeys: ["ROC"],         color: "#14b8a6" },
   { id: "obv",       label: "OBV",       group: "oscillator", scoreKeys: ["OBV"],         color: "#0ea5e9" },
   { id: "hvol",      label: "변동성",     group: "oscillator", scoreKeys: ["역사적변동성"], color: "#f59e0b" },
@@ -79,7 +79,7 @@ for (const def of INDICATOR_DEFS) {
 }
 
 const UP = "#e5384a";
-const DOWN = "#2563eb";
+const DOWN = "#003CDC";
 const GRID = "rgba(15,23,42,0.05)";
 const AXIS = "#9aa5b4";
 
@@ -420,7 +420,7 @@ function ChartArea({
           { type: "bar", label: "Hist", data: ind.histogram as never,
             backgroundColor: (ind.histogram as (number | null)[]).map((v) => v === null ? "transparent" : v >= 0 ? "rgba(229,56,74,0.3)" : "rgba(37,99,235,0.3)"),
             borderWidth: 0, barPercentage: 0.85, categoryPercentage: 1 },
-          { type: "line", label: "MACD", data: ind.macd as never, borderColor: "#3b82f6", borderWidth: 1.3, pointRadius: 0, tension: 0.3 },
+          { type: "line", label: "MACD", data: ind.macd as never, borderColor: "#3363E3", borderWidth: 1.3, pointRadius: 0, tension: 0.3 },
           { type: "line", label: "Signal", data: ind.signal as never, borderColor: "#f59e0b", borderWidth: 1.3, pointRadius: 0, tension: 0.3 },
         ] as never }}
         options={chartOptions(oXMin, oXMax, { yFmt: (v) => v.toFixed(0), showX: false })}
@@ -481,7 +481,7 @@ function ChartArea({
         <button onClick={resetView} className="ml-2 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-50">
           초기화
         </button>
-        <span className="ml-auto rounded bg-[#2563eb] px-2 py-0.5 text-[11px] font-bold text-white">{won(last)}</span>
+        <span className="ml-auto rounded bg-[#003CDC] px-2 py-0.5 text-[11px] font-bold text-white">{won(last)}</span>
       </div>
 
       <div
@@ -581,7 +581,7 @@ function ResultPanel({
                 {s}<span className="text-[11px] font-normal text-slate-400"> / {c.max}</span>
               </div>
               <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-[#2563eb] transition-all duration-700" style={{ width: `${pct}%` }} />
+                <div className="h-full rounded-full bg-[#003CDC] transition-all duration-700" style={{ width: `${pct}%` }} />
               </div>
             </div>
           );
@@ -614,7 +614,7 @@ function ResultPanel({
               return (
                 <tr key={r.key} onClick={() => onToggleKey(r.key)}
                   className={`cursor-pointer border-t border-slate-100 transition-colors ${on ? "bg-indigo-50/50" : "bg-white hover:bg-slate-50"}`}>
-                  <td className="px-2 py-2 text-center">{on && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#2563eb]" />}</td>
+                  <td className="px-2 py-2 text-center">{on && <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#003CDC]" />}</td>
                   <td className="px-2 py-2 text-slate-400">{r.cat}</td>
                   <td className="px-2 py-2 font-semibold text-slate-700">{r.key}</td>
                   <td className="px-2 py-2">
@@ -805,7 +805,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
               {tickerableAssets.map((a) => (
                 <button key={a.ticker} onClick={() => selectAsset(a.ticker!, a.name)}
                   className={`rounded-md border px-2.5 py-1 text-[12px] font-semibold transition ${
-                    selectedTicker === a.ticker ? "border-[#2563eb] bg-[#2563eb] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                    selectedTicker === a.ticker ? "border-[#003CDC] bg-[#003CDC] text-white" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
                   }`}>
                   {koreanNames[a.ticker!] || a.name}
                 </button>
@@ -844,7 +844,7 @@ export default function TechnicalAnalysisTab({ selectedStock, onStockChange }: T
                 {([["chart", "차트 분석"], ["result", "분석 결과"]] as const).map(([id, label]) => (
                   <button key={id} onClick={() => setSubTab(id)}
                     className={`rounded-md px-3.5 py-1.5 text-[12px] font-semibold transition ${
-                      subTab === id ? "bg-white text-[#2563eb] shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      subTab === id ? "bg-white text-[#003CDC] shadow-sm" : "text-slate-500 hover:text-slate-700"
                     }`}>
                     {label}
                   </button>

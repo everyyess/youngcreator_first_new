@@ -90,7 +90,7 @@ function SummaryBox({
           <div key={i} className="flex gap-2.5 items-start leading-relaxed">
             <div
               className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-              style={{ background: r.type === "good" ? "#16a34a" : r.type === "bad" ? "#dc2626" : r.type === "info" ? "#3b82f6" : "#f59e0b" }}
+              style={{ background: r.type === "good" ? "#16a34a" : r.type === "bad" ? "#dc2626" : r.type === "info" ? "#3363E3" : "#f59e0b" }}
             />
             <div dangerouslySetInnerHTML={{ __html: r.text }} />
           </div>
@@ -263,7 +263,7 @@ function DistTab({ d }: { d: OptionsChainResponse }) {
     <div>
       <SummaryBox
         title="기간별 분포 해석" icon="📊" badge={`${d.nExp}개 만기`}
-        badgeColor="#3b82f6" bgColor="#f0f9ff" borderColor="#bae6fd"
+        badgeColor="#3363E3" bgColor="#f0f9ff" borderColor="#bae6fd"
         rows={rows}
       />
 
@@ -633,16 +633,16 @@ function GuideTab() {
   const sections = [
     {
       title: "📘 옵션 기초 — 콜·풋·OI·P/C",
-      bg: "#eff6ff", color: "#1d4ed8",
+      bg: "#EEF2FE", color: "#0A2FA8",
       cards: [
         {
-          id: "g-basic", tag: "기초", tagBg: "#dbeafe", tagC: "#1d4ed8",
+          id: "g-basic", tag: "기초", tagBg: "#DEE5FB", tagC: "#0A2FA8",
           title: "콜옵션 · 풋옵션 · 미결제약정(OI)",
           body: "<b>콜옵션(Call)</b>은 '정해진 가격(행사가)에 <u>살 수 있는</u> 권리'입니다. 주가가 오를 거라 보면 콜을 삽니다.<br><b>풋옵션(Put)</b>은 '행사가에 <u>팔 수 있는</u> 권리'입니다. 주가가 내릴 것으로 보거나, 보유 주식의 하락을 대비(보험)할 때 풋을 삽니다.<br><br><b>미결제약정(OI, Open Interest)</b>은 아직 청산되지 않고 시장에 살아있는 계약 수입니다. OI가 많다는 건 그 행사가에 베팅이 두껍게 쌓여 있다는 뜻입니다. 전일 기준 하루 1번 갱신됩니다.<br><b>거래량(Volume)</b>은 당일 하루 동안 새로 체결된 계약 수입니다.",
           ex: "💡 OI는 '어제까지의 쌓인 잔고', 거래량은 '오늘의 새 주문'으로 이해하면 됩니다.",
         },
         {
-          id: "g-pc", tag: "기초", tagBg: "#dbeafe", tagC: "#1d4ed8",
+          id: "g-pc", tag: "기초", tagBg: "#DEE5FB", tagC: "#0A2FA8",
           title: "P/C 비율 (Put/Call Ratio)",
           body: "풋 ÷ 콜로 계산하는 <b>시장 심리 지표</b>입니다.<br><br>· <b>1보다 낮으면</b>: 콜(상승 베팅)이 우세 → 낙관적<br>· <b>1보다 높으면</b>: 풋(하락 베팅·헤지)이 우세 → 경계감<br><br><b>주의할 점:</b> 풋이 많다고 무조건 약세가 아닙니다. 주식 보유자가 <b>하락 보험(헤지)</b>으로 풋을 사는 경우가 많아서, P/C가 높아도 오히려 '주주들이 장기 보유 중'이라는 신호일 수 있습니다. 반드시 다른 지표와 함께 해석하세요.",
           ex: "💡 거래량 기준 P/C는 '오늘의 심리', OI 기준 P/C는 '누적된 포지션'을 보여줍니다.",
@@ -841,7 +841,7 @@ export default function OptionAnalysisTab() {
                 onClick={() => selectAsset(a.ticker!, a.name)}
                 className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
                   selectedTicker === a.ticker
-                    ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
+                    ? "border-[#003CDC] bg-[#003CDC] text-white shadow-sm"
                     : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
                 }`}
               >
@@ -890,7 +890,7 @@ export default function OptionAnalysisTab() {
                 onClick={() => setActiveTab(t.id)}
                 className={`relative shrink-0 rounded-md px-3.5 py-1.5 text-[13px] font-semibold transition ${
                   activeTab === t.id
-                    ? "bg-white text-[#2f2f9d] shadow-sm"
+                    ? "bg-white text-[#003CDC] shadow-sm"
                     : "text-slate-500 hover:text-slate-700"
                 }`}
               >

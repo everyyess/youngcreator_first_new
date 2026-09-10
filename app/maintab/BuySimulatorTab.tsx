@@ -224,8 +224,8 @@ const SECTOR_CATEGORY_COLORS: Record<
   crypto:    { border: "#EC4899", bg: "#fdf2f8", text: "#831843", label: "암호화폐" },
 };
 
-// 국내ETF equity는 파란색 (CLASS_COLORS["국내주식"] = #3B82F6)
-const DOMESTIC_EQUITY_COLOR = { border: "#3B82F6", bg: "#eff6ff", text: "#1e40af", label: "주식·성장" };
+// 국내ETF equity는 파란색 (CLASS_COLORS["국내주식"] = #3363E3)
+const DOMESTIC_EQUITY_COLOR = { border: "#3363E3", bg: "#EEF2FE", text: "#141E78", label: "주식·성장" };
 
 // ── 섹터 카테고리 도출 (섹터명 키워드 기반 — 티커 미참조) ───────────────────
 
@@ -1224,7 +1224,7 @@ export default function BuySimulatorTab() {
     <div className="flex flex-col gap-5">
 
       {/* ── 레이어 1: 가용 자금 전광판 (클라이언트 숨김) ─────────── */}
-      <div className="hidden rounded-xl border border-slate-200 bg-gradient-to-br from-[#2563eb] to-[#3b82f6] p-4 text-white shadow-soft">
+      <div className="hidden rounded-xl border border-slate-200 bg-gradient-to-br from-[#003CDC] to-[#3363E3] p-4 text-white shadow-soft">
         <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-white/60">
           <DollarSign size={13} />
           Buying Power — 가용 투자 자금
@@ -1788,7 +1788,7 @@ export default function BuySimulatorTab() {
                             value={row.productType}
                             onChange={(e) => updatePbRow(row.id, { productType: e.target.value })}
                             disabled={isCustomerView}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-navy outline-none focus:border-[#2563eb] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-xs text-navy outline-none focus:border-[#003CDC] disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <option>국내주식</option>
                             <option>해외주식</option>
@@ -1813,7 +1813,7 @@ export default function BuySimulatorTab() {
                               className={`w-full rounded border px-2 py-1 text-xs outline-none ${
                                 isBond
                                   ? "cursor-not-allowed border-slate-100 bg-slate-100 text-slate-400 placeholder:text-slate-300"
-                                  : "border-slate-200 bg-white text-navy placeholder:text-slate-300 focus:border-[#2563eb]"
+                                  : "border-slate-200 bg-white text-navy placeholder:text-slate-300 focus:border-[#003CDC]"
                               }`}
                             />
                             {pbState.loading && !isBond && (
@@ -1858,7 +1858,7 @@ export default function BuySimulatorTab() {
                             onChange={(e) => updatePbRow(row.id, { quantity: e.target.value })}
                             placeholder="0"
                             disabled={isCustomerView}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb] disabled:cursor-not-allowed disabled:opacity-50"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#003CDC] disabled:cursor-not-allowed disabled:opacity-50"
                           />
                         </td>
                         {/* 매수단가(원화) — 채권: 직접 입력 / 비채권: read-only 자동 연산 */}
@@ -1873,7 +1873,7 @@ export default function BuySimulatorTab() {
                                 updatePbRow(row.id, { amountManStr: raw });
                               }}
                               placeholder="투자금액(원)"
-                              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb]"
+                              className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#003CDC]"
                             />
                           ) : (
                             <>
@@ -1898,7 +1898,7 @@ export default function BuySimulatorTab() {
                             onChange={(e) => updatePbRow(row.id, { bondYield: e.target.value })}
                             disabled={!isBond || isCustomerView}
                             placeholder={isBond ? "%" : "—"}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#003CDC] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
                           />
                         </td>
                         {/* 만기(년) — 채권 유형만 활성 */}
@@ -1911,7 +1911,7 @@ export default function BuySimulatorTab() {
                             onChange={(e) => updatePbRow(row.id, { maturityYears: e.target.value })}
                             disabled={!isBond || isCustomerView}
                             placeholder={isBond ? "년" : "—"}
-                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#2563eb] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+                            className="w-full rounded border border-slate-200 bg-white px-2 py-1 text-right text-xs text-navy outline-none placeholder:text-slate-300 focus:border-[#003CDC] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
                           />
                         </td>
                         {/* 삭제 */}

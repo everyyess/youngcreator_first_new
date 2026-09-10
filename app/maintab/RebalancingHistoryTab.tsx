@@ -886,7 +886,7 @@ export default function RebalancingHistoryTab() {
                                 className={`w-full rounded-lg border px-3 py-2 text-xs text-slate-700 outline-none transition ${
                                   isCustomerView
                                     ? "cursor-default border-transparent bg-transparent"
-                                    : "border-slate-200 bg-white focus:border-[#2563eb] focus:ring-2 focus:ring-[#2563eb]/10"
+                                    : "border-slate-200 bg-white focus:border-[#003CDC] focus:ring-2 focus:ring-[#003CDC]/10"
                                 }`}
                               />
                             </td>
@@ -900,7 +900,7 @@ export default function RebalancingHistoryTab() {
                     <button
                       type="button"
                       onClick={() => setCompareRecord(record)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-[#2563eb] bg-white px-4 py-2 text-xs font-bold text-[#2563eb] transition hover:bg-blue-50"
+                      className="inline-flex items-center gap-2 rounded-lg border border-[#003CDC] bg-white px-4 py-2 text-xs font-bold text-[#003CDC] transition hover:bg-blue-50"
                     >
                       <GitCompareArrows size={15} />
                       포트폴리오 전후 비교

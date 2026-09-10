@@ -359,7 +359,7 @@ export default function StressChart() {
                             <tr key={i} style={{ borderBottom: "1px solid #f9fafb" }}>
                               <td style={{
                                 fontSize: 11,
-                                color: d.isBond ? "#1D4ED8" : "#374151",
+                                color: d.isBond ? "#0A2FA8" : "#374151",
                                 fontWeight: d.isBond ? 700 : 400,
                                 padding: "3px 0",
                               }}>
@@ -368,7 +368,7 @@ export default function StressChart() {
                                   ({(d.weight * 100).toFixed(0)}%)
                                 </span>
                                 {d.isBond && (
-                                  <span style={{ fontSize: 9, color: "#1D4ED8", marginLeft: 4, background: "#EFF6FF", borderRadius: 3, padding: "1px 4px" }}>
+                                  <span style={{ fontSize: 9, color: "#0A2FA8", marginLeft: 4, background: "#EEF2FE", borderRadius: 3, padding: "1px 4px" }}>
                                     프록시
                                   </span>
                                 )}

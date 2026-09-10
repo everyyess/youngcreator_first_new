@@ -2150,9 +2150,9 @@ function TabStrip({ onNavigate }: { onNavigate: (id: string) => void }) {
         return (
           <button
             key={tab.id} type="button" data-consultation-lock-exempt={tab.id === "create" ? "true" : undefined} onClick={() => onNavigate(tab.id)}
-            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#2563eb] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
+            className={`flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-left transition ${selected ? "bg-[#003CDC] text-white shadow-soft" : "bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-navy"}`}
           >
-            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#3b82f6] text-white" : "bg-[#eff6ff] text-[#2563eb]"}`}>
+            <span className={`flex h-8 w-9 shrink-0 items-center justify-center rounded-lg text-sm font-black ${selected ? "bg-[#3363E3] text-white" : "bg-[#EEF2FE] text-[#003CDC]"}`}>
               {String(index + 1).padStart(2, "0")}
             </span>
             <span className="min-w-0 whitespace-nowrap text-sm font-bold leading-tight tracking-normal">{tab.label}</span>
@@ -2182,7 +2182,7 @@ function CustomerSelector({
     <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-soft">
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div className="flex min-w-0 flex-wrap gap-2">
-          <button type="button" onClick={onToggleSearch} className={`min-h-11 rounded-lg px-4 py-2 text-left text-sm font-bold transition ${showCustomers ? "bg-[#2563eb] text-white" : "bg-slate-50 text-navy hover:bg-slate-100"}`}>고객명 검색</button>
+          <button type="button" onClick={onToggleSearch} className={`min-h-11 rounded-lg px-4 py-2 text-left text-sm font-bold transition ${showCustomers ? "bg-[#003CDC] text-white" : "bg-slate-50 text-navy hover:bg-slate-100"}`}>고객명 검색</button>
           <button type="button" onClick={onAddCustomer} className="min-h-11 rounded-lg bg-samsung px-4 py-2 text-left text-sm font-bold text-white transition hover:bg-blue-700">고객 추가</button>
         </div>
         <div className="customer-current-summary grid grid-cols-[minmax(0,auto)_auto] content-start items-center justify-end gap-x-2 gap-y-1 self-start text-right">

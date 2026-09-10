@@ -214,7 +214,7 @@ export default function CorrelationDomesticTab({
                 title={s.desc}
                 className={`px-3 py-1.5 text-xs font-bold transition ${
                   strategy === s.id
-                    ? "bg-[#2f2f9d] text-white"
+                    ? "bg-[#003CDC] text-white"
                     : "bg-white text-slate-600 hover:bg-slate-100"
                 }`}
               >
@@ -238,7 +238,7 @@ export default function CorrelationDomesticTab({
                 }}
                 className={`w-8 py-1.5 text-xs font-bold transition ${
                   k === n
-                    ? "bg-[#2f2f9d] text-white"
+                    ? "bg-[#003CDC] text-white"
                     : "bg-white text-slate-600 hover:bg-slate-100"
                 }`}
               >
@@ -265,7 +265,7 @@ export default function CorrelationDomesticTab({
             type="button"
             onClick={handleConfirmDomestic}
             disabled={isConfirmingDomestic || loading}
-            className="flex items-center gap-1.5 rounded-lg bg-[#2f2f9d] px-5 py-2 text-sm font-bold text-white transition hover:bg-[#252285] disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-[#003CDC] px-5 py-2 text-sm font-bold text-white transition hover:bg-[#252285] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isConfirmingDomestic ? (
               <>

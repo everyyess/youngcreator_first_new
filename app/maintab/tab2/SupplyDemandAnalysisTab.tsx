@@ -94,7 +94,7 @@ const INVESTOR_LABELS: Record<InvestorKey, string> = {
   frgn: "외국인", orgn: "기관", prsn: "개인", total: "합산",
 };
 const INVESTOR_COLORS: Record<InvestorKey, string> = {
-  frgn: "#3b82f6", orgn: "#f59e0b", prsn: "#22c55e", total: "#6366f1",
+  frgn: "#3363E3", orgn: "#f59e0b", prsn: "#22c55e", total: "#6366f1",
 };
 
 function fmtDate(d: string) {
@@ -138,7 +138,7 @@ function getSummaryVal(s: StockSummary, k: InvestorKey, mode: DisplayMode): numb
 function amtColor(val: number) {
   return val > 0 ? "text-red-500" : val < 0 ? "text-blue-500" : "text-slate-300";
 }
-function barColor(val: number) { return val >= 0 ? "#ef4444" : "#3b82f6"; }
+function barColor(val: number) { return val >= 0 ? "#ef4444" : "#3363E3"; }
 
 function fmtAmtWon(won: number) {
   const abs = Math.abs(won);
@@ -177,7 +177,7 @@ function cleanTicker(t: string) {
 function Spinner({ label }: { label?: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-14">
-      <Loader2 size={26} className="animate-spin text-[#2f2f9d]" />
+      <Loader2 size={26} className="animate-spin text-[#003CDC]" />
       {label && <p className="text-xs font-semibold text-slate-400">{label}</p>}
     </div>
   );
@@ -233,7 +233,7 @@ function SharedHeader({
             <div className="flex rounded-md overflow-hidden border border-slate-200 shadow-sm">
               {(["KOSPI", "KOSDAQ"] as const).map((m) => (
                 <button key={m} type="button" onClick={() => setMarket(m)}
-                  className={`px-3 py-1.5 text-xs font-bold transition ${market === m ? "bg-[#2f2f9d] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                  className={`px-3 py-1.5 text-xs font-bold transition ${market === m ? "bg-[#003CDC] text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
                   {m}
                 </button>
               ))}
@@ -1039,7 +1039,7 @@ export default function SupplyDemandAnalysisTab() {
                   onClick={() => { setSelectedTicker(kt); setSelectedName(a.name); }}
                   className={`rounded-lg border px-3.5 py-2 text-[13px] font-semibold transition ${
                     isActive
-                      ? "border-[#2f2f9d] bg-[#2f2f9d] text-white shadow-sm"
+                      ? "border-[#003CDC] bg-[#003CDC] text-white shadow-sm"
                       : "border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100"
                   }`}>
                   {koreanNames[kt] || a.name}
@@ -1080,7 +1080,7 @@ export default function SupplyDemandAnalysisTab() {
             <button key={t.id} type="button" onClick={() => { setActiveTab(t.id); setMountedSubTabs((prev) => new Set([...prev, t.id])); }}
               className={`shrink-0 flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold transition whitespace-nowrap ${
                 activeTab === t.id
-                  ? "bg-white text-[#2f2f9d] shadow-sm"
+                  ? "bg-white text-[#003CDC] shadow-sm"
                   : "text-slate-500 hover:text-slate-700"
               }`}>
               {t.label}

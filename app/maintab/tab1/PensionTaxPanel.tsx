@@ -585,10 +585,10 @@ export default function PensionTaxPanel({
 
             {/* IRP extra benefit notice */}
             {baseFinancialIncome > 0 && (
-              <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
-                <Lightbulb size={15} style={{ color: "#1d4ed8", flexShrink: 0, marginTop: 2 }} />
+              <div style={{ background: "#EEF2FE", border: "1px solid #CBD1E8", borderRadius: 10, padding: "12px 16px", marginBottom: 12, fontSize: 12.5, lineHeight: 1.6, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <Lightbulb size={15} style={{ color: "#0A2FA8", flexShrink: 0, marginTop: 2 }} />
                 <div>
-                  <strong style={{ color: "#1d4ed8" }}>세액공제 외 IRP 추가 혜택.</strong>{" "}
+                  <strong style={{ color: "#0A2FA8" }}>세액공제 외 IRP 추가 혜택.</strong>{" "}
                   운용 중 배당·이자에 <strong>15.4% 원천징수 없이 100% 재투자</strong>되어 복리 효과가 극대화됩니다.
                   수령 시에도 일반 15.4% 대신 <strong>연령별 3.3~5.5% 저율과세</strong>가 적용됩니다.
                 </div>

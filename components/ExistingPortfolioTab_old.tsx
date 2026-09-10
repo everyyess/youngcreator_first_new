@@ -98,7 +98,7 @@ interface Props {
 const ASSET_CLASSES = ["국내주식", "해외주식", "국내채권", "해외채권", "금", "리츠", "현금", "달러"];
 
 const CLASS_COLORS: Record<string, string> = {
-  국내주식: "#3B82F6",
+  국내주식: "#3363E3",
   해외주식: "#10B981",
   국내채권: "#F59E0B",
   해외채권: "#EF4444",
