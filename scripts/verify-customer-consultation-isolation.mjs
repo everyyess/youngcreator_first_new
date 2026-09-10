@@ -121,6 +121,16 @@ try {
   await legacyPage.goto(`${baseUrl}/customer-maintab/tab5`, { waitUntil: "domcontentloaded" });
   await legacyPage.waitForFunction(() => location.pathname === "/customer-maintab/tab3");
   assert.equal(new URL(legacyPage.url()).searchParams.get("innerTab"), "product-rebalancing");
+  // URL이 바뀐 직후에는 딥링크 effect가 아직 실행 전이라 기본 탭이 그려져 있다.
+  // 위 104~108번 줄처럼 상품 탭이 활성화될 때까지 기다린 뒤,
+  await legacyPage.waitForFunction(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((element) => element.textContent?.trim() === "리밸런싱(상품)");
+    return button?.className.includes("text-white");
+  });
+  // PB 저장값이 Supabase에서 비동기로 복원된 뒤에도 딥링크 선택이 유지되는지 확인한다.
+  // (복원값을 "PB가 탭을 옮김"으로 오인해 덮어쓰던 회귀를 잡기 위함 — 복원은 약 0.8초 뒤 도착)
+  await new Promise((resolve) => setTimeout(resolve, 2000));
   assert.equal(await isActiveButton(legacyPage, "리밸런싱(상품)"), true);
 
   console.log("PASS: 고객 상담실은 신형 4탭 구조입니다.");

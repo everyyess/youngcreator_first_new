@@ -31,9 +31,15 @@ export default function Tab3Page() {
   const syncedActiveInnerTab = tab3AnalysisState.activeInnerTab;
 
   // 구버전 고객 TAB5 북마크는 신형 TAB3의 상품 리밸런싱 화면으로 이어 준다.
+  // URL로 탭을 지정해 들어온 경우를 기억해 두고, 아래 동기화 effect가 첫 저장값 복원으로
+  // 이 선택을 덮어쓰지 않게 한다.
+  const deepLinkedRef = useRef(false);
   useEffect(() => {
     const requestedInnerTab = new URLSearchParams(window.location.search).get("innerTab");
-    if (isVisibleInnerTab(requestedInnerTab)) setActiveInnerTab(requestedInnerTab);
+    if (isVisibleInnerTab(requestedInnerTab)) {
+      deepLinkedRef.current = true;
+      setActiveInnerTab(requestedInnerTab);
+    }
   }, []);
 
   // PB가 탭을 옮겼을 때만 따라간다.
@@ -43,7 +49,12 @@ export default function Tab3Page() {
   const lastSyncedInnerTabRef = useRef<string | undefined>(syncedActiveInnerTab);
   useEffect(() => {
     if (syncedActiveInnerTab === lastSyncedInnerTabRef.current) return;
+    // 저장값이 처음 복원되는 순간(undefined → 값)은 "PB가 탭을 옮김"이 아니다.
+    // URL로 탭을 지정해 들어왔다면 그 선택을 존중하고, 복원값은 기준선으로만 삼는다.
+    // (딥링크가 없으면 평소처럼 PB의 현재 탭을 따라 연다)
+    const isInitialRestore = lastSyncedInnerTabRef.current === undefined;
     lastSyncedInnerTabRef.current = syncedActiveInnerTab;
+    if (isInitialRestore && deepLinkedRef.current) return;
     if (isVisibleInnerTab(syncedActiveInnerTab)) setActiveInnerTab(syncedActiveInnerTab);
   }, [syncedActiveInnerTab]);
 
