@@ -254,11 +254,18 @@ export default function ReportDbTab() {
     }
 
     // 원문을 먼저 확보한 뒤, 저장본이 없으면 본문 기반으로 태깅 (제목만으로 태깅할 때보다 정확도가 높다)
+    // 네이버 모바일 리서치 API는 PDF(attachUrl)를 목록이 아니라 상세에서만 준다 — 여기서 받아 채운다.
     fetch(`/api/report-db?action=detail&url=${encodeURIComponent(report.detailUrl)}`)
       .then((res) => res.json())
-      .then(async (json: { text?: string }) => {
+      .then(async (json: { text?: string; pdfUrl?: string | null }) => {
         const text = json.text ?? "";
+        const pdfUrl = json.pdfUrl ?? report.pdfUrl ?? null;
         setDetail((d) => ({ ...d, loadingText: false, text }));
+        if (pdfUrl && pdfUrl !== report.pdfUrl) {
+          const withPdf = { ...report, pdfUrl };
+          setFocused((f) => (f?.detailUrl === report.detailUrl ? withPdf : f));
+          if (!savedRow?.ai_summary) requestSummary(withPdf);
+        }
         if (!savedRow) {
           const res2 = await fetch("/api/hankyung-tag", {
             method: "POST",
