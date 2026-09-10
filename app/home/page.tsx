@@ -613,7 +613,7 @@ export default function HomePage() {
             강제한다 — 항상 정확하게 맞는다. 넘치는 내용은 overflow-y-auto로 이 안에서만 스크롤. */}
         <aside
           style={centerPanelHeight != null ? { height: centerPanelHeight } : undefined}
-          className={`box-border min-h-0 min-w-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}
+          className={`box-border flex min-h-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden rounded-2xl border border-white/70 bg-white/85 shadow-xl shadow-blue-900/5 backdrop-blur ${leftOpen ? "p-4" : "p-2"}`}
         >
           {/* min-h를 좌/우 패널 헤더에 똑같이 줘서, 아래 첫 줄(로그아웃 vs 분석실·상담실 입장)이
               항상 같은 높이에서 시작하게 맞춘다(2026-09) — 왼쪽은 인사말 3줄이라 원래 더 높고,
@@ -631,7 +631,7 @@ export default function HomePage() {
             </button>
           </div>
           {leftOpen ? (
-            <div className="flex h-full min-h-0 w-full min-w-0 flex-col gap-4 overflow-x-hidden">
+            <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-x-hidden">
               {storageMessage ? <p className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">{storageMessage}</p> : null}
               <button type="button" onClick={logout} className={`flex h-11 w-full min-w-0 ${leftPanelInnerWidthClass} items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white text-sm font-extrabold text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600`}>
                 <LogOut size={15} /> 로그아웃
@@ -678,12 +678,12 @@ export default function HomePage() {
               </div>
               {showAddCustomerForm ? <CustomerProfileEditor profile={newCustomer} setProfile={setNewCustomer} onSave={addCustomer} onCancel={() => setShowAddCustomerForm(false)} /> : null}
               {selectedCustomer ? <SelectedCustomerInfo customer={selectedCustomer} onChange={updateProfile} /> : null}
-              <section className={`${leftPanelInnerWidthClass} min-w-0 overflow-hidden`}>
+              <section className={`${leftPanelInnerWidthClass} flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden`}>
                 <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-slate-500">[{selectedCustomerName} 고객] 과거 상담 내역</p>
-                {/* 카드 약 11개 높이만큼만 보여주고, 12번째부터는 이 안에서만 스크롤(2026-09) —
-                    aside 바깥 틀은 위 ResizeObserver로 중앙 패널에 이미 정확히 고정돼 있으니 그대로
-                    둔다. */}
-                <div className="grid max-h-[1200px] min-w-0 gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {/* 상담 내역은 위 입력 영역을 제외한 좌측 패널의 남은 높이를 모두 사용한다.
+                    외곽 패널은 ResizeObserver로 중앙 패널 높이에 맞춰져 있으므로, 카드가 많을 때만
+                    이 목록 내부에서 스크롤된다. */}
+                <div className="grid min-h-0 min-w-0 flex-1 content-start gap-2 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).length ? selectedSessions.filter((session) => session.status === "completed" || !isFutureSession(session)).map((session) => (
                     <SessionCard key={session.id} session={session} customer={selectedCustomer} expanded={expandedSessionId === session.id} onExpand={() => setExpandedSessionId(expandedSessionId === session.id ? null : session.id)} onDelete={() => deleteSession(session)} onUpdate={(patch) => updateSession(session.id, patch)} onPreRecord={() => preRecordSession(session)} onStart={() => startSession(session)} />
                   )) : <EmptyBox text="상담 내역이 없습니다." />}
