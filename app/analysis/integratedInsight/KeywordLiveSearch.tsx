@@ -19,7 +19,7 @@ import { KEYWORD_COLORS } from "./insightAggregates";
 
 type LiveSource = "telegram" | "news";
 const LIVE_SOURCE_ORDER: LiveSource[] = ["telegram", "news"];
-const LIVE_SOURCE_COLORS: Record<LiveSource, string> = { telegram: "#0EA5E9", news: "#0A2FA8" };
+const LIVE_SOURCE_COLORS: Record<LiveSource, string> = { telegram: "#00B5CD", news: "#0A2FA8" };
 const LIVE_SOURCE_LABELS: Record<LiveSource, string> = { telegram: "텔레그램", news: "뉴스" };
 
 type LiveRange = "15m" | "30m" | "60m";

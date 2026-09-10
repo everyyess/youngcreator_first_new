@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
-const NAVY = "#0D2B5E";
-const GOLD = "#C9A84C";
+const NAVY = "#141E78";
+const GOLD = "#E0A400";
 
 const PERSONAS = [
   {
@@ -43,7 +43,7 @@ const PERSONAS = [
 ];
 
 const BUCKET_COLORS: Record<string, string> = {
-  growth: "#3363E3", income: GOLD, hedge: "#10B981", taxLiq: "#8B5CF6"
+  growth: "#3363E3", income: GOLD, hedge: "#00B5CD", taxLiq: "#7A1FC0"
 };
 const BUCKET_LABELS: Record<string, string> = {
   growth: "자본 증식", income: "인컴 창출", hedge: "위험 헷지", taxLiq: "절세·유동성"
@@ -78,7 +78,7 @@ export default function Compare() {
     const today = new Date().toLocaleDateString("ko-KR");
 
     const makeDonut = (alloc: Record<string, number>, centerLabel: string, centerValue: string, size = 120) => {
-      const colors: Record<string, string> = { growth: "#3363E3", income: "#C9A84C", hedge: "#10B981", taxLiq: "#8B5CF6" };
+      const colors: Record<string, string> = { growth: "#3363E3", income: "#E0A400", hedge: "#00B5CD", taxLiq: "#7A1FC0" };
       const labels: Record<string, string> = { growth: "자본증식", income: "인컴창출", hedge: "위험헷지", taxLiq: "절세·유동성" };
       const cx = size / 2, cy = size / 2;
       const outerR = size / 2 - 4;
@@ -114,7 +114,7 @@ export default function Compare() {
             <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
               ${svgSlices}
               <text x="${cx}" y="${cy - 8}" font-size="7" fill="#9ca3af" text-anchor="middle">${centerLabel}</text>
-              <text x="${cx}" y="${cy + 5}" font-size="12" fill="#0D2B5E" text-anchor="middle" font-weight="700">${centerValue}</text>
+              <text x="${cx}" y="${cy + 5}" font-size="12" fill="#141E78" text-anchor="middle" font-weight="700">${centerValue}</text>
               <text x="${cx}" y="${cy + 15}" font-size="6.5" fill="#9ca3af" text-anchor="middle">기대수익률</text>
             </svg>
           </div>
@@ -139,15 +139,15 @@ export default function Compare() {
         <line x1="46" y1="8" x2="46" y2="160" stroke="#e5e7eb" stroke-width="1"/>
         <line x1="46" y1="160" x2="500" y2="160" stroke="#e5e7eb" stroke-width="1"/>
         <polyline points="${ePolyline}" fill="none" stroke="#94a3b8" stroke-width="1.8"/>
-        <polyline points="${nPolyline}" fill="none" stroke="#C9A84C" stroke-width="2.2"/>
+        <polyline points="${nPolyline}" fill="none" stroke="#E0A400" stroke-width="2.2"/>
         ${chartPoints.map(pt => `
           <circle cx="${pt.x}" cy="${pt.eY}" r="3" fill="#94a3b8"/>
-          <circle cx="${pt.x}" cy="${pt.nY}" r="3" fill="#C9A84C"/>
+          <circle cx="${pt.x}" cy="${pt.nY}" r="3" fill="#E0A400"/>
           <text x="${pt.x}" y="172" font-size="8" fill="#6b7280" text-anchor="middle">${pt.label}</text>
         `).join("")}
         <circle cx="360" cy="8" r="3.5" fill="#94a3b8"/>
         <text x="367" y="12" font-size="9" fill="#6b7280">기존</text>
-        <circle cx="395" cy="8" r="3.5" fill="#C9A84C"/>
+        <circle cx="395" cy="8" r="3.5" fill="#E0A400"/>
         <text x="402" y="12" font-size="9" fill="#6b7280">신규</text>
       </svg>`;
 
@@ -169,20 +169,20 @@ export default function Compare() {
               <div class="divider"></div>
               <div class="mg">
                 <div class="mc"><div class="ml">기대수익률</div><div class="mv" style="color:#3363E3">${p.metrics.existing.return}</div></div>
-                <div class="mc"><div class="ml">변동성</div><div class="mv" style="color:#C9A84C">${p.metrics.existing.vol}</div></div>
-                <div class="mc"><div class="ml">샤프지수</div><div class="mv" style="color:#10B981">${p.metrics.existing.sharpe}</div></div>
-                <div class="mc"><div class="ml">MDD</div><div class="mv" style="color:#EF4444">${p.metrics.existing.mdd}</div></div>
+                <div class="mc"><div class="ml">변동성</div><div class="mv" style="color:#E0A400">${p.metrics.existing.vol}</div></div>
+                <div class="mc"><div class="ml">샤프지수</div><div class="mv" style="color:#00B5CD">${p.metrics.existing.sharpe}</div></div>
+                <div class="mc"><div class="ml">MDD</div><div class="mv" style="color:#EC3B67">${p.metrics.existing.mdd}</div></div>
               </div>
             </div>
             <div class="card">
-              <div class="ct" style="border-color:#C9A84C">신규 포트폴리오</div>
+              <div class="ct" style="border-color:#E0A400">신규 포트폴리오</div>
               ${makeDonut(p.newP, "신규", p.metrics.newP.return)}
               <div class="divider"></div>
               <div class="mg">
                 <div class="mc"><div class="ml">기대수익률</div><div class="mv" style="color:#3363E3">${p.metrics.newP.return}</div></div>
-                <div class="mc"><div class="ml">변동성</div><div class="mv" style="color:#C9A84C">${p.metrics.newP.vol}</div></div>
-                <div class="mc"><div class="ml">샤프지수</div><div class="mv" style="color:#10B981">${p.metrics.newP.sharpe}</div></div>
-                <div class="mc"><div class="ml">MDD</div><div class="mv" style="color:#EF4444">${p.metrics.newP.mdd}</div></div>
+                <div class="mc"><div class="ml">변동성</div><div class="mv" style="color:#E0A400">${p.metrics.newP.vol}</div></div>
+                <div class="mc"><div class="ml">샤프지수</div><div class="mv" style="color:#00B5CD">${p.metrics.newP.sharpe}</div></div>
+                <div class="mc"><div class="ml">MDD</div><div class="mv" style="color:#EC3B67">${p.metrics.newP.mdd}</div></div>
               </div>
             </div>
           </div>
@@ -205,25 +205,25 @@ export default function Compare() {
       }
       #ppa { display: none; font-family: "Apple SD Gothic Neo","Malgun Gothic","맑은 고딕",sans-serif; }
       #ppa .page { width:100%; position:relative; }
-      #ppa .hd { background:#0D2B5E !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; padding:12px 18px 10px; display:flex; justify-content:space-between; align-items:flex-end; }
+      #ppa .hd { background:#141E78 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; padding:12px 18px 10px; display:flex; justify-content:space-between; align-items:flex-end; }
       #ppa .hd-title { color:#fff; font-size:13px; font-weight:700; }
-      #ppa .hd-sub { color:#C9A84C; font-size:8.5px; margin-top:2px; }
+      #ppa .hd-sub { color:#E0A400; font-size:8.5px; margin-top:2px; }
       #ppa .hd-date { color:#b0c4de; font-size:8.5px; }
       #ppa .bd { padding:12px 18px; }
       #ppa .insight { background:#EEF2FE; border:1px solid #CBD1E8; border-radius:6px; padding:8px 12px; margin-bottom:10px; font-size:9.5px; color:#141E78; line-height:1.5; }
-      #ppa .insight b { color:#0D2B5E; }
+      #ppa .insight b { color:#141E78; }
       #ppa .g2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
       #ppa .card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px; }
-      #ppa .ct { color:#0D2B5E; font-size:11px; font-weight:700; margin-bottom:4px; padding-bottom:6px; border-bottom:2px solid; }
+      #ppa .ct { color:#141E78; font-size:11px; font-weight:700; margin-bottom:4px; padding-bottom:6px; border-bottom:2px solid; }
       #ppa .divider { border-top:1px solid #f1f5f9; margin:6px 0; }
       #ppa .mg { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
       #ppa .mc { background:#f9fafb; border-radius:5px; padding:5px; text-align:center; }
       #ppa .ml { color:#9ca3af; font-size:8px; margin-bottom:1px; }
       #ppa .mv { font-size:12px; font-weight:700; }
       #ppa .cw { border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-bottom:10px; }
-      #ppa .st { color:#0D2B5E; font-size:10px; font-weight:700; margin-bottom:6px; }
+      #ppa .st { color:#141E78; font-size:10px; font-weight:700; margin-bottom:6px; }
       #ppa .ai-section { border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-bottom:10px; }
-      #ppa .badge { background:#C9A84C; color:#fff; font-size:8px; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; margin-bottom:8px; }
+      #ppa .badge { background:#E0A400; color:#fff; font-size:8px; font-weight:700; padding:2px 8px; border-radius:4px; display:inline-block; margin-bottom:8px; }
       #ppa .at { color:#374151; font-size:9.5px; line-height:1.7; }
       #ppa .ft { display:flex; justify-content:space-between; border-top:1px solid #e5e7eb; padding:5px 18px 0; margin-top:6px; }
       #ppa .ft span { color:#9ca3af; font-size:8px; }
@@ -302,8 +302,8 @@ export default function Compare() {
                 {[
                   { label: "기대수익률", value: side.metrics.return, color: "#3363E3" },
                   { label: "변동성", value: side.metrics.vol, color: GOLD },
-                  { label: "샤프지수", value: side.metrics.sharpe, color: "#10B981" },
-                  { label: "MDD", value: side.metrics.mdd, color: "#EF4444" },
+                  { label: "샤프지수", value: side.metrics.sharpe, color: "#00B5CD" },
+                  { label: "MDD", value: side.metrics.mdd, color: "#EC3B67" },
                 ].map(m => (
                   <div key={m.label} style={{ background: "#f9fafb", borderRadius: 8, padding: "10px 12px", textAlign: "center" }}>
                     <div style={{ color: "#9ca3af", fontSize: 10, marginBottom: 3 }}>{m.label}</div>

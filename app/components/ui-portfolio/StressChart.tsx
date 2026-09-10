@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
-const NAVY = "#0D2B5E";
-const GOLD = "#C9A84C";
+const NAVY = "#141E78";
+const GOLD = "#E0A400";
 
 // 곽준호 quantEngine 기반 자산별 월별 수익률 프록시 (annVol 기반 시계열)
 const ASSET_PROXY: Record<string, { annVol: number; annReturn: number; beta: number }> = {
@@ -105,10 +105,10 @@ function correlation(a: number[], b: number[]): number {
 }
 
 function heatmapColor(corr: number): { bg: string; text: string } {
-  if (corr >= 0.7)  return { bg: "#DC2626", text: "#fff" };
-  if (corr >= 0.3)  return { bg: "#F97316", text: "#1a1a1a" };
+  if (corr >= 0.7)  return { bg: "#CF244E", text: "#fff" };
+  if (corr >= 0.3)  return { bg: "#F25536", text: "#1a1a1a" };
   if (corr > -0.3)  return { bg: "#e5e7eb", text: "#374151" };
-  return              { bg: "#10B981", text: "#fff" };
+  return              { bg: "#00B5CD", text: "#fff" };
 }
 
 // ─── 충격계수 ──────────────────────────────────────────────────────────────────
@@ -203,10 +203,10 @@ const scenarios = [
 ];
 
 const crisisHistory = [
-  { event: "닷컴 버블",   period: "2000~2002",   mdd: -49.1, color: "#EF4444" },
-  { event: "금융위기",    period: "2007~2009",   mdd: -56.8, color: "#DC2626" },
-  { event: "코로나19",    period: "2020.02~03",  mdd: -33.9, color: "#F97316" },
-  { event: "금리인상기",  period: "2022",        mdd: -25.4, color: "#EAB308" },
+  { event: "닷컴 버블",   period: "2000~2002",   mdd: -49.1, color: "#EC3B67" },
+  { event: "금융위기",    period: "2007~2009",   mdd: -56.8, color: "#CF244E" },
+  { event: "코로나19",    period: "2020.02~03",  mdd: -33.9, color: "#F25536" },
+  { event: "금리인상기",  period: "2022",        mdd: -25.4, color: "#E0A400" },
 ];
 
 export default function StressChart() {
@@ -337,14 +337,14 @@ export default function StressChart() {
 
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                       <span style={{ color: "#6b7280", fontSize: 12 }}>기존</span>
-                      <span style={{ color: "#EF4444", fontWeight: 700, fontSize: 14 }}>{existing}%</span>
+                      <span style={{ color: "#EC3B67", fontWeight: 700, fontSize: 14 }}>{existing}%</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
                       <span style={{ color: "#6b7280", fontSize: 12 }}>신규</span>
-                      <span style={{ color: newP >= 0 ? "#10B981" : "#EF4444", fontWeight: 700, fontSize: 14 }}>{newP}%</span>
+                      <span style={{ color: newP >= 0 ? "#00B5CD" : "#EC3B67", fontWeight: 700, fontSize: 14 }}>{newP}%</span>
                     </div>
 
-                    <div style={{ background: "#f0fdf4", borderRadius: 6, padding: "6px 10px", fontSize: 11, color: "#16a34a", marginBottom: 12 }}>
+                    <div style={{ background: "#f0fdf4", borderRadius: 6, padding: "6px 10px", fontSize: 11, color: "#008C9E", marginBottom: 12 }}>
                       헷지 반응: {s.hedge}
                     </div>
 
@@ -378,8 +378,8 @@ export default function StressChart() {
                                 fontWeight: 700,
                                 textAlign: "right",
                                 padding: "3px 0",
-                                color: d.contribution < -0.005 ? "#EF4444"
-                                     : d.contribution >  0.005 ? "#10B981"
+                                color: d.contribution < -0.005 ? "#EC3B67"
+                                     : d.contribution >  0.005 ? "#00B5CD"
                                      : "#6b7280",
                               }}>
                                 {d.contribution >= 0 ? "+" : ""}{(d.contribution * 100).toFixed(1)}%
@@ -393,7 +393,7 @@ export default function StressChart() {
                               fontWeight: 700,
                               textAlign: "right",
                               padding: "4px 0",
-                              color: newP < 0 ? "#EF4444" : "#10B981",
+                              color: newP < 0 ? "#EC3B67" : "#00B5CD",
                             }}>
                               {newP >= 0 ? "+" : ""}{newP}%
                             </td>
@@ -414,7 +414,7 @@ export default function StressChart() {
             <p style={{ color: NAVY, fontWeight: 600, fontSize: 14 }}>자산 간 상관계수 히트맵</p>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "#6b7280" }}>분산 점수:</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: divScore >= 0.5 ? "#10B981" : divScore >= 0.3 ? GOLD : "#EF4444" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: divScore >= 0.5 ? "#00B5CD" : divScore >= 0.3 ? GOLD : "#EC3B67" }}>
                 {divScore}
               </span>
             </div>
@@ -423,10 +423,10 @@ export default function StressChart() {
           {/* 신호등 범례 */}
           <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
             {[
-              { color: "#DC2626", text: "#fff",     label: "0.7 이상 — 고상관 (리스크 쏠림)" },
-              { color: "#F97316", text: "#1a1a1a",  label: "0.3~0.7 — 중상관 (동조화 주의)" },
+              { color: "#CF244E", text: "#fff",     label: "0.7 이상 — 고상관 (리스크 쏠림)" },
+              { color: "#F25536", text: "#1a1a1a",  label: "0.3~0.7 — 중상관 (동조화 주의)" },
               { color: "#e5e7eb", text: "#374151",  label: "-0.3~0.3 — 저상관 (독립적 분산)" },
-              { color: "#10B981", text: "#fff",     label: "-0.3 이하 — 역상관 (최우수 헷지)" },
+              { color: "#00B5CD", text: "#fff",     label: "-0.3 이하 — 역상관 (최우수 헷지)" },
             ].map(l => (
               <div key={l.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 14, height: 14, borderRadius: 3, background: l.color, border: "1px solid #e5e7eb" }} />

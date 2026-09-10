@@ -11,7 +11,7 @@ const canonicalMacroSet = new Set<string>(CANONICAL_MACRO as readonly string[]);
 export type TagRank = { name: string; count: number; latest: string };
 
 /** 키워드 비교 차트 색 (dataviz validator 통과, 흰 배경 기준) — DB/실시간 뷰가 공유해 슬롯 색이 일치하게 함 */
-export const KEYWORD_COLORS = ["#059669", "#2a78d6", "#eda100", "#e34948", "#4a3aa7"];
+export const KEYWORD_COLORS = ["#003CDC", "#00B5CD", "#E0A400", "#EC3B67", "#A514D7"];
 
 export function allTags(item: InsightItem): string[] {
   return [...item.companies, ...item.topics, ...item.macro];

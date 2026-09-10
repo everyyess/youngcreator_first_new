@@ -7,7 +7,7 @@ import StressChart from "../components/ui-portfolio/StressChart";
 import Compare from "../components/ui-portfolio/Compare";
 
 const NAVY = "#0D2B5E";
-const GOLD = "#C9A84C";
+const GOLD = "#E0A400";
 
 const tabs = [
   { id: "tuner", label: "포트폴리오 조율기", desc: "투자 조건 설정" },

@@ -26,18 +26,19 @@ import { calcAfterTaxReturn, FINANCIAL_INCOME_STORAGE_KEY } from "./tab1/Financi
 import type { FinancialIncomeSummary } from "./tab1/FinancialIncomeGauge";
 
 
+// 삼성 스펙트럼 — 자산군별 고정 색
 export const CLASS_COLORS: Record<string, string> = {
-  국내주식: "#3363E3",
-  국내ETF: "#99B1F1",
-  해외주식: "#10B981",
-  해외ETF: "#6EE7B7",
-  국내채권: "#F59E0B",
-  해외채권: "#EF4444",
-  금: "#F97316",
-  리츠: "#8B5CF6",
-  현금: "#64748B",
-  달러: "#06B6D4",
-  암호화폐: "#EC4899",
+  국내주식: "#003CDC",
+  국내ETF: "#668AE0",
+  해외주식: "#00B5CD",
+  해외ETF: "#A3E8E8",
+  국내채권: "#E0A400",
+  해외채권: "#F25536",
+  금: "#FFCF1F",
+  리츠: "#A514D7",
+  현금: "#5B6270",
+  달러: "#1EB4F0",
+  암호화폐: "#EC3B67",
 };
 
 export const CLASS_DISPLAY_LABELS: Record<string, string> = {
@@ -62,48 +63,57 @@ const ASSET_CLASS_ALIAS: Record<string, string> = {
   "예적금/현금": "현금", 예적금: "현금",
 };
 
+// 삼성 스펙트럼 기반 — 업종 계열별로 색상 패밀리를 묶고 명도로 세부 구분한다.
 const SECTOR_COLORS: Record<string, string> = {
-  "IT/기술": "#6366F1",
-  반도체: "#A855F7",
-  반도체장비: "#C084FC",
-  소프트웨어: "#818CF8",
-  헬스케어: "#EC4899",
-  바이오: "#F472B6",
-  제약: "#FB7185",
-  의료기기: "#FDA4AF",
-  금융: "#F59E0B",
-  금융서비스: "#FBBF24",
-  은행: "#FCD34D",
-  보험: "#FDE68A",
-  자본시장: "#D97706",
-  자산운용: "#B45309",
-  에너지: "#EF4444",
-  신재생에너지: "#F87171",
-  소재: "#14B8A6",
-  철강: "#0D9488",
-  화학: "#5EEAD4",
-  산업재: "#0EA5E9",
-  방산: "#0284C7",
-  조선: "#38BDF8",
-  전기장비: "#BAE6FD",
-  복합산업재: "#7DD3FC",
-  "소비재(경기민감)": "#F97316",
-  "소비재(필수)": "#FB923C",
-  자동차: "#FDBA74",
-  "유통/소매": "#FED7AA",
-  식품: "#D4522A",
-  유틸리티: "#64748B",
-  "에너지/전력": "#DC2626",
-  경기소비재: "#F97316",
-  "로봇/기계": "#7C3AED",
-  통신서비스: "#334155",
-  "부동산/리츠": "#8B5CF6",
-  "인터넷/플랫폼": "#10B981",
-  전자제품: "#34D399",
-  전자부품: "#6EE7B7",
-  농업: "#84CC16",
-  "2차전지": "#22C55E",
-  "우주/항공": "#0EA5E9",
+  // 테크 — SS Blue 패밀리
+  "IT/기술": "#003CDC",
+  반도체: "#0A2FA8",
+  반도체장비: "#3363E3",
+  소프트웨어: "#668AE0",
+  전자제품: "#0A78F5",
+  전자부품: "#1EB4F0",
+  "인터넷/플랫폼": "#00B5CD",
+  // 헬스케어 — SS Magenta 패밀리
+  헬스케어: "#CF244E",
+  바이오: "#EC3B67",
+  제약: "#EC6D8C",
+  의료기기: "#F5A7BB",
+  // 금융 — SS Amber 패밀리
+  금융: "#E0A400",
+  금융서비스: "#FFCF1F",
+  은행: "#FFE696",
+  보험: "#D99A00",
+  자본시장: "#B23A1F",
+  자산운용: "#8A2D18",
+  // 에너지 — SS Coral 패밀리
+  에너지: "#F25536",
+  신재생에너지: "#F9B2A5",
+  "에너지/전력": "#B23A1F",
+  // 소재 — SS Cyan 패밀리
+  소재: "#00B5CD",
+  철강: "#008C9E",
+  화학: "#A3E8E8",
+  // 산업재 — SS Sky 패밀리
+  산업재: "#1EB4F0",
+  방산: "#0A78F5",
+  조선: "#4FC3F0",
+  전기장비: "#A0E6F5",
+  복합산업재: "#7CD3F5",
+  "우주/항공": "#0A78F5",
+  // 소비재 — Coral/Amber 혼합
+  "소비재(경기민감)": "#F25536",
+  경기소비재: "#F25536",
+  "소비재(필수)": "#F9B2A5",
+  자동차: "#E0A400",
+  "유통/소매": "#FFE696",
+  식품: "#B23A1F",
+  농업: "#7A9A2E",
+  // 기타 계열
+  "로봇/기계": "#A514D7",
+  "부동산/리츠": "#7A1FC0",
+  통신서비스: "#141E78",
+  유틸리티: "#5B6270",
+  "2차전지": "#F0A800",
   채권: "#3363E3",
   기타: "#94A3B8",
 };
@@ -984,7 +994,7 @@ export function AssetClassTable({
       <td className="px-2 py-2 text-left text-xs font-semibold text-slate-500 max-w-0 truncate">{info.name}</td>
       <td className="px-2 py-2 text-center text-[10px] text-slate-300">—</td>
       <td className="px-2 py-2 text-center">
-        <span className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap" style={{ backgroundColor: "#ef444422", color: "#ef4444" }}>
+        <span className="inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold whitespace-nowrap" style={{ backgroundColor: "#EC3B6722", color: "#EC3B67" }}>
           {info.productType || info.assetClass}
         </span>
       </td>
@@ -1348,13 +1358,13 @@ export function StressScenarioBar({
               </span>
 
               <div className="flex h-4 items-center justify-end overflow-hidden">
-                <div className="h-2 rounded-l-sm" style={{ width: isNeg ? `${barPct}%` : "0%", backgroundColor: "#ef4444", transition: BAR_TRANSITION }} />
+                <div className="h-2 rounded-l-sm" style={{ width: isNeg ? `${barPct}%` : "0%", backgroundColor: "#EC3B67", transition: BAR_TRANSITION }} />
               </div>
 
               <div className="h-4 w-0.5 rounded-full bg-slate-300 mx-auto" />
 
               <div className="flex h-4 items-center justify-start overflow-hidden">
-                <div className="h-2 rounded-r-sm" style={{ width: isPos ? `${barPct}%` : "0%", backgroundColor: "#22c55e", transition: BAR_TRANSITION }} />
+                <div className="h-2 rounded-r-sm" style={{ width: isPos ? `${barPct}%` : "0%", backgroundColor: "#00B5CD", transition: BAR_TRANSITION }} />
               </div>
 
               <span className={`text-right font-bold ${valColor}`}>
@@ -1419,7 +1429,7 @@ export function HealthSummaryBox({ healthResult }: { healthResult: any }) {
 
   const arcLen = Math.PI * 110;
   const filled = arcLen * (score / 14);
-  const gaugeColor = badge === "Hold" ? "#10b981" : badge === "Sell" ? "#ef4444" : "#f59e0b";
+  const gaugeColor = badge === "Hold" ? "#00B5CD" : badge === "Sell" ? "#EC3B67" : "#E0A400";
 
   const actionText = penaltyItems.length
     ? `${penaltyItems.map((i: any) => i.label).join(", ")} – 즉시 분산 조정 필요.`
@@ -1471,7 +1481,8 @@ export function HealthRadarChart({ items, badge }: { items: HealthDiagnosisItem[
   const totalScore = items.reduce((sum, item) => sum + (item.score ?? 0), 0);
   const scoreBadge = totalScore >= 12 ? "Hold" : totalScore >= 8 ? "Rebalance" : "Sell";
   const effectiveBadge = badge ?? scoreBadge;
-  const strokeColor = effectiveBadge === "Sell" ? "#ef4444" : effectiveBadge === "Hold" ? "#10b981" : "#f59e0b";
+  // 삼성 스펙트럼 — 진단 등급별(양호/재조정/매도) 레이더 색. 등급 배지는 HealthBadge가 따로 표시한다.
+  const strokeColor = effectiveBadge === "Sell" ? "#EC3B67" : effectiveBadge === "Hold" ? "#00B5CD" : "#E0A400";
   // Recharts 3.8의 PolarAngleAxis는 다시 렌더될 때마다(props 내용이 같아도) 축 설정을 새 객체로 보고
   // 한 번 null을 렌더한 뒤 축을 등록 해제·재등록한다 — 그 사이 레이블이 통째로 사라졌다 나타난다.
   // 고객 화면은 PB가 뭔가 할 때마다 realtime으로 같은 분석 결과를 새 객체로 다시 받아 이 차트를

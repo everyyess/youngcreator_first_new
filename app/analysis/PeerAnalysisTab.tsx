@@ -17,13 +17,14 @@ import { Info, Loader2, RefreshCw, Users } from "lucide-react";
 import { DOMESTIC_SECTORS, GLOBAL_SECTORS } from "@/app/api/sector-scanner/sectorMaster";
 import type { PeerAnalysisResponse, PeerMetrics } from "@/app/api/peer-analysis/route";
 import { useCustomerContext } from "../maintab/CustomerContext";
+import { SS } from "@/lib/samsungPalette";
 
-// ── Peer 색상 (dataviz 기준 팔레트 — 인접쌍 CVD ΔE 24.2, 고정 순서) ─────────────
-const PEER_COLORS = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7", "#e34948", "#e87ba4", "#eb6834"];
+// ── Peer 색상 (삼성 스펙트럼 8색 — 인접 대비 최대화, 종목에 고정·순환 금지) ─────────
+const PEER_COLORS = [SS.blue, SS.cyan, SS.amberDeep, SS.magenta, SS.purple, SS.coral, SS.magentaSoft, SS.navy];
 
-const GRID = "#EEF4F2";
-const AXIS_TICK = { fontSize: 12, fill: "#94A8A0", fontWeight: 700 } as const;
-const AXIS_LINE = { stroke: "#DDE8E5" } as const;
+const GRID = "#E6EBF2";
+const AXIS_TICK = { fontSize: 12, fill: "#8892A6", fontWeight: 700 } as const;
+const AXIS_LINE = { stroke: "#E2E8F0" } as const;
 
 // ── 지표 레지스트리 (사분면 축 선택지) ──────────────────────────────────────────
 type MetricKey =
@@ -136,14 +137,14 @@ type TipPayload = { name?: string | number; value?: number | (number | null)[]; 
 function ChartTip({ active, label, payload, unit }: { active?: boolean; label?: string; payload?: TipPayload[]; unit?: "%" | "배" }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="rounded-lg border border-[#DDE8E5] bg-white px-3 py-2 shadow-popup">
-      {label != null && <p className="mb-1 text-[12px] font-black text-[#94A8A0]">{label}</p>}
+    <div className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 shadow-popup">
+      {label != null && <p className="mb-1 text-[12px] font-black text-[#8892A6]">{label}</p>}
       <div className="flex flex-col gap-0.5">
         {payload.filter((p) => !Array.isArray(p.value) && p.value != null).map((p, i) => (
           <div key={i} className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{ background: p.color ?? p.fill }} />
-            <span className="text-[13px] font-bold text-[#33493F]">{p.name}</span>
-            <span className="ml-auto pl-3 text-[13px] font-black tabular-nums text-[#0D2318]">
+            <span className="text-[13px] font-bold text-[#334155]">{p.name}</span>
+            <span className="ml-auto pl-3 text-[13px] font-black tabular-nums text-[#111A2E]">
               {fmtMetric(p.value as number, unit ?? "%")}
             </span>
           </div>
@@ -162,12 +163,12 @@ function QuadTip({ active, payload, xM, yM }: {
   const d = payload?.[0]?.payload;
   if (!active || !d) return null;
   return (
-    <div className="rounded-lg border border-[#DDE8E5] bg-white px-3 py-2 shadow-popup">
-      <p className="mb-1 flex items-center gap-1.5 text-[13px] font-black text-[#0D2318]">
+    <div className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 shadow-popup">
+      <p className="mb-1 flex items-center gap-1.5 text-[13px] font-black text-[#111A2E]">
         <span className="h-2 w-2 rounded-full" style={{ background: d.color }} />{d.name}
       </p>
-      <p className="text-[13px] font-bold text-[#33493F]">{xM.label}: <span className="font-black">{fmtMetric(d.x, xM.unit)}</span></p>
-      <p className="text-[13px] font-bold text-[#33493F]">{yM.label}: <span className="font-black">{fmtMetric(d.y, yM.unit)}</span></p>
+      <p className="text-[13px] font-bold text-[#334155]">{xM.label}: <span className="font-black">{fmtMetric(d.x, xM.unit)}</span></p>
+      <p className="text-[13px] font-bold text-[#334155]">{yM.label}: <span className="font-black">{fmtMetric(d.y, yM.unit)}</span></p>
     </div>
   );
 }
@@ -364,14 +365,14 @@ export default function PeerAnalysisTab() {
   return (
     <div className="flex flex-col gap-4">
       {/* ── 상단 정보/선택 헤더 (종목 분석 스타일 적용) ─────────────────── */}
-      <section className="rounded-card border border-[#DDE8E5] bg-white p-5 shadow-card">
+      <section className="rounded-card border border-[#E2E8F0] bg-white p-5 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-white">
               <Users size={22} />
             </span>
             <div>
-              <h2 className="flex items-center gap-2 text-lg font-black text-[#0D2318]">
+              <h2 className="flex items-center gap-2 text-lg font-black text-[#111A2E]">
                 경쟁사 분석
                 {sectorId && (
                   <span className="rounded-full bg-primary/10 px-2 py-[4px] text-[10px] font-black text-primary animate-pulse leading-none">
@@ -379,7 +380,7 @@ export default function PeerAnalysisTab() {
                   </span>
                 )}
               </h2>
-              <p className="text-xs font-semibold text-[#7A9488]">
+              <p className="text-xs font-semibold text-[#94A3B8]">
                 섹터를 지정하면 경쟁사(Peer)들의 밸류에이션, 성장, 수익성, 재고 순환을 다각도로 종합 비교합니다
               </p>
             </div>
@@ -387,7 +388,7 @@ export default function PeerAnalysisTab() {
 
           {/* 우측 컨트롤 영역 */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-btn bg-[#F0F5F4] p-1">
+            <div className="flex rounded-btn bg-[#F1F5F9] p-1">
               {(["domestic", "global"] as Market[]).map((m) => (
                 <button key={m} type="button"
                   onClick={() => {
@@ -397,7 +398,7 @@ export default function PeerAnalysisTab() {
                       setMarket(m);
                     }
                   }}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-bold transition ${market === m ? "bg-primary text-white shadow-soft" : "text-[#4B6358] hover:text-primary"}`}>
+                  className={`rounded-lg px-3 py-1.5 text-sm font-bold transition ${market === m ? "bg-primary text-white shadow-soft" : "text-[#475569] hover:text-primary"}`}>
                   {m === "domestic" ? "국내" : "해외"}
                 </button>
               ))}
@@ -405,13 +406,13 @@ export default function PeerAnalysisTab() {
             <select
               value={sectorId}
               onChange={(e) => selectSector(market, e.target.value)}
-              className="rounded-btn border border-[#DDE8E5] bg-white px-3 py-2 text-sm font-bold text-[#0D2318] focus:border-primary focus:outline-none"
+              className="rounded-btn border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-bold text-[#111A2E] focus:border-primary focus:outline-none"
             >
               <option value="">섹터 선택</option>
               {sectors.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             <button type="button" onClick={() => void load(market, sectorId, true)} disabled={loading || !sectorId}
-              className="flex items-center gap-1.5 rounded-btn border border-[#DDE8E5] bg-white px-3 py-2 text-sm font-bold text-[#4B6358] transition hover:border-primary hover:text-primary disabled:opacity-50">
+              className="flex items-center gap-1.5 rounded-btn border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-bold text-[#475569] transition hover:border-primary hover:text-primary disabled:opacity-50">
               <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> 새로고침
             </button>
           </div>
@@ -421,21 +422,21 @@ export default function PeerAnalysisTab() {
       {error && <p className="rounded-btn border border-red-200 bg-red-50 px-4 py-2.5 text-base font-semibold text-red-600">{error}</p>}
 
       {!sectorId ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-card border border-dashed border-[#DDE8E5] bg-white py-16 shadow-sm">
-          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#EBF5F3] text-primary">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-card border border-dashed border-[#E2E8F0] bg-white py-16 shadow-sm">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#F1F5F9] text-primary">
             <Users size={24} />
           </span>
           <div className="text-center">
-            <p className="text-sm font-bold text-[#0D2318]">비교할 섹터를 선택해주세요</p>
-            <p className="text-xs font-semibold text-[#7A9488] mt-1">
+            <p className="text-sm font-bold text-[#111A2E]">비교할 섹터를 선택해주세요</p>
+            <p className="text-xs font-semibold text-[#94A3B8] mt-1">
               우측 상단의 드롭다운 메뉴에서 특정 섹터를 선택하시면 경쟁사(Peer) 분석 정보가 로드됩니다.
             </p>
           </div>
         </div>
       ) : loading && !data ? (
-        <div className="rounded-card border border-dashed border-[#CBE3DE] bg-[#F9FCFB] px-4 py-16 text-center">
-          <p className="text-base font-black text-[#33493F]"><Loader2 size={15} className="mr-1.5 inline animate-spin" /> {sectorName} Peer 재무 데이터 수집 중…</p>
-          <p className="mt-1 text-sm font-bold text-[#94A8A0]">종목당 분기·연간 재무를 조회합니다 (첫 조회는 10~30초, 이후 6시간 캐시)</p>
+        <div className="rounded-card border border-dashed border-[#CBD1E8] bg-[#F8FAFC] px-4 py-16 text-center">
+          <p className="text-base font-black text-[#334155]"><Loader2 size={15} className="mr-1.5 inline animate-spin" /> {sectorName} Peer 재무 데이터 수집 중…</p>
+          <p className="mt-1 text-sm font-bold text-[#8892A6]">종목당 분기·연간 재무를 조회합니다 (첫 조회는 10~30초, 이후 6시간 캐시)</p>
         </div>
       ) : data && (
         <>
@@ -447,39 +448,39 @@ export default function PeerAnalysisTab() {
                 <button key={p.symbol} type="button" onClick={() => !p.error && togglePeer(p.symbol)} disabled={!!p.error}
                   title={p.error ? `수집 실패: ${p.error}` : off ? "비교에 포함" : "비교에서 제외"}
                   className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[13px] font-black transition ${
-                    off ? "border-[#E4EEEB] bg-[#F6FAF8] text-[#B9CCC4]" : "border-[#DDE8E5] bg-white text-[#1C3329] hover:border-primary/50"
+                    off ? "border-[#E2E8F0] bg-[#F8FAFC] text-[#CBD1E8]" : "border-[#E2E8F0] bg-white text-[#1F2A3D] hover:border-primary/50"
                   }`}>
-                  <span className="h-2 w-2 rounded-full" style={{ background: off ? "#CBD9D4" : p.color }} />
+                  <span className="h-2 w-2 rounded-full" style={{ background: off ? "#CBD1E8" : p.color }} />
                   {p.label}
                   {p.error && <span className="text-[11px]">수집실패</span>}
                 </button>
               );
             })}
-            <span className="ml-1 text-[12px] font-bold text-[#94A8A0]">칩 클릭 = 비교 제외/포함 (최소 2개)</span>
-            {loading && <Loader2 size={12} className="animate-spin text-[#94A8A0]" />}
+            <span className="ml-1 text-[12px] font-bold text-[#8892A6]">칩 클릭 = 비교 제외/포함 (최소 2개)</span>
+            {loading && <Loader2 size={12} className="animate-spin text-[#8892A6]" />}
           </div>
 
           {/* 요약 테이블 */}
-          <section className="overflow-x-auto rounded-card border border-[#DDE8E5] bg-white shadow-card">
+          <section className="overflow-x-auto rounded-card border border-[#E2E8F0] bg-white shadow-card">
             <table className="w-full min-w-[860px] text-left">
               <thead>
-                <tr className="border-b border-[#F0F7F4] text-[12px] font-black text-[#94A8A0]">
+                <tr className="border-b border-[#F8FAFC] text-[12px] font-black text-[#8892A6]">
                   <th className="px-3 py-2">종목</th>
                   {TABLE_COLS.map((c) => <th key={c.label} className="px-3 py-2 text-right">{c.label}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {peers.map((p) => (
-                  <tr key={p.symbol} className="border-b border-[#F6FAF8] last:border-0 hover:bg-[#FAFCFB]">
+                  <tr key={p.symbol} className="border-b border-[#F8FAFC] last:border-0 hover:bg-[#F8FAFC]">
                     <td className="px-3 py-2">
-                      <span className="flex items-center gap-1.5 text-sm font-black text-[#0D2318]">
+                      <span className="flex items-center gap-1.5 text-sm font-black text-[#111A2E]">
                         <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: p.color }} />
                         {p.label}
-                        <span className="text-[11px] font-bold text-[#B9CCC4]">{p.symbol}</span>
+                        <span className="text-[11px] font-bold text-[#CBD1E8]">{p.symbol}</span>
                       </span>
                     </td>
                     {TABLE_COLS.map((c) => (
-                      <td key={c.label} className={`px-3 py-2 text-right text-sm font-bold tabular-nums text-[#33493F] ${c.cls?.(p) ?? ""}`}>
+                      <td key={c.label} className={`px-3 py-2 text-right text-sm font-bold tabular-nums text-[#334155] ${c.cls?.(p) ?? ""}`}>
                         {c.render(p)}
                       </td>
                     ))}
@@ -491,8 +492,8 @@ export default function PeerAnalysisTab() {
 
           <div className="grid gap-4 xl:grid-cols-2">
             {/* 성장률 비교 */}
-            <section className="rounded-card border border-[#DDE8E5] bg-white p-4 shadow-card">
-              <p className="mb-2 text-[15px] font-black tracking-tight text-[#0D2318]">성장률 비교 <span className="text-[12px] font-bold text-[#94A8A0]">단위 %</span></p>
+            <section className="rounded-card border border-[#E2E8F0] bg-white p-4 shadow-card">
+              <p className="mb-2 text-[15px] font-black tracking-tight text-[#111A2E]">성장률 비교 <span className="text-[12px] font-bold text-[#8892A6]">단위 %</span></p>
               <div className="h-[260px]">
                 <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={growthData} margin={{ top: 8, right: 8, left: -14, bottom: 0 }}>
@@ -500,7 +501,7 @@ export default function PeerAnalysisTab() {
                     <XAxis dataKey="metric" tick={AXIS_TICK} tickLine={false} axisLine={AXIS_LINE} />
                     <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} />
                     <Tooltip content={<ChartTip unit="%" />} cursor={{ fill: "rgba(0,91,82,0.06)" }} />
-                    <ReferenceLine y={0} stroke="#C3CFCA" />
+                    <ReferenceLine y={0} stroke="#CBD1E8" />
                     {peers.map((p) => (
                       <Bar key={p.symbol} dataKey={p.label} fill={p.color} maxBarSize={18} radius={[3, 3, 0, 0]} isAnimationActive={false} />
                     ))}
@@ -510,16 +511,16 @@ export default function PeerAnalysisTab() {
             </section>
 
             {/* 밸류에이션 52주 밴드 */}
-            <section className="rounded-card border border-[#DDE8E5] bg-white p-4 shadow-card">
+            <section className="rounded-card border border-[#E2E8F0] bg-white p-4 shadow-card">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-[15px] font-black tracking-tight text-[#0D2318]">
+                <p className="text-[15px] font-black tracking-tight text-[#111A2E]">
                   {bandMetric.toUpperCase()} 52주 밴드
-                  <span className="ml-1.5 text-[12px] font-bold text-[#94A8A0]">52주 주가 고저 × 현재 지표 근사 · ● = 현재</span>
+                  <span className="ml-1.5 text-[12px] font-bold text-[#8892A6]">52주 주가 고저 × 현재 지표 근사 · ● = 현재</span>
                 </p>
-                <div className="flex rounded-btn bg-[#F0F5F4] p-0.5">
+                <div className="flex rounded-btn bg-[#F1F5F9] p-0.5">
                   {(["per", "pbr"] as const).map((m) => (
                     <button key={m} type="button" onClick={() => setBandMetric(m)}
-                      className={`rounded-md px-2.5 py-1 text-[13px] font-black transition ${bandMetric === m ? "bg-primary text-white" : "text-[#4B6358]"}`}>
+                      className={`rounded-md px-2.5 py-1 text-[13px] font-black transition ${bandMetric === m ? "bg-primary text-white" : "text-[#475569]"}`}>
                       {m.toUpperCase()}
                     </button>
                   ))}
@@ -532,7 +533,7 @@ export default function PeerAnalysisTab() {
                     <XAxis dataKey="name" tick={AXIS_TICK} tickLine={false} axisLine={AXIS_LINE} interval={0} angle={-20} textAnchor="end" height={44} />
                     <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} />
                     <Tooltip content={<ChartTip unit="배" />} cursor={{ fill: "rgba(0,91,82,0.06)" }} />
-                    <Bar dataKey="band" fill="#DCE9E5" maxBarSize={16} radius={4} isAnimationActive={false} name="52주 밴드" />
+                    <Bar dataKey="band" fill="#DEE5FB" maxBarSize={16} radius={4} isAnimationActive={false} name="52주 밴드" />
                     <Scatter dataKey="cur" isAnimationActive={false} name="현재">
                       {bandData.map((d) => <Cell key={d.name} fill={d.color} />)}
                     </Scatter>
@@ -544,9 +545,9 @@ export default function PeerAnalysisTab() {
 
           <div className="grid gap-4 xl:grid-cols-2">
             {/* 섹터 특화 추이 */}
-            <section className="rounded-card border border-[#DDE8E5] bg-white p-4 shadow-card">
-              <p className="mb-0.5 text-[15px] font-black tracking-tight text-[#0D2318]">{FOCUS_META[preset.focus].title}</p>
-              <p className="mb-2 text-[12px] font-bold text-[#94A8A0]">{FOCUS_META[preset.focus].desc}</p>
+            <section className="rounded-card border border-[#E2E8F0] bg-white p-4 shadow-card">
+              <p className="mb-0.5 text-[15px] font-black tracking-tight text-[#111A2E]">{FOCUS_META[preset.focus].title}</p>
+              <p className="mb-2 text-[12px] font-bold text-[#8892A6]">{FOCUS_META[preset.focus].desc}</p>
               <div className="h-[250px]">
                 <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                   {preset.focus === "financial" ? (
@@ -563,8 +564,8 @@ export default function PeerAnalysisTab() {
                       <CartesianGrid vertical={false} stroke={GRID} />
                       <XAxis dataKey="x" tick={AXIS_TICK} tickLine={false} axisLine={AXIS_LINE} />
                       <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} domain={preset.focus === "growth" ? ["auto", "auto"] : undefined} />
-                      <Tooltip content={<ChartTip unit="%" />} cursor={{ stroke: "#B9CCC4", strokeDasharray: "3 3" }} />
-                      {preset.focus === "growth" && <ReferenceLine y={100} stroke="#C3CFCA" strokeDasharray="4 4" />}
+                      <Tooltip content={<ChartTip unit="%" />} cursor={{ stroke: "#CBD1E8", strokeDasharray: "3 3" }} />
+                      {preset.focus === "growth" && <ReferenceLine y={100} stroke="#CBD1E8" strokeDasharray="4 4" />}
                       {peers.map((p) => (
                         <Line key={p.symbol} dataKey={p.label} name={p.label} stroke={p.color} strokeWidth={2}
                           dot={{ r: 2.5 }} connectNulls isAnimationActive={false} />
@@ -574,26 +575,26 @@ export default function PeerAnalysisTab() {
                 </ResponsiveContainer>
               </div>
               {preset.focus === "financial" && (
-                <p className="mt-1.5 flex items-center gap-1 text-[12px] font-bold text-[#94A8A0]"><Info size={11} /> ROE·배당수익률 (단위 %) — 막대 색은 지표 구분</p>
+                <p className="mt-1.5 flex items-center gap-1 text-[12px] font-bold text-[#8892A6]"><Info size={11} /> ROE·배당수익률 (단위 %) — 막대 색은 지표 구분</p>
               )}
               {preset.focus === "growth" && (
-                <p className="mt-1.5 flex items-center gap-1 text-[12px] font-bold text-[#94A8A0]"><Info size={11} /> 통화가 달라도 비교되도록 각 Peer의 첫 분기를 100으로 지수화</p>
+                <p className="mt-1.5 flex items-center gap-1 text-[12px] font-bold text-[#8892A6]"><Info size={11} /> 통화가 달라도 비교되도록 각 Peer의 첫 분기를 100으로 지수화</p>
               )}
             </section>
 
             {/* 사분면 */}
-            <section className="rounded-card border border-[#DDE8E5] bg-white p-4 shadow-card">
+            <section className="rounded-card border border-[#E2E8F0] bg-white p-4 shadow-card">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[15px] font-black tracking-tight text-[#0D2318]">Peer 사분면 <span className="text-[12px] font-bold text-[#94A8A0]">버블 = 시총 · 기준선 = 중앙값</span></p>
-                <div className="flex items-center gap-1.5 text-[12px] font-black text-[#94A8A0]">
+                <p className="text-[15px] font-black tracking-tight text-[#111A2E]">Peer 사분면 <span className="text-[12px] font-bold text-[#8892A6]">버블 = 시총 · 기준선 = 중앙값</span></p>
+                <div className="flex items-center gap-1.5 text-[12px] font-black text-[#8892A6]">
                   X
                   <select value={quadX} onChange={(e) => setQuadX(e.target.value as MetricKey)}
-                    className="rounded-md border border-[#DDE8E5] bg-white px-1.5 py-1 text-[13px] font-bold text-[#0D2318] focus:border-primary focus:outline-none">
+                    className="rounded-md border border-[#E2E8F0] bg-white px-1.5 py-1 text-[13px] font-bold text-[#111A2E] focus:border-primary focus:outline-none">
                     {METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
                   </select>
                   Y
                   <select value={quadY} onChange={(e) => setQuadY(e.target.value as MetricKey)}
-                    className="rounded-md border border-[#DDE8E5] bg-white px-1.5 py-1 text-[13px] font-bold text-[#0D2318] focus:border-primary focus:outline-none">
+                    className="rounded-md border border-[#E2E8F0] bg-white px-1.5 py-1 text-[13px] font-bold text-[#111A2E] focus:border-primary focus:outline-none">
                     {METRICS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
                   </select>
                 </div>
@@ -603,21 +604,21 @@ export default function PeerAnalysisTab() {
                   <ScatterChart margin={{ top: 14, right: 20, left: -6, bottom: 4 }}>
                     <CartesianGrid stroke={GRID} />
                     <XAxis type="number" dataKey="x" name={xM.label} tick={AXIS_TICK} tickLine={false} axisLine={AXIS_LINE}
-                      domain={["auto", "auto"]} label={{ value: `${xM.label} (${xM.unit})`, position: "insideBottom", offset: -2, fontSize: 12, fontWeight: 800, fill: "#7A9488" }} />
+                      domain={["auto", "auto"]} label={{ value: `${xM.label} (${xM.unit})`, position: "insideBottom", offset: -2, fontSize: 12, fontWeight: 800, fill: "#94A3B8" }} />
                     <YAxis type="number" dataKey="y" name={yM.label} tick={AXIS_TICK} tickLine={false} axisLine={false}
-                      domain={["auto", "auto"]} label={{ value: `${yM.label} (${yM.unit})`, angle: -90, position: "insideLeft", offset: 16, fontSize: 12, fontWeight: 800, fill: "#7A9488" }} />
+                      domain={["auto", "auto"]} label={{ value: `${yM.label} (${yM.unit})`, angle: -90, position: "insideLeft", offset: 16, fontSize: 12, fontWeight: 800, fill: "#94A3B8" }} />
                     <ZAxis type="number" dataKey="z" range={[120, 900]} />
-                    <Tooltip content={<QuadTip xM={xM} yM={yM} />} cursor={{ strokeDasharray: "3 3", stroke: "#B9CCC4" }} />
-                    {quadData.length > 0 && <ReferenceLine x={medX} stroke="#B9CCC4" strokeDasharray="4 4" />}
-                    {quadData.length > 0 && <ReferenceLine y={medY} stroke="#B9CCC4" strokeDasharray="4 4" />}
+                    <Tooltip content={<QuadTip xM={xM} yM={yM} />} cursor={{ strokeDasharray: "3 3", stroke: "#CBD1E8" }} />
+                    {quadData.length > 0 && <ReferenceLine x={medX} stroke="#CBD1E8" strokeDasharray="4 4" />}
+                    {quadData.length > 0 && <ReferenceLine y={medY} stroke="#CBD1E8" strokeDasharray="4 4" />}
                     <Scatter data={quadData} isAnimationActive={false}>
                       {quadData.map((d) => <Cell key={d.name} fill={d.color} fillOpacity={0.75} stroke="#fff" strokeWidth={2} />)}
-                      <LabelList dataKey="name" position="top" style={{ fontSize: 12, fontWeight: 800, fill: "#33493F" }} />
+                      <LabelList dataKey="name" position="top" style={{ fontSize: 12, fontWeight: 800, fill: "#334155" }} />
                     </Scatter>
                   </ScatterChart>
                 </ResponsiveContainer>
               </div>
-              <p className="mt-1.5 flex items-center gap-1 text-[12px] font-bold text-[#94A8A0]">
+              <p className="mt-1.5 flex items-center gap-1 text-[12px] font-bold text-[#8892A6]">
                 <Info size={11} />
                 우하단 = {xM.label} 높음 · {yM.label} 낮음{yM.unit === "배" ? " (저평가 후보)" : ""} · 좌상단 = 그 반대
                 {quadMissing.length > 0 && ` · 데이터 없음: ${quadMissing.map((p) => p.label).join(", ")}`}
@@ -626,7 +627,7 @@ export default function PeerAnalysisTab() {
           </div>
 
           {failedPeers.length > 0 && (
-            <p className="text-[13px] font-bold text-[#94A8A0]">
+            <p className="text-[13px] font-bold text-[#8892A6]">
               수집 실패 종목: {failedPeers.map((p) => `${p.label} (${p.error})`).join(" · ")}
             </p>
           )}

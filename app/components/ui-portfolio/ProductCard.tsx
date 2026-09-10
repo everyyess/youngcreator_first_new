@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-const NAVY = "#0D2B5E";
-const GOLD = "#C9A84C";
+const NAVY = "#141E78";
+const GOLD = "#E0A400";
 
 type Product = {
   id: number;
@@ -40,7 +40,7 @@ const allProducts: Product[] = [
 
 const FILTERS = ["전체", "자본증식", "인컴창출", "위험헷지", "절세·유동성", "랩어카운트", "펀드", "ISA"];
 const TYPE_COLORS: Record<string, string> = {
-  "자본증식": "#3363E3", "인컴창출": GOLD, "위험헷지": "#10B981", "절세·유동성": "#8B5CF6"
+  "자본증식": "#3363E3", "인컴창출": GOLD, "위험헷지": "#00B5CD", "절세·유동성": "#7A1FC0"
 };
 
 export default function ProductCard() {
@@ -111,9 +111,9 @@ export default function ProductCard() {
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10 }}>
                   {[
-                    { label: "기대수익", value: `${p.returnRate}%`, color: "#10B981" },
+                    { label: "기대수익", value: `${p.returnRate}%`, color: "#00B5CD" },
                     { label: "수수료", value: `${p.fee}%`, color: NAVY },
-                    { label: "위험등급", value: p.risk, color: p.risk === "고위험" ? "#EF4444" : p.risk === "중위험" ? GOLD : "#10B981" },
+                    { label: "위험등급", value: p.risk, color: p.risk === "고위험" ? "#EC3B67" : p.risk === "중위험" ? GOLD : "#00B5CD" },
                     { label: "AUM(억)", value: p.aum.toLocaleString(), color: NAVY },
                   ].map(m => (
                     <div key={m.label} style={{ background: "#f9fafb", borderRadius: 6, padding: "6px 8px" }}>
@@ -124,7 +124,7 @@ export default function ProductCard() {
                 </div>
 
                 {p.taxBenefit && (
-                  <div style={{ background: "#F0FDF4", color: "#16a34a", borderRadius: 6, padding: "4px 8px", fontSize: 10, fontWeight: 600, marginBottom: 10 }}>
+                  <div style={{ background: "#F0FDF4", color: "#008C9E", borderRadius: 6, padding: "4px 8px", fontSize: 10, fontWeight: 600, marginBottom: 10 }}>
                     ✓ 세제 혜택 상품
                   </div>
                 )}

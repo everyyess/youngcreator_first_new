@@ -52,18 +52,18 @@ interface IndicatorDef {
 }
 
 const INDICATOR_DEFS: IndicatorDef[] = [
-  { id: "sma5",      period: 5,   group: "overlay",    scoreKeys: ["이동평균배열"], color: "#22c55e" },
-  { id: "sma20",     period: 20,  group: "overlay",    scoreKeys: ["이동평균배열"], color: "#ef4444" },
-  { id: "sma60",     period: 60,  group: "overlay",    scoreKeys: ["이동평균배열", "골든데드크로스"], color: "#f59e0b" },
-  { id: "sma120",    period: 120, group: "overlay",    scoreKeys: ["이동평균배열"], color: "#a855f7" },
-  { id: "bollinger", label: "볼린저밴드", group: "overlay",    scoreKeys: ["볼린저밴드"],  color: "#0ea5e9" },
-  { id: "ichimoku",  label: "일목균형표", group: "overlay",    scoreKeys: ["일목균형표"],  color: "#14b8a6" },
+  { id: "sma5",      period: 5,   group: "overlay",    scoreKeys: ["이동평균배열"], color: "#00B5CD" },
+  { id: "sma20",     period: 20,  group: "overlay",    scoreKeys: ["이동평균배열"], color: "#EC3B67" },
+  { id: "sma60",     period: 60,  group: "overlay",    scoreKeys: ["이동평균배열", "골든데드크로스"], color: "#E0A400" },
+  { id: "sma120",    period: 120, group: "overlay",    scoreKeys: ["이동평균배열"], color: "#A514D7" },
+  { id: "bollinger", label: "볼린저밴드", group: "overlay",    scoreKeys: ["볼린저밴드"],  color: "#1EB4F0" },
+  { id: "ichimoku",  label: "일목균형표", group: "overlay",    scoreKeys: ["일목균형표"],  color: "#00B5CD" },
   { id: "supportResistance", label: "지지/저항선", group: "overlay", scoreKeys: [], color: "#64748b" },
-  { id: "rsi",       label: "RSI",       group: "oscillator", scoreKeys: ["RSI"],         color: "#8b5cf6" },
+  { id: "rsi",       label: "RSI",       group: "oscillator", scoreKeys: ["RSI"],         color: "#7A1FC0" },
   { id: "macd",      label: "MACD",      group: "oscillator", scoreKeys: ["MACD"],        color: "#3363E3" },
-  { id: "roc",       label: "ROC",       group: "oscillator", scoreKeys: ["ROC"],         color: "#14b8a6" },
-  { id: "obv",       label: "OBV",       group: "oscillator", scoreKeys: ["OBV"],         color: "#0ea5e9" },
-  { id: "hvol",      label: "변동성",     group: "oscillator", scoreKeys: ["역사적변동성"], color: "#f59e0b" },
+  { id: "roc",       label: "ROC",       group: "oscillator", scoreKeys: ["ROC"],         color: "#00B5CD" },
+  { id: "obv",       label: "OBV",       group: "oscillator", scoreKeys: ["OBV"],         color: "#1EB4F0" },
+  { id: "hvol",      label: "변동성",     group: "oscillator", scoreKeys: ["역사적변동성"], color: "#E0A400" },
 ];
 
 function indicatorLabel(def: IndicatorDef, interval: Interval): string {
@@ -353,10 +353,10 @@ function ChartArea({
     } as never);
   };
 
-  addMa("sma5", ind.sma5, "#22c55e");
-  addMa("sma20", ind.sma20, "#ef4444");
-  addMa("sma60", ind.sma50, "#f59e0b");
-  addMa("sma120", ind.sma200, "#a855f7");
+  addMa("sma5", ind.sma5, "#00B5CD");
+  addMa("sma20", ind.sma20, "#EC3B67");
+  addMa("sma60", ind.sma50, "#E0A400");
+  addMa("sma120", ind.sma200, "#A514D7");
 
   if (active.has("bollinger")) {
     datasets.push(
@@ -369,8 +369,8 @@ function ChartArea({
     datasets.push(
       { type: "line", label: "선행A", data: ind.ichSpanA as never, borderColor: "rgba(20,184,166,0.4)", borderWidth: 1, pointRadius: 0, tension: 0.3, fill: { target: "+1", above: "rgba(20,184,166,0.1)", below: "rgba(239,68,68,0.1)" } as never, order: 5 } as never,
       { type: "line", label: "선행B", data: ind.ichSpanB as never, borderColor: "rgba(239,68,68,0.4)", borderWidth: 1, pointRadius: 0, tension: 0.3, order: 5 } as never,
-      { type: "line", label: "전환선", data: ind.ichTenkan as never, borderColor: "#0ea5e9", borderWidth: 1.2, pointRadius: 0, tension: 0.3, order: 2 } as never,
-      { type: "line", label: "기준선", data: ind.ichKijun as never, borderColor: "#f97316", borderWidth: 1.2, pointRadius: 0, tension: 0.3, order: 2 } as never,
+      { type: "line", label: "전환선", data: ind.ichTenkan as never, borderColor: "#1EB4F0", borderWidth: 1.2, pointRadius: 0, tension: 0.3, order: 2 } as never,
+      { type: "line", label: "기준선", data: ind.ichKijun as never, borderColor: "#F25536", borderWidth: 1.2, pointRadius: 0, tension: 0.3, order: 2 } as never,
     );
   }
   let srLevels: SupportResistanceLevel[] = [];
@@ -404,7 +404,7 @@ function ChartArea({
     panes.push({ id: "rsi", label: "RSI 14", node: (
       <Chart type="bar"
         data={{ labels: oscLabels, datasets: [
-          { type: "line", label: "RSI", data: ind.rsi as never, borderColor: "#8b5cf6", borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
+          { type: "line", label: "RSI", data: ind.rsi as never, borderColor: "#7A1FC0", borderWidth: 1.5, pointRadius: 0, tension: 0.3 },
           { type: "line", label: "70", data: new Array(oscTotal).fill(70) as never, borderColor: "rgba(148,163,184,0.4)", borderWidth: 1, pointRadius: 0, borderDash: [3, 3] },
           { type: "line", label: "30", data: new Array(oscTotal).fill(30) as never, borderColor: "rgba(148,163,184,0.4)", borderWidth: 1, pointRadius: 0, borderDash: [3, 3] },
         ] as never }}
@@ -421,7 +421,7 @@ function ChartArea({
             backgroundColor: (ind.histogram as (number | null)[]).map((v) => v === null ? "transparent" : v >= 0 ? "rgba(229,56,74,0.3)" : "rgba(37,99,235,0.3)"),
             borderWidth: 0, barPercentage: 0.85, categoryPercentage: 1 },
           { type: "line", label: "MACD", data: ind.macd as never, borderColor: "#3363E3", borderWidth: 1.3, pointRadius: 0, tension: 0.3 },
-          { type: "line", label: "Signal", data: ind.signal as never, borderColor: "#f59e0b", borderWidth: 1.3, pointRadius: 0, tension: 0.3 },
+          { type: "line", label: "Signal", data: ind.signal as never, borderColor: "#E0A400", borderWidth: 1.3, pointRadius: 0, tension: 0.3 },
         ] as never }}
         options={chartOptions(oXMin, oXMax, { yFmt: (v) => v.toFixed(0), showX: false })}
       />
@@ -432,7 +432,7 @@ function ChartArea({
     panes.push({ id: "roc", label: "ROC 10", node: (
       <Chart type="bar"
         data={{ labels: oscLabels, datasets: [
-          { type: "line", label: "ROC", data: ind.roc as never, borderColor: "#14b8a6", borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true, backgroundColor: "rgba(20,184,166,0.06)" },
+          { type: "line", label: "ROC", data: ind.roc as never, borderColor: "#00B5CD", borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true, backgroundColor: "rgba(20,184,166,0.06)" },
         ] as never }}
         options={chartOptions(oXMin, oXMax, { yFmt: (v) => `${v.toFixed(0)}%`, showX: false })}
       />
@@ -443,8 +443,8 @@ function ChartArea({
     panes.push({ id: "obv", label: "OBV", node: (
       <Chart type="bar"
         data={{ labels: oscLabels, datasets: [
-          { type: "line", label: "OBV", data: ind.obvArr as never, borderColor: "#0ea5e9", borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true, backgroundColor: "rgba(14,165,233,0.05)" },
-          { type: "line", label: "EMA20", data: ind.obvEma as never, borderColor: "#f59e0b", borderWidth: 1.1, pointRadius: 0, tension: 0.3, borderDash: [3, 3] },
+          { type: "line", label: "OBV", data: ind.obvArr as never, borderColor: "#1EB4F0", borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true, backgroundColor: "rgba(14,165,233,0.05)" },
+          { type: "line", label: "EMA20", data: ind.obvEma as never, borderColor: "#E0A400", borderWidth: 1.1, pointRadius: 0, tension: 0.3, borderDash: [3, 3] },
         ] as never }}
         options={chartOptions(oXMin, oXMax, { yFmt: compact, showX: false })}
       />
@@ -455,7 +455,7 @@ function ChartArea({
     panes.push({ id: "hvol", label: "역사적 변동성", node: (
       <Chart type="bar"
         data={{ labels: oscLabels, datasets: [
-          { type: "line", label: "변동성", data: ind.hvol as never, borderColor: "#f59e0b", borderWidth: 1.5, pointRadius: 0, tension: 0.35, fill: true, backgroundColor: "rgba(245,158,11,0.06)" },
+          { type: "line", label: "변동성", data: ind.hvol as never, borderColor: "#E0A400", borderWidth: 1.5, pointRadius: 0, tension: 0.35, fill: true, backgroundColor: "rgba(245,158,11,0.06)" },
         ] as never }}
         options={chartOptions(oXMin, oXMax, { yFmt: (v) => `${v.toFixed(0)}%`, showX: false })}
       />
@@ -518,9 +518,9 @@ function ScoreGauge({ score }: { score: number }) {
   return (
     <svg viewBox="0 0 200 108" className="w-full max-w-[210px]" aria-hidden="true">
       <path d="M 24 100 A 76 76 0 0 1 176 100" fill="none" stroke="#eef2f7" strokeWidth="12" />
-      <path d="M 24 100 A 76 76 0 0 1 62 34.2" fill="none" stroke="#ef4444" strokeWidth="12" />
-      <path d="M 62 34.2 A 76 76 0 0 1 138 34.2" fill="none" stroke="#f59e0b" strokeWidth="12" />
-      <path d="M 138 34.2 A 76 76 0 0 1 176 100" fill="none" stroke="#22c55e" strokeWidth="12" />
+      <path d="M 24 100 A 76 76 0 0 1 62 34.2" fill="none" stroke="#EC3B67" strokeWidth="12" />
+      <path d="M 62 34.2 A 76 76 0 0 1 138 34.2" fill="none" stroke="#E0A400" strokeWidth="12" />
+      <path d="M 138 34.2 A 76 76 0 0 1 176 100" fill="none" stroke="#00B5CD" strokeWidth="12" />
       <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#334155" strokeWidth="2.5" strokeLinecap="round" />
       <circle cx={cx} cy={cy} r="4.5" fill="#334155" />
     </svg>
@@ -610,7 +610,7 @@ function ResultPanel({
               const pct = Math.round((item.score / item.max) * 100);
               const ids = SCORE_KEY_TO_INDICATORS[r.key] ?? [];
               const on = ids.length > 0 && ids.every((id) => active.has(id));
-              const tone = pct >= 80 ? "#16a34a" : pct >= 40 ? "#64748b" : "#e11d48";
+              const tone = pct >= 80 ? "#008C9E" : pct >= 40 ? "#64748b" : "#CF244E";
               return (
                 <tr key={r.key} onClick={() => onToggleKey(r.key)}
                   className={`cursor-pointer border-t border-slate-100 transition-colors ${on ? "bg-indigo-50/50" : "bg-white hover:bg-slate-50"}`}>

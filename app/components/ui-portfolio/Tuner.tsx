@@ -3,8 +3,8 @@
 import React, { useState } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, LineChart, Line, XAxis, YAxis, CartesianGrid } from "recharts";
 
-const NAVY = "#0D2B5E";
-const GOLD = "#C9A84C";
+const NAVY = "#141E78";
+const GOLD = "#E0A400";
 const MARKET_C = 0.03;
 
 type Persona = { name: string; totalAum: number; rTarget: number; aRisk: number; tYear: number; tTax: number; lCash: number; };
@@ -16,7 +16,7 @@ const PERSONAS: Persona[] = [
 ];
 
 const RISK_LABELS = ["", "공격적", "적극적", "중립형", "보수적", "원금보존"];
-const RISK_COLORS = ["", "#EF4444", "#F97316", "#EAB308", "#3363E3", "#6366F1"];
+const RISK_COLORS = ["", "#EC3B67", "#F25536", "#E0A400", "#3363E3", "#003CDC"];
 
 function calcAllocation(totalAum: number, rTarget: number, aRisk: number, tYear: number, tTax: number, lCash: number) {
   const aum = totalAum * 100000000;
@@ -111,8 +111,8 @@ export default function Tuner() {
   const pieData = [
     { name: "자본 증식", value: alloc.growth, color: "#3363E3" },
     { name: "인컴 창출", value: alloc.income, color: GOLD },
-    { name: "위험 헷지", value: alloc.hedge, color: "#10B981" },
-    { name: "절세·유동성", value: alloc.taxLiq, color: "#8B5CF6" },
+    { name: "위험 헷지", value: alloc.hedge, color: "#00B5CD" },
+    { name: "절세·유동성", value: alloc.taxLiq, color: "#7A1FC0" },
   ];
 
   return (
@@ -163,7 +163,7 @@ export default function Tuner() {
             <div style={{ marginBottom: 20 }}>
               <label style={{ color: NAVY, fontWeight: 600, fontSize: 13, display: "block", marginBottom: 6 }}>
                 투자 기간: <span style={{ color: GOLD }}>{tYear}년</span>
-                {tYear < 3 && <span style={{ color: "#EF4444", fontSize: 11, marginLeft: 8 }}>※ 자본증식 30% 상한 적용</span>}
+                {tYear < 3 && <span style={{ color: "#EC3B67", fontSize: 11, marginLeft: 8 }}>※ 자본증식 30% 상한 적용</span>}
               </label>
               <input type="range" min={1} max={30} value={tYear}
                 onChange={e => { setTYear(Number(e.target.value)); setActivePersona(null); }} style={{ width: "100%" }} />
@@ -190,7 +190,7 @@ export default function Tuner() {
             {/* 공식 설명 */}
             <div style={{ background: "#f5f3ff", border: "1px solid #e9d5ff", borderRadius: 8, padding: "12px 14px", marginBottom: 16 }}>
               <p style={{ color: "#6d28d9", fontSize: 11, fontWeight: 600, marginBottom: 6 }}>절세 및 유동성 비중 산출 방식</p>
-              <p style={{ color: "#7c3aed", fontSize: 11, lineHeight: 1.7, margin: 0 }}>
+              <p style={{ color: "#7A1FC0", fontSize: 11, lineHeight: 1.7, margin: 0 }}>
                 기본 유동성 비중 = 유동성 필요 금액 ÷ 운용 자산 총액<br />
                 금융소득종합과세 해당자에 한해 절세 목적 비중 15%포인트 가산<br />
                 최종 배분 비중은 70%를 초과하지 않도록 상한 적용
@@ -203,7 +203,7 @@ export default function Tuner() {
               </div>
             )}
             {warnRed && (
-              <div style={{ background: "#FFE0E0", border: "1px solid #EF4444", borderRadius: 8, padding: "10px 12px", color: "#991B1B", fontSize: 13 }}>
+              <div style={{ background: "#FFE0E0", border: "1px solid #EC3B67", borderRadius: 8, padding: "10px 12px", color: "#991B1B", fontSize: 13 }}>
                 🚨 위험 헷지 10% 미만 — 대체자산 분산 효과 미미
               </div>
             )}
@@ -214,8 +214,8 @@ export default function Tuner() {
             {[
               { label: "자본 증식", value: `${alloc.growth}%`, color: "#3363E3", sub: "성장형 랩/펀드" },
               { label: "인컴 창출", value: `${alloc.income}%`, color: GOLD, sub: "배당·채권형" },
-              { label: "위험 헷지", value: `${alloc.hedge}%`, color: "#10B981", sub: "대체자산 (최소 10%)" },
-              { label: "절세·유동성", value: `${alloc.taxLiq}%`, color: "#8B5CF6", sub: "단기채·ISA" },
+              { label: "위험 헷지", value: `${alloc.hedge}%`, color: "#00B5CD", sub: "대체자산 (최소 10%)" },
+              { label: "절세·유동성", value: `${alloc.taxLiq}%`, color: "#7A1FC0", sub: "단기채·ISA" },
             ].map(m => (
               <div key={m.label} style={{ background: "#fff", borderRadius: 10, padding: "12px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.06)", border: "1px solid #e5e7eb" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -231,8 +231,8 @@ export default function Tuner() {
               {[
                 { label: "기대수익률", value: `${(rTarget * 100).toFixed(1)}%`, color: "#3363E3" },
                 { label: "변동성", value: `${(vol * 100).toFixed(1)}%`, color: GOLD },
-                { label: "샤프지수", value: sharpe, color: "#10B981" },
-                { label: "MDD", value: `${(mdd * 100).toFixed(1)}%`, color: "#EF4444" },
+                { label: "샤프지수", value: sharpe, color: "#00B5CD" },
+                { label: "MDD", value: `${(mdd * 100).toFixed(1)}%`, color: "#EC3B67" },
               ].map(m => (
                 <div key={m.label} style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                   <span style={{ color: "#6b7280", fontSize: 12 }}>{m.label}</span>

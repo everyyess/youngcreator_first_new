@@ -18,7 +18,7 @@ import KeywordLiveSearch from "./KeywordLiveSearch";
 // ── 색상 (validator 통과) ────────────────────────────────────────────────────
 const SOURCE_ORDER: InsightSource[] = ["telegram", "news", "report"];
 const SOURCE_COLORS: Record<InsightSource, string> = {
-  telegram: "#0EA5E9", news: "#0A2FA8", report: "#A21CAF",
+  telegram: "#1EB4F0", news: "#0A2FA8", report: "#A21CAF",
 };
 const SOURCE_LABELS: Record<InsightSource, string> = {
   telegram: "텔레그램", news: "뉴스", report: "리포트",
@@ -34,7 +34,7 @@ const PERIODS: { key: PeriodKey; label: string; days: number }[] = [
   { key: "6m", label: "6개월", days: 180 },
 ];
 
-const TYPE_DOT: Record<TagType, string> = { stock: "#5F7A70", theme: "#059669", macro: "#D97706" };
+const TYPE_DOT: Record<TagType, string> = { stock: "#5F7A70", theme: "#008C9E", macro: "#D97706" };
 const TYPE_LABEL: Record<TagType, string> = { stock: "개별종목", theme: "산업·테마", macro: "매크로·경제" };
 
 /** KST 기준 오늘로부터 offsetDays일 전 (yyyy-mm-dd) */
@@ -54,8 +54,8 @@ function ChartTip({ active, label, payload }: { active?: boolean; label?: string
   const rows = payload.filter((p) => (p.value ?? 0) > 0);
   const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
   return (
-    <div className="rounded-lg border border-[#DDE8E5] bg-white px-3 py-2 shadow-popup">
-      <p className="mb-1 text-[10px] font-black text-[#94A8A0]">{label} · 총 {total}건</p>
+    <div className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 shadow-popup">
+      <p className="mb-1 text-[10px] font-black text-[#8892A6]">{label} · 총 {total}건</p>
       <div className="flex flex-col gap-0.5">
         {(rows.length ? rows : payload).map((p, i) => (
           <div key={i} className="flex items-center gap-1.5">
@@ -255,7 +255,7 @@ export default function KeywordTrendView({
           </button>
         </div>
         {dataMode === "db" && (
-          <span className="ml-auto flex items-center gap-1 text-[11px] font-bold text-[#94A8A0]">
+          <span className="ml-auto flex items-center gap-1 text-[11px] font-bold text-[#8892A6]">
             <Info size={12} />
             최근 {periodLabel} 자료 {curItems.length}건 · 랭킹 클릭 시 차트 비교 (최대 {MAX_COMPARE}개)
           </span>
@@ -268,10 +268,10 @@ export default function KeywordTrendView({
 
       <div className="grid gap-4 xl:grid-cols-[400px_1fr]">
         {/* ── 좌: 언급량 TOP 20 랭킹 ── */}
-        <section className="rounded-card border border-[#DDE8E5] bg-white p-3 shadow-card">
+        <section className="rounded-card border border-[#E2E8F0] bg-white p-3 shadow-card">
           <div className="mb-2 flex items-center justify-between border-b border-[#F0F7F4] pb-2">
             <p className="text-[13px] font-black tracking-tight text-[#0D2318]">언급량 TOP 20</p>
-            <p className="text-[10px] font-bold text-[#94A8A0]">순위 변동은 직전 {periodLabel} 대비</p>
+            <p className="text-[10px] font-bold text-[#8892A6]">순위 변동은 직전 {periodLabel} 대비</p>
           </div>
           {ranked.length ? (
             <div className="flex flex-col gap-1">
@@ -285,12 +285,12 @@ export default function KeywordTrendView({
                 return (
                   <button key={t.name} type="button" onClick={() => toggleKeyword(t.name)} disabled={full}
                     className={`relative w-full overflow-hidden rounded-lg border px-2.5 py-1.5 text-left transition ${
-                      sel ? "border-primary bg-[#F0F7F4]" : "border-transparent hover:border-[#DDE8E5] hover:bg-[#FAFCFB]"
+                      sel ? "border-primary bg-[#F0F7F4]" : "border-transparent hover:border-[#E2E8F0] hover:bg-[#FAFCFB]"
                     } ${full ? "cursor-not-allowed opacity-45" : ""}`}>
                     {/* 언급량 배경 바 */}
                     <span className="absolute inset-y-0 left-0 rounded-lg bg-[#EAF4F0]" style={{ width: `${(t.count / maxCount) * 100}%` }} aria-hidden />
                     <span className="relative flex items-center gap-2">
-                      <span className="w-5 shrink-0 text-right text-[11px] font-black text-[#94A8A0]">{i + 1}</span>
+                      <span className="w-5 shrink-0 text-right text-[11px] font-black text-[#8892A6]">{i + 1}</span>
                       <span className="w-9 shrink-0 text-[10px] font-black">
                         {delta == null ? (
                           <span className="rounded bg-emerald-50 px-1 py-px text-emerald-700">NEW</span>
@@ -299,7 +299,7 @@ export default function KeywordTrendView({
                         ) : delta < 0 ? (
                           <span className="text-blue-500">▼{-delta}</span>
                         ) : (
-                          <span className="text-[#B9CCC4]">—</span>
+                          <span className="text-[#CBD1E8]">—</span>
                         )}
                       </span>
                       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: TYPE_DOT[ty] }} title={TYPE_LABEL[ty]} />
@@ -318,13 +318,13 @@ export default function KeywordTrendView({
               })}
             </div>
           ) : (
-            <p className="rounded-btn bg-[#F6FAF8] px-3 py-8 text-center text-xs font-bold text-[#94A8A0]">해당 기간에 집계된 키워드가 없습니다.</p>
+            <p className="rounded-btn bg-[#F6FAF8] px-3 py-8 text-center text-xs font-bold text-[#8892A6]">해당 기간에 집계된 키워드가 없습니다.</p>
           )}
         </section>
 
         {/* ── 우: 시계열 차트 + 관련 자료 피드 ── */}
         <div className="flex min-w-0 flex-col gap-4">
-          <section className="rounded-card border border-[#DDE8E5] bg-white p-4 shadow-card">
+          <section className="rounded-card border border-[#E2E8F0] bg-white p-4 shadow-card">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <p className="text-[13px] font-black tracking-tight text-[#0D2318]">
                 {selected.length ? "키워드 언급량 비교 (일별)" : "전체 언급량 추이 (일별 · 소스별)"}
@@ -334,14 +334,14 @@ export default function KeywordTrendView({
                 <div className="flex flex-wrap items-center gap-1.5">
                   {selected.map((s) => (
                     <button key={s.name} type="button" onClick={() => toggleKeyword(s.name)}
-                      className="group flex items-center gap-1.5 rounded-full border border-[#DDE8E5] bg-white px-2 py-0.5 text-[11px] font-black text-[#33493F] transition hover:border-red-200 hover:bg-red-50">
+                      className="group flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2 py-0.5 text-[11px] font-black text-[#33493F] transition hover:border-red-200 hover:bg-red-50">
                       <span className="h-2 w-2 rounded-full" style={{ background: KEYWORD_COLORS[s.slot] }} />
                       {s.name}
-                      <X size={10} className="text-[#B9CCC4] group-hover:text-red-500" />
+                      <X size={10} className="text-[#CBD1E8] group-hover:text-red-500" />
                     </button>
                   ))}
                   <button type="button" onClick={() => setSelected([])}
-                    className="rounded-full px-2 py-0.5 text-[11px] font-bold text-[#94A8A0] underline-offset-2 hover:underline">
+                    className="rounded-full px-2 py-0.5 text-[11px] font-bold text-[#8892A6] underline-offset-2 hover:underline">
                     모두 지우기
                   </button>
                 </div>
@@ -361,11 +361,11 @@ export default function KeywordTrendView({
               <ResponsiveContainer width="99%" height="100%" minWidth={1} minHeight={1}>
                 {selected.length ? (
                   <LineChart data={keywordData} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="#EEF4F2" />
-                    <XAxis dataKey="date" tickFormatter={fmtTick} tick={{ fontSize: 10, fill: "#94A8A0", fontWeight: 700 }}
-                      tickLine={false} axisLine={{ stroke: "#DDE8E5" }} minTickGap={28} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#94A8A0", fontWeight: 700 }} tickLine={false} axisLine={false} />
-                    <Tooltip content={<ChartTip />} cursor={{ stroke: "#B9CCC4", strokeDasharray: "3 3" }} />
+                    <CartesianGrid vertical={false} stroke="#EEF2FE" />
+                    <XAxis dataKey="date" tickFormatter={fmtTick} tick={{ fontSize: 10, fill: "#8892A6", fontWeight: 700 }}
+                      tickLine={false} axisLine={{ stroke: "#E2E8F0" }} minTickGap={28} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#8892A6", fontWeight: 700 }} tickLine={false} axisLine={false} />
+                    <Tooltip content={<ChartTip />} cursor={{ stroke: "#CBD1E8", strokeDasharray: "3 3" }} />
                     {selected.map((s) => (
                       <Line key={s.name} type="monotone" dataKey={s.name} name={s.name}
                         stroke={KEYWORD_COLORS[s.slot]} strokeWidth={2} dot={false}
@@ -374,10 +374,10 @@ export default function KeywordTrendView({
                   </LineChart>
                 ) : (
                   <BarChart data={overviewData} margin={{ top: 8, right: 12, left: -18, bottom: 0 }}>
-                    <CartesianGrid vertical={false} stroke="#EEF4F2" />
-                    <XAxis dataKey="date" tickFormatter={fmtTick} tick={{ fontSize: 10, fill: "#94A8A0", fontWeight: 700 }}
-                      tickLine={false} axisLine={{ stroke: "#DDE8E5" }} minTickGap={28} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#94A8A0", fontWeight: 700 }} tickLine={false} axisLine={false} />
+                    <CartesianGrid vertical={false} stroke="#EEF2FE" />
+                    <XAxis dataKey="date" tickFormatter={fmtTick} tick={{ fontSize: 10, fill: "#8892A6", fontWeight: 700 }}
+                      tickLine={false} axisLine={{ stroke: "#E2E8F0" }} minTickGap={28} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#8892A6", fontWeight: 700 }} tickLine={false} axisLine={false} />
                     <Tooltip content={<ChartTip />} cursor={{ fill: "rgba(0,91,82,0.06)" }} />
                     {SOURCE_ORDER.map((s) => (
                       <Bar key={s} dataKey={s} name={SOURCE_LABELS[s]} stackId="m" fill={SOURCE_COLORS[s]}
@@ -388,7 +388,7 @@ export default function KeywordTrendView({
               </ResponsiveContainer>
             </div>
             {!selected.length && (
-              <p className="mt-2 text-[11px] font-bold text-[#94A8A0]">
+              <p className="mt-2 text-[11px] font-bold text-[#8892A6]">
                 좌측 랭킹에서 키워드를 클릭하면 이 차트가 키워드별 비교 모드로 전환됩니다.
               </p>
             )}
@@ -396,27 +396,27 @@ export default function KeywordTrendView({
 
           {/* 관련 자료 피드 */}
           {selected.length > 0 && (
-            <section className="rounded-card border border-[#DDE8E5] bg-white p-3 shadow-card">
+            <section className="rounded-card border border-[#E2E8F0] bg-white p-3 shadow-card">
               <div className="mb-2 flex items-center justify-between border-b border-[#F0F7F4] pb-2">
                 <p className="text-[13px] font-black tracking-tight text-[#0D2318]">선택 키워드 관련 자료</p>
-                <p className="text-[10px] font-bold text-[#94A8A0]">{feed.length}건 (최근 {periodLabel})</p>
+                <p className="text-[10px] font-bold text-[#8892A6]">{feed.length}건 (최근 {periodLabel})</p>
               </div>
               {feed.length ? (
                 <div className="flex max-h-[320px] flex-col gap-1 overflow-y-auto pr-1">
                   {feed.map((it) => (
                     <button key={it.id} type="button" onClick={() => onOpenItem(it)}
-                      className="flex w-full items-center gap-2 rounded-lg border border-[#EEF4F2] bg-white px-2.5 py-1.5 text-left transition hover:border-[#CBE3DE] hover:bg-[#F6FAF8]">
+                      className="flex w-full items-center gap-2 rounded-lg border border-[#EEF2FE] bg-white px-2.5 py-1.5 text-left transition hover:border-[#CBE3DE] hover:bg-[#F6FAF8]">
                       <span className="w-12 shrink-0 text-[10px] font-black" style={{ color: SOURCE_COLORS[it.source] }}>
                         {SOURCE_LABELS[it.source]}
                       </span>
-                      <span className="w-[74px] shrink-0 text-[10px] font-bold tabular-nums text-[#94A8A0]">{it.date}</span>
+                      <span className="w-[74px] shrink-0 text-[10px] font-bold tabular-nums text-[#8892A6]">{it.date}</span>
                       <span className="min-w-0 shrink-0 truncate text-xs font-black text-[#1C3329]" style={{ maxWidth: "55%" }}>{it.title}</span>
-                      {it.summary && <span className="hidden min-w-0 flex-1 truncate text-[11px] font-semibold text-[#94A8A0] md:inline">{it.summary}</span>}
+                      {it.summary && <span className="hidden min-w-0 flex-1 truncate text-[11px] font-semibold text-[#8892A6] md:inline">{it.summary}</span>}
                     </button>
                   ))}
                 </div>
               ) : (
-                <p className="rounded-btn bg-[#F6FAF8] px-3 py-6 text-center text-xs font-bold text-[#94A8A0]">해당 기간에 관련 자료가 없습니다.</p>
+                <p className="rounded-btn bg-[#F6FAF8] px-3 py-6 text-center text-xs font-bold text-[#8892A6]">해당 기간에 관련 자료가 없습니다.</p>
               )}
             </section>
           )}

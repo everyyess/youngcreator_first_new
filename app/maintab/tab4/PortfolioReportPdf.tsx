@@ -83,15 +83,15 @@ function makeMarkerTracker(terms: { term: string; desc: string; marker: string }
   }
   return { withMarker, getUsedTerms: () => usedList };
 }
-const NAVY = "#003CDC"; const BLUE = "#3457B2"; const GOLD = "#B8975A";
+const NAVY = "#003CDC"; const BLUE = "#3363E3"; const GOLD = "#E0A400";
 const GRAY = "#64748B"; const LIGHT = "#F1F5F9"; const BLACK = "#1E293B";
-const RED = "#DC2626"; const AMBER = "#D97706"; const GREENC = "#0F766E"; const BLUE_DOWN = "#003CDC";
+const RED = "#DC2626"; const AMBER = "#D97706"; const GREENC = "#00B5CD"; const BLUE_DOWN = "#003CDC";
 const BORDER = "#E2E8F0";
 const ASSET_CLASS_COLOR_MAP: Record<string, string> = {
-  국내주식: NAVY, 해외주식: "#3457B2", 국내채권: "#7C93D6", 해외채권: "#0F766E",
+  국내주식: NAVY, 해외주식: "#3457B2", 국내채권: "#7C93D6", 해외채권: "#00B5CD",
   금: GOLD, 리츠: "#8C8C8C", 현금: "#94A3B8", 달러: "#6B8CD6", 암호화폐: "#A9B4E3",
 };
-const DONUT_FALLBACK = ["#003CDC", "#3457B2", "#7C93D6", "#0F766E", GOLD, "#94A3B8"];
+const DONUT_FALLBACK = ["#003CDC", "#3457B2", "#7C93D6", "#00B5CD", GOLD, "#94A3B8"];
 function getAssetColor(cls: string, idx: number) {
   return ASSET_CLASS_COLOR_MAP[cls] ?? DONUT_FALLBACK[idx % DONUT_FALLBACK.length];
 }
@@ -201,7 +201,7 @@ function PdfHealthRadar({
   items: { key: string; label: string; score: number }[];
   badge?: string;
 }) {
-  const gradeColor = badge === "Sell" ? "#DC2626" : badge === "Hold" ? "#0F766E" : "#D97706";
+  const gradeColor = badge === "Sell" ? "#DC2626" : badge === "Hold" ? "#00B5CD" : "#D97706";
     const cx = 140;
   const cy = 95;
   const maxR = 70;
