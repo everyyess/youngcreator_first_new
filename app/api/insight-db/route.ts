@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { formatSupabaseError, getInsightSupabase, insightDbUnavailable } from "@/lib/supabaseInsightDb";
+import { formatSupabaseError, getInsightSupabase, getInsightSupabaseResult, insightDbUnavailable } from "@/lib/supabaseInsightDb";
 import { extractMappedTags, normalizeCompanies, normalizeMacro, normalizeTopics } from "@/lib/tagRules";
 import { loadLiveInsightSources, type LiveInsightCandidate } from "@/lib/liveInsightSources";
 
@@ -77,8 +77,9 @@ function liveItem(candidate:LiveInsightCandidate,source:"news"|"report"):Insight
 }
 
 export async function GET(req: NextRequest) {
-  const db=getInsightSupabase(req);
-  if(!db) return NextResponse.json(insightDbUnavailable(),{status:401});
+  const dbResult=getInsightSupabaseResult(req);
+  if(!dbResult.client) return NextResponse.json(insightDbUnavailable(dbResult.reason),{status:401});
+  const db=dbResult.client;
   const [queries,liveSources] = await Promise.all([
     Promise.all([
     db.from("telegram_saved").select("id,text,summary,notes,topic_tags,company_tags,macro_tags,msg_date,created_at,link,channel").order("created_at",{ascending:false}).limit(1000),
