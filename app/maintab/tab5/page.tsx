@@ -1230,12 +1230,16 @@ const baseOperatingAssets = portfolioAssets.reduce((s, a) => {
   return s + (a.amount ?? 0) * (a.current_price ?? 0);
 }, 0);
 const { confirmedOperatingAssetsAfterSell, confirmedOperatingAssetsAfterBuy } = formData.headerAssetSummary;
-const additionalInvestmentAmount = (() => {
+// 투자의향금액(추가 투자 의향)은 절대 음수가 될 수 없다. 매수 확정액이 가용 자금을 넘겨 계산상
+// 음수가 나오면 0으로 본다 — 이 값이 음수가 되면 bucketAmt/perProductAmt도 음수가 되어
+// tryAddProduct의 최소편입금액 검증이 건너뛰어지고(같은 상품이 됐다 안 됐다 하는 원인) 헤더에도
+// 음수가 표시됐다.
+const additionalInvestmentAmount = Math.max(0, (() => {
   if (confirmedOperatingAssetsAfterSell == null) return investableAssets;
   const additionalAfterSell = investableAssets + (baseOperatingAssets - confirmedOperatingAssetsAfterSell);
   if (confirmedOperatingAssetsAfterBuy == null) return additionalAfterSell;
   return additionalAfterSell - (confirmedOperatingAssetsAfterBuy - confirmedOperatingAssetsAfterSell);
-})();
+})());
     const liquidityNeeds = collectLiquidityNeeds(formData.rrttllu);
     return {
       riskAppetite: riskLevelToAppetite(riskResult.level),
@@ -1411,29 +1415,34 @@ const additionalInvestmentAmount = (() => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIds.join(","), pinnedAmounts, bondFxEntryRates]);
 
-  // 최소가입금액 미달 상품은 어떤 경로로도 포트폴리오에 담기지 않도록, 실제 추가는 전부 이 함수를 거친다.
-  // (경고만 하고 통과시키는 게 아니라 실제로 차단한다 — "그래도 진행" 옵션이 있는 성향 부적합과는 다름)
-  // investableAssets가 아직 입력 안 된 상태(perProductAmt===0)는 "미달"이 아니라 "데이터 없음"이라 막지 않는다.
-  // 반환값: 실제로 담겼으면 true, 최소가입금액 미달로 막혔으면 false.
+  // 편입 가능 여부 판정 — 실제 추가는 어떤 경로(체크박스·부적합 확인·자동분배 금액 버튼)든 전부 이 함수를 거친다.
+  // 규칙: "버킷 비중 × 투자의향금액 ÷ 같은 버킷 상품 수"로 계산한 편입 권고 금액이 그 상품의 최소편입금액
+  // (없으면 최소 1원) 이상이어야만 담긴다. 못 미치면 주황색 팝업(setMinInvestBlocked)만 띄우고 담지 않는다.
+  // 투자의향금액을 아직 입력하지 않았다면(hasInvestableInput=false) "데이터 없음"이라 막지 않는다.
+  // 예전엔 perProductAmt<=0이면 검증을 통째로 건너뛰어서, 투자의향금액이 0/음수로 떨어지는 순간
+  // 최소편입금액 미달 상품이 슬그머니 담기고, 조금만 다시 늘면 다시 막히는 — "같은 상품이 됐다 안 됐다"
+  // 현상이 있었다. 이제 투자의향금액이 바닥나면 항상 일관되게 팝업으로 막는다.
+  // 반환값: 실제로 담겼으면 true, 막혔으면 false.
   const tryAddProduct = (p: Product): boolean => {
-    if (weights) {
+    const hasInvestableInput = parseAmount(formData.financial.investableAssets) > 0;
+    if (weights && hasInvestableInput) {
       const bucketW = getBucketWeight(p.bucket);
-      const bucketAmt = client.investableAssets * bucketW;
+      const bucketAmt = client.investableAssets * bucketW; // client.investableAssets는 Math.max(0, …)로 이미 음수 아님
       const sameBucketSelected = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
       // pinnedAmounts 반영: 이미 고정된 상품은 그 금액 그대로 두고, 새로 담는 이 상품 포함 나머지(미고정)만 잔여분을 균등분배
       const amounts = computeBucketAmounts(bucketAmt, [...sameBucketSelected, p], pinnedAmounts);
       const perProductAmt = amounts[p.id] ?? 0;
-      if (perProductAmt > 0) {
-        if (p.minInvest && perProductAmt < parseAmount(p.minInvest)) {
-          setMinInvestBlocked({ product: p, perProductAmt, requiredAmt: parseAmount(p.minInvest), blockedBy: null });
-          return false;
-        }
-        // 이 상품을 추가하면 버킷 인원이 늘어 이미 선택된 상품(미고정) 중 하나가 자기 최소가입금액 밑으로 떨어지는지도 확인
-        const breaks = sameBucketSelected.find((x) => x.minInvest && (amounts[x.id] ?? 0) < parseAmount(x.minInvest));
-        if (breaks) {
-          setMinInvestBlocked({ product: p, perProductAmt, requiredAmt: parseAmount(breaks.minInvest!), blockedBy: breaks });
-          return false;
-        }
+      const requiredAmt = p.minInvest ? parseAmount(p.minInvest) : 0;
+      // 최소편입금액(없으면 1원) 미달 — 투자의향금액이 바닥나 perProductAmt<=0인 경우도 여기서 함께 걸린다
+      if (perProductAmt < Math.max(requiredAmt, 1)) {
+        setMinInvestBlocked({ product: p, perProductAmt, requiredAmt, blockedBy: null });
+        return false;
+      }
+      // 이 상품을 추가하면 버킷 인원이 늘어 이미 선택된 상품(미고정) 중 하나가 자기 최소가입금액 밑으로 떨어지는지도 확인
+      const breaks = sameBucketSelected.find((x) => x.minInvest && (amounts[x.id] ?? 0) < parseAmount(x.minInvest));
+      if (breaks) {
+        setMinInvestBlocked({ product: p, perProductAmt, requiredAmt: parseAmount(breaks.minInvest!), blockedBy: breaks });
+        return false;
       }
     }
     setSelectedIdsRaw([...selectedIds, p.id]);
@@ -1496,6 +1505,21 @@ const additionalInvestmentAmount = (() => {
     const bucketAmt = client.investableAssets * getBucketWeight(p.bucket);
     const bucketProducts = ALL_ITEMS.filter((x) => selectedIds.includes(x.id) && x.bucket === p.bucket);
     const amounts = computeBucketAmounts(bucketAmt, [...bucketProducts, p], pinnedAmounts);
+    // 최소편입금액 미달·투자의향금액 부족이면 금액 입력 모달을 열지 않고 바로 주황색 팝업으로 막는다.
+    const hasInvestableInput = parseAmount(formData.financial.investableAssets) > 0;
+    if (hasInvestableInput) {
+      const perProductAmt = amounts[p.id] ?? 0;
+      const requiredAmt = p.minInvest ? parseAmount(p.minInvest) : 0;
+      const breaks = bucketProducts.find((x) => x.minInvest && (amounts[x.id] ?? 0) < parseAmount(x.minInvest));
+      if (perProductAmt < Math.max(requiredAmt, 1)) {
+        setMinInvestBlocked({ product: p, perProductAmt, requiredAmt, blockedBy: null });
+        return;
+      }
+      if (breaks) {
+        setMinInvestBlocked({ product: p, perProductAmt, requiredAmt: parseAmount(breaks.minInvest!), blockedBy: breaks });
+        return;
+      }
+    }
     setPendingAdd(p);
     setPendingAddAmountStr(String(Math.round(amounts[p.id] ?? 0)));
   };
@@ -1781,7 +1805,9 @@ const additionalInvestmentAmount = (() => {
                   <AlertTriangle size={20} className="text-amber-600"/>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wide">최소 가입금액 미달</p>
+                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wide">
+                    {minInvestBlocked.perProductAmt <= 0 && !minInvestBlocked.blockedBy ? "투자의향금액 부족" : "최소 가입금액 미달"}
+                  </p>
                   <h3 className="text-base font-bold text-navy mt-0.5">{minInvestBlocked.product.name}</h3>
                 </div>
               </div>
@@ -1794,6 +1820,13 @@ const additionalInvestmentAmount = (() => {
                     이 상품을 추가하면 같은 버킷({minInvestBlocked.product.bucket}) 배분액을 더 많은 상품이 나눠 갖게 되어, 이미 선택된 <b>{minInvestBlocked.blockedBy.name}</b>의 편입 권고 금액이 최소 가입금액({minInvestBlocked.blockedBy.minInvest}) 밑으로 떨어집니다.
                   </p>
                 </div>
+              ) : minInvestBlocked.perProductAmt <= 0 ? (
+                <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
+                  <p className="text-sm font-bold text-amber-800 mb-1">이 상품에 배분할 투자의향금액이 없습니다</p>
+                  <p className="text-xs leading-5 text-amber-700">
+                    확정 매수금액이 고객의 투자의향금액에 도달해, {minInvestBlocked.product.bucket} 버킷에 추가로 배분할 금액이 남아 있지 않습니다{minInvestBlocked.requiredAmt > 0 ? ` (이 상품의 최소 가입금액: ${minInvestBlocked.product.minInvest})` : ""}.
+                  </p>
+                </div>
               ) : (
                 <div className="rounded-xl border border-amber-100 bg-amber-50 px-4 py-3">
                   <p className="text-sm font-bold text-amber-800 mb-1">편입 권고 금액이 최소 가입금액에 못 미칩니다</p>
@@ -1802,7 +1835,7 @@ const additionalInvestmentAmount = (() => {
                   </p>
                 </div>
               )}
-              <p className="text-sm font-semibold text-slate-600 leading-6">투자가능자산을 늘리거나, 같은 버킷 내 다른 선택 상품 수를 줄여 1개당 배분액을 키운 뒤 다시 담아주세요. 최소가입금액 미달 상품은 포트폴리오에 담을 수 없습니다.</p>
+              <p className="text-sm font-semibold text-slate-600 leading-6">투자의향금액을 늘리거나, 확정 매수금액·같은 버킷 내 다른 선택 상품 수를 줄여 1개당 배분액을 키운 뒤 다시 담아주세요. 편입 권고 금액이 최소 가입금액에 못 미치는 상품은 포트폴리오에 담을 수 없습니다.</p>
               <button type="button" onClick={()=>setMinInvestBlocked(null)}
                 className="min-h-11 w-full rounded-xl bg-amber-600 px-4 py-2 text-sm font-bold text-white hover:bg-amber-700 transition">
                 확인

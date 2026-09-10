@@ -1546,7 +1546,9 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       : baseline;
     const buySpent = Math.max(0, currentRebalancingTotal - baseline);
 
-    const d = b + cashFromSales - buySpent;
+    // 추가 투자 의향(투자의향금액)은 음수가 될 수 없다 — 매수 확정액이 가용 자금을 넘겨도 0으로 본다.
+    // 헤더 표시값이자 탭3-2 상품 편입의 버킷 배분 기준이라, 음수면 최소편입금액 검증이 뒤집힌다.
+    const d = Math.max(0, b + cashFromSales - buySpent);
     return Number.isFinite(d) ? d : null;
   }, [formData.headerAssetSummary, formData.financial.investableAssets, portfolioAssets, isPortfolioLoaded, rebalancingSellAssets]);
 
