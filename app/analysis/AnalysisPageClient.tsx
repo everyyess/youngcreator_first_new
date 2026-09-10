@@ -104,12 +104,16 @@ function AnalysisTabs({
   urlSelectedStock,
   onCustomerChange,
   isInsightSessionReady,
+  insightSessionError,
+  onRetryInsightSession,
 }: {
   contextValue: CustomerContextValue;
   activeTopTab: AnalysisTopTab;
   urlSelectedStock: { ticker: string; name: string } | null;
   onCustomerChange: (customerId: CustomerId) => void;
   isInsightSessionReady: boolean;
+  insightSessionError: "no-supabase-config" | "no-session" | "sync-failed" | null;
+  onRetryInsightSession: () => void;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -254,8 +258,45 @@ function AnalysisTabs({
             <PeerAnalysisTab />
           </div>
         ) : activeTopTab === "insight" && !isInsightSessionReady ? (
-          <section className="min-h-[320px] rounded-lg border border-slate-200 bg-white p-6 text-sm font-bold text-slate-400 shadow-soft">
-            통합 인사이트용 Supabase 세션을 연결하는 중입니다.
+          <section className="min-h-[320px] rounded-lg border border-slate-200 bg-white p-6 shadow-soft">
+            {insightSessionError ? (
+              <div className="flex flex-col items-start gap-3">
+                <p className="text-sm font-bold text-slate-700">
+                  통합 인사이트용 Supabase 세션을 연결하지 못했습니다.
+                </p>
+                <p className="text-xs leading-5 text-slate-500">
+                  {insightSessionError === "no-session"
+                    ? "로그인 세션이 만료되었습니다. 다시 로그인하면 통합 인사이트를 사용할 수 있습니다. (종목 분석·경쟁사·ELB/ELS 탭은 그대로 이용 가능합니다.)"
+                    : insightSessionError === "no-supabase-config"
+                      ? "이 배포에 Supabase 환경변수(NEXT_PUBLIC_SUPABASE_URL / ANON_KEY)가 없습니다. Vercel 환경변수 설정 후 재배포가 필요합니다."
+                      : "서버 세션 동기화에 실패했습니다. 잠시 후 다시 시도해 주세요."}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={onRetryInsightSession}
+                    className="rounded-lg bg-[#2563eb] px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
+                  >
+                    다시 시도
+                  </button>
+                  {insightSessionError === "no-session" ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await pbAuthStore.logout();
+                        const returnTo = window.location.pathname + window.location.search;
+                        router.replace(`/?role=pb&reason=session-expired&returnTo=${encodeURIComponent(returnTo)}`);
+                      }}
+                      className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+                    >
+                      다시 로그인
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm font-bold text-slate-400">통합 인사이트용 Supabase 세션을 연결하는 중입니다.</p>
+            )}
           </section>
         ) : activeTopTab === "insight" ? (
           <BackgroundEngineProvider>
@@ -292,28 +333,48 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [sharedUiState, setSharedUiState] = useState<SharedMaintabUiState>({ tab2: { activeInnerTab: "peer" }, tab4: { activeInnerTab: "insight" } });
   const [isInsightSessionReady, setIsInsightSessionReady] = useState(false);
+  // 통합 인사이트 세션 연결 실패 사유 — null이면 정상/시도중, 값이 있으면 인사이트 탭에만 안내를 띄운다.
+  const [insightSessionError, setInsightSessionError] =
+    useState<"no-supabase-config" | "no-session" | "sync-failed" | null>(null);
+  const [insightRetryTick, setInsightRetryTick] = useState(0);
   const loadedPortfolioRef = useRef(new Set<CustomerId>());
 
   useEffect(() => {
     let cancelled = false;
+    setInsightSessionError(null);
     pbAuthStore.ensureInsightSession()
-      .then(async (ready) => {
+      .then((result) => {
         if (cancelled) return;
-        if (ready) {
+        if (result.ok) {
           setIsInsightSessionReady(true);
+          setInsightSessionError(null);
           return;
         }
 
-        // PB 프로필(localStorage)만 남고 Supabase Auth 세션이 만료된 경우 API를 렌더하면
-        // 모든 통합 인사이트 요청이 401로 실패한다. 낡은 이중 세션을 정리하고 로그인 후
-        // 현재 분석 화면으로 돌아오도록 한다.
-        await pbAuthStore.logout();
-        if (cancelled) return;
-        const returnTo = window.location.pathname + window.location.search;
-        router.replace(`/?role=pb&reason=session-expired&returnTo=${encodeURIComponent(returnTo)}`);
+        // PB 로그인 자체가 없으면(로컬 세션도 없음) 로그인 화면으로 보낸다.
+        // 그 외(설정 누락·서버 동기화 실패·Supabase 세션 만료)에는 분석실에서 쫓아내지 않는다 —
+        // 종목 분석·경쟁사·ELB/ELS 탭은 이 세션이 없어도 동작하고, 통합 인사이트 탭에만 안내를 띄운다.
+        // (예전엔 무조건 logout + 로그인 리다이렉트라, Vercel에서 분석실 입장 자체가 막혔다.)
+        if (!pbAuthStore.readSession()) {
+          const returnTo = window.location.pathname + window.location.search;
+          router.replace(`/?role=pb&reason=session-expired&returnTo=${encodeURIComponent(returnTo)}`);
+          return;
+        }
+        setIsInsightSessionReady(false);
+        setInsightSessionError(result.reason);
+      })
+      .catch(() => {
+        if (!cancelled) setInsightSessionError("sync-failed");
       });
     return () => { cancelled = true; };
-  }, [router]);
+  }, [router, insightRetryTick]);
+
+  // 연결 실패 시 한 번 자동 재시도 (Vercel 콜드스타트 등 일시적 실패 흡수)
+  useEffect(() => {
+    if (!insightSessionError || insightRetryTick > 0) return;
+    const timer = window.setTimeout(() => setInsightRetryTick(1), 2500);
+    return () => window.clearTimeout(timer);
+  }, [insightSessionError, insightRetryTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -495,6 +556,8 @@ export default function AnalysisPageClient({ initialTopTab }: { initialTopTab: A
           urlSelectedStock={urlTicker && urlName ? { ticker: urlTicker, name: urlName } : null}
           onCustomerChange={selectCustomer}
           isInsightSessionReady={isInsightSessionReady}
+          insightSessionError={insightSessionError}
+          onRetryInsightSession={() => setInsightRetryTick((tick) => tick + 1)}
         />
       </div>
     </main>

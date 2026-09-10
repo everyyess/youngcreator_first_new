@@ -83,11 +83,13 @@ async function requestAuthRegistration(profile: AuthProfile, password: string) {
 
 async function syncInsightServerSession(accessToken?: string) {
   if (!accessToken) return;
+  // Vercel 서버리스 콜드스타트로 이 요청이 오래 걸릴 수 있어 타임아웃을 둔다.
   const response = await fetch("/api/auth/insight-session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "same-origin",
     body: JSON.stringify({ accessToken }),
+    signal: AbortSignal.timeout(12_000),
   });
   if (!response.ok) throw new Error("서버 분석 세션을 설정하지 못했습니다.");
 }
@@ -218,10 +220,18 @@ export const pbAuthStore = {
   readSession(): PbSession | null {
     return readJson<PbSession | null>(pbSessionKey, null);
   },
-  async ensureInsightSession() {
-    if (!authSupabase) return false;
+  /**
+   * 통합 인사이트용 HttpOnly 분석 세션 쿠키를 세팅한다.
+   * 실패 사유를 구분해서 돌려준다 — 호출부(분석실)가 "로그아웃까지 할지, 그냥 인사이트 탭만
+   * 막을지"를 판단할 수 있어야 한다. Supabase Auth 세션이 정말로 사라진 경우("no-session")만
+   * 재로그인이 의미가 있고, 나머지(설정 누락·서버 동기화 실패)는 배포/일시 문제라 로그아웃하면 안 된다.
+   */
+  async ensureInsightSession(): Promise<
+    { ok: true } | { ok: false; reason: "no-supabase-config" | "no-session" | "sync-failed" }
+  > {
+    if (!authSupabase) return { ok: false, reason: "no-supabase-config" };
     const { data, error } = await authSupabase.auth.getSession();
-    if (error || !data.session) return false;
+    if (error || !data.session) return { ok: false, reason: "no-session" };
 
     // 브라우저 세션은 남아 있어도 access token 만료가 임박한 경우가 있다. 만료 토큰을
     // HttpOnly 분석 세션 쿠키로 복사하면 곧바로 401이 되므로 먼저 명시적으로 갱신한다.
@@ -229,15 +239,15 @@ export const pbAuthStore = {
     const expiresAtMs = (session.expires_at ?? 0) * 1000;
     if (expiresAtMs && expiresAtMs <= Date.now() + 60_000) {
       const refreshed = await authSupabase.auth.refreshSession();
-      if (refreshed.error || !refreshed.data.session) return false;
+      if (refreshed.error || !refreshed.data.session) return { ok: false, reason: "no-session" };
       session = refreshed.data.session;
     }
 
     try {
       await syncInsightServerSession(session.access_token);
-      return true;
+      return { ok: true };
     } catch {
-      return false;
+      return { ok: false, reason: "sync-failed" };
     }
   },
   async register(name: string, employeeId: string, email: string, password: string) {
