@@ -68,7 +68,7 @@ export default function Hero() {
             <span className="text-blue-600">A</span>dvisor
           </p>
           <p className="mb-12 max-w-3xl px-4 text-base leading-relaxed text-zinc-600 sm:text-lg md:text-xl">
-            세금 최적화·상품 매칭을 실시간으로.
+            종목 분석과 상품 매칭을 실시간으로.
             <br />
             고객과의 모든 접점에서 한발 앞선 인사이트를 제공합니다.
           </p>
