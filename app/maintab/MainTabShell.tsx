@@ -33,7 +33,8 @@ import {
   saveNewTaxSummaryToNar,
   resetPortfolioDerivedState as resetPortfolioDerivedStateInDb,
   noLegalConstraint, noneExperience, nullableText, parseKrwAmount, riskExperienceOptions,
-  returnOptions, saveCustomerDataJsonOnly, saveCustomerProfileColumns,
+  returnOptions, saveCustomerDataWithLatestSessions, saveCustomerProfileColumns,
+  type ConsultationSessionsUpdate,
   selectedCustomerStorageKey, storeSelectedCustomerId, workspaceTabs,
   supabase,
 } from "./CustomerContext";
@@ -47,6 +48,7 @@ import {
   getCustomerSessions,
   getElapsedSeconds,
   maxConsultationSeconds,
+  normalizeConsultationSessions,
   readActiveConsultation,
   readCompletedConsultation,
   readPreRecordConsultation,
@@ -344,6 +346,8 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
   const customerSaveGenerationRef = useRef<Record<CustomerId, number>>({});
   const customerSaveInFlightRef = useRef<Record<CustomerId, boolean>>({});
   const customerSaveQueuedRef = useRef<Record<CustomerId, { payload: unknown; generation: number }>>({});
+  // 이 탭이 직접 한 세션 변경(상담 종료·재개) 중 아직 DB에 반영되지 않은 것 — 저장 시 최신 세션 목록 위에 적용
+  const pendingSessionUpdatesRef = useRef<Record<CustomerId, ConsultationSessionsUpdate[]>>({});
   const sellHistoryMapRef = useRef<Record<CustomerId, SellRecord[]>>({});
   const selectedCustomerRef = useRef<CustomerId>(selectedCustomer);
   const isConsultationReadOnlyRef = useRef(false);
@@ -355,26 +359,46 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
 
     delete customerSaveQueuedRef.current[customerId];
     customerSaveInFlightRef.current[customerId] = true;
-    const result = await saveCustomerDataJsonOnly(customerId, queued.payload);
+    // 세션 목록은 이 탭의 사본이 아니라 DB 최신값 기준으로 저장한다 — 탭이 열려 있는 동안
+    // 홈에서 추가·삭제·종료한 세션을 자동저장이 되돌리지 않게 한다.
+    const sessionUpdates = pendingSessionUpdatesRef.current[customerId] ?? [];
+    delete pendingSessionUpdatesRef.current[customerId];
+    const result = await saveCustomerDataWithLatestSessions(customerId, queued.payload, sessionUpdates);
     customerSaveInFlightRef.current[customerId] = false;
 
     if (!result.ok) {
+      // 실패한 세션 변경은 다음 저장에 다시 싣는다 (그 사이 새로 쌓인 변경보다 먼저 적용)
+      pendingSessionUpdatesRef.current[customerId] = [...sessionUpdates, ...(pendingSessionUpdatesRef.current[customerId] ?? [])];
       setStorageErrorMessage(result.message);
-    } else if (
-      customerSaveGenerationRef.current[customerId] === queued.generation &&
-      !customerSaveQueuedRef.current[customerId]
-    ) {
-      setDirtyCustomerData((prev) => ({ ...prev, [customerId]: false }));
-      setStorageErrorMessage("");
+    } else {
+      // 화면의 세션 목록도 DB 최신값으로 맞춘다. 아직 저장 대기 중인 이 탭의 변경은 위에 얹어
+      // 방금 종료한 상담이 잠깐 진행 중으로 되돌아 보이지 않게 한다.
+      const pending = pendingSessionUpdatesRef.current[customerId] ?? [];
+      const synced = pending.reduce((current, apply) => apply(current), result.sessions ?? []);
+      setCustomerData((prev) => {
+        const current = prev[customerId];
+        if (!current || JSON.stringify(current.consultationSessions) === JSON.stringify(synced)) return prev;
+        return { ...prev, [customerId]: { ...current, consultationSessions: synced } };
+      });
+      if (
+        customerSaveGenerationRef.current[customerId] === queued.generation &&
+        !customerSaveQueuedRef.current[customerId]
+      ) {
+        setDirtyCustomerData((prev) => ({ ...prev, [customerId]: false }));
+        setStorageErrorMessage("");
+      }
     }
 
     if (customerSaveQueuedRef.current[customerId]) void flush(customerId);
   }, []);
 
-  const queueCustomerDataSave = useCallback((customerId: CustomerId, payload: unknown) => {
+  const queueCustomerDataSave = useCallback((customerId: CustomerId, payload: unknown, sessionUpdate?: ConsultationSessionsUpdate) => {
     const generation = (customerSaveGenerationRef.current[customerId] ?? 0) + 1;
     customerSaveGenerationRef.current[customerId] = generation;
     customerSaveQueuedRef.current[customerId] = { payload, generation };
+    if (sessionUpdate) {
+      pendingSessionUpdatesRef.current[customerId] = [...(pendingSessionUpdatesRef.current[customerId] ?? []), sessionUpdate];
+    }
     void flushQueuedCustomerSave(customerId);
   }, [flushQueuedCustomerSave]);
 
@@ -440,11 +464,13 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
       ? rightResult.enrichedAssets as PortfolioAsset[]
       : remainingAssets.filter((asset) => toFiniteNumber(asset.amount) > 0);
     const snapshot = buildConsultationSummarySnapshot(state, buildPortfolioTablesSnapshot(existingAssets, proposedAssets));
-    const nextSessions = sessions.map((session) => session.id === active.sessionId ? { ...finishSession(session, seconds, autoEnded), summarySnapshot: snapshot } : session);
-    const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
+    const applyFinish: ConsultationSessionsUpdate = (list) =>
+      normalizeConsultationSessions(list).map((session) => session.id === active.sessionId ? { ...finishSession(session, seconds, autoEnded), summarySnapshot: snapshot } : session);
+    const nextState = deriveCalculatedAppState({ ...state, consultationSessions: applyFinish(sessions) });
     setCustomerData((prev) => ({ ...prev, [active.customerId]: nextState }));
     // 자동저장 요청이 진행 중이어도 종료 상태가 항상 마지막에 저장되도록 같은 직렬 큐를 사용한다.
-    queueCustomerDataSave(active.customerId, nextState);
+    // 세션 변경은 저장 시점의 최신 세션 목록에 적용된다.
+    queueCustomerDataSave(active.customerId, nextState, applyFinish);
     const completed = {
       sessionId: active.sessionId,
       customerId: active.customerId,
@@ -467,11 +493,12 @@ export default function MainTabShell({ children, appMode = "pb" }: { children: R
     const sessions = getCustomerSessions(state);
     const target = [...sessions].sort((a, b) => `${b.updatedAt}${b.date}`.localeCompare(`${a.updatedAt}${a.date}`))[0];
     if (!target) return;
-    const resumed = { ...target, status: "active" as const, updatedAt: new Date().toISOString() };
-    const nextSessions = sessions.map((session) => session.id === target.id ? resumed : session);
-    const nextState = deriveCalculatedAppState({ ...state, consultationSessions: nextSessions });
+    const resumedAt = new Date().toISOString();
+    const applyResume: ConsultationSessionsUpdate = (list) =>
+      normalizeConsultationSessions(list).map((session) => session.id === target.id ? { ...session, status: "active" as const, updatedAt: resumedAt } : session);
+    const nextState = deriveCalculatedAppState({ ...state, consultationSessions: applyResume(sessions) });
     setCustomerData((prev) => ({ ...prev, [selectedCustomer]: nextState }));
-    queueCustomerDataSave(selectedCustomer, nextState);
+    queueCustomerDataSave(selectedCustomer, nextState, applyResume);
     storeSelectedCustomerId(selectedCustomer);
     const resumedElapsedSeconds = Math.max(0, Math.min(maxConsultationSeconds, target.durationSeconds ?? 0));
     const resumedActive = {

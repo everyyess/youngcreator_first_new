@@ -130,6 +130,76 @@ test("세션 목록도 최신 목록을 기준으로 계산해 다른 탭이 추
   assert.equal(ids, "s1,s2", "다른 탭에서 생긴 세션 s2가 남아 있어야 한다");
 });
 
+// ── 반대 방향: 상담실 탭 자동저장이 홈의 세션 변경을 되돌리던 문제 ──────────────
+// 상담실 탭은 PB 모드에서 realtime을 구독하지 않아, 열려 있는 동안 홈이 바꾼 세션을 모른다.
+
+/** 상담실 탭 자동저장 payload — 탭이 열린 시점의 세션 목록(s1 진행 중)만 알고 있다 */
+function staleConsultationPayload() {
+  return {
+    appState: { smartInputNote: "상담실에서 새로 쓴 메모", consultationSessions: [SESSION] },
+    analysis: { riskResult: { score: 3 } },
+  };
+}
+
+test("상담실 자동저장은 홈이 추가·종료한 세션을 되돌리지 않는다", async () => {
+  const homeFinished = { ...SESSION, status: "completed", updatedAt: "2026-09-10T12:00:00.000Z" };
+  const homeAdded = { ...SESSION, id: "s2", updatedAt: "2026-09-10T12:30:00.000Z" };
+  const client = fakeClient(rowWithGuide({ consultationSessions: [homeFinished, homeAdded] }));
+  const ctx = loadCustomerContext(client);
+
+  const result = await ctx.saveCustomerDataWithLatestSessions("c1", staleConsultationPayload(), []);
+
+  assert.equal(result.ok, true);
+  const saved = client.writes[0].data;
+  const byId = Object.fromEntries(Array.from(saved.appState.consultationSessions, (s) => [s.id, s.status]));
+  assert.equal(byId.s1, "completed", "홈에서 종료한 상담이 진행 중으로 되돌아가면 안 된다");
+  assert.equal(byId.s2, "active", "홈에서 새로 만든 상담이 사라지면 안 된다");
+  assert.equal(saved.appState.smartInputNote, "상담실에서 새로 쓴 메모", "상담실의 다른 입력은 그대로 저장되어야 한다");
+  assert.equal(saved.analysis.riskResult.score, 3, "analysis도 그대로 저장되어야 한다");
+});
+
+test("홈에서 삭제한 세션을 상담실 자동저장이 되살리지 않는다", async () => {
+  const client = fakeClient(rowWithGuide({ consultationSessions: [] }));
+  const ctx = loadCustomerContext(client);
+
+  await ctx.saveCustomerDataWithLatestSessions("c1", staleConsultationPayload(), []);
+
+  assert.equal(client.writes[0].data.appState.consultationSessions.length, 0);
+});
+
+test("상담실이 직접 한 세션 변경(상담 종료)은 최신 목록 위에 적용된다", async () => {
+  const homeAdded = { ...SESSION, id: "s2", updatedAt: "2026-09-10T12:30:00.000Z" };
+  const client = fakeClient(rowWithGuide({ consultationSessions: [SESSION, homeAdded] }));
+  const ctx = loadCustomerContext(client);
+
+  const finish = (list) => list.map((s) => (s.id === "s1" ? { ...s, status: "completed" } : s));
+  const result = await ctx.saveCustomerDataWithLatestSessions("c1", staleConsultationPayload(), [finish]);
+
+  const byId = Object.fromEntries(Array.from(client.writes[0].data.appState.consultationSessions, (s) => [s.id, s.status]));
+  assert.equal(byId.s1, "completed", "상담실에서 종료한 상담은 저장되어야 한다");
+  assert.equal(byId.s2, "active", "그 사이 홈에서 만든 상담도 남아야 한다");
+  assert.equal(Array.from(result.sessions, (s) => s.id).join(","), "s1,s2", "화면 동기화용 최신 목록을 돌려준다");
+});
+
+test("AppState 그대로인 payload도 세션 목록만 최신값으로 바꿔 저장한다", async () => {
+  const homeAdded = { ...SESSION, id: "s2" };
+  const client = fakeClient(rowWithGuide({ consultationSessions: [SESSION, homeAdded] }));
+  const ctx = loadCustomerContext(client);
+
+  await ctx.saveCustomerDataWithLatestSessions("c1", { smartInputNote: "flat", consultationSessions: [SESSION] }, []);
+
+  const saved = client.writes[0].data;
+  assert.equal(saved.appState, undefined, "래핑하지 않은 형태를 유지해야 한다");
+  assert.equal(saved.smartInputNote, "flat");
+  assert.equal(saved.consultationSessions.length, 2);
+});
+
+test("상담실 탭(MainTabShell)도 AppState 전체를 직접 저장하지 않는다", () => {
+  const source = readFileSync(resolve(__dirname, "..", "app/maintab/MainTabShell.tsx"), "utf8");
+  assert.ok(!/saveCustomerDataJsonOnly\s*\(/.test(source),
+    "MainTabShell이 saveCustomerDataJsonOnly로 세션 목록까지 통째로 저장하고 있다 — saveCustomerDataWithLatestSessions를 써야 한다");
+});
+
 test("홈·분석실은 AppState 전체를 직접 저장하지 않는다 (옛 사본 덮어쓰기 재발 방지)", () => {
   for (const file of ["app/home/page.tsx", "app/analysis/AnalysisPageClient.tsx"]) {
     const source = readFileSync(resolve(__dirname, "..", file), "utf8");

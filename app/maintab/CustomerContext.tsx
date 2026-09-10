@@ -824,22 +824,59 @@ export async function updateConsultationSessionsOnly(
   customerId: CustomerId,
   update: (latest: AppState) => AppState["consultationSessions"],
 ): Promise<StorageResult & { state: AppState | null }> {
-  if (!supabase) return { ok: false, message: "Supabase is not configured.", state: null };
-  const { data: rows, error } = await supabase.from("customers").select("*").eq("id", customerId).limit(1);
-  if (error) return { ok: false, message: `Supabase read failed: ${error.message}`, state: null };
-  const row = (rows?.[0] ?? null) as CustomerRow | null;
-  if (!row) return { ok: false, message: "Supabase row not found.", state: null };
-
-  // 앱이 화면에 복원할 때와 똑같은 규칙으로 최신 상태를 읽는다
-  const latest = Object.values(customerRowsToStoredState([row]).customerData)[0] ?? createInitialState();
-  const nextState: AppState = { ...latest, consultationSessions: update(latest) };
-
-  const raw = row.data as unknown;
-  const isWrapped = Boolean(raw) && typeof raw === "object" && !Array.isArray(raw) && "appState" in (raw as Record<string, unknown>);
-  const payload = isWrapped ? { ...(raw as Record<string, unknown>), appState: nextState } : nextState;
+  const read = await readLatestCustomerState(customerId);
+  if (!read.ok) return { ok: false, message: read.message, state: null };
+  const nextState: AppState = { ...read.latest, consultationSessions: update(read.latest) };
+  const payload = isWrappedCustomerData(read.row.data) ? { ...(read.row.data as Record<string, unknown>), appState: nextState } : nextState;
 
   const saved = await saveCustomerDataJsonOnly(customerId, payload);
   return { ...saved, state: saved.ok ? nextState : null };
+}
+
+export type ConsultationSessionsUpdate = (sessions: AppState["consultationSessions"]) => AppState["consultationSessions"];
+
+/**
+ * 상담실 탭의 고객 데이터 저장 — 세션 목록만 DB 최신값을 기준으로 저장한다.
+ *
+ * 상담실 탭은 PB 모드에서 realtime을 구독하지 않으므로, 열려 있는 동안 홈이 바꾼 세션
+ * (새 상담 추가·삭제·종료)을 모른다. 예전에는 자동저장이 자기 사본의 세션 목록까지 통째로
+ * 저장해서 홈의 변경을 되돌렸다. 이제 저장 직전에 최신 세션 목록을 읽고, 이 탭이 직접 한
+ * 세션 변경(sessionUpdates — 상담 종료·재개)만 그 위에 적용한다. 다른 필드는 payload 그대로다.
+ * payload는 { appState, analysis } 래핑 형태와 AppState 그대로인 형태를 모두 받는다.
+ */
+export async function saveCustomerDataWithLatestSessions(
+  customerId: CustomerId,
+  payload: unknown,
+  sessionUpdates: ConsultationSessionsUpdate[],
+): Promise<StorageResult & { sessions: AppState["consultationSessions"] | null }> {
+  const read = await readLatestCustomerState(customerId);
+  if (!read.ok) return { ok: false, message: read.message, sessions: null };
+  const sessions = sessionUpdates.reduce((current, apply) => apply(current), read.latest.consultationSessions);
+
+  const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+  const nextPayload = isWrappedCustomerData(record)
+    ? { ...record, appState: { ...(record.appState as Record<string, unknown>), consultationSessions: sessions } }
+    : { ...record, consultationSessions: sessions };
+
+  const saved = await saveCustomerDataJsonOnly(customerId, nextPayload);
+  return { ...saved, sessions: saved.ok ? sessions : null };
+}
+
+function isWrappedCustomerData(raw: unknown) {
+  return Boolean(raw) && typeof raw === "object" && !Array.isArray(raw) && "appState" in (raw as Record<string, unknown>);
+}
+
+async function readLatestCustomerState(customerId: CustomerId): Promise<
+  { ok: true; row: CustomerRow; latest: AppState } | { ok: false; message: string }
+> {
+  if (!supabase) return { ok: false, message: "Supabase is not configured." };
+  const { data: rows, error } = await supabase.from("customers").select("*").eq("id", customerId).limit(1);
+  if (error) return { ok: false, message: `Supabase read failed: ${error.message}` };
+  const row = (rows?.[0] ?? null) as CustomerRow | null;
+  if (!row) return { ok: false, message: "Supabase row not found." };
+  // 앱이 화면에 복원할 때와 똑같은 규칙으로 최신 상태를 읽는다
+  const latest = Object.values(customerRowsToStoredState([row]).customerData)[0] ?? createInitialState();
+  return { ok: true, row, latest };
 }
 
 async function insertEmptyCustomerRow(customerId: CustomerId, dataPayload: unknown, sortOrder: number, ownerScope?: CustomerOwnerScope | string, pbId?: string): Promise<StorageResult> {
